@@ -44,7 +44,18 @@ export function defaultWebDistDir(): string {
 export function createApp(db: Db, opts: AppOptions = {}): express.Express {
   const app = express();
   app.disable('x-powered-by');
-  app.use(helmet());
+  // helmet: upgrade-insecure-requests + HSTS deaktiviert — der Dienst läuft bewusst
+  // über HTTP im Tailscale-Netz (WireGuard verschlüsselt). Mit der Default-CSP
+  // würde der Browser alle Assets auf HTTPS zwingen → Seite bleibt schwarz.
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        useDefaults: true,
+        directives: { upgradeInsecureRequests: null },
+      },
+      hsts: false,
+    }),
+  );
   app.use(corsOptions());
 
   // Rate-Limits: global moderat, Auth-Mutationen streng (Brute-Force-Schutz).
