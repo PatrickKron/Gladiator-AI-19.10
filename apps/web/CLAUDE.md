@@ -1,5 +1,12 @@
-# apps/web (Phase 6 — NICHT VOR DESIGN-ABNAHME)
+# apps/web — Rohbau-Oberfläche (Zwischenstand, Patrick-Entscheidung 2026-07-02)
 
-Hier entsteht das neue React/Vite/Tailwind-Frontend — ERST in Phase 6, NACHDEM Patrick neue Referenzbilder geliefert und das daraus abgeleitete Design-System abgenommen hat.
-Aus 09_UI_REDESIGN.md gilt nur die funktionale Struktur (15 Seiten, Daten, Loading/Empty/Error/No-Auth-States, i18n DE/EN/IT/ES/FR). Farben/Typo/Stil dort sind verworfen; GLADIATOR_V2_BLUEPRINT/design/ wird ignoriert.
-Bis dahin: KEIN Code in diesem Ordner.
+Patrick wollte früh einen benutzbaren Link. Dieser Rohbau (Vite + React + Tailwind) zeigt NUR echte Daten
+(Login via echter Auth, Live-Preise via SSE/Binance-WS, OHLCV aus der eigenen DB) oder ehrliche
+„nicht verbunden"-Zustände. Er ist im UI sichtbar als ROHBAU gekennzeichnet.
+
+WICHTIG: Das FINALE Design entsteht weiterhin erst in Phase 6 — Referenzbilder von Patrick anfordern →
+Design-System ableiten → Abnahme → dann Seiten neu bauen. Bis dahin: Rohbau funktional erweitern ist ok
+(neue Phasen sichtbar machen), aber kein aufwendiges Styling und NICHTS vom alten v1-Design übernehmen.
+
+Konventionen: type-only Import von @gladiator/api (AppRouter) — niemals Server-Code in den Client bundlen.
+Deutsch als UI-Sprache; i18n kommt mit Phase 6.

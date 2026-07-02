@@ -1,3 +1,3 @@
-// @gladiator/market-data — Skelett. Wird in der zugehörigen Phase gebaut (siehe CLAUDE.md).
-// Bewusst leer: kein Platzhalter-/Fake-Code in Laufpfaden.
-export {};
+export { backfillOhlcv, getOhlcv, type BackfillResult } from './ohlcv.js';
+export { LivePriceFeed, type Ticker, type FeedStatus } from './live-prices.js';
+export { parseCandle, validateCandle, sanitizeCandles, type Candle, type RawOhlcv } from './candles.js';

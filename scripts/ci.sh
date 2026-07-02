@@ -32,4 +32,7 @@ fi
 echo "== tests =="
 npm test
 
+echo "== web build =="
+npm run build -w web
+
 echo "== CI GRUEN =="

@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import cors from 'cors';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
@@ -5,12 +8,21 @@ import helmet from 'helmet';
 import { sql } from 'drizzle-orm';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import type { Db } from '@gladiator/db';
+import type { LivePriceFeed, Ticker } from '@gladiator/market-data';
 import { appRouter } from './routers/index.js';
 import { buildContext } from './trpc.js';
+import { verifyAccessToken } from './auth/tokens.js';
+
+export type AppOptions = {
+  prices?: LivePriceFeed | null;
+  /** Pfad zum gebauten Web-Frontend (dist). Fehlt er, wird nur die API bedient. */
+  webDistDir?: string | null;
+};
 
 /**
  * CORS: NUR Origins aus der Whitelist (Env CORS_ORIGINS, kommasepariert).
  * Ohne Whitelist werden Cross-Origin-Requests abgelehnt — kein offenes cors() (Alt-Fehler).
+ * Same-Origin (Web-UI wird vom selben Server ausgeliefert) braucht kein CORS.
  */
 function corsOptions() {
   const allowed = (process.env.CORS_ORIGINS ?? '')
@@ -26,7 +38,11 @@ function corsOptions() {
   });
 }
 
-export function createApp(db: Db): express.Express {
+export function defaultWebDistDir(): string {
+  return path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'apps', 'web', 'dist');
+}
+
+export function createApp(db: Db, opts: AppOptions = {}): express.Express {
   const app = express();
   app.disable('x-powered-by');
   app.use(helmet());
@@ -36,7 +52,7 @@ export function createApp(db: Db): express.Express {
   app.use(
     rateLimit({
       windowMs: 60_000,
-      limit: 300,
+      limit: 600,
       standardHeaders: true,
       legacyHeaders: false,
     }),
@@ -62,6 +78,52 @@ export function createApp(db: Db): express.Express {
     }
   });
 
+  /**
+   * SSE-Stream mit echten Live-Ticks. Auth: Bearer-Header ODER ?access_token=
+   * (EventSource kann keine Header setzen). Ungültig → 401.
+   */
+  app.get('/api/stream/prices', (req, res) => {
+    const headerToken = req.headers.authorization?.startsWith('Bearer ')
+      ? req.headers.authorization.slice(7)
+      : null;
+    const queryToken = typeof req.query.access_token === 'string' ? req.query.access_token : null;
+    const payload = verifyAccessToken(headerToken ?? queryToken ?? '');
+    if (!payload) {
+      res.status(401).json({ error: 'Anmeldung erforderlich.' });
+      return;
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const feed = opts.prices;
+    if (!feed) {
+      res.write(`event: feed\ndata: ${JSON.stringify({ feed: 'offline' })}\n\n`);
+      // Verbindung offen halten, damit der Client nicht in eine Reconnect-Schleife läuft
+      const idle = setInterval(() => res.write(': keepalive\n\n'), 25_000);
+      req.on('close', () => clearInterval(idle));
+      return;
+    }
+
+    // Initial: letzter bekannter Stand (echte Ticks)
+    const snap = feed.snapshot();
+    res.write(`event: snapshot\ndata: ${JSON.stringify(snap)}\n\n`);
+
+    const onTick = (t: Ticker) => res.write(`event: tick\ndata: ${JSON.stringify(t)}\n\n`);
+    const onStatus = (s: unknown) => res.write(`event: status\ndata: ${JSON.stringify(s)}\n\n`);
+    feed.on('tick', onTick);
+    feed.on('status', onStatus);
+    const keepalive = setInterval(() => res.write(': keepalive\n\n'), 25_000);
+
+    req.on('close', () => {
+      clearInterval(keepalive);
+      feed.off('tick', onTick);
+      feed.off('status', onStatus);
+    });
+  });
+
   app.use(
     '/api/trpc',
     createExpressMiddleware({
@@ -69,12 +131,22 @@ export function createApp(db: Db): express.Express {
       createContext: ({ req }) =>
         buildContext({
           db,
+          prices: opts.prices ?? null,
           authorizationHeader: req.headers.authorization ?? null,
           userAgent: req.headers['user-agent'] ?? null,
           ip: req.ip ?? null,
         }),
     }),
   );
+
+  // Web-UI (gebautes Vite-Frontend) ausliefern, wenn vorhanden — sonst nur API.
+  const distDir = opts.webDistDir === undefined ? defaultWebDistDir() : opts.webDistDir;
+  if (distDir && fs.existsSync(path.join(distDir, 'index.html'))) {
+    app.use(express.static(distDir));
+    app.get(/^\/(?!api\/|health).*/, (_req, res) => {
+      res.sendFile(path.join(distDir, 'index.html'));
+    });
+  }
 
   return app;
 }

@@ -1,3 +1,1 @@
-// @gladiator/exchange — Skelett. Wird in der zugehörigen Phase gebaut (siehe CLAUDE.md).
-// Bewusst leer: kein Platzhalter-/Fake-Code in Laufpfaden.
-export {};
+export { encryptSecret, decryptSecret, encryptCredentials, decryptCredentials } from './vault.js';
