@@ -98,7 +98,8 @@ describe.skipIf(!hasDb)('DB-Schema (TimescaleDB)', () => {
       .returning();
     expect(review!.vote).toBe('caution');
 
-    // Aufräumen (Cascade über Strategie löscht Signal + Review)
+    // Aufräumen in FK-Reihenfolge: Signal (cascadet Reviews) → Strategie
+    await db.execute(sql`DELETE FROM signals WHERE id = ${signal!.id}`);
     await db.execute(sql`DELETE FROM strategies WHERE id = ${strategy!.id}`);
   });
 
@@ -123,6 +124,8 @@ describe.skipIf(!hasDb)('DB-Schema (TimescaleDB)', () => {
     expect(trade!.makerTakerFee).toBe('0');
     expect(trade!.slippage).toBe('0');
     expect(trade!.fundingPaid).toBe('0');
+    // Aufräumen in FK-Reihenfolge: Trade → User
+    await db.execute(sql`DELETE FROM executed_trades WHERE id = ${trade!.id}`);
     await db.execute(sql`DELETE FROM users WHERE id = ${user!.id}`);
   });
 
