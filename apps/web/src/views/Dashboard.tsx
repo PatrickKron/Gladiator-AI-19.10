@@ -1,8 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
-import { getAccessToken, isUnauthorized, logout, refreshSession, trpc } from '../api.js';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { isUnauthorized, logout, refreshSession, trpc } from '../api.js';
 import { Sparkline } from '../components/Sparkline.js';
+import { setRainHighlight } from '../components/MatrixRain.js';
+import {
+  ensurePriceStream,
+  getFeedState,
+  getLatest,
+  onFeedState,
+  onTick,
+  type FeedState,
+  type TickWithDirection,
+} from '../lib/prices.js';
 
-type Ticker = { symbol: string; price: number; changePct24h: number | null; ts: string };
 type SystemStatus = {
   db: 'up';
   uptimeSec: number;
@@ -15,22 +24,20 @@ type IngestRow = { symbol: string; timeframe: string; candles: number; from_ts: 
 const SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
 
 const PHASEN: { name: string; status: 'fertig' | 'teilweise' | 'offen' }[] = [
-  { name: '0a Fundament: Repo, DB-Schema, Seed', status: 'fertig' },
-  { name: '0b Echte Auth (JWT + Refresh)', status: 'fertig' },
-  { name: '0c Secrets-Vault (AES-256-GCM)', status: 'fertig' },
+  { name: '0 Fundament: DB, Auth, Vault', status: 'fertig' },
   { name: '1 Marktdaten (Live + Historie)', status: 'teilweise' },
-  { name: '2 Strategie-Engine (SMC Core, echtes Scoring)', status: 'offen' },
-  { name: '3 Backtesting netto + Walk-Forward', status: 'offen' },
-  { name: '4 Risk-Engine + Börsen (Paper/Testnet)', status: 'offen' },
-  { name: '5 KI-Agenten + Pine/Anweisungen', status: 'offen' },
-  { name: '6 Finales UI (nach deinen Referenzbildern)', status: 'offen' },
-  { name: '7 Ausspielung, Härtung, Live-Freigabe', status: 'offen' },
+  { name: '2 Strategie-Engine → Signale bestätigen', status: 'offen' },
+  { name: '3 Eigenes Backtesting (netto)', status: 'offen' },
+  { name: '4 Risk-Engine + Börsen (Paper)', status: 'offen' },
+  { name: '5 KI-Agenten-Schwarm', status: 'offen' },
+  { name: '6 Finales Design (deine Referenzen)', status: 'offen' },
+  { name: '7 Härtung + Live-Freigabe', status: 'offen' },
 ];
 
 function fmtPrice(p: number): string {
   return p >= 1000
     ? p.toLocaleString('de-DE', { maximumFractionDigits: 0 })
-    : p.toLocaleString('de-DE', { maximumFractionDigits: 2 });
+    : p.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function fmtUptime(sec: number): string {
@@ -39,15 +46,90 @@ function fmtUptime(sec: number): string {
   return h > 0 ? `${h} h ${m} min` : `${m} min ${sec % 60} s`;
 }
 
+/** Preis-Karte: große Mono-Zahl, Micro-Glow bei echten Ticks, Hover koppelt in den Rain. */
+function PriceCard({ symbol, closes, stagger }: { symbol: string; closes: number[]; stagger: number }) {
+  const [tick, setTick] = useState<TickWithDirection | null>(
+    () => getLatest().find((t) => t.symbol === symbol) ?? null,
+  );
+  const [pulse, setPulse] = useState<'tick-pos' | 'tick-neg' | ''>('');
+  const pulseTimer = useRef(0);
+
+  useEffect(() => {
+    const off = onTick((t) => {
+      if (t.symbol !== symbol) return;
+      setTick(t);
+      if (t.direction !== 'flat') {
+        setPulse('');
+        cancelAnimationFrame(pulseTimer.current);
+        pulseTimer.current = requestAnimationFrame(() =>
+          setPulse(t.direction === 'up' ? 'tick-pos' : 'tick-neg'),
+        );
+      }
+    });
+    return () => {
+      off();
+      cancelAnimationFrame(pulseTimer.current);
+    };
+  }, [symbol]);
+
+  const short = symbol.replace('/USDT', '');
+  return (
+    <div
+      className="glass glass-hover reveal p-6"
+      style={{ '--stagger': stagger } as React.CSSProperties}
+      onMouseEnter={() => setRainHighlight(symbol)}
+      onMouseLeave={() => setRainHighlight(null)}
+    >
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-[15px] font-medium">{short}</h2>
+        <span className="label">{symbol}</span>
+      </div>
+      {tick ? (
+        <>
+          <p className={`num mt-3 text-[32px] leading-none font-semibold ${pulse}`}>
+            {fmtPrice(tick.price)} <span className="text-base font-normal" style={{ color: 'var(--color-mut)' }}>$</span>
+          </p>
+          <p
+            className="num mt-2 text-sm"
+            style={{
+              color:
+                tick.changePct24h == null
+                  ? 'var(--color-mut)'
+                  : tick.changePct24h >= 0
+                    ? 'var(--color-pos)'
+                    : 'var(--color-neg)',
+            }}
+          >
+            {tick.changePct24h == null
+              ? '24h —'
+              : `${tick.changePct24h >= 0 ? '▲' : '▼'} ${Math.abs(tick.changePct24h).toFixed(2)} % · 24h`}
+          </p>
+        </>
+      ) : (
+        <p className="mt-3 animate-pulse text-sm" style={{ color: 'var(--color-mut)' }}>
+          Warte auf ersten echten Tick …
+        </p>
+      )}
+      <div className="mt-5">
+        <Sparkline closes={closes} id={`spark-${short}`} />
+        <p className="label mt-2">72 h · 1h-Kerzen · eigene DB</p>
+      </div>
+    </div>
+  );
+}
+
 export function Dashboard() {
-  const [tickers, setTickers] = useState<Record<string, Ticker>>({});
-  const [feedState, setFeedState] = useState<'verbindet' | 'live' | 'getrennt'>('verbindet');
+  const [feed, setFeed] = useState<FeedState>(getFeedState());
   const [system, setSystem] = useState<SystemStatus | null>(null);
   const [ingest, setIngest] = useState<IngestRow[] | null>(null);
   const [sparks, setSparks] = useState<Record<string, number[]>>({});
   const [error, setError] = useState<string | null>(null);
 
-  // Einmalige Datenladung (Status, Ingest, Sparklines aus echten DB-Kerzen)
+  useEffect(() => {
+    ensurePriceStream();
+    return onFeedState(setFeed);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -56,6 +138,7 @@ export function Dashboard() {
         if (cancelled) return;
         setSystem(sys);
         setIngest(ing);
+        setError(null);
         const sparkEntries = await Promise.all(
           SYMBOLS.map(async (symbol) => {
             const candles = await trpc.market.ohlcv.query({ symbol, timeframe: '1h', limit: 72 });
@@ -65,8 +148,7 @@ export function Dashboard() {
         if (!cancelled) setSparks(Object.fromEntries(sparkEntries));
       } catch (err) {
         if (isUnauthorized(err)) {
-          const ok = await refreshSession();
-          if (!ok) return; // App wechselt automatisch zum Login
+          await refreshSession(); // schlägt fehl → App wechselt zum Login
         } else if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Laden fehlgeschlagen.');
         }
@@ -80,135 +162,107 @@ export function Dashboard() {
     };
   }, []);
 
-  // Live-Ticks über SSE (echte Binance-WebSocket-Daten, durchgereicht)
-  useEffect(() => {
-    const token = getAccessToken();
-    if (!token) return;
-    const es = new EventSource(`/api/stream/prices?access_token=${encodeURIComponent(token)}`);
-    const apply = (t: Ticker) => setTickers((prev) => ({ ...prev, [t.symbol]: t }));
-
-    es.addEventListener('snapshot', (e) => {
-      const snap = JSON.parse((e as MessageEvent).data) as { tickers: Ticker[] };
-      for (const t of snap.tickers) apply(t);
-      setFeedState('live');
-    });
-    es.addEventListener('tick', (e) => {
-      apply(JSON.parse((e as MessageEvent).data) as Ticker);
-      setFeedState('live');
-    });
-    es.addEventListener('status', (e) => {
-      const s = JSON.parse((e as MessageEvent).data) as { status: string };
-      if (s.status === 'disconnected') setFeedState('getrennt');
-    });
-    es.onerror = () => setFeedState('getrennt');
-    return () => es.close();
-  }, []);
-
   const feedBadge = useMemo(() => {
-    const map = {
-      live: { text: 'LIVE', cls: 'text-pos border-pos/50' },
-      verbindet: { text: 'VERBINDET …', cls: 'text-warn border-warn/50' },
-      getrennt: { text: 'GETRENNT', cls: 'text-neg border-neg/50' },
-    } as const;
-    return map[feedState];
-  }, [feedState]);
+    const map: Record<FeedState, { text: string; color: string }> = {
+      live: { text: '● LIVE', color: 'var(--color-pos)' },
+      connecting: { text: '◌ VERBINDET', color: 'var(--color-warn)' },
+      disconnected: { text: '○ GETRENNT', color: 'var(--color-neg)' },
+    };
+    return map[feed];
+  }, [feed]);
 
   return (
-    <div className="mx-auto max-w-6xl p-6">
-      <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-semibold tracking-[0.25em]">GLADIATOR</h1>
-          <span className="text-sm text-mut">v2</span>
-          <span className="rounded border border-warn/50 px-1.5 py-0.5 text-xs text-warn">ROHBAU</span>
+    <div className="relative z-10 mx-auto max-w-6xl px-6 pt-8 pb-16">
+      <header
+        className="reveal mb-10 flex flex-wrap items-center justify-between gap-4"
+        style={{ '--stagger': 0 } as React.CSSProperties}
+      >
+        <div className="flex items-baseline gap-4">
+          <h1 className="wordmark text-lg font-semibold">GLADIATOR</h1>
+          <span className="label">Command Center</span>
+          <span className="label rounded border border-warn/40 px-1.5 py-0.5" style={{ color: 'var(--color-warn)' }}>
+            Rohbau
+          </span>
         </div>
-        <div className="flex items-center gap-4 text-sm">
-          <span className={`rounded border px-2 py-0.5 text-xs ${feedBadge.cls}`}>{feedBadge.text}</span>
-          <button onClick={() => void logout()} className="text-mut transition hover:text-ink">
+        <div className="flex items-center gap-5">
+          <span className="num text-xs tracking-widest" style={{ color: feedBadge.color }}>
+            {feedBadge.text}
+          </span>
+          <button
+            onClick={() => void logout()}
+            className="text-sm transition-colors hover:text-[color:var(--color-ink)]"
+            style={{ color: 'var(--color-mut)' }}
+          >
             Abmelden
           </button>
         </div>
       </header>
 
       {error && (
-        <div className="mb-6 rounded-xl border border-neg/40 bg-neg/10 p-4 text-sm text-neg">{error}</div>
+        <div className="glass mb-6 p-4 text-sm" style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}>
+          {error}
+        </div>
       )}
 
-      {/* Live-Preise (echte Binance-Daten) */}
-      <section className="grid gap-4 md:grid-cols-3">
-        {SYMBOLS.map((symbol) => {
-          const t = tickers[symbol];
-          const closes = sparks[symbol] ?? [];
-          return (
-            <div key={symbol} className="rounded-2xl border border-line bg-panel p-5">
-              <div className="flex items-baseline justify-between">
-                <h2 className="font-medium">{symbol.replace('/USDT', '')}</h2>
-                <span className="text-xs text-mut">{symbol}</span>
-              </div>
-              {t ? (
-                <>
-                  <p className="mt-2 font-mono text-2xl">{fmtPrice(t.price)} $</p>
-                  <p className={`mt-1 text-sm ${t.changePct24h == null ? 'text-mut' : t.changePct24h >= 0 ? 'text-pos' : 'text-neg'}`}>
-                    {t.changePct24h == null ? '24h: —' : `24h: ${t.changePct24h >= 0 ? '+' : ''}${t.changePct24h.toFixed(2)} %`}
-                  </p>
-                </>
-              ) : (
-                <p className="mt-2 animate-pulse text-mut">Warte auf ersten Tick …</p>
-              )}
-              <div className="mt-4">
-                <Sparkline closes={closes} />
-                <p className="mt-1 text-xs text-mut">72 h · 1h-Kerzen aus der eigenen DB</p>
-              </div>
-            </div>
-          );
-        })}
+      {/* Live-Preise — echte Binance-WebSocket-Daten */}
+      <section className="grid gap-5 md:grid-cols-3">
+        {SYMBOLS.map((symbol, i) => (
+          <PriceCard key={symbol} symbol={symbol} closes={sparks[symbol] ?? []} stagger={i + 1} />
+        ))}
       </section>
 
-      <section className="mt-6 grid gap-4 lg:grid-cols-3">
-        {/* System-Status (alles echt gemessen) */}
-        <div className="rounded-2xl border border-line bg-panel p-5">
-          <h2 className="font-medium">System</h2>
+      <section className="mt-5 grid gap-5 lg:grid-cols-3">
+        {/* System — alles echt gemessen */}
+        <div className="glass glass-hover reveal p-6" style={{ '--stagger': 4 } as React.CSSProperties}>
+          <h2 className="label">System</h2>
           {system ? (
-            <ul className="mt-3 space-y-2 text-sm">
+            <ul className="mt-4 space-y-2.5 text-sm">
               <li className="flex justify-between">
-                <span className="text-mut">Datenbank</span>
-                <span className="text-pos">läuft</span>
+                <span style={{ color: 'var(--color-mut)' }}>Datenbank</span>
+                <span style={{ color: 'var(--color-pos)' }}>läuft</span>
               </li>
               <li className="flex justify-between">
-                <span className="text-mut">API-Uptime</span>
-                <span>{fmtUptime(system.uptimeSec)}</span>
+                <span style={{ color: 'var(--color-mut)' }}>API-Uptime</span>
+                <span className="num">{fmtUptime(system.uptimeSec)}</span>
               </li>
               <li className="flex justify-between">
-                <span className="text-mut">OHLCV-Kerzen</span>
-                <span className="font-mono">{system.counts.ohlcv_rows?.toLocaleString('de-DE')}</span>
+                <span style={{ color: 'var(--color-mut)' }}>OHLCV-Kerzen</span>
+                <span className="num">{system.counts.ohlcv_rows?.toLocaleString('de-DE')}</span>
               </li>
               <li className="flex justify-between">
-                <span className="text-mut">Pakete / Assets (aus v1)</span>
-                <span className="font-mono">
+                <span style={{ color: 'var(--color-mut)' }}>Pakete / Assets (v1)</span>
+                <span className="num">
                   {system.counts.packages} / {system.counts.assets}
                 </span>
               </li>
               <li className="flex justify-between">
-                <span className="text-mut">Signale</span>
-                <span className="font-mono">{system.counts.signals} (Engine kommt in Phase 2)</span>
+                <span style={{ color: 'var(--color-mut)' }}>Signale</span>
+                <span className="num">{system.counts.signals}</span>
               </li>
             </ul>
           ) : (
-            <p className="mt-3 animate-pulse text-sm text-mut">Lade …</p>
+            <p className="mt-4 animate-pulse text-sm" style={{ color: 'var(--color-mut)' }}>Lade …</p>
           )}
         </div>
 
-        {/* Quellen-Status: ehrlich, was verbunden ist und was nicht */}
-        <div className="rounded-2xl border border-line bg-panel p-5">
-          <h2 className="font-medium">Datenquellen</h2>
+        {/* Datenquellen — ehrlicher Verbindungsstatus */}
+        <div className="glass glass-hover reveal p-6" style={{ '--stagger': 5 } as React.CSSProperties}>
+          <h2 className="label">Datenquellen</h2>
           {system ? (
-            <ul className="mt-3 space-y-2 text-sm">
+            <ul className="mt-4 space-y-2.5 text-sm">
               {Object.entries(system.sources).map(([key, value]) => {
                 const connected = value === 'verbunden';
                 return (
                   <li key={key} className="flex items-center justify-between gap-3">
-                    <span className="text-mut">{key.replaceAll('_', ' ')}</span>
-                    <span className={connected ? 'text-pos' : 'text-mut'}>
-                      <span className={`mr-1.5 inline-block h-2 w-2 rounded-full ${connected ? 'bg-pos' : 'bg-line'}`} />
+                    <span style={{ color: 'var(--color-mut)' }}>{key.replaceAll('_', ' ')}</span>
+                    <span className="flex items-center gap-1.5" style={{ color: connected ? 'var(--color-pos)' : 'var(--color-mut)' }}>
+                      <span
+                        className="inline-block h-1.5 w-1.5 rounded-full"
+                        style={{
+                          background: connected ? 'var(--color-pos)' : 'var(--color-line)',
+                          boxShadow: connected ? '0 0 8px rgba(61,220,151,0.7)' : 'none',
+                        }}
+                      />
                       {value}
                     </span>
                   </li>
@@ -216,60 +270,70 @@ export function Dashboard() {
               })}
             </ul>
           ) : (
-            <p className="mt-3 animate-pulse text-sm text-mut">Lade …</p>
+            <p className="mt-4 animate-pulse text-sm" style={{ color: 'var(--color-mut)' }}>Lade …</p>
           )}
         </div>
 
-        {/* Roadmap zum Ziel: Signale bestätigen + eigenes Backtesting */}
-        <div className="rounded-2xl border border-line bg-panel p-5">
-          <h2 className="font-medium">Roadmap</h2>
-          <ul className="mt-3 space-y-2 text-sm">
+        {/* Roadmap zu deinem Ziel */}
+        <div className="glass glass-hover reveal p-6" style={{ '--stagger': 6 } as React.CSSProperties}>
+          <h2 className="label">Roadmap</h2>
+          <ul className="mt-4 space-y-2.5 text-sm">
             {PHASEN.map((p) => (
-              <li key={p.name} className="flex items-center gap-2">
+              <li key={p.name} className="flex items-center gap-2.5">
                 <span
-                  className={
-                    p.status === 'fertig' ? 'text-pos' : p.status === 'teilweise' ? 'text-warn' : 'text-mut'
-                  }
+                  className="num"
+                  style={{
+                    color:
+                      p.status === 'fertig'
+                        ? 'var(--color-pos)'
+                        : p.status === 'teilweise'
+                          ? 'var(--color-warn)'
+                          : 'var(--color-mut)',
+                  }}
                 >
                   {p.status === 'fertig' ? '✓' : p.status === 'teilweise' ? '◐' : '○'}
                 </span>
-                <span className={p.status === 'offen' ? 'text-mut' : ''}>{p.name}</span>
+                <span style={{ color: p.status === 'offen' ? 'var(--color-mut)' : 'var(--color-ink)' }}>{p.name}</span>
               </li>
             ))}
           </ul>
-          <p className="mt-4 text-xs text-mut">
+          <p className="mt-5 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
             Ziel: Signale vorab sehen → per Klick bestätigen/ablehnen → eigenes Backtesting.
           </p>
         </div>
       </section>
 
-      {/* Ingest-Detail: welche echten Kerzen liegen in der DB */}
-      <section className="mt-6 rounded-2xl border border-line bg-panel p-5">
-        <h2 className="font-medium">Historische Daten (Binance, echt)</h2>
+      {/* Historische Daten — echte Binance-Kerzen in der eigenen DB */}
+      <section className="glass glass-hover reveal mt-5 p-6" style={{ '--stagger': 7 } as React.CSSProperties}>
+        <h2 className="label">Historische Daten · Binance · echt</h2>
         {ingest === null ? (
-          <p className="mt-3 animate-pulse text-sm text-mut">Lade …</p>
+          <p className="mt-4 animate-pulse text-sm" style={{ color: 'var(--color-mut)' }}>Lade …</p>
         ) : ingest.length === 0 ? (
-          <p className="mt-3 text-sm text-mut">Noch kein Backfill gelaufen.</p>
+          <p className="mt-4 text-sm" style={{ color: 'var(--color-mut)' }}>Noch kein Backfill gelaufen.</p>
         ) : (
-          <div className="mt-3 overflow-x-auto">
+          <div className="mt-4 overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="text-mut">
-                <tr>
-                  <th className="py-1.5 pr-4 font-normal">Symbol</th>
-                  <th className="py-1.5 pr-4 font-normal">Timeframe</th>
-                  <th className="py-1.5 pr-4 font-normal">Kerzen</th>
-                  <th className="py-1.5 pr-4 font-normal">Von</th>
-                  <th className="py-1.5 font-normal">Bis</th>
+              <thead>
+                <tr className="label">
+                  <th className="py-2 pr-4 font-normal">Symbol</th>
+                  <th className="py-2 pr-4 font-normal">Timeframe</th>
+                  <th className="py-2 pr-4 text-right font-normal">Kerzen</th>
+                  <th className="py-2 pr-4 font-normal">Von</th>
+                  <th className="py-2 font-normal">Bis</th>
                 </tr>
               </thead>
               <tbody>
                 {ingest.map((r) => (
-                  <tr key={`${r.symbol}-${r.timeframe}`} className="border-t border-line">
-                    <td className="py-1.5 pr-4">{r.symbol}</td>
-                    <td className="py-1.5 pr-4 font-mono">{r.timeframe}</td>
-                    <td className="py-1.5 pr-4 font-mono">{r.candles.toLocaleString('de-DE')}</td>
-                    <td className="py-1.5 pr-4 text-mut">{new Date(r.from_ts).toLocaleDateString('de-DE')}</td>
-                    <td className="py-1.5 text-mut">{new Date(r.to_ts).toLocaleString('de-DE')}</td>
+                  <tr key={`${r.symbol}-${r.timeframe}`} style={{ borderTop: '1px solid rgba(79,209,255,0.07)' }}>
+                    <td className="py-2 pr-4">{r.symbol}</td>
+                    <td className="num py-2 pr-4">{r.timeframe}</td>
+                    <td className="num py-2 pr-4 text-right">{r.candles.toLocaleString('de-DE')}</td>
+                    <td className="py-2 pr-4" style={{ color: 'var(--color-mut)' }}>
+                      {new Date(r.from_ts).toLocaleDateString('de-DE')}
+                    </td>
+                    <td className="py-2" style={{ color: 'var(--color-mut)' }}>
+                      {new Date(r.to_ts).toLocaleString('de-DE')}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -278,9 +342,10 @@ export function Dashboard() {
         )}
       </section>
 
-      <footer className="mt-8 text-center text-xs text-mut">
-        Rohbau-Oberfläche — zeigt ausschließlich echte Daten oder ehrliche Leerzustände.
-        Das finale Design entsteht in Phase 6 aus deinen Referenzbildern.
+      <footer className="reveal mt-10 text-center text-xs leading-relaxed" style={{ color: 'var(--color-mut)', '--stagger': 8 } as React.CSSProperties}>
+        Alles Angezeigte ist echt oder ehrlich als „nicht verbunden" markiert — auch der Regen besteht aus echten Ticks.
+        <br />
+        Finales Design folgt in Phase 6.
       </footer>
     </div>
   );

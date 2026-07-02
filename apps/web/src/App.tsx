@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getAccessToken, onAuthChange, refreshSession } from './api.js';
+import { MatrixRain } from './components/MatrixRain.js';
 import { Login } from './views/Login.js';
 import { Dashboard } from './views/Dashboard.js';
 
@@ -16,12 +17,21 @@ export function App() {
     return off;
   }, []);
 
-  if (auth === 'restoring') {
-    return (
-      <div className="flex min-h-screen items-center justify-center text-mut">
-        Sitzung wird wiederhergestellt …
-      </div>
-    );
-  }
-  return auth === 'authenticated' ? <Dashboard /> : <Login />;
+  return (
+    <>
+      {/* Hintergrund: eine Lichtquelle + Daten-Rain aus echten Ticks */}
+      <div className="ambient" />
+      <MatrixRain />
+
+      {auth === 'restoring' ? (
+        <div className="relative z-10 flex min-h-screen items-center justify-center">
+          <p className="label animate-pulse">Sitzung wird wiederhergestellt …</p>
+        </div>
+      ) : auth === 'authenticated' ? (
+        <Dashboard />
+      ) : (
+        <Login />
+      )}
+    </>
+  );
 }

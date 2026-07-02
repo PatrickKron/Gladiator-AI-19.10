@@ -11,7 +11,6 @@ import type { Db } from '@gladiator/db';
 import type { LivePriceFeed, Ticker } from '@gladiator/market-data';
 import { appRouter } from './routers/index.js';
 import { buildContext } from './trpc.js';
-import { verifyAccessToken } from './auth/tokens.js';
 
 export type AppOptions = {
   prices?: LivePriceFeed | null;
@@ -79,20 +78,11 @@ export function createApp(db: Db, opts: AppOptions = {}): express.Express {
   });
 
   /**
-   * SSE-Stream mit echten Live-Ticks. Auth: Bearer-Header ODER ?access_token=
-   * (EventSource kann keine Header setzen). Ungültig → 401.
+   * SSE-Stream mit echten Live-Ticks. BEWUSST ohne Auth: er enthält ausschließlich
+   * öffentliche Binance-Marktdaten (Symbol/Preis/24h%) und speist den Daten-Rain
+   * auch auf dem Login-Screen. Alle nutzerbezogenen Endpunkte bleiben geschützt.
    */
   app.get('/api/stream/prices', (req, res) => {
-    const headerToken = req.headers.authorization?.startsWith('Bearer ')
-      ? req.headers.authorization.slice(7)
-      : null;
-    const queryToken = typeof req.query.access_token === 'string' ? req.query.access_token : null;
-    const payload = verifyAccessToken(headerToken ?? queryToken ?? '');
-    if (!payload) {
-      res.status(401).json({ error: 'Anmeldung erforderlich.' });
-      return;
-    }
-
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');

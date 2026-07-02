@@ -1,12 +1,18 @@
-# apps/web — Rohbau-Oberfläche (Zwischenstand, Patrick-Entscheidung 2026-07-02)
+# apps/web — „Blue Matrix Premium" (Design-Direktive von Patrick, 2026-07-02)
 
-Patrick wollte früh einen benutzbaren Link. Dieser Rohbau (Vite + React + Tailwind) zeigt NUR echte Daten
-(Login via echter Auth, Live-Preise via SSE/Binance-WS, OHLCV aus der eigenen DB) oder ehrliche
-„nicht verbunden"-Zustände. Er ist im UI sichtbar als ROHBAU gekennzeichnet.
+Verbindliche Optik: dunkles, edles Sci-Fi-Command-Center in Blau. Das komplette Design-System
+(Farben, Typografie, Glas, Motion, Daten-Rain-Spezifikation) steht in **/DESIGN_SYSTEM.md** —
+alle künftigen Seiten (auch Phase 6) folgen diesem System.
 
-WICHTIG: Das FINALE Design entsteht weiterhin erst in Phase 6 — Referenzbilder von Patrick anfordern →
-Design-System ableiten → Abnahme → dann Seiten neu bauen. Bis dahin: Rohbau funktional erweitern ist ok
-(neue Phasen sichtbar machen), aber kein aufwendiges Styling und NICHTS vom alten v1-Design übernehmen.
+Signatur-Effekt: `components/MatrixRain.tsx` — Digital Rain aus ECHTEN SSE-Ticks
+(nie Zufallswerte), ein Canvas, rAF, Opacity ≤ 0.25, prefers-reduced-motion beachtet.
+Der SSE-Preisstream ist bewusst öffentlich (nur öffentliche Binance-Marktdaten),
+damit der Rain auch auf dem Login lebt; alle nutzerbezogenen Endpunkte bleiben geschützt.
 
-Konventionen: type-only Import von @gladiator/api (AppRouter) — niemals Server-Code in den Client bundlen.
-Deutsch als UI-Sprache; i18n kommt mit Phase 6.
+Regeln:
+- Nur echte Daten oder ehrliche „nicht verbunden"-Zustände — auch „nur fürs Design" keine Fakes.
+- Lesbarkeit vor Effekt: AA-Kontrast, Rain konkurriert nie mit Text.
+- Ein Signatur-Effekt; sonst Zurückhaltung. Keine Loop-Animation ohne Datenbezug.
+- type-only Import von @gladiator/api (AppRouter) — nie Server-Code in den Client bundlen.
+- Fonts selbst gehostet (@fontsource) — kein CDN.
+- Deutsch als UI-Sprache; i18n kommt mit Phase 6.

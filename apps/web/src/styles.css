@@ -1,18 +1,25 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/600.css";
 @import "tailwindcss";
 
+/* Design-System „Blue Matrix Premium" — verbindliche Tokens: siehe /DESIGN_SYSTEM.md */
 @theme {
-  --color-bg: #0a0b0e;
-  --color-panel: #12141a;
-  --color-panel2: #171a22;
-  --color-line: #232834;
-  --color-ink: #e7eaf0;
-  --color-mut: #8a93a5;
-  --color-acc: #4c8dff;
-  --color-pos: #35c48d;
-  --color-neg: #e5484d;
-  --color-warn: #d8a03d;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+  --color-bg: #050810;
+  --color-bg2: #070d18;
+  --color-glass: rgba(255, 255, 255, 0.04);
+  --color-line: rgba(79, 209, 255, 0.14);
+  --color-ink: #eaf2ff;
+  --color-mut: #7d8cab;
+  --color-blue: #2e7cf6;
+  --color-cyan: #4fd1ff;
+  --color-pos: #3ddc97;
+  --color-neg: #ff5c6c;
+  --color-warn: #e8b84b;
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 html {
@@ -22,5 +29,124 @@ html {
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--color-acc) 40%, transparent);
+  background: color-mix(in srgb, var(--color-blue) 45%, transparent);
+}
+
+/* Zahlen ticken ohne Breitensprünge */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Versal-Label mit weitem Letter-Spacing */
+.label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-mut);
+}
+
+/* Glas-Karte: Licht-Kante oben + blaue Border, weiche Tiefe */
+.glass {
+  background: var(--color-glass);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--color-line);
+  border-radius: 1rem;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition:
+    box-shadow 240ms var(--ease-spring),
+    transform 240ms var(--ease-spring),
+    border-color 240ms ease;
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .glass { background: rgba(7, 13, 24, 0.92); }
+}
+.glass-hover:hover {
+  transform: translateY(-2px);
+  border-color: rgba(79, 209, 255, 0.3);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.45),
+    0 0 24px rgba(46, 124, 246, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+/* Eine Lichtquelle: zentraler Blau-Glow + tiefer Orb, fix hinter allem */
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(46, 124, 246, 0.16), transparent 60%),
+    radial-gradient(ellipse 40% 35% at 85% 100%, rgba(79, 209, 255, 0.07), transparent 65%);
+}
+
+/* Stagger-Reveal (Karten schieben sanft ein) */
+@keyframes reveal {
+  from { opacity: 0; transform: translateY(12px); filter: blur(4px); }
+  to   { opacity: 1; transform: translateY(0);    filter: blur(0); }
+}
+.reveal {
+  opacity: 0;
+  animation: reveal 520ms var(--ease-out-soft) forwards;
+  animation-delay: calc(var(--stagger, 0) * 55ms);
+}
+
+/* Micro-Glow bei echten Preis-Ticks */
+@keyframes tick-pos {
+  0% { text-shadow: 0 0 0 transparent; }
+  30% { text-shadow: 0 0 18px rgba(61, 220, 151, 0.85); color: #7cf0be; }
+  100% { text-shadow: 0 0 0 transparent; }
+}
+@keyframes tick-neg {
+  0% { text-shadow: 0 0 0 transparent; }
+  30% { text-shadow: 0 0 18px rgba(255, 92, 108, 0.85); color: #ff8b96; }
+  100% { text-shadow: 0 0 0 transparent; }
+}
+.tick-pos { animation: tick-pos 420ms ease-out; }
+.tick-neg { animation: tick-neg 420ms ease-out; }
+
+/* Wortmarke */
+.wordmark {
+  letter-spacing: 0.3em;
+  text-shadow: 0 0 24px rgba(79, 209, 255, 0.35);
+}
+
+/* Primär-Button mit Glow */
+.btn-primary {
+  background: linear-gradient(180deg, #3b8bff, #2e7cf6);
+  border: 1px solid rgba(79, 209, 255, 0.4);
+  border-radius: 0.625rem;
+  color: white;
+  font-weight: 500;
+  transition: box-shadow 220ms var(--ease-spring), transform 220ms var(--ease-spring), filter 180ms ease;
+}
+.btn-primary:hover:not(:disabled) {
+  box-shadow: 0 0 28px rgba(46, 124, 246, 0.45);
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+.btn-primary:active:not(:disabled) { transform: translateY(0); }
+.btn-primary:disabled { opacity: 0.5; }
+
+/* Eingabefelder auf Glas */
+.field {
+  background: rgba(5, 8, 16, 0.6);
+  border: 1px solid var(--color-line);
+  border-radius: 0.625rem;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+.field:focus {
+  outline: none;
+  border-color: rgba(79, 209, 255, 0.55);
+  box-shadow: 0 0 0 3px rgba(46, 124, 246, 0.18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal { animation: none; opacity: 1; }
+  .tick-pos, .tick-neg { animation: none; }
+  .glass, .btn-primary { transition: none; }
 }
