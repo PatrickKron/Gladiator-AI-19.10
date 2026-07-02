@@ -25,8 +25,14 @@ prices.start();
 const app = createApp(db, { prices });
 
 for (const host of hosts) {
-  app.listen(port, host, () => {
+  const server = app.listen(port, host, () => {
     console.log(`Gladiator v2 läuft auf http://${host}:${port} (Web-UI: /, tRPC: /api/trpc, Health: /health)`);
+  });
+  // Fail-fast: Wenn eine Bind-Adresse nicht verfügbar ist (z. B. Port belegt),
+  // darf der Prozess nicht halb-erreichbar weiterlaufen.
+  server.on('error', (err) => {
+    console.error(`Bind auf ${host}:${port} fehlgeschlagen — Abbruch:`, err);
+    process.exit(1);
   });
 }
 
