@@ -1,0 +1,37 @@
+# GitHub-Actions-CI — wird aktiv, sobald das Repo zu GitHub gepusht wird.
+# Bis dahin läuft CI serverseitig über scripts/ci.sh (post-receive-Hook).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: timescale/timescaledb:latest-pg17
+        env:
+          POSTGRES_DB: gladiator
+          POSTGRES_USER: gladiator
+          POSTGRES_PASSWORD: ci-only
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U gladiator -d gladiator"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgres://gladiator:ci-only@127.0.0.1:5433/gladiator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run db:migrate
+      - run: npm test

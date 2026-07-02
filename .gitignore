@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.log
+.env
+.env.*
+!.env.example
+# Seed-Daten enthalten echte User-Daten (E-Mail, Passwort-Hash) — werden per scp übertragen, nie committet
+packages/db/seed/data/
+.DS_Store

@@ -1,0 +1,39 @@
+name: gladiator-v2
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg17
+    container_name: gladiator-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gladiator
+      POSTGRES_USER: gladiator
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD muss gesetzt sein (kein Fallback)}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - gladiator_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gladiator -d gladiator"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: gladiator-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - gladiator_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  gladiator_pgdata:
+  gladiator_redisdata:

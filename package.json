@@ -1,0 +1,30 @@
+{
+  "name": "gladiator-v2",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "ci": "npm run lint && npm run typecheck && npm run test",
+    "db:generate": "npm run generate -w @gladiator/db",
+    "db:migrate": "npm run migrate -w @gladiator/db",
+    "db:seed": "npm run seed -w @gladiator/db"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.20.0",
+    "@types/node": "^22.13.0",
+    "eslint": "^9.20.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.24.0",
+    "vitest": "^3.0.5"
+  }
+}
