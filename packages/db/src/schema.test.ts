@@ -51,7 +51,7 @@ describe.skipIf(!hasDb)('DB-Schema (TimescaleDB)', () => {
   });
 
   it('Roundtrip: User → Strategie → kanonisches Signal → Agenten-Review', async () => {
-    const [user] = await db.insert(users).values({ email: testEmail, role: 'user' }).returning();
+    const [user] = await db.insert(users).values({ email: testEmail }).returning();
     expect(user).toBeDefined();
 
     const [strategy] = await db
@@ -78,7 +78,6 @@ describe.skipIf(!hasDb)('DB-Schema (TimescaleDB)', () => {
         riskClass: 'low',
         confluence: ['BOS', 'Retest@EMA50'],
         session: 'london',
-        tier: 'pro',
       })
       .returning();
     expect(signal).toBeDefined();
@@ -106,7 +105,7 @@ describe.skipIf(!hasDb)('DB-Schema (TimescaleDB)', () => {
   it('executed_trades trägt Pflicht-Kostenfelder mit Default 0 (netto-Rechnung möglich)', async () => {
     const [user] = await db
       .insert(users)
-      .values({ email: `trade-${testEmail}`, role: 'user' })
+      .values({ email: `trade-${testEmail}` })
       .returning();
     const [trade] = await db
       .insert(executedTrades)
@@ -131,8 +130,8 @@ describe.skipIf(!hasDb)('DB-Schema (TimescaleDB)', () => {
 
   it('ungültige Enum-Werte werden von Postgres abgelehnt', async () => {
     await expect(
-      db.execute(sql`INSERT INTO signals (source, strategy_id, symbol, asset_class, venue_type, direction, setup_type, entry, stop_loss, take_profits, score, risk_class, session, tier)
-        VALUES ('random', gen_random_uuid(), 'X', 'crypto', 'cex', 'long', 'swing', 1, 1, '{1}', 5, 'low', 'london', 'free')`),
+      db.execute(sql`INSERT INTO signals (source, strategy_id, symbol, asset_class, venue_type, direction, setup_type, entry, stop_loss, take_profits, score, risk_class, session)
+        VALUES ('random', gen_random_uuid(), 'X', 'crypto', 'cex', 'long', 'swing', 1, 1, '{1}', 5, 'low', 'london')`),
     ).rejects.toThrow();
   });
 
@@ -157,19 +156,19 @@ describe.skipIf(!hasDb || process.env.EXPECT_SEED !== '1')('Seed (echte v1-Daten
     await pool?.end();
   });
 
-  it('enthält die portierten v1-Bestände (35 Pakete, 221 Assets, 45 Artikel, Admin-User)', async () => {
+  it('enthält die portierten v1-Bestände (35 Pakete, 221 Assets, 45 Artikel, v1-User)', async () => {
     const [pkgCount] = await db.select({ n: sql<number>`count(*)::int` }).from(packages);
     const [assetCount] = await db.select({ n: sql<number>`count(*)::int` }).from(assets);
     const [articleCount] = await db.select({ n: sql<number>`count(*)::int` }).from(magazineArticles);
-    const [adminCount] = await db
+    const [v1UserCount] = await db
       .select({ n: sql<number>`count(*)::int` })
       .from(users)
-      .where(sql`role = 'admin' AND legacy_v1_id IS NOT NULL`);
+      .where(sql`legacy_v1_id IS NOT NULL AND password_hash IS NOT NULL`);
 
     expect(pkgCount!.n).toBeGreaterThanOrEqual(35);
     expect(assetCount!.n).toBeGreaterThanOrEqual(221);
     expect(articleCount!.n).toBeGreaterThanOrEqual(45);
-    expect(adminCount!.n).toBeGreaterThanOrEqual(1);
+    expect(v1UserCount!.n).toBeGreaterThanOrEqual(1);
   });
 
   it('Asset→Paket-Fremdschlüssel sind intakt', async () => {

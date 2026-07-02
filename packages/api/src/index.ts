@@ -1,3 +1,3 @@
-// @gladiator/api — Skelett. Wird in der zugehörigen Phase gebaut (siehe CLAUDE.md).
-// Bewusst leer: kein Platzhalter-/Fake-Code in Laufpfaden.
-export {};
+export { createApp } from './app.js';
+export { appRouter, type AppRouter } from './routers/index.js';
+export { buildContext, type Context } from './trpc.js';

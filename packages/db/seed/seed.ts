@@ -92,13 +92,13 @@ try {
   for (const u of v1Users) {
     const displayName =
       u.name ?? [u.vorname, u.nachname].filter(Boolean).join(' ').trim() ?? null;
+    // Kein role-Mapping: v2 kennt nur EINEN User-Typ (Entscheidung 2026-07-02).
     await db
       .insert(users)
       .values({
         email: u.email,
         passwordHash: u.password,
         name: displayName === '' ? null : displayName,
-        role: u.role,
         createdAt: toDate(u.createdAt) ?? new Date(),
         lastSignedIn: toDate(u.lastSignedIn),
         legacyV1Id: u.id,

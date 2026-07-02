@@ -1,8 +1,7 @@
 import { pgEnum } from 'drizzle-orm/pg-core';
 
-// Auth / Produkt
-export const userRoleEnum = pgEnum('user_role', ['user', 'pro', 'vip', 'admin']);
-export const tierEnum = pgEnum('tier', ['free', 'pro', 'vip']);
+// Hinweis (Entscheidung Patrick 2026-07-02): KEINE Rollen/Tiers.
+// Ein User-Typ mit vollem Zugriff — user_role- und tier-Enums wurden entfernt.
 
 // Kanonisches Signal (muss @gladiator/core spiegeln)
 export const signalSourceEnum = pgEnum('signal_source', ['engine', 'pine', 'instruction', 'manual']);

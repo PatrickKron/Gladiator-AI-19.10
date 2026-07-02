@@ -15,6 +15,13 @@
       "when": 1783005313534,
       "tag": "0001_timescale_hypertables",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783006281401,
+      "tag": "0002_neat_susan_delgado",
+      "breakpoints": true
     }
   ]
 }

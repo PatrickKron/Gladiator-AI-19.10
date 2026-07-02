@@ -3,7 +3,6 @@ import {
   index,
   integer,
   jsonb,
-  numeric,
   pgTable,
   serial,
   text,
@@ -11,7 +10,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { users } from './auth.js';
-import { articleCategoryEnum, channelKindEnum, tierEnum } from './enums.js';
+import { articleCategoryEnum, channelKindEnum } from './enums.js';
 
 /**
  * Asset-Pakete (TECH33, DAX40, …). Integer-IDs bewusst beibehalten,
@@ -66,24 +65,13 @@ export const packageSubscriptions = pgTable(
     packageId: integer('package_id')
       .notNull()
       .references(() => packages.id),
-    tier: tierEnum('tier').notNull().default('free'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     canceledAt: timestamp('canceled_at', { withTimezone: true }),
   },
   (t) => [index('package_subscriptions_user_idx').on(t.userId)],
 );
 
-/** Preisstufen Free/Pro/VIP (+ Add-ons). Checkout kommt erst nach Rechtsklärung (Phase 7). */
-export const pricing = pgTable('pricing', {
-  id: serial('id').primaryKey(),
-  tier: tierEnum('tier').notNull(),
-  name: text('name').notNull(),
-  pricePerMonth: numeric('price_per_month'),
-  currency: text('currency').notNull().default('EUR'),
-  features: jsonb('features'),
-  isActive: boolean('is_active').notNull().default(true),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+// Hinweis: pricing-Tabelle entfernt (Entscheidung 2026-07-02: keine Free/Pro/VIP-Stufen).
 
 /** Ausspiel-Kanäle (Telegram-Gruppen/Topics, Push, E-Mail). */
 export const channels = pgTable('channels', {
@@ -92,7 +80,6 @@ export const channels = pgTable('channels', {
   name: text('name').notNull(),
   /** Kanal-Konfiguration (z. B. Telegram-Chat/Topic-IDs) — keine Secrets hier. */
   config: jsonb('config'),
-  tier: tierEnum('tier').notNull().default('free'),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

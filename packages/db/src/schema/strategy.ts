@@ -21,7 +21,6 @@ import {
   signalStatusEnum,
   strategyKindEnum,
   strategyVersionStatusEnum,
-  tierEnum,
   tradingSessionEnum,
   venueTypeEnum,
 } from './enums.js';
@@ -87,7 +86,6 @@ export const signals = pgTable(
     reentry: jsonb('reentry'),
     leverageUpgrade: jsonb('leverage_upgrade'),
     status: signalStatusEnum('status').notNull().default('new'),
-    tier: tierEnum('tier').notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
   },
   (t) => [

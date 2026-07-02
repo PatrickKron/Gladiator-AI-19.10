@@ -8,7 +8,8 @@ Dieses Repo läuft kanonisch auf dem Hetzner-Server `95.216.10.238` unter `/opt/
 
 ## Eiserne Regeln
 1. **KEIN Fake.** Keine `Math.random()`-Daten, kein Mock/Demo/Platzhalter in Laufpfaden (Mock nur in Tests). Nicht-verbundene Quellen sichtbar als „nicht verbunden" markieren.
-2. **Sicherheit zuerst:** echte Auth/RBAC/Tenant-Scoping; keine Klartext-Secret-Fallbacks (fehlendes Pflicht-Secret → Boot-Abbruch); Risk-Engine als hartes Gate vor jeder Order; keine Auszahlungen/Transfers durch den Agenten.
+2. **Sicherheit zuerst:** echte Auth (JWT + rotierender Refresh); keine Klartext-Secret-Fallbacks (fehlendes Pflicht-Secret → Boot-Abbruch); Risk-Engine als hartes Gate vor jeder Order; keine Auszahlungen/Transfers durch den Agenten.
+   **Scope-Entscheidung (Patrick, 2026-07-02, überschreibt Blueprint 10_ §3 / 01_ §4):** EIN User-Typ mit vollem Zugriff — KEINE Rollen, kein RBAC, keine Tenant-Isolation, keine Free/Pro/VIP-Tiers.
 3. **Paper-Default.** Live nur nach expliziter Freigabe pro Börse.
 4. **Backtests netto** (Gebühren/Slippage/Funding, look-ahead-frei, Survivorship-geprüft).
 5. **TDD:** erst Tests, dann Code — v. a. Risk-Engine, Strategien, Order-Lifecycle, Auth.

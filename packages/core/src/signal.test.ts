@@ -20,7 +20,6 @@ const validLong: Signal = {
   confluence: ['BOS', 'EMA200-Trend', 'Retest@EMA50', 'RSI-Band', 'Volume'],
   session: 'london',
   status: 'new',
-  tier: 'pro',
 };
 
 describe('kanonisches Signal-Schema', () => {

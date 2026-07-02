@@ -13,7 +13,7 @@ export const setupTypeSchema = z.enum(['scalp', 'swing', 'position']);
 export const riskClassSchema = z.enum(['low', 'medium', 'high']);
 export const tradingSessionSchema = z.enum(['asia', 'london', 'newyork', 'off']);
 export const signalStatusSchema = z.enum(['new', 'confirmed', 'rejected', 'expired', 'filled', 'closed']);
-export const tierSchema = z.enum(['free', 'pro', 'vip']);
+// Hinweis: kein tier-Feld — keine Free/Pro/VIP-Stufen (Entscheidung 2026-07-02).
 
 export const agentVerdictSchema = z.object({
   agent: z.string().min(1),
@@ -58,7 +58,6 @@ export const signalSchema = z
     leverageUpgrade: leverageUpgradeSchema.optional(),
     agentReview: z.array(agentVerdictSchema).optional(),
     status: signalStatusSchema,
-    tier: tierSchema,
   })
   .superRefine((s, ctx) => {
     // SL muss auf der richtigen Seite des Entry liegen; TPs in Trade-Richtung.
@@ -89,4 +88,3 @@ export type SetupType = z.infer<typeof setupTypeSchema>;
 export type RiskClass = z.infer<typeof riskClassSchema>;
 export type TradingSession = z.infer<typeof tradingSessionSchema>;
 export type SignalStatus = z.infer<typeof signalStatusSchema>;
-export type Tier = z.infer<typeof tierSchema>;
