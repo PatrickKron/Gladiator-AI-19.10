@@ -19,22 +19,25 @@ export type AppOptions = {
 };
 
 /**
- * CORS: NUR Origins aus der Whitelist (Env CORS_ORIGINS, kommasepariert).
- * Ohne Whitelist werden Cross-Origin-Requests abgelehnt — kein offenes cors() (Alt-Fehler).
- * Same-Origin (Web-UI wird vom selben Server ausgeliefert) braucht kein CORS.
+ * CORS: Same-Origin ist immer erlaubt (Vite-Module-Scripts senden auch same-origin
+ * einen Origin-Header!), zusätzlich Origins aus der Whitelist (Env CORS_ORIGINS).
+ * Fremde Origins bekommen schlicht KEINE CORS-Header (Browser blockt das Lesen) —
+ * niemals einen Error werfen, das würde alle Browser-Requests mit 500 killen.
  */
-function corsOptions() {
-  const allowed = (process.env.CORS_ORIGINS ?? '')
-    .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean);
-  return cors({
-    origin: (origin, cb) => {
-      if (!origin || allowed.includes(origin)) return cb(null, true);
-      cb(new Error('CORS: Origin nicht erlaubt.'));
-    },
-    credentials: true,
-  });
+function corsMiddleware(): express.RequestHandler {
+  const allowed = new Set(
+    (process.env.CORS_ORIGINS ?? '')
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean),
+  );
+  return (req, res, next) => {
+    const selfOrigin = `${req.protocol}://${req.headers.host ?? ''}`;
+    cors({
+      origin: (origin, cb) => cb(null, !origin || origin === selfOrigin || allowed.has(origin)),
+      credentials: true,
+    })(req, res, next);
+  };
 }
 
 export function defaultWebDistDir(): string {
@@ -56,7 +59,7 @@ export function createApp(db: Db, opts: AppOptions = {}): express.Express {
       hsts: false,
     }),
   );
-  app.use(corsOptions());
+  app.use(corsMiddleware());
 
   // Rate-Limits: global moderat, Auth-Mutationen streng (Brute-Force-Schutz).
   app.use(
