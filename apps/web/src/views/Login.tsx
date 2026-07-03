@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { login } from '../api.js';
 import { PlexusHero } from '../components/PlexusHero.js';
 
@@ -11,6 +12,7 @@ const TARGET = 'ZUGRIFF GEWÄHRT';
  * (Der Erfolg ist ECHT — die Animation läuft erst nach bestätigter Auth.)
  */
 export function Login() {
+  const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +56,7 @@ export function Login() {
       runDecryption(() => {});
     } catch (err) {
       setBusy(false);
-      setError(err instanceof Error ? err.message : 'Anmeldung fehlgeschlagen.');
+      setError(err instanceof Error ? err.message : t('auth.failed'));
     }
   }
 
@@ -69,10 +71,7 @@ export function Login() {
           <h1 className="wordmark text-3xl font-bold">
             {decrypted ?? 'GLADIATOR'}
           </h1>
-          <p className="label mt-3">
-            Trading Command Center ·{' '}
-            <span className="rounded border border-warn/40 px-1.5 py-0.5 text-warn">Rohbau</span>
-          </p>
+          <p className="label mt-3">{t('auth.subtitle')}</p>
         </div>
 
         <form
@@ -81,7 +80,7 @@ export function Login() {
           style={{ '--stagger': 2 } as React.CSSProperties}
         >
           <label className="label" htmlFor="email">
-            E-Mail
+            {t('auth.email')}
           </label>
           <input
             id="email"
@@ -93,7 +92,7 @@ export function Login() {
             className="field mt-1.5 w-full px-3.5 py-2.5 text-[15px]"
           />
           <label className="label mt-5 block" htmlFor="password">
-            Passwort
+            {t('auth.password')}
           </label>
           <input
             id="password"
@@ -108,17 +107,11 @@ export function Login() {
           {error && <p className="mt-4 text-sm" style={{ color: 'var(--color-neg)' }}>{error}</p>}
 
           <button type="submit" disabled={busy} className="btn-primary mt-7 w-full px-4 py-2.5">
-            {decrypted ? 'Entschlüssele …' : busy ? 'Prüfe Zugang …' : 'Anmelden'}
+            {decrypted ? '…' : busy ? t('auth.loggingIn') : t('auth.login')}
           </button>
 
-          <p className="mt-5 text-center text-xs" style={{ color: 'var(--color-mut)' }}>
-            Dein v1-Login gilt weiter — gleiche E-Mail, gleiches Passwort.
-          </p>
         </form>
 
-        <p className="reveal mt-6 text-center text-xs" style={{ color: 'var(--color-mut)', '--stagger': 4 } as React.CSSProperties}>
-          Der Regen im Hintergrund besteht aus echten Live-Marktdaten.
-        </p>
       </div>
     </div>
   );

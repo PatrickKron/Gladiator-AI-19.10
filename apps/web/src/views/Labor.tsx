@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { logout, trpc } from '../api.js';
+import { trpc } from '../api.js';
 
 /**
  * Strategie-Labor (09_ §3.5/§3.15): Backtests auf ECHTEN Kerzen, alles netto.
@@ -245,19 +245,6 @@ export function Labor() {
 
   return (
     <div className="relative z-10 mx-auto max-w-6xl px-6 pt-8 pb-16">
-      <header className="reveal mb-8 flex flex-wrap items-center justify-between gap-4" style={{ '--stagger': 0 } as React.CSSProperties}>
-        <div className="flex items-baseline gap-4">
-          <h1 className="wordmark text-lg font-semibold">GLADIATOR</h1>
-          <nav className="flex gap-4 text-sm">
-            <a href="#/" style={{ color: 'var(--color-mut)' }}>Dashboard</a>
-            <a href="#/labor" style={{ color: 'var(--color-cyan)' }}>Strategie-Labor</a>
-            <a href="#/trading" style={{ color: 'var(--color-mut)' }}>Trading</a>
-          </nav>
-        </div>
-        <button onClick={() => void logout()} className="text-sm" style={{ color: 'var(--color-mut)' }}>
-          Abmelden
-        </button>
-      </header>
 
       {/* ── Lauf-Konfiguration ── */}
       <section className="glass reveal p-6" style={{ '--stagger': 1 } as React.CSSProperties}>

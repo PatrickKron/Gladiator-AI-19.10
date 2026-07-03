@@ -1,0 +1,97 @@
+import { eq } from 'drizzle-orm';
+import { z } from 'zod';
+import { schema, type Db } from '@gladiator/db';
+import { protectedProcedure, router } from '../trpc.js';
+
+const { tradingSettings, auditLog } = schema;
+
+/**
+ * Trading-Einstellungen (09_ §3.10): greifen DIREKT in die Risk-Engine —
+ * loadRiskSettings liest exakt diese Zeile vor jeder Order-Prüfung.
+ * Modus bleibt hart 'paper' (Live-Freigabe erst Phase 7, pro Börse).
+ */
+
+const settingsInput = z.object({
+  riskPctPerTrade: z.number().positive().max(5),
+  maxLeverage: z.number().min(1).max(25),
+  maxOpenPositions: z.number().int().min(1).max(20),
+  maxExposurePctPerAsset: z.number().positive().max(100),
+  dailyLossLimitPct: z.number().positive().max(20),
+  weeklyLossLimitPct: z.number().positive().max(40),
+  maxDrawdownPct: z.number().positive().max(60),
+});
+
+async function ensureRow(ctx: { db: Db; user: { id: string } }) {
+  const [row] = await ctx.db.select().from(tradingSettings).where(eq(tradingSettings.userId, ctx.user.id)).limit(1);
+  if (row) return row;
+  const [created] = await ctx.db.insert(tradingSettings).values({ userId: ctx.user.id }).returning();
+  return created!;
+}
+
+export const settingsRouter = router({
+  get: protectedProcedure.query(async ({ ctx }) => {
+    const row = await ensureRow(ctx);
+    return {
+      riskPctPerTrade: Number(row.riskPctPerTrade),
+      maxLeverage: Number(row.maxLeverage),
+      maxOpenPositions: row.maxOpenPositions,
+      maxExposurePctPerAsset: Number(row.maxExposurePctPerAsset),
+      dailyLossLimitPct: Number(row.dailyLossLimitPct),
+      weeklyLossLimitPct: Number(row.weeklyLossLimitPct),
+      maxDrawdownPct: Number(row.maxDrawdownPct),
+      killSwitchActive: row.killSwitchActive,
+      mode: row.mode,
+      updatedAt: row.updatedAt,
+    };
+  }),
+
+  update: protectedProcedure.input(settingsInput).mutation(async ({ ctx, input }) => {
+    await ensureRow(ctx);
+    const [updated] = await ctx.db
+      .update(tradingSettings)
+      .set({
+        riskPctPerTrade: String(input.riskPctPerTrade),
+        maxLeverage: String(input.maxLeverage),
+        maxOpenPositions: input.maxOpenPositions,
+        maxExposurePctPerAsset: String(input.maxExposurePctPerAsset),
+        dailyLossLimitPct: String(input.dailyLossLimitPct),
+        weeklyLossLimitPct: String(input.weeklyLossLimitPct),
+        maxDrawdownPct: String(input.maxDrawdownPct),
+        updatedAt: new Date(),
+      })
+      .where(eq(tradingSettings.userId, ctx.user.id))
+      .returning();
+    await ctx.db.insert(auditLog).values({
+      actor: 'user',
+      userId: ctx.user.id,
+      action: 'settings.update',
+      entityType: 'trading_settings',
+      entityId: updated!.id,
+      details: input,
+      ip: ctx.ip,
+    });
+    return { ok: true };
+  }),
+
+  /** Kill-Switch (SAFE): sofortiger Order-Stopp — jede Änderung auditiert. */
+  setKillSwitch: protectedProcedure
+    .input(z.object({ active: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await ensureRow(ctx);
+      const [updated] = await ctx.db
+        .update(tradingSettings)
+        .set({ killSwitchActive: input.active, updatedAt: new Date() })
+        .where(eq(tradingSettings.userId, ctx.user.id))
+        .returning();
+      await ctx.db.insert(auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: input.active ? 'risk.kill_switch.on' : 'risk.kill_switch.off',
+        entityType: 'trading_settings',
+        entityId: updated!.id,
+        details: { active: input.active },
+        ip: ctx.ip,
+      });
+      return { killSwitchActive: updated!.killSwitchActive };
+    }),
+});

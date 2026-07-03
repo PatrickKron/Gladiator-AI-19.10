@@ -23,6 +23,26 @@ export const tradingRouter = router({
     };
   }),
 
+  /** Venue-Liste (09_ §3.9): was ist konfiguriert, was aktiv — Zugänge legt nur Patrick an. */
+  venues: protectedProcedure.query(({ ctx }) => {
+    const active = ctx.venue?.id ?? 'none';
+    return [
+      { id: 'paper-internal', kind: 'paper' as const, configured: true, active: active === 'paper-internal' },
+      {
+        id: 'binance-testnet',
+        kind: 'testnet' as const,
+        configured: Boolean(process.env.BINANCE_TESTNET_KEY && process.env.BINANCE_TESTNET_SECRET),
+        active: active === 'binance-testnet',
+      },
+      {
+        id: 'hyperliquid-testnet',
+        kind: 'testnet' as const,
+        configured: Boolean(process.env.HYPERLIQUID_TESTNET_WALLET && process.env.HYPERLIQUID_TESTNET_AGENT_KEY),
+        active: active === 'hyperliquid-testnet',
+      },
+    ];
+  }),
+
   positions: protectedProcedure.query(async ({ ctx }) => {
     const rows = await ctx.db
       .select()

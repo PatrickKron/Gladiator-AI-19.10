@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 
 export type SignalReview = {
@@ -50,29 +51,30 @@ const VOTE_COLOR: Record<SignalReview['vote'], string> = {
 
 const VOTE_SYMBOL: Record<SignalReview['vote'], string> = { confirm: '✓', caution: '△', reject: '✕' };
 
-const AGENT_LABEL: Record<string, string> = {
-  technik: 'Technik',
-  risk: 'Risk',
-  devil: "Devil's Adv.",
-  makro: 'Makro',
-  shadow: 'Shadow',
-  portfolio: 'Portfolio',
+const AGENT_KEY: Record<string, string> = {
+  technik: 'signals.agentTechnik',
+  risk: 'signals.agentRisk',
+  devil: 'signals.agentDevil',
+  makro: 'signals.agentMakro',
+  shadow: 'signals.agentShadow',
+  portfolio: 'signals.agentPortfolio',
 };
 
-const SOURCE_LABEL: Record<SignalRow['source'], string> = {
-  engine: 'Engine',
-  pine: 'Pine/TradingView',
-  instruction: 'Anweisung (DSL)',
-  manual: 'Manuell',
+const SOURCE_KEY: Record<SignalRow['source'], string> = {
+  engine: 'signals.sourceEngine',
+  pine: 'signals.sourcePine',
+  instruction: 'signals.sourceInstruction',
+  manual: 'signals.sourceManual',
 };
 
 /** Schwarm-Urteile (Phase 5): transparent, aufklappbar — keine Blackbox. */
 function SwarmReviews({ reviews }: { reviews: SignalReview[] }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   if (reviews.length === 0) {
     return (
       <p className="mt-3 text-[11px]" style={{ color: 'var(--color-mut)' }}>
-        Agenten-Review ausstehend (läuft mit dem nächsten Scan).
+        {t('signals.reviewPending')}
       </p>
     );
   }
@@ -91,7 +93,7 @@ function SwarmReviews({ reviews }: { reviews: SignalReview[] }) {
               style={{ color: VOTE_COLOR[r.vote], border: `1px solid ${VOTE_COLOR[r.vote]}` }}
               title={r.reason}
             >
-              {VOTE_SYMBOL[r.vote]} {AGENT_LABEL[r.agent] ?? r.agent}
+              {VOTE_SYMBOL[r.vote]} {t(AGENT_KEY[r.agent] ?? r.agent)}
             </span>
           ))}
           {disabled.map((d) => (
@@ -101,7 +103,7 @@ function SwarmReviews({ reviews }: { reviews: SignalReview[] }) {
               style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
               title={d.reason}
             >
-              ⊘ {AGENT_LABEL[d.agent] ?? d.agent}
+              ⊘ {t(AGENT_KEY[d.agent] ?? d.agent)}
             </span>
           ))}
         </span>
@@ -116,13 +118,13 @@ function SwarmReviews({ reviews }: { reviews: SignalReview[] }) {
           {[...singles, ...(portfolio ? [portfolio] : [])].map((r) => (
             <li key={r.agent}>
               <span style={{ color: VOTE_COLOR[r.vote] }}>
-                {VOTE_SYMBOL[r.vote]} {AGENT_LABEL[r.agent] ?? r.agent} ({(r.confidence * 100).toFixed(0)} %):
+                {VOTE_SYMBOL[r.vote]} {t(AGENT_KEY[r.agent] ?? r.agent)} ({(r.confidence * 100).toFixed(0)} %):
               </span>{' '}
               {r.reason}
             </li>
           ))}
           {disabled.map((d) => (
-            <li key={d.agent}>⊘ {AGENT_LABEL[d.agent] ?? d.agent}: deaktiviert — {d.reason}</li>
+            <li key={d.agent}>⊘ {t(AGENT_KEY[d.agent] ?? d.agent)}: {t('common.disabled')} — {d.reason}</li>
           ))}
         </ul>
       )}
@@ -135,7 +137,8 @@ function SwarmReviews({ reviews }: { reviews: SignalReview[] }) {
  * Mensch-im-Loop-Entscheidung. EHRLICH: Bestätigen führt noch KEINE Order aus
  * (Ausführung kommt mit Phase 4) — das steht sichtbar auf der Karte.
  */
-export function SignalCard({ signal, onDecided }: { signal: SignalRow; onDecided: () => void }) {
+export function SignalCard({ signal, onDecided, readOnly = false }: { signal: SignalRow; onDecided: () => void; readOnly?: boolean }) {
+  const { t } = useTranslation();
   const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [blocked, setBlocked] = useState<string[] | null>(null);
@@ -151,7 +154,7 @@ export function SignalCard({ signal, onDecided }: { signal: SignalRow; onDecided
       if (action === 'confirm') {
         const res = await trpc.signals.confirm.mutate({ id: signal.id });
         if (res.executed) {
-          setSuccess(`✓ ${res.detail} Menge ${res.qty?.toFixed(6)} — Position offen (siehe Trading).`);
+          setSuccess(`✓ ${res.detail} ${t('signals.qty')} ${res.qty?.toFixed(6)} — ${t('signals.executed')}`);
           window.setTimeout(onDecided, 2500);
         } else {
           // Risk-Gate hat geblockt — Signal bleibt offen, Gründe anzeigen
@@ -163,7 +166,7 @@ export function SignalCard({ signal, onDecided }: { signal: SignalRow; onDecided
         onDecided();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Aktion fehlgeschlagen.');
+      setError(err instanceof Error ? err.message : t('common.error'));
       setBusy(null);
     }
   }
@@ -185,7 +188,7 @@ export function SignalCard({ signal, onDecided }: { signal: SignalRow; onDecided
               className="rounded border px-1.5 py-0.5 text-[10px] tracking-wider"
               style={{ borderColor: 'var(--color-acc2, var(--color-line))', color: 'var(--color-mut)' }}
             >
-              {SOURCE_LABEL[signal.source]}
+              {t(SOURCE_KEY[signal.source])}
             </span>
           )}
         </div>
@@ -197,15 +200,15 @@ export function SignalCard({ signal, onDecided }: { signal: SignalRow; onDecided
 
       <div className="num mt-4 grid grid-cols-3 gap-2 text-sm">
         <div>
-          <p className="label">Entry</p>
+          <p className="label">{t('signals.entry')}</p>
           <p className="mt-0.5">{fmt(signal.entry)}</p>
         </div>
         <div>
-          <p className="label">Stop-Loss</p>
+          <p className="label">{t('signals.stopLoss')}</p>
           <p className="mt-0.5" style={{ color: 'var(--color-neg)' }}>{fmt(signal.stopLoss)}</p>
         </div>
         <div>
-          <p className="label">TP 1–{signal.takeProfits.length}</p>
+          <p className="label">{t('signals.tp')} 1–{signal.takeProfits.length}</p>
           <p className="mt-0.5" style={{ color: 'var(--color-pos)' }}>
             {signal.takeProfits.map(fmt).join(' · ')}
           </p>
@@ -219,7 +222,7 @@ export function SignalCard({ signal, onDecided }: { signal: SignalRow; onDecided
           </span>
         ))}
         <span className="rounded border px-1.5 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
-          Session: {signal.session}
+          {t('common.session')}: {signal.session}
         </span>
       </div>
 
@@ -233,33 +236,37 @@ export function SignalCard({ signal, onDecided }: { signal: SignalRow; onDecided
       )}
       {blocked && (
         <div className="mt-3 rounded border p-2 text-xs" style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}>
-          <p className="font-medium">Risk-Gate hat geblockt:</p>
+          <p className="font-medium">{t('signals.riskBlocked')}</p>
           <ul className="mt-1 list-disc pl-4">
             {blocked.map((r, i) => <li key={i}>{r}</li>)}
           </ul>
         </div>
       )}
 
-      <div className="mt-4 flex items-center gap-2.5">
-        <button
-          onClick={() => void decide('confirm')}
-          disabled={busy !== null}
-          className="btn-primary flex-1 px-3 py-2 text-sm disabled:opacity-50"
-        >
-          {busy === 'confirm' ? 'Bestätige …' : 'Bestätigen'}
-        </button>
-        <button
-          onClick={() => void decide('reject')}
-          disabled={busy !== null}
-          className="flex-1 rounded-[0.625rem] border px-3 py-2 text-sm transition-colors disabled:opacity-50"
-          style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
-        >
-          {busy === 'reject' ? 'Lehne ab …' : 'Ablehnen'}
-        </button>
-      </div>
-      <p className="mt-2.5 text-center text-[11px]" style={{ color: 'var(--color-mut)' }}>
-        Bestätigen → Risk-Gate (statisch + adaptiv) → Paper-Order gegen echten Live-Preis. Alles auditiert.
-      </p>
+      {!readOnly && (
+        <>
+          <div className="mt-4 flex items-center gap-2.5">
+            <button
+              onClick={() => void decide('confirm')}
+              disabled={busy !== null}
+              className="btn-primary flex-1 px-3 py-2 text-sm disabled:opacity-50"
+            >
+              {busy === 'confirm' ? t('signals.confirming') : t('signals.confirmBtn')}
+            </button>
+            <button
+              onClick={() => void decide('reject')}
+              disabled={busy !== null}
+              className="flex-1 rounded-[0.625rem] border px-3 py-2 text-sm transition-colors disabled:opacity-50"
+              style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
+            >
+              {busy === 'reject' ? t('signals.rejecting') : t('signals.rejectBtn')}
+            </button>
+          </div>
+          <p className="mt-2.5 text-center text-[11px]" style={{ color: 'var(--color-mut)' }}>
+            {t('signals.footer')}
+          </p>
+        </>
+      )}
     </div>
   );
 }

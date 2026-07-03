@@ -54,6 +54,57 @@ export const strategiesRouter = router({
     return rows;
   }),
 
+  /** Versionen einer Strategie (Params + Status — Grundlage für Backtests & Promotion). */
+  versions: protectedProcedure
+    .input(z.object({ strategyId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db
+        .select({
+          id: strategyVersions.id,
+          version: strategyVersions.version,
+          status: strategyVersions.status,
+          params: strategyVersions.params,
+          promotedAt: strategyVersions.promotedAt,
+          createdAt: strategyVersions.createdAt,
+        })
+        .from(strategyVersions)
+        .where(eq(strategyVersions.strategyId, input.strategyId))
+        .orderBy(desc(strategyVersions.version));
+    }),
+
+  /**
+   * Promotion draft → paper (Mensch im Loop). Live-Promotion ist hier BEWUSST
+   * nicht möglich — Live-Freigabe erfolgt pro Börse in Phase 7 (Regel 3/7).
+   */
+  promote: protectedProcedure
+    .input(z.object({ versionId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const [version] = await ctx.db
+        .select()
+        .from(strategyVersions)
+        .where(eq(strategyVersions.id, input.versionId))
+        .limit(1);
+      if (!version) throw new TRPCError({ code: 'NOT_FOUND', message: 'Version nicht gefunden.' });
+      if (version.status !== 'draft') {
+        throw new TRPCError({ code: 'CONFLICT', message: `Nur draft → paper möglich (Status ist ${version.status}).` });
+      }
+      const [updated] = await ctx.db
+        .update(strategyVersions)
+        .set({ status: 'paper', promotedBy: ctx.user.id, promotedAt: new Date() })
+        .where(eq(strategyVersions.id, input.versionId))
+        .returning();
+      await ctx.db.insert(auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: 'strategy.version.promoted',
+        entityType: 'strategy_version',
+        entityId: input.versionId,
+        details: { from: 'draft', to: 'paper', version: version.version },
+        ip: ctx.ip,
+      });
+      return updated!;
+    }),
+
   /** Pine-Strategie registrieren → strategyId für den TradingView-Alert (07_ §1/§2). */
   pineRegister: protectedProcedure
     .input(
