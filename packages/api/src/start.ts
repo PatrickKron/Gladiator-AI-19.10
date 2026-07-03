@@ -5,7 +5,7 @@
 import { createDb, requireEnv } from '@gladiator/db';
 import { LivePriceFeed } from '@gladiator/market-data';
 import { startJobWorker } from '@gladiator/jobs';
-import { BinanceTestnetVenue, PaperVenue } from '@gladiator/exchange';
+import { BinanceTestnetVenue, HyperliquidTestnetVenue, PaperVenue } from '@gladiator/exchange';
 import { createApp } from './app.js';
 
 requireEnv('DATABASE_URL');
@@ -26,12 +26,27 @@ const prices = new LivePriceFeed(['BTC/USDT', 'ETH/USDT', 'SOL/USDT']);
 prices.start();
 
 /**
- * Venue-Wahl (06_ §7): Binance-Testnet NUR wenn Patrick Keys hinterlegt hat —
- * sonst die interne Paper-Engine gegen echte Live-Preise. Beides Paper-Modus;
+ * Venue-Wahl (06_ §7): Testnet-Venues NUR wenn Patrick die Zugänge hinterlegt
+ * hat (Priorität: TRADING_VENUE-Env > Binance > Hyperliquid > Paper) — sonst
+ * die interne Paper-Engine gegen echte Live-Preise. Alles Paper-Modus;
  * Live existiert in dieser Phase nicht.
  */
 const binance = new BinanceTestnetVenue(process.env.BINANCE_TESTNET_KEY, process.env.BINANCE_TESTNET_SECRET);
-const venue = binance.configured ? binance : new PaperVenue();
+const hyperliquid = new HyperliquidTestnetVenue(
+  process.env.HYPERLIQUID_TESTNET_WALLET,
+  process.env.HYPERLIQUID_TESTNET_AGENT_KEY,
+);
+const wanted = process.env.TRADING_VENUE;
+const venue =
+  wanted === 'hyperliquid-testnet' && hyperliquid.configured
+    ? hyperliquid
+    : wanted === 'binance-testnet' && binance.configured
+      ? binance
+      : binance.configured
+        ? binance
+        : hyperliquid.configured
+          ? hyperliquid
+          : new PaperVenue();
 console.log(`Trading-Venue: ${venue.id} (${venue.kind})`);
 
 const jobs = await startJobWorker(db, venue);
