@@ -2,10 +2,11 @@ import { and, eq } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { getOhlcv } from '@gladiator/market-data';
-import { evaluateSmcCoreAt, SMC_CORE_DEFAULTS, type SmcCoreParams } from '@gladiator/strategy-engine';
+import { detectStructure, evaluateSmcCoreAt, SMC_CORE_DEFAULTS, type SmcCoreParams } from '@gladiator/strategy-engine';
 import { DEFAULT_COSTS, runBacktest, type BacktestResult, type CostModel } from './engine.js';
 import { runWalkForward, type WalkForwardResult } from './walkforward.js';
 import { explainRapsChoice, rapsGrid, type RapsResult } from './raps.js';
+import { analyzeTrades, type TradeAnalysis } from './analysis.js';
 
 const { backtests, walkforwardRuns, strategies, strategyVersions, studyTrades, studyClusters } = schema;
 
@@ -36,6 +37,8 @@ export type LabRunInput = {
   costModel?: CostModel;
 };
 
+export type TurningPoint = { ts: string; kind: 'BOS' | 'CHoCH'; direction: 'bullish' | 'bearish'; level: number };
+
 export type LabRunOutput = {
   backtestId: string;
   candles: number;
@@ -43,6 +46,10 @@ export type LabRunOutput = {
   costModel: CostModel;
   result: BacktestResult;
   raps: RapsResult & { explanation: string; clusterKey: string };
+  /** Rundum-Analyse: Session/Regime/Phase/Confluence-Statistiken. */
+  analysis: TradeAnalysis;
+  /** Letzte Struktur-Trendwenden (CHoCH) und Fortsetzungen (BOS) im Zeitraum. */
+  turningPoints: TurningPoint[];
 };
 
 async function resolveVersion(db: Db, versionId: string): Promise<Partial<SmcCoreParams>> {
@@ -176,6 +183,20 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
       },
     });
 
+  // Rundum-Analyse + Trendwende-Punkte (aus der Marktstruktur des Zeitraums)
+  const analysis = analyzeTrades(result.trades);
+  const turningPoints: TurningPoint[] = detectStructure(candles, {
+    leftBars: params.swingLeftBars,
+    rightBars: params.swingRightBars,
+  })
+    .slice(-15)
+    .map((e) => ({
+      ts: candles[e.index]!.ts.toISOString(),
+      kind: e.kind,
+      direction: e.direction,
+      level: e.brokenLevel,
+    }));
+
   return {
     backtestId: row!.id,
     candles: candles.length,
@@ -183,6 +204,8 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
     costModel,
     result,
     raps: { ...raps, explanation, clusterKey },
+    analysis,
+    turningPoints,
   };
 }
 

@@ -79,6 +79,10 @@ export type SetupCandidate = {
   session: TradingSession;
   brokenLevel: number;
   structureKind: 'BOS' | 'CHoCH';
+  /** EMA200-Regime am Entry: Preis über oder unter dem Trend-EMA (Rundum-Analyse). */
+  emaRegime: 'above' | 'below';
+  /** Marktphase aus der Struktur (letztes Break-Ereignis): bull- oder bear-Phase. */
+  marketPhase: 'bull' | 'bear';
 };
 
 export type SmcContext = {
@@ -225,6 +229,8 @@ export function evaluateSmcCoreAt(
       session,
       brokenLevel: event.brokenLevel,
       structureKind: event.kind,
+      emaRegime: bar.close > emaTrend ? 'above' : 'below',
+      marketPhase: event.direction === 'bullish' ? 'bull' : 'bear',
     });
   }
 

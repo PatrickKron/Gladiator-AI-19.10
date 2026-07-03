@@ -23,6 +23,41 @@ type RunResult = Awaited<ReturnType<typeof trpc.lab.runBacktest.mutate>>;
 type WfResult = Awaited<ReturnType<typeof trpc.lab.runWalkForward.mutate>>;
 type RunRow = Awaited<ReturnType<typeof trpc.lab.runs.query>>[number];
 type VersionRow = Awaited<ReturnType<typeof trpc.lab.versions.query>>[number];
+type GateRow = Awaited<ReturnType<typeof trpc.risk.gates.query>>[number];
+type Bucket = { trades: number; netPnl: number; winRate: number; expectancyR: number };
+
+function BucketTable({ title, rows }: { title: string; rows: [string, Bucket][] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div>
+      <h3 className="label">{title}</h3>
+      <table className="mt-2 w-full text-sm">
+        <thead>
+          <tr className="label text-left">
+            <th className="py-1 pr-3 font-normal">Bucket</th>
+            <th className="py-1 pr-3 text-right font-normal">Trades</th>
+            <th className="py-1 pr-3 text-right font-normal">WinRate</th>
+            <th className="py-1 pr-3 text-right font-normal">Expectancy R</th>
+            <th className="py-1 text-right font-normal">Netto $</th>
+          </tr>
+        </thead>
+        <tbody className="num">
+          {rows.map(([name, b]) => (
+            <tr key={name} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+              <td className="py-1 pr-3">{name}</td>
+              <td className="py-1 pr-3 text-right">{b.trades}</td>
+              <td className="py-1 pr-3 text-right">{fmt(b.winRate * 100, 1)} %</td>
+              <td className="py-1 pr-3 text-right" style={{ color: b.expectancyR >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+                {fmt(b.expectancyR)}
+              </td>
+              <td className="py-1 text-right" style={{ color: b.netPnl >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>{fmt(b.netPnl)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 const SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'] as const;
 const TIMEFRAMES = ['15m', '1h', '4h', '1d'] as const;
@@ -95,18 +130,24 @@ export function Labor() {
   const [riskPct, setRiskPct] = useState(1);
   const [versionId, setVersionId] = useState<string>('');
 
-  const [busy, setBusy] = useState<'bt' | 'wf' | 'save' | null>(null);
+  const [busy, setBusy] = useState<'bt' | 'wf' | 'save' | 'cal' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [run, setRun] = useState<RunResult | null>(null);
   const [wf, setWf] = useState<WfResult | null>(null);
   const [runs, setRuns] = useState<RunRow[]>([]);
   const [versions, setVersions] = useState<VersionRow[]>([]);
+  const [gates, setGates] = useState<GateRow[]>([]);
   const [compare, setCompare] = useState<string[]>([]);
 
   async function refreshLists() {
-    const [r, v] = await Promise.all([trpc.lab.runs.query({ limit: 25 }), trpc.lab.versions.query()]);
+    const [r, v, g] = await Promise.all([
+      trpc.lab.runs.query({ limit: 25 }),
+      trpc.lab.versions.query(),
+      trpc.risk.gates.query(),
+    ]);
     setRuns(r);
     setVersions(v);
+    setGates(g);
   }
   useEffect(() => {
     void refreshLists().catch(() => {});
@@ -159,6 +200,31 @@ export function Labor() {
     } finally {
       setBusy(null);
     }
+  }
+
+  async function onCalibrate() {
+    setBusy('cal');
+    setError(null);
+    try {
+      await trpc.lab.calibrateRisk.mutate({
+        symbol,
+        timeframe,
+        setupType,
+        from: new Date(from).toISOString(),
+        to: new Date(`${to}T23:59:59Z`).toISOString(),
+        params: paramOverrides,
+      });
+      await refreshLists();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Kalibrierung fehlgeschlagen.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onToggleGate(id: string, active: boolean) {
+    await trpc.risk.toggleGate.mutate({ id, active });
+    await refreshLists();
   }
 
   async function onSaveVersion() {
@@ -260,6 +326,9 @@ export function Labor() {
           <button onClick={() => void onWalkForward()} disabled={busy !== null} className="btn-primary px-5 py-2.5 text-sm">
             {busy === 'wf' ? 'Walk-Forward läuft …' : 'Walk-Forward (Grid 9)'}
           </button>
+          <button onClick={() => void onCalibrate()} disabled={busy !== null} className="btn-primary px-5 py-2.5 text-sm">
+            {busy === 'cal' ? 'Kalibriere …' : 'Risk-Engine kalibrieren'}
+          </button>
           <button
             onClick={() => void onSaveVersion()}
             disabled={busy !== null}
@@ -329,6 +398,68 @@ export function Labor() {
                 </tbody>
               </table>
             </div>
+          </section>
+
+          <section className="glass mt-6 p-6">
+            <h2 className="label">Rundum-Analyse · Session / EMA200-Regime / Marktphase / Confluence</h2>
+            <div className="mt-4 grid gap-6 lg:grid-cols-2">
+              <BucketTable title="Nach Session (Asia · London · Overlap · NY · Off)" rows={Object.entries(run.analysis.bySession)} />
+              <BucketTable
+                title="Richtung × EMA200-Regime (z. B. Longs unter EMA200)"
+                rows={Object.entries(run.analysis.byDirectionRegime).map(([k, v]) => [
+                  k.replace('|above', ' · über EMA200').replace('|below', ' · unter EMA200'),
+                  v,
+                ])}
+              />
+              <BucketTable
+                title="Nach Marktphase (Struktur bull/bear)"
+                rows={Object.entries(run.analysis.byPhase).filter((e): e is [string, Bucket] => e[1] !== undefined)}
+              />
+              <div>
+                <h3 className="label">Confluence-Faktoren einzeln (Δ Expectancy mit vs. ohne)</h3>
+                <table className="mt-2 w-full text-sm">
+                  <thead>
+                    <tr className="label text-left">
+                      <th className="py-1 pr-3 font-normal">Faktor</th>
+                      <th className="py-1 pr-3 text-right font-normal">mit (n)</th>
+                      <th className="py-1 pr-3 text-right font-normal">mit R</th>
+                      <th className="py-1 pr-3 text-right font-normal">ohne R</th>
+                      <th className="py-1 text-right font-normal">Δ R</th>
+                    </tr>
+                  </thead>
+                  <tbody className="num">
+                    {Object.entries(run.analysis.byConfluence).map(([tag, c]) => (
+                      <tr key={tag} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                        <td className="py-1 pr-3">{tag}</td>
+                        <td className="py-1 pr-3 text-right">{c.withTrades}</td>
+                        <td className="py-1 pr-3 text-right">{fmt(c.withExpectancyR)}</td>
+                        <td className="py-1 pr-3 text-right">{c.withoutTrades > 0 ? fmt(c.withoutExpectancyR) : '—'}</td>
+                        <td className="py-1 text-right" style={{ color: c.deltaR >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>{fmt(c.deltaR)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            {run.turningPoints.length > 0 && (
+              <div className="mt-6">
+                <h3 className="label">Letzte Trendwenden (CHoCH) & Fortsetzungen (BOS) im Zeitraum</h3>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {run.turningPoints.map((tp, i) => (
+                    <span
+                      key={i}
+                      className="num rounded border px-2 py-1 text-xs"
+                      style={{
+                        borderColor: 'var(--color-line)',
+                        color: tp.direction === 'bullish' ? 'var(--color-pos)' : 'var(--color-neg)',
+                      }}
+                    >
+                      {tp.kind} {tp.direction === 'bullish' ? '▲' : '▼'} {new Date(tp.ts).toLocaleDateString('de-DE')}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="glass mt-6 p-6">
@@ -403,6 +534,41 @@ export function Labor() {
           </p>
         </section>
       )}
+
+      {/* ── Adaptive Risk-Gates (Selbst-Kalibrierung) ── */}
+      <section className="glass mt-6 p-6">
+        <h2 className="label">Adaptive Risk-Gates · nur verschärfend · jedes Gate abschaltbar (Mensch im Loop)</h2>
+        {gates.length === 0 ? (
+          <p className="mt-3 text-sm" style={{ color: 'var(--color-mut)' }}>
+            Noch keine Gates. „Risk-Engine kalibrieren" leitet aus dem gewählten Zeitraum evidenzbasierte
+            Sperren ab (z. B. „keine Longs unter EMA200") — nur wenn ≥ 30 Trades sie belegen.
+          </p>
+        ) : (
+          <ul className="mt-4 space-y-3">
+            {gates.map((g) => (
+              <li key={g.id} className="flex items-start justify-between gap-4 rounded-xl border p-3" style={{ borderColor: 'var(--color-line)', opacity: g.isActive ? 1 : 0.5 }}>
+                <div>
+                  <p className="text-sm">{g.reason}</p>
+                  <p className="label mt-1">
+                    Scope: {g.symbol ?? 'alle'} · {g.timeframe ?? 'alle TF'} · Quelle: {g.source} ·{' '}
+                    {new Date(g.createdAt as unknown as string).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}
+                  </p>
+                </div>
+                <button
+                  onClick={() => void onToggleGate(g.id, !g.isActive)}
+                  className="shrink-0 rounded border px-3 py-1.5 text-xs"
+                  style={{
+                    borderColor: g.isActive ? 'rgba(61,220,151,0.4)' : 'var(--color-line)',
+                    color: g.isActive ? 'var(--color-pos)' : 'var(--color-mut)',
+                  }}
+                >
+                  {g.isActive ? 'aktiv — klick zum Deaktivieren' : 'inaktiv — klick zum Aktivieren'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {/* ── Lauf-Verlauf + Vergleich ── */}
       <section className="glass mt-6 p-6">

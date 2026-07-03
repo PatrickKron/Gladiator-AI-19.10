@@ -11,7 +11,7 @@ export const venueTypeSchema = z.enum(['cex', 'dex']);
 export const directionSchema = z.enum(['long', 'short']);
 export const setupTypeSchema = z.enum(['scalp', 'swing', 'position']);
 export const riskClassSchema = z.enum(['low', 'medium', 'high']);
-export const tradingSessionSchema = z.enum(['asia', 'london', 'newyork', 'off']);
+export const tradingSessionSchema = z.enum(['asia', 'london', 'overlap', 'newyork', 'off']);
 export const signalStatusSchema = z.enum(['new', 'confirmed', 'rejected', 'expired', 'filled', 'closed']);
 // Hinweis: kein tier-Feld — keine Free/Pro/VIP-Stufen (Entscheidung 2026-07-02).
 

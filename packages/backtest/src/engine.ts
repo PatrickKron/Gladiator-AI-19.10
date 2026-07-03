@@ -75,6 +75,10 @@ export type BacktestTrade = {
   barsHeld: number;
   score: number;
   session: string;
+  /** Rundum-Analyse: EMA200-Regime, Marktphase und Confluence-Tags am Entry. */
+  emaRegime: 'above' | 'below';
+  marketPhase: 'bull' | 'bear';
+  confluence: string[];
   exitReason: 'tp' | 'sl' | 'be' | 'end-of-data';
   /** R-Ergebnis unter TP-Schema A (50/30/20), B (60/30/10), C (100 % TP1), D (Runner). */
   pnlRTpA: number;
@@ -263,6 +267,9 @@ export function runBacktest(candles: Candle[], config: BacktestConfig): Backtest
       barsHeld,
       score: setup.score,
       session: setup.session,
+      emaRegime: setup.emaRegime,
+      marketPhase: setup.marketPhase,
+      confluence: setup.confluence,
       exitReason,
       pnlRTpA: schemaR(tpRsHit, totalTps, 0, TP_SCHEMAS.A, beAfter),
       pnlRTpB: schemaR(tpRsHit, totalTps, 0, TP_SCHEMAS.B, beAfter),

@@ -1,3 +1,2 @@
-// @gladiator/risk — Skelett. Wird in der zugehörigen Phase gebaut (siehe CLAUDE.md).
-// Bewusst leer: kein Platzhalter-/Fake-Code in Laufpfaden.
-export {};
+export { evaluateRisk, gateMatches, type OrderIntent, type RiskSettings, type AccountState, type MarketLimits, type AdaptiveGate, type RiskVerdict, type RiskCheck } from './risk.js';
+export { deriveAdaptiveGates, type CalibrationOptions } from './calibration.js';

@@ -3,9 +3,10 @@ import { and, desc, eq, max } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
 import { runLabBacktest, runLabWalkForward } from '@gladiator/backtest';
+import { deriveAdaptiveGates } from '@gladiator/risk';
 import { protectedProcedure, router } from '../trpc.js';
 
-const { strategies, strategyVersions, backtests, auditLog } = schema;
+const { strategies, strategyVersions, backtests, auditLog, riskGates } = schema;
 
 const timeframeSchema = z.enum(['15m', '1h', '4h', '1d']);
 const setupSchema = z.enum(['scalp', 'swing', 'position']);
@@ -147,6 +148,8 @@ export const labRouter = router({
             isLowSampleSize: out.raps.isLowSampleSize,
             tradeCount: out.raps.tradeCount,
           },
+          analysis: out.analysis,
+          turningPoints: out.turningPoints,
         };
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'Backtest fehlgeschlagen.' });
@@ -191,6 +194,75 @@ export const labRouter = router({
         };
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'Walk-Forward fehlgeschlagen.' });
+      }
+    }),
+
+  /**
+   * Selbst-Kalibrierung: Backtest → Rundum-Analyse → restriktive Gates ableiten
+   * und persistieren (ersetzt vorherige Labor-Gates für diesen Scope). Auditiert.
+   * Gates können nur VERSCHÄRFEN; jedes ist einzeln deaktivierbar (risk.toggleGate).
+   */
+  calibrateRisk: protectedProcedure
+    .input(
+      z.object({
+        symbol: z.enum(['BTC/USDT', 'ETH/USDT', 'SOL/USDT']),
+        timeframe: timeframeSchema,
+        setupType: setupSchema,
+        from: z.string().datetime(),
+        to: z.string().datetime(),
+        params: paramsSchema.optional(),
+        minSample: z.number().int().min(10).max(500).default(30),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const out = await runLabBacktest(ctx.db, {
+          symbol: input.symbol,
+          timeframe: input.timeframe,
+          setupType: input.setupType,
+          from: new Date(input.from),
+          to: new Date(input.to),
+          params: input.params,
+        });
+        const gates = deriveAdaptiveGates(out.analysis, {
+          minSample: input.minSample,
+          symbol: input.symbol,
+          timeframe: input.timeframe,
+        });
+
+        // Alte Labor-Gates für diesen Scope ersetzen (Historie bleibt im Audit-Log)
+        await ctx.db
+          .delete(riskGates)
+          .where(and(eq(riskGates.symbol, input.symbol), eq(riskGates.timeframe, input.timeframe), eq(riskGates.source, 'lab-calibration')));
+
+        for (const g of gates) {
+          await ctx.db.insert(riskGates).values({
+            kind: g.kind,
+            direction: g.direction ?? null,
+            emaRegime: g.emaRegime ?? null,
+            session: (g.session as 'asia' | 'london' | 'overlap' | 'newyork' | 'off' | undefined) ?? null,
+            marketPhase: g.marketPhase ?? null,
+            symbol: g.symbol ?? null,
+            timeframe: g.timeframe ?? null,
+            evidence: { ...g.evidence, backtestId: out.backtestId, trades: g.evidence.trades },
+            reason: g.reason,
+            source: 'lab-calibration',
+          });
+        }
+
+        await ctx.db.insert(auditLog).values({
+          actor: 'user',
+          userId: ctx.user.id,
+          action: 'risk.calibrate',
+          entityType: 'risk_gate',
+          entityId: out.backtestId,
+          details: { scope: `${input.symbol} ${input.timeframe}`, gatesDerived: gates.length, trades: out.result.metrics.tradeCount },
+          ip: ctx.ip,
+        });
+
+        return { backtestId: out.backtestId, trades: out.result.metrics.tradeCount, gates, analysis: out.analysis };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'Kalibrierung fehlgeschlagen.' });
       }
     }),
 

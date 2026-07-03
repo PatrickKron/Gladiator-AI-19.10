@@ -4,6 +4,7 @@ export * from './market.js';
 export * from './strategy.js';
 export * from './trading.js';
 export * from './backtest.js';
+export * from './risk.js';
 export * from './product.js';
 export * from './study.js';
 export * from './audit.js';

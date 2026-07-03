@@ -23,6 +23,8 @@ function setupAt(bar: number, partial?: Partial<SetupCandidate>) {
         session: 'london',
         brokenLevel: 0,
         structureKind: 'BOS',
+        emaRegime: 'above',
+        marketPhase: 'bull',
         ...partial,
       },
     ];

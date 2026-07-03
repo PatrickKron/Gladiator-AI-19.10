@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { computeScore, riskClassOf } from './scoring.js';
 import { sessionOf } from './session.js';
 
-describe('Session-Gating (05_ §8, UTC-Fenster)', () => {
+describe('Session-Gating (05_ §8, UTC-Fenster inkl. Overlap)', () => {
   it('ordnet UTC-Stunden den Sessions zu', () => {
     expect(sessionOf(new Date('2026-07-03T02:00:00Z'))).toBe('asia');
     expect(sessionOf(new Date('2026-07-03T09:00:00Z'))).toBe('london');
-    expect(sessionOf(new Date('2026-07-03T15:00:00Z'))).toBe('newyork');
+    expect(sessionOf(new Date('2026-07-03T14:00:00Z'))).toBe('overlap');
+    expect(sessionOf(new Date('2026-07-03T17:00:00Z'))).toBe('newyork');
     expect(sessionOf(new Date('2026-07-03T22:30:00Z'))).toBe('off');
   });
 });

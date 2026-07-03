@@ -10,7 +10,7 @@ export const venueTypeEnum = pgEnum('venue_type', ['cex', 'dex']);
 export const directionEnum = pgEnum('direction', ['long', 'short']);
 export const setupTypeEnum = pgEnum('setup_type', ['scalp', 'swing', 'position']);
 export const riskClassEnum = pgEnum('risk_class', ['low', 'medium', 'high']);
-export const tradingSessionEnum = pgEnum('trading_session', ['asia', 'london', 'newyork', 'off']);
+export const tradingSessionEnum = pgEnum('trading_session', ['asia', 'london', 'overlap', 'newyork', 'off']);
 export const signalStatusEnum = pgEnum('signal_status', ['new', 'confirmed', 'rejected', 'expired', 'filled', 'closed']);
 
 // Strategie

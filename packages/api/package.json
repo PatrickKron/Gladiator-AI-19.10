@@ -23,7 +23,8 @@
     "zod": "^3.24.1",
     "@gladiator/market-data": "*",
     "@gladiator/jobs": "*",
-    "@gladiator/backtest": "*"
+    "@gladiator/backtest": "*",
+    "@gladiator/risk": "*"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

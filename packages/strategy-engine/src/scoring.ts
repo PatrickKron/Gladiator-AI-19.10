@@ -1,4 +1,4 @@
-export type TradingSession = 'asia' | 'london' | 'newyork' | 'off';
+export type TradingSession = 'asia' | 'london' | 'overlap' | 'newyork' | 'off';
 export type RiskClass = 'low' | 'medium' | 'high';
 
 export type ConfluenceFlags = {

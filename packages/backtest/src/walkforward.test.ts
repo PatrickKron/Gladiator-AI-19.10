@@ -43,6 +43,8 @@ function makeEvaluator(params: P) {
         session: 'london',
         brokenLevel: 0,
         structureKind: 'BOS',
+        emaRegime: dir === 'long' ? 'above' : 'below',
+        marketPhase: dir === 'long' ? 'bull' : 'bear',
       },
     ];
   };
