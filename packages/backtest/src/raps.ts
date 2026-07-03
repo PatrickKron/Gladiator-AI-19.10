@@ -112,7 +112,12 @@ export function rapsGrid(trades: RapsTrade[], opts: RapsOptions = {}): RapsResul
   }
 
   const eligible = grid.filter((g) => !g.excluded && trades.length > 0);
-  const best = eligible.length > 0 ? eligible.reduce((a, b) => (b.rapsScore > a.rapsScore ? b : a)) : null;
+  // Konservativer Tiebreak: bei (nahezu) gleichem RAPS gewinnt der NIEDRIGERE Hebel.
+  // (RAPS skaliert linear in μ und DD — ohne Liquidationsdruck ist die Ratio hebelinvariant.)
+  const best =
+    eligible.length > 0
+      ? eligible.reduce((a, b) => (b.rapsScore - a.rapsScore > 1e-9 ? b : a))
+      : null;
 
   return {
     grid,
