@@ -14,6 +14,8 @@
     "@gladiator/market-data": "*",
     "@gladiator/strategy-engine": "*",
     "bullmq": "^5.34.0",
-    "@gladiator/exchange": "*"
+    "@gladiator/exchange": "*",
+    "@gladiator/agents": "*",
+    "@gladiator/risk": "*"
   }
 }

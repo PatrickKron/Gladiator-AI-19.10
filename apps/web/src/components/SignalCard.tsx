@@ -1,6 +1,14 @@
 import { useState } from 'react';
 import { trpc } from '../api.js';
 
+export type SignalReview = {
+  agent: string;
+  vote: 'confirm' | 'reject' | 'caution';
+  confidence: number;
+  reason: string;
+  refs: unknown;
+};
+
 export type SignalRow = {
   id: string;
   createdAt: string;
@@ -16,7 +24,9 @@ export type SignalRow = {
   confluence: string[];
   session: string;
   status: string;
+  source: 'engine' | 'pine' | 'instruction' | 'manual';
   strategySlug: string;
+  reviews: SignalReview[];
 };
 
 function fmt(n: string): string {
@@ -31,6 +41,94 @@ const RISK_COLOR: Record<SignalRow['riskClass'], string> = {
   medium: 'var(--color-warn)',
   high: 'var(--color-neg)',
 };
+
+const VOTE_COLOR: Record<SignalReview['vote'], string> = {
+  confirm: 'var(--color-pos)',
+  caution: 'var(--color-warn)',
+  reject: 'var(--color-neg)',
+};
+
+const VOTE_SYMBOL: Record<SignalReview['vote'], string> = { confirm: '✓', caution: '△', reject: '✕' };
+
+const AGENT_LABEL: Record<string, string> = {
+  technik: 'Technik',
+  risk: 'Risk',
+  devil: "Devil's Adv.",
+  makro: 'Makro',
+  shadow: 'Shadow',
+  portfolio: 'Portfolio',
+};
+
+const SOURCE_LABEL: Record<SignalRow['source'], string> = {
+  engine: 'Engine',
+  pine: 'Pine/TradingView',
+  instruction: 'Anweisung (DSL)',
+  manual: 'Manuell',
+};
+
+/** Schwarm-Urteile (Phase 5): transparent, aufklappbar — keine Blackbox. */
+function SwarmReviews({ reviews }: { reviews: SignalReview[] }) {
+  const [open, setOpen] = useState(false);
+  if (reviews.length === 0) {
+    return (
+      <p className="mt-3 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+        Agenten-Review ausstehend (läuft mit dem nächsten Scan).
+      </p>
+    );
+  }
+  const portfolio = reviews.find((r) => r.agent === 'portfolio');
+  const singles = reviews.filter((r) => r.agent !== 'portfolio');
+  const disabled = ((portfolio?.refs as { disabled?: { agent: string; reason: string }[] } | null)?.disabled ?? []);
+
+  return (
+    <div className="mt-3 rounded border p-2" style={{ borderColor: 'var(--color-line)' }}>
+      <button onClick={() => setOpen(!open)} className="flex w-full items-center justify-between gap-2 text-left">
+        <span className="flex flex-wrap items-center gap-1.5">
+          {singles.map((r) => (
+            <span
+              key={r.agent}
+              className="num rounded px-1.5 py-0.5 text-[11px]"
+              style={{ color: VOTE_COLOR[r.vote], border: `1px solid ${VOTE_COLOR[r.vote]}` }}
+              title={r.reason}
+            >
+              {VOTE_SYMBOL[r.vote]} {AGENT_LABEL[r.agent] ?? r.agent}
+            </span>
+          ))}
+          {disabled.map((d) => (
+            <span
+              key={d.agent}
+              className="rounded border border-dashed px-1.5 py-0.5 text-[11px]"
+              style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
+              title={d.reason}
+            >
+              ⊘ {AGENT_LABEL[d.agent] ?? d.agent}
+            </span>
+          ))}
+        </span>
+        {portfolio && (
+          <span className="num shrink-0 text-[11px] font-semibold" style={{ color: VOTE_COLOR[portfolio.vote] }}>
+            {VOTE_SYMBOL[portfolio.vote]} {(portfolio.confidence * 100).toFixed(0)} %
+          </span>
+        )}
+      </button>
+      {open && (
+        <ul className="mt-2 space-y-1.5 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+          {[...singles, ...(portfolio ? [portfolio] : [])].map((r) => (
+            <li key={r.agent}>
+              <span style={{ color: VOTE_COLOR[r.vote] }}>
+                {VOTE_SYMBOL[r.vote]} {AGENT_LABEL[r.agent] ?? r.agent} ({(r.confidence * 100).toFixed(0)} %):
+              </span>{' '}
+              {r.reason}
+            </li>
+          ))}
+          {disabled.map((d) => (
+            <li key={d.agent}>⊘ {AGENT_LABEL[d.agent] ?? d.agent}: deaktiviert — {d.reason}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 /**
  * Signal-„Sammelkarte" (09_ §3.2): echtes Setup mit Score, Confluence und
@@ -82,6 +180,14 @@ export function SignalCard({ signal, onDecided }: { signal: SignalRow; onDecided
           </span>
           <span className="font-medium">{signal.symbol.replace('/USDT', '')}</span>
           <span className="label">{signal.timeframe} · {signal.setupType}</span>
+          {signal.source !== 'engine' && (
+            <span
+              className="rounded border px-1.5 py-0.5 text-[10px] tracking-wider"
+              style={{ borderColor: 'var(--color-acc2, var(--color-line))', color: 'var(--color-mut)' }}
+            >
+              {SOURCE_LABEL[signal.source]}
+            </span>
+          )}
         </div>
         <div className="num text-lg font-semibold" style={{ color: RISK_COLOR[signal.riskClass] }}>
           {Number(signal.score).toLocaleString('de-DE', { minimumFractionDigits: 1 })}
@@ -116,6 +222,8 @@ export function SignalCard({ signal, onDecided }: { signal: SignalRow; onDecided
           Session: {signal.session}
         </span>
       </div>
+
+      <SwarmReviews reviews={signal.reviews} />
 
       {error && <p className="mt-3 text-xs" style={{ color: 'var(--color-neg)' }}>{error}</p>}
       {success && (

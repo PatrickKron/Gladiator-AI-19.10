@@ -5,7 +5,7 @@ import { schema } from '@gladiator/db';
 import { executeConfirmedSignal } from '@gladiator/exchange';
 import { protectedProcedure, router } from '../trpc.js';
 
-const { signals, strategies, auditLog } = schema;
+const { signals, signalReviews, strategies, auditLog } = schema;
 
 /**
  * Signal-Feed + Mensch-im-Loop-Entscheidung.
@@ -14,6 +14,14 @@ const { signals, strategies, auditLog } = schema;
  * → Schutz-Orders → Position. Blockt das Gate, bleibt das Signal 'new'
  * und die Gründe gehen an die UI. Jeder Schritt ist auditiert.
  */
+type SignalReviewDto = {
+  agent: string;
+  vote: 'confirm' | 'reject' | 'caution';
+  confidence: number;
+  reason: string;
+  refs: unknown;
+};
+
 export const signalsRouter = router({
   list: protectedProcedure
     .input(
@@ -39,6 +47,7 @@ export const signalsRouter = router({
           confluence: signals.confluence,
           session: signals.session,
           status: signals.status,
+          source: signals.source,
           strategySlug: strategies.slug,
         })
         .from(signals)
@@ -46,7 +55,32 @@ export const signalsRouter = router({
         .where(inArray(signals.status, input.status))
         .orderBy(desc(signals.createdAt))
         .limit(input.limit);
-      return rows;
+
+      // Schwarm-Urteile (Phase 5) in EINEM Batch dazuladen — transparent auf der Karte.
+      if (rows.length === 0) return rows.map((r) => ({ ...r, reviews: [] as SignalReviewDto[] }));
+      const reviewRows = await ctx.db
+        .select({
+          signalId: signalReviews.signalId,
+          agent: signalReviews.agent,
+          vote: signalReviews.vote,
+          confidence: signalReviews.confidence,
+          reason: signalReviews.reason,
+          refs: signalReviews.refs,
+        })
+        .from(signalReviews)
+        .where(
+          inArray(
+            signalReviews.signalId,
+            rows.map((r) => r.id),
+          ),
+        );
+      const bySignal = new Map<string, SignalReviewDto[]>();
+      for (const r of reviewRows) {
+        const list = bySignal.get(r.signalId) ?? [];
+        list.push({ agent: r.agent, vote: r.vote, confidence: Number(r.confidence), reason: r.reason, refs: r.refs });
+        bySignal.set(r.signalId, list);
+      }
+      return rows.map((r) => ({ ...r, reviews: bySignal.get(r.id) ?? [] }));
     }),
 
   /** Bestätigen (Mensch im Loop): Risk-Gate → Paper-Order. Nur aus Status 'new'. */

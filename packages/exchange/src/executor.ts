@@ -66,7 +66,24 @@ export async function buildAccountState(db: Db, userId: string, now = new Date()
   };
 }
 
-async function loadActiveGates(db: Db): Promise<AdaptiveGate[]> {
+/** Lädt Patricks Trading-Limits (eine Wahrheit — auch die Agenten-Vorschau nutzt exakt diese). */
+export async function loadRiskSettings(db: Db, userId: string) {
+  const [settingsRow] = await db.select().from(tradingSettings).where(eq(tradingSettings.userId, userId)).limit(1);
+  return {
+    riskPctPerTrade: Number(settingsRow?.riskPctPerTrade ?? 1),
+    maxLeverage: Number(settingsRow?.maxLeverage ?? 10),
+    maxOpenPositions: settingsRow?.maxOpenPositions ?? 5,
+    maxExposurePctPerAsset: Number(settingsRow?.maxExposurePctPerAsset ?? 20),
+    dailyLossLimitPct: Number(settingsRow?.dailyLossLimitPct ?? 3),
+    weeklyLossLimitPct: Number(settingsRow?.weeklyLossLimitPct ?? 7),
+    monthlyLossLimitPct: 15,
+    maxConsecutiveLosses: 5,
+    pauseAfterLossStreakHours: 4,
+    killSwitchActive: settingsRow?.killSwitchActive ?? false,
+  };
+}
+
+export async function loadActiveGates(db: Db): Promise<AdaptiveGate[]> {
   const rows = await db.select().from(riskGates).where(eq(riskGates.isActive, true));
   return rows.map((g) => ({
     kind: 'block' as const,
@@ -99,19 +116,7 @@ export async function executeConfirmedSignal(
   if (!signal) throw new Error('Signal nicht gefunden.');
   if (signal.status !== 'confirmed') throw new Error(`Signal ist ${signal.status}, nicht confirmed.`);
 
-  const [settingsRow] = await db.select().from(tradingSettings).where(eq(tradingSettings.userId, opts.userId)).limit(1);
-  const settings = {
-    riskPctPerTrade: Number(settingsRow?.riskPctPerTrade ?? 1),
-    maxLeverage: Number(settingsRow?.maxLeverage ?? 10),
-    maxOpenPositions: settingsRow?.maxOpenPositions ?? 5,
-    maxExposurePctPerAsset: Number(settingsRow?.maxExposurePctPerAsset ?? 20),
-    dailyLossLimitPct: Number(settingsRow?.dailyLossLimitPct ?? 3),
-    weeklyLossLimitPct: Number(settingsRow?.weeklyLossLimitPct ?? 7),
-    monthlyLossLimitPct: 15,
-    maxConsecutiveLosses: 5,
-    pauseAfterLossStreakHours: 4,
-    killSwitchActive: settingsRow?.killSwitchActive ?? false,
-  };
+  const settings = await loadRiskSettings(db, opts.userId);
 
   const state = await buildAccountState(db, opts.userId);
   const gates = await loadActiveGates(db);

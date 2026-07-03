@@ -33,9 +33,18 @@ export const systemRouter = router({
         wirtschaftskalender: 'nicht verbunden (Phase 1, Rest)',
         news: 'nicht verbunden (Phase 1, Rest)',
         strategie_engine: 'verbunden',
-        backtesting: 'nicht gebaut (Phase 3)',
-        boersen_trading: 'nicht gebaut (Phase 4)',
-        agenten: 'nicht gebaut (Phase 5)',
+        backtesting: 'verbunden (Labor, Phase 3)',
+        boersen_trading: ctx.venue
+          ? `verbunden: ${ctx.venue.id} (${ctx.venue.kind})`
+          : 'kein Venue aktiv',
+        agenten: 'aktiv: technik/risk/devil/portfolio (deterministisch, echte Daten)',
+        agenten_llm: process.env.ANTHROPIC_API_KEY
+          ? 'Provider konfiguriert — makro/shadow warten auf Datenquellen (FRED/Funding)'
+          : 'deaktiviert: makro/shadow (kein LLM-Provider — ANTHROPIC_API_KEY fehlt)',
+        pine_webhook: process.env.PINE_WEBHOOK_SECRET
+          ? 'aktiv (/api/webhook/pine, HMAC-gesichert)'
+          : 'deaktiviert (PINE_WEBHOOK_SECRET fehlt)',
+        anweisungs_dsl: 'aktiv (Vorschau → Bestätigung → Paper-Scan)',
       },
     };
   }),

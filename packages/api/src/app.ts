@@ -12,6 +12,7 @@ import type { LivePriceFeed, Ticker } from '@gladiator/market-data';
 import type { TradingVenue } from '@gladiator/exchange';
 import { appRouter } from './routers/index.js';
 import { buildContext } from './trpc.js';
+import { pineWebhookHandler } from './webhook/pine.js';
 
 export type AppOptions = {
   prices?: LivePriceFeed | null;
@@ -129,6 +130,17 @@ export function createApp(db: Db, opts: AppOptions = {}): express.Express {
       feed.off('status', onStatus);
     });
   });
+
+  /**
+   * Pine-/TradingView-Webhook (07_ §1): Raw-Body (HMAC über exakte Bytes),
+   * strenges Rate-Limit. Ohne PINE_WEBHOOK_SECRET antwortet er ehrlich 503.
+   */
+  app.post(
+    '/api/webhook/pine',
+    rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: true, legacyHeaders: false }),
+    express.raw({ type: '*/*', limit: '64kb' }),
+    pineWebhookHandler(db),
+  );
 
   app.use(
     '/api/trpc',

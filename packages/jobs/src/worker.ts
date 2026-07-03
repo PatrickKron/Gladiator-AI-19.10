@@ -2,6 +2,8 @@ import { Queue, Worker } from 'bullmq';
 import { requireEnv, type Db } from '@gladiator/db';
 import { monitorOpenPositions, reconcile, type TradingVenue } from '@gladiator/exchange';
 import { runSignalScan } from './signal-scan.js';
+import { runDslScan } from './dsl-scan.js';
+import { reviewNewSignals } from './review.js';
 
 /**
  * BullMQ-Worker (04_ §2: robuste Jobs statt loser Loops — der v1-Fehler).
@@ -40,6 +42,18 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           `[signal-scan] ${new Date().toISOString()} neu=${res.inserted} dupes=${res.skippedDuplicates} ` +
             res.scanned.map((s) => `${s.symbol}@${s.timeframe}:${s.candles}`).join(' '),
         );
+        // DSL-Strategien (07_ §3) scannen — dieselbe Pipeline, source 'instruction'.
+        const dsl = await runDslScan(db);
+        if (dsl.inserted > 0 || dsl.errors.length > 0) {
+          console.log(`[dsl-scan] neu=${dsl.inserted} dupes=${dsl.skippedDuplicates} Fehler=${dsl.errors.length}`);
+          for (const e of dsl.errors) console.warn('[dsl-scan]', e);
+        }
+        // Schwarm-Review direkt nach dem Scan (08_ §1): neue Signale bewerten.
+        const rev = await reviewNewSignals(db, venue);
+        if (rev.reviewed > 0 || rev.errors.length > 0) {
+          console.log(`[signal-review] bewertet=${rev.reviewed} Fehler=${rev.errors.length}`);
+          for (const e of rev.errors) console.warn('[signal-review]', e);
+        }
         return res;
       }
       if (job.name === MONITOR_JOB) {
