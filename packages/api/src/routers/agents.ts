@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import { derivativesFresh, getMacroSnapshot } from '@gladiator/market-data';
 import { protectedProcedure, router } from '../trpc.js';
 
 /**
@@ -20,27 +21,42 @@ export const agentsRouter = router({
       ORDER BY agent, vote
     `);
 
+    // Echte Datenlage prüfen (Phase-1-Rest): Makro-Serien + Derivate-Frische.
+    const macro = await getMacroSnapshot(ctx.db);
+    const macroConnected = macro.fresh && macro.grs !== null;
+    const derivConnected = await derivativesFresh(ctx.db);
+
+    const active: { agent: string; deterministic: boolean }[] = [
+      { agent: 'technik', deterministic: true },
+      { agent: 'risk', deterministic: true },
+      { agent: 'devil', deterministic: true },
+      { agent: 'portfolio', deterministic: true },
+    ];
+    const disabled: { agent: string; reason: string }[] = [];
+
+    if (llmConfigured && macroConnected) active.push({ agent: 'makro', deterministic: false });
+    else {
+      disabled.push({
+        agent: 'makro',
+        reason: !llmConfigured
+          ? `kein LLM-Provider konfiguriert (ANTHROPIC_API_KEY fehlt)${macroConnected ? ' — Makro-Daten (VIX/DXY/US10Y) sind bereits verbunden' : ''}`
+          : 'Makro-Serien (VIX/DXY/US10Y) noch nicht synchronisiert — läuft mit dem nächsten macro-sync',
+      });
+    }
+    if (llmConfigured && derivConnected) active.push({ agent: 'shadow', deterministic: false });
+    else {
+      disabled.push({
+        agent: 'shadow',
+        reason: !llmConfigured
+          ? `kein LLM-Provider konfiguriert (ANTHROPIC_API_KEY fehlt)${derivConnected ? ' — Funding/OI-Daten sind bereits verbunden' : ''}`
+          : 'Funding/OI-Daten noch nicht synchronisiert — läuft mit dem nächsten derivatives-sync',
+      });
+    }
+
     return {
-      active: [
-        { agent: 'technik', deterministic: true },
-        { agent: 'risk', deterministic: true },
-        { agent: 'devil', deterministic: true },
-        { agent: 'portfolio', deterministic: true },
-      ],
-      disabled: [
-        {
-          agent: 'makro',
-          reason: llmConfigured
-            ? 'Makro-Datenquellen (FRED/Wirtschaftskalender/VIX-DXY) nicht verbunden (Phase-1-Rest)'
-            : 'kein LLM-Provider konfiguriert (ANTHROPIC_API_KEY fehlt)',
-        },
-        {
-          agent: 'shadow',
-          reason: llmConfigured
-            ? 'Funding-/OI-/On-Chain-Daten nicht verbunden (Phase-1-Rest)'
-            : 'kein LLM-Provider konfiguriert (ANTHROPIC_API_KEY fehlt)',
-        },
-      ],
+      active,
+      disabled,
+      data: { macroConnected, derivativesConnected: derivConnected },
       llm: {
         configured: llmConfigured,
         provider: llmConfigured ? 'anthropic (claude-opus-4-8)' : null,

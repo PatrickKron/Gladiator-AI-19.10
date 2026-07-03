@@ -6,6 +6,44 @@ import { Empty, ErrorBox, Loading, PageHeader } from '../components/ui.js';
 /** Magazin (09_ §3.6): echte v1-Artikel aus der DB; Live-News-Quelle folgt (Phase-1-Rest). */
 
 type Article = Awaited<ReturnType<typeof trpc.product.articles.query>>[number];
+type NewsItem = Awaited<ReturnType<typeof trpc.market.news.query>>[number];
+
+/** Live-News aus echter RSS-Ingestion (Phase-1-Rest). */
+function NewsPanel() {
+  const { t } = useTranslation();
+  const [news, setNews] = useState<NewsItem[] | null>(null);
+
+  useEffect(() => {
+    void trpc.market.news.query({ limit: 12 }).then(setNews).catch(() => setNews([]));
+  }, []);
+
+  return (
+    <section className="glass reveal mb-6 p-5" style={{ '--stagger': 1 } as React.CSSProperties}>
+      <h2 className="label">{t('magazine.newsTitle')}</h2>
+      {news === null ? (
+        <Loading />
+      ) : news.length === 0 ? (
+        <Empty text={t('magazine.newsEmpty')} />
+      ) : (
+        <ul className="mt-3 space-y-2.5">
+          {news.map((n) => (
+            <li key={n.id} className="flex items-baseline gap-3 text-sm">
+              <span className="num shrink-0 text-xs" style={{ color: 'var(--color-mut)' }}>
+                {new Date(n.publishedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+              </span>
+              <span className="label shrink-0 rounded border px-1 py-0.5" style={{ borderColor: 'var(--color-line)' }}>
+                {n.source}
+              </span>
+              <a href={n.url} target="_blank" rel="noreferrer" className="leading-snug hover:underline" style={{ color: 'var(--color-ink)' }}>
+                {n.title}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
 
 function ArticleCard({ a, stagger }: { a: Article; stagger: number }) {
   const { t } = useTranslation();
@@ -86,6 +124,7 @@ export function Magazine() {
         }
       />
       {error && <ErrorBox message={error} />}
+      <NewsPanel />
       {articles === null ? (
         <div className="glass p-6">
           <Loading />

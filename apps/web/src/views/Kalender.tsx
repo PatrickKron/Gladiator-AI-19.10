@@ -1,11 +1,17 @@
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { NotConnected, PageHeader, Panel } from '../components/ui.js';
+import { trpc } from '../api.js';
+import { Empty, Loading, PageHeader, Panel } from '../components/ui.js';
 
 /**
- * Makro-Kalender (09_ §3.7): der Kalender-Feed ist noch nicht angebunden —
- * ehrlich „nicht verbunden", KEINE erfundenen Termine (Regel 1).
- * Echt heute: die Session-Fenster der Engine (UTC), inkl. Live-Markierung.
+ * Makro-Kalender (09_ §3.7) — jetzt mit ECHTEM Feed (ForexFactory, Phase-1-
+ * Rest): Events mit Impact-Rating, aktives No-Trade-Fenster (blockt die
+ * Risk-Engine), plus die Session-Fenster der Engine (UTC).
  */
+
+type Calendar = Awaited<ReturnType<typeof trpc.market.calendar.query>>;
+
+const IMPACT_COLOR: Record<number, string> = { 3: 'var(--color-neg)', 2: 'var(--color-warn)', 1: 'var(--color-mut)' };
 
 const SESSIONS = [
   { key: 'calendar.sessionAsia', from: 0, to: 7 },
@@ -18,15 +24,75 @@ const SESSIONS = [
 export function Kalender() {
   const { t } = useTranslation();
   const hourUtc = new Date().getUTCHours();
+  const [calendar, setCalendar] = useState<Calendar | null>(null);
+
+  useEffect(() => {
+    void trpc.market.calendar.query({ days: 7 }).then(setCalendar).catch(() => setCalendar(null));
+  }, []);
 
   return (
     <div>
       <PageHeader title={t('calendar.title')} subtitle={t('calendar.subtitle')} />
 
-      <Panel stagger={1}>
-        <NotConnected detail={t('calendar.disconnected')} />
-        <p className="mt-4 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
-          {t('calendar.planned')}
+      {calendar?.noTrade && (
+        <div
+          className="glass reveal mb-5 p-4 text-sm leading-relaxed"
+          style={{ borderColor: 'rgba(255,92,108,0.5)', color: 'var(--color-neg)', boxShadow: '0 0 24px rgba(255,92,108,0.15)' }}
+        >
+          ⚠ {t('calendar.noTradeActive', { reason: calendar.noTrade.reason })}
+        </div>
+      )}
+
+      <Panel label={t('calendar.eventsTitle')} stagger={1}>
+        {calendar === null ? (
+          <Loading />
+        ) : calendar.events.length === 0 ? (
+          <Empty text={t('calendar.noEvents')} />
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="label text-left">
+                  <th className="py-1.5 pr-3 font-normal">{t('common.date')}</th>
+                  <th className="py-1.5 pr-3 font-normal">{t('calendar.impact')}</th>
+                  <th className="py-1.5 pr-3 font-normal">Event</th>
+                  <th className="py-1.5 pr-3 font-normal" />
+                  <th className="py-1.5 pr-3 text-right font-normal">{t('calendar.forecast')}</th>
+                  <th className="py-1.5 text-right font-normal">{t('calendar.previous')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {calendar.events.map((e) => (
+                  <tr key={e.id} style={{ borderTop: '1px solid rgba(99,140,255,0.08)', opacity: (e.importance ?? 0) >= 3 ? 1 : 0.75 }}>
+                    <td className="num py-1.5 pr-3 whitespace-nowrap">
+                      {new Date(e.scheduledAt).toLocaleString(undefined, { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    </td>
+                    <td className="py-1.5 pr-3">
+                      <span
+                        className="inline-block h-2.5 w-2.5 rounded-full"
+                        style={{
+                          background: IMPACT_COLOR[e.importance ?? 1],
+                          boxShadow: (e.importance ?? 0) >= 3 ? '0 0 8px rgba(255,92,108,0.8)' : 'none',
+                        }}
+                        title={String(e.importance ?? '—')}
+                      />
+                    </td>
+                    <td className="py-1.5 pr-3">{e.title}</td>
+                    <td className="label py-1.5 pr-3">{e.currency}</td>
+                    <td className="num py-1.5 pr-3 text-right" style={{ color: 'var(--color-mut)' }}>
+                      {e.forecast ?? '—'}
+                    </td>
+                    <td className="num py-1.5 text-right" style={{ color: 'var(--color-mut)' }}>
+                      {e.previous ?? '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+          {t('calendar.noTradeInfo')}
         </p>
       </Panel>
 

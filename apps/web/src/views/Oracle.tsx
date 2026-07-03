@@ -1,109 +1,207 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
-import { NotConnected, PageHeader, Panel } from '../components/ui.js';
+import { Loading, NotConnected, PageHeader, Panel } from '../components/ui.js';
+import { Sparkline } from '../components/Sparkline.js';
 
 /**
- * Oracle / Makro-Synapse (09_ §3.4): Quadranten zeigen NUR echte Werte —
- * FRED/VIX/COT/On-Chain sind noch nicht angebunden und stehen ehrlich auf
- * „nicht verbunden" (kein PREVIEW_MODE, Regel 1). Was heute schon echt ist:
- * EMA200-Regime + Marktphase je Symbol aus den eigenen Kerzen.
+ * Oracle / Makro-Synapse (09_ §3.4) — jetzt mit ECHTEN Daten (Phase-1-Rest):
+ * GRS aus VIX/DXY/US10Y (Yahoo), Pulse = VIX/DXY, Gravity = US10Y (+ FRED-
+ * Status), Footprint = Funding/OI (Binance-Futures). DNA (On-Chain) bleibt
+ * ehrlich „nicht verbunden", bis eine echte Quelle existiert.
  */
 
-type Regime = { symbol: string; emaRegime: 'above' | 'below' | null; marketPhase: 'bull' | 'bear' | null };
+type Macro = Awaited<ReturnType<typeof trpc.market.macro.query>>;
+type Derivatives = Awaited<ReturnType<typeof trpc.market.derivatives.query>>;
 
-const QUADRANTS = [
-  { key: 'oracle.gravity', source: 'FRED (Zinsen/Liquidität)' },
-  { key: 'oracle.pulse', source: 'VIX/DXY' },
-  { key: 'oracle.footprint', source: 'COT' },
-  { key: 'oracle.dna', source: 'On-Chain' },
-];
+const GRS_COLOR = (label: string) =>
+  label === 'risk-off' ? 'var(--color-neg)' : label === 'risk-on' ? 'var(--color-pos)' : 'var(--color-warn)';
 
-const SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
+function MetricRow({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-1.5">
+      <span className="text-sm" style={{ color: 'var(--color-mut)' }}>
+        {label}
+      </span>
+      <span className="text-right">
+        <span className="num text-sm font-semibold" style={{ color: color ?? 'var(--color-ink)' }}>
+          {value}
+        </span>
+        {sub && (
+          <span className="num ml-2 text-xs" style={{ color: 'var(--color-mut)' }}>
+            {sub}
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
 
 export function Oracle() {
   const { t } = useTranslation();
-  const [regimes, setRegimes] = useState<Regime[] | null>(null);
+  const [macro, setMacro] = useState<Macro | null>(null);
+  const [deriv, setDeriv] = useState<Derivatives>([]);
 
   useEffect(() => {
-    // Echte Regime-Ableitung aus eigenen 1h-Kerzen (dieselbe Logik wie die Engine nutzt).
-    void Promise.all(
-      SYMBOLS.map(async (symbol) => {
-        try {
-          const candles = await trpc.market.ohlcv.query({ symbol, timeframe: '1h', limit: 400 });
-          if (candles.length < 220) return { symbol, emaRegime: null, marketPhase: null };
-          const closes = candles.map((c) => c.close);
-          const k = 2 / 201;
-          let value = closes.slice(0, 200).reduce((a, b) => a + b, 0) / 200;
-          for (let i = 200; i < closes.length; i++) value = closes[i]! * k + value * (1 - k);
-          const last = closes[closes.length - 1]!;
-          return {
-            symbol,
-            emaRegime: (last >= value ? 'above' : 'below') as 'above' | 'below',
-            marketPhase: (last >= value ? 'bull' : 'bear') as 'bull' | 'bear',
-          };
-        } catch {
-          return { symbol, emaRegime: null, marketPhase: null };
-        }
-      }),
-    ).then(setRegimes);
+    void trpc.market.macro.query().then(setMacro).catch(() => setMacro(null));
+    void trpc.market.derivatives.query().then(setDeriv).catch(() => setDeriv([]));
   }, []);
+
+  const grs = macro?.grs ?? null;
+  const pct = (n: number | null | undefined, d = 2) => (n == null ? '—' : `${n >= 0 ? '+' : ''}${n.toFixed(d)}`);
 
   return (
     <div>
       <PageHeader title={t('oracle.title')} subtitle={t('oracle.subtitle')} />
 
-      {/* GRS-Zentrum: Orrery-artiger Ring — ehrlich ohne Score, solange Quellen fehlen */}
+      {/* GRS-Zentrum: Orrery-Ring mit ECHTEM Score */}
       <Panel stagger={1} className="relative overflow-hidden">
-        <div className="flex flex-col items-center py-6">
-          <div className="relative flex h-44 w-44 items-center justify-center">
-            <div
-              className="absolute inset-0 rounded-full border"
-              style={{ borderColor: 'rgba(46,124,246,0.35)', boxShadow: '0 0 40px rgba(46,124,246,0.15), inset 0 0 30px rgba(46,124,246,0.08)' }}
-            />
-            <div className="absolute inset-4 rounded-full border border-dashed" style={{ borderColor: 'rgba(139,92,246,0.3)' }} />
-            <div className="absolute inset-8 rounded-full border" style={{ borderColor: 'rgba(79,209,255,0.2)' }} />
-            <div className="text-center">
-              <p className="num text-3xl font-semibold" style={{ color: 'var(--color-mut)' }}>
-                —
-              </p>
-              <p className="label mt-1">{t('oracle.grs')}</p>
+        {macro === null ? (
+          <Loading />
+        ) : (
+          <div className="flex flex-col items-center py-6">
+            <div className="relative flex h-48 w-48 items-center justify-center">
+              <svg viewBox="0 0 120 120" className="absolute inset-0 h-full w-full -rotate-90" aria-hidden="true">
+                <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(99,140,255,0.15)" strokeWidth="6" />
+                {grs && (
+                  <circle
+                    cx="60"
+                    cy="60"
+                    r="52"
+                    fill="none"
+                    stroke={GRS_COLOR(grs.label)}
+                    strokeWidth="6"
+                    strokeLinecap="round"
+                    strokeDasharray={`${(grs.score / 100) * 2 * Math.PI * 52} ${2 * Math.PI * 52}`}
+                    style={{ filter: `drop-shadow(0 0 10px ${GRS_COLOR(grs.label)})`, transition: 'stroke-dasharray 800ms var(--ease-out-soft)' }}
+                  />
+                )}
+                <circle cx="60" cy="60" r="42" fill="none" stroke="rgba(139,92,246,0.25)" strokeWidth="1" strokeDasharray="2 4" />
+              </svg>
+              <div className="text-center">
+                <p className="num text-4xl font-semibold" style={{ color: grs ? GRS_COLOR(grs.label) : 'var(--color-mut)' }}>
+                  {grs ? Math.round(grs.score) : '—'}
+                </p>
+                <p className="label mt-1">{t('oracle.grs')}</p>
+                {grs && (
+                  <p className="num mt-1 text-xs tracking-widest uppercase" style={{ color: GRS_COLOR(grs.label) }}>
+                    {grs.label}
+                  </p>
+                )}
+              </div>
             </div>
+            {!grs && (
+              <p className="mt-4 max-w-xl text-center text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+                {t('oracle.syncPending')}
+              </p>
+            )}
+            {macro.vix && (
+              <p className="label mt-4">
+                {t('oracle.updated')}: {new Date(macro.vix.ts).toLocaleDateString()}
+              </p>
+            )}
           </div>
-          <p className="mt-5 max-w-xl text-center text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
-            {t('oracle.honest')}
-          </p>
-        </div>
+        )}
       </Panel>
 
-      {/* Quadranten — alle ehrlich „nicht verbunden" */}
       <section className="mt-5 grid gap-5 md:grid-cols-2">
-        {QUADRANTS.map((q, i) => (
-          <Panel key={q.key} label={t(q.key)} stagger={i + 2}>
-            <NotConnected detail={t('oracle.disconnected')} />
-          </Panel>
-        ))}
+        {/* Pulse: VIX + DXY (echt, Yahoo) */}
+        <Panel label={t('oracle.pulse')} stagger={2}>
+          {macro?.vix ? (
+            <div className="mt-3">
+              <MetricRow
+                label="VIX"
+                value={macro.vix.value.toFixed(2)}
+                sub={grs ? `Score ${Math.round(grs.components.vix.score)}` : undefined}
+                color={macro.vix.value >= 25 ? 'var(--color-neg)' : macro.vix.value >= 18 ? 'var(--color-warn)' : 'var(--color-pos)'}
+              />
+              <Sparkline closes={macro.series.vix.map((p) => p.value)} id="spark-vix" />
+              <MetricRow
+                label={`DXY · ${t('oracle.change20d')}`}
+                value={`${macro.dxy ? macro.dxy.value.toFixed(2) : '—'}`}
+                sub={grs ? `${pct(grs.inputs.dxyChangePct20d)} %` : undefined}
+              />
+              <Sparkline closes={macro.series.dxy.map((p) => p.value)} id="spark-dxy" />
+            </div>
+          ) : macro === null ? (
+            <Loading />
+          ) : (
+            <NotConnected detail={t('oracle.syncPending')} />
+          )}
+        </Panel>
+
+        {/* Gravity: US10Y (echt) + FRED-Status */}
+        <Panel label={t('oracle.gravity')} stagger={3}>
+          {macro?.us10y ? (
+            <div className="mt-3">
+              <MetricRow
+                label={`US10Y (%) · ${t('oracle.change20d')}`}
+                value={macro.us10y.value.toFixed(2)}
+                sub={grs ? `${pct(grs.inputs.us10yChangeBp20d, 0)} bp` : undefined}
+              />
+              <Sparkline closes={macro.series.us10y.map((p) => p.value)} id="spark-us10y" />
+              <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+                FRED: {macro.fredConfigured ? '✓' : t('common.notConnected')} —{' '}
+                {macro.fredConfigured ? 'FRED_API_KEY gesetzt' : 'optional (FRED_API_KEY), VIX/DXY/US10Y laufen ohne.'}
+              </p>
+            </div>
+          ) : macro === null ? (
+            <Loading />
+          ) : (
+            <NotConnected detail={t('oracle.syncPending')} />
+          )}
+        </Panel>
+
+        {/* Footprint: Funding/OI (echt, Binance-Futures) */}
+        <Panel label={t('oracle.footprint')} stagger={4}>
+          {deriv.length > 0 && deriv.some((d) => d.fundingRate !== null) ? (
+            <div className="mt-3">
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+                {t('oracle.footprintLive')}
+              </p>
+              <table className="num mt-3 w-full text-sm">
+                <thead>
+                  <tr className="label text-left">
+                    <th className="py-1 pr-3 font-normal">{t('dashboard.symbol')}</th>
+                    <th className="py-1 pr-3 text-right font-normal">{t('oracle.fundingRate')}</th>
+                    <th className="py-1 text-right font-normal">{t('oracle.oiChange')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deriv.map((d) => (
+                    <tr key={d.symbol} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                      <td className="py-1.5 pr-3">{d.symbol.replace('/USDT', '')}</td>
+                      <td
+                        className="py-1.5 pr-3 text-right"
+                        style={{ color: (d.fundingRate ?? 0) >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}
+                      >
+                        {d.fundingRate != null ? `${(d.fundingRate * 100).toFixed(4)} %` : '—'}
+                      </td>
+                      <td
+                        className="py-1.5 text-right"
+                        style={{ color: (d.oiChangePct24h ?? 0) >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}
+                      >
+                        {d.oiChangePct24h != null ? `${pct(d.oiChangePct24h)} %` : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <NotConnected detail={t('oracle.syncPending')} />
+          )}
+        </Panel>
+
+        {/* DNA: On-Chain — weiterhin ehrlich nicht verbunden */}
+        <Panel label={t('oracle.dna')} stagger={5}>
+          <NotConnected detail={t('oracle.dnaPlanned')} />
+        </Panel>
       </section>
 
-      {/* Was heute echt ist: Regime aus eigenen Kerzen */}
-      <Panel label={t('oracle.marketPhase')} stagger={6} className="mt-5">
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          {(regimes ?? SYMBOLS.map((symbol) => ({ symbol, emaRegime: null, marketPhase: null }))).map((r) => (
-            <div key={r.symbol} className="rounded-[0.625rem] border p-4" style={{ borderColor: 'var(--color-line)' }}>
-              <p className="text-sm font-medium">{r.symbol.replace('/USDT', '')}</p>
-              <p className="label mt-2">{t('oracle.emaRegime')}</p>
-              <p className="num mt-0.5 text-sm" style={{ color: r.emaRegime === 'above' ? 'var(--color-pos)' : r.emaRegime === 'below' ? 'var(--color-neg)' : 'var(--color-mut)' }}>
-                {r.emaRegime ?? '…'}
-              </p>
-              <p className="label mt-2">{t('oracle.marketPhase')}</p>
-              <p className="num mt-0.5 text-sm" style={{ color: r.marketPhase === 'bull' ? 'var(--color-pos)' : r.marketPhase === 'bear' ? 'var(--color-neg)' : 'var(--color-mut)' }}>
-                {r.marketPhase ?? '…'}
-              </p>
-            </div>
-          ))}
-        </div>
-        <p className="label mt-3">{t('oracle.fromOwnData')}</p>
-      </Panel>
+      <p className="reveal mt-6 text-center text-xs leading-relaxed" style={{ color: 'var(--color-mut)', '--stagger': 6 } as React.CSSProperties}>
+        {t('oracle.honest')}
+      </p>
     </div>
   );
 }

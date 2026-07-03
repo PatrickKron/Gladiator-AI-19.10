@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import { derivativesFresh, fredConfigured, getMacroSnapshot } from '@gladiator/market-data';
 import { protectedProcedure, router } from '../trpc.js';
 
 const startedAt = Date.now();
@@ -19,6 +20,16 @@ export const systemRouter = router({
         (SELECT count(*)::int FROM signals) AS signals
     `);
 
+    const macro = await getMacroSnapshot(ctx.db);
+    const macroConnected = macro.fresh && macro.grs !== null;
+    const derivConnected = await derivativesFresh(ctx.db);
+    const extraCounts = await ctx.db.execute(sql`
+      SELECT
+        (SELECT count(*)::int FROM economic_events) AS calendar_events,
+        (SELECT count(*)::int FROM news_items) AS news_items
+    `);
+    const extra = extraCounts.rows[0] as { calendar_events: number; news_items: number };
+
     return {
       db: 'up' as const,
       uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
@@ -28,10 +39,14 @@ export const systemRouter = router({
       sources: {
         binance_ws: ctx.prices ? 'verbunden' : 'nicht verbunden',
         binance_ohlcv: 'verbunden',
-        stocks_etf: 'nicht verbunden (Phase 1, Rest)',
-        fred_makro: 'nicht verbunden (Phase 1, Rest)',
-        wirtschaftskalender: 'nicht verbunden (Phase 1, Rest)',
-        news: 'nicht verbunden (Phase 1, Rest)',
+        stocks_etf: 'verbunden: Yahoo-Quotes (5-min-Cache)',
+        makro_vix_dxy_us10y: macroConnected
+          ? `verbunden: Yahoo (VIX ${macro.vix?.value.toFixed(1) ?? '—'})`
+          : 'Sync ausstehend (macro-sync-Job)',
+        fred: fredConfigured() ? 'verbunden (FRED_API_KEY gesetzt)' : 'optional — FRED_API_KEY fehlt (VIX/DXY/US10Y laufen ohne)',
+        wirtschaftskalender: extra.calendar_events > 0 ? `verbunden: ForexFactory (${extra.calendar_events} Events)` : 'Sync ausstehend (calendar-sync-Job)',
+        news: extra.news_items > 0 ? `verbunden: RSS (${extra.news_items} Artikel)` : 'Sync ausstehend (news-sync-Job)',
+        funding_oi: derivConnected ? 'verbunden: Binance-Futures' : 'Sync ausstehend (derivatives-sync-Job)',
         strategie_engine: 'verbunden',
         backtesting: 'verbunden (Labor, Phase 3)',
         boersen_trading: ctx.venue

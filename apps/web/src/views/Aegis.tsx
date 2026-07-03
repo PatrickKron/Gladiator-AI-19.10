@@ -11,16 +11,27 @@ import { Empty, Loading, NotConnected, PageHeader, Panel } from '../components/u
 
 type Gate = Awaited<ReturnType<typeof trpc.risk.gates.query>>[number];
 type Settings = Awaited<ReturnType<typeof trpc.settings.get.query>>;
+type Macro = Awaited<ReturnType<typeof trpc.market.macro.query>>;
+type Calendar = Awaited<ReturnType<typeof trpc.market.calendar.query>>;
+
+const GRS_COLOR = (label: string) =>
+  label === 'risk-off' ? 'var(--color-neg)' : label === 'risk-on' ? 'var(--color-pos)' : 'var(--color-warn)';
 
 export function Aegis() {
   const { t } = useTranslation();
   const [gates, setGates] = useState<Gate[] | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [macro, setMacro] = useState<Macro | null>(null);
+  const [calendar, setCalendar] = useState<Calendar | null>(null);
 
   useEffect(() => {
     void trpc.risk.gates.query().then(setGates).catch(() => setGates([]));
     void trpc.settings.get.query().then(setSettings).catch(() => setSettings(null));
+    void trpc.market.macro.query().then(setMacro).catch(() => setMacro(null));
+    void trpc.market.calendar.query({ days: 2 }).then(setCalendar).catch(() => setCalendar(null));
   }, []);
+
+  const grs = macro?.grs ?? null;
 
   const activeGates = (gates ?? []).filter((g) => g.isActive);
 
@@ -36,39 +47,74 @@ export function Aegis() {
       <PageHeader title={t('aegis.title')} subtitle={t('aegis.subtitle')} />
 
       <section className="grid gap-5 lg:grid-cols-2">
-        {/* GRS-Gauge (Sentinel Eye) — ehrlich ohne Wert */}
+        {/* GRS-Gauge (Sentinel Eye) — ECHTER Score aus VIX/DXY/US10Y */}
         <Panel label={t('aegis.grsGauge')} stagger={1}>
           <div className="flex flex-col items-center py-5">
             <div className="relative flex h-40 w-40 items-center justify-center">
-              <svg viewBox="0 0 120 120" className="absolute inset-0 h-full w-full" aria-hidden="true">
+              <svg viewBox="0 0 120 120" className="absolute inset-0 h-full w-full -rotate-90" aria-hidden="true">
                 <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(99,140,255,0.18)" strokeWidth="6" />
-                <circle
-                  cx="60"
-                  cy="60"
-                  r="52"
-                  fill="none"
-                  stroke="url(#aegisGrad)"
-                  strokeWidth="6"
-                  strokeLinecap="round"
-                  strokeDasharray="70 260"
-                  opacity="0.5"
-                />
-                <defs>
-                  <linearGradient id="aegisGrad" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stopColor="#2e7cf6" />
-                    <stop offset="100%" stopColor="#8b5cf6" />
-                  </linearGradient>
-                </defs>
+                {grs && (
+                  <circle
+                    cx="60"
+                    cy="60"
+                    r="52"
+                    fill="none"
+                    stroke={GRS_COLOR(grs.label)}
+                    strokeWidth="6"
+                    strokeLinecap="round"
+                    strokeDasharray={`${(grs.score / 100) * 2 * Math.PI * 52} ${2 * Math.PI * 52}`}
+                    style={{ filter: `drop-shadow(0 0 10px ${GRS_COLOR(grs.label)})` }}
+                  />
+                )}
               </svg>
               <div className="text-center">
-                <p className="num text-3xl font-semibold" style={{ color: 'var(--color-mut)' }}>
-                  —
+                <p className="num text-3xl font-semibold" style={{ color: grs ? GRS_COLOR(grs.label) : 'var(--color-mut)' }}>
+                  {grs ? Math.round(grs.score) : '—'}
                 </p>
                 <p className="label mt-1">GRS</p>
+                {grs && (
+                  <p className="num mt-0.5 text-[10px] tracking-widest uppercase" style={{ color: GRS_COLOR(grs.label) }}>
+                    {grs.label}
+                  </p>
+                )}
               </div>
             </div>
           </div>
-          <NotConnected detail={t('aegis.grsDisconnected')} />
+          {grs ? (
+            <>
+              <p className="label">{t('aegis.grsComponents')}</p>
+              <ul className="num mt-2 space-y-1.5 text-sm">
+                <li className="flex justify-between">
+                  <span style={{ color: 'var(--color-mut)' }}>VIX {grs.inputs.vix.toFixed(1)}</span>
+                  <span>{Math.round(grs.components.vix.score)}</span>
+                </li>
+                <li className="flex justify-between">
+                  <span style={{ color: 'var(--color-mut)' }}>
+                    DXY {grs.inputs.dxyChangePct20d >= 0 ? '+' : ''}
+                    {grs.inputs.dxyChangePct20d.toFixed(2)} % (20d)
+                  </span>
+                  <span>{Math.round(grs.components.dxy.score)}</span>
+                </li>
+                <li className="flex justify-between">
+                  <span style={{ color: 'var(--color-mut)' }}>
+                    US10Y {grs.inputs.us10yChangeBp20d >= 0 ? '+' : ''}
+                    {grs.inputs.us10yChangeBp20d.toFixed(0)} bp (20d)
+                  </span>
+                  <span>{Math.round(grs.components.us10y.score)}</span>
+                </li>
+              </ul>
+              <p className="mt-3 text-[11px] leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+                {t('aegis.grsFormulaHint')}
+              </p>
+            </>
+          ) : (
+            <NotConnected detail={t('oracle.syncPending')} />
+          )}
+          {calendar?.noTrade && (
+            <p className="mt-3 rounded-[0.625rem] border p-3 text-xs leading-relaxed" style={{ borderColor: 'rgba(255,92,108,0.45)', color: 'var(--color-neg)' }}>
+              {t('aegis.noTradeActive', { reason: calendar.noTrade.reason })}
+            </p>
+          )}
         </Panel>
 
         {/* Schutzschichten — echt */}

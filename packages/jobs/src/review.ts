@@ -4,9 +4,11 @@ import { schema } from '@gladiator/db';
 import {
   buildAccountState,
   loadActiveGates,
+  loadNoTradeWindow,
   loadRiskSettings,
   type TradingVenue,
 } from '@gladiator/exchange';
+import { derivativesFresh, getDerivativesSnapshot, getMacroSnapshot, upcomingEvents } from '@gladiator/market-data';
 import { evaluateRisk } from '@gladiator/risk';
 import {
   AnthropicProvider,
@@ -104,6 +106,31 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue): Promise<Rev
   const settings = await loadRiskSettings(db, user.id);
   const state = await buildAccountState(db, user.id);
   const gates = await loadActiveGates(db);
+  const noTrade = await loadNoTradeWindow(db);
+
+  // ── Echte Kontexte für die LLM-Agenten (Phase-1-Rest) ──
+  // Makro: VIX/DXY/US10Y + GRS + kommende High-Impact-Events (48 h).
+  const macro = await getMacroSnapshot(db);
+  const events = await upcomingEvents(db, { days: 2 });
+  const highImpact = events
+    .filter((e) => (e.importance ?? 0) >= 3)
+    .slice(0, 10)
+    .map((e) => ({ title: e.title, currency: e.currency, scheduledAt: e.scheduledAt.toISOString() }));
+  const macroDataConnected = macro.fresh && macro.grs !== null;
+  const macroContext = macroDataConnected
+    ? {
+        vix: macro.vix?.value,
+        dxy: macro.dxy?.value,
+        us10yPct: macro.us10y?.value,
+        grs: macro.grs ? { score: Math.round(macro.grs.score), label: macro.grs.label, inputs: macro.grs.inputs } : null,
+        upcomingHighImpactEvents: highImpact,
+        activeNoTradeWindow: noTrade?.reason ?? null,
+      }
+    : undefined;
+
+  // Shadow: Funding/OI-Snapshot (Binance-Futures, öffentlich).
+  const onchainDataConnected = await derivativesFresh(db);
+  const derivatives = onchainDataConnected ? await getDerivativesSnapshot(db) : [];
 
   for (const s of pending) {
     try {
@@ -140,9 +167,11 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue): Promise<Rev
         state,
         rules,
         gates,
+        { noTrade },
       );
 
       const devilEvidence = await buildDevilEvidence(db, facts);
+      const symbolDerivatives = derivatives.find((d) => d.symbol === s.symbol);
 
       const { verdicts, disabled } = await runSwarm({
         facts,
@@ -151,9 +180,18 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue): Promise<Rev
         llm: {
           provider: llmProvider,
           guard: llmGuard,
-          // EHRLICH: diese Datenquellen sind noch nicht angebunden (Phase-1-Rest).
-          macroDataConnected: false,
-          onchainDataConnected: false,
+          macroDataConnected,
+          onchainDataConnected: onchainDataConnected && symbolDerivatives !== undefined,
+          macroContext,
+          onchainContext: symbolDerivatives
+            ? {
+                symbol: symbolDerivatives.symbol,
+                fundingRate: symbolDerivatives.fundingRate,
+                openInterest: symbolDerivatives.openInterest,
+                oiChangePct24h: symbolDerivatives.oiChangePct24h,
+                allSymbols: derivatives,
+              }
+            : undefined,
         },
       });
 

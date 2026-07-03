@@ -92,12 +92,18 @@ export function gateMatches(gate: AdaptiveGate, order: OrderIntent): boolean {
   return true;
 }
 
+export type RiskContext = {
+  /** Aktives No-Trade-Fenster (High-Impact-Makro-Event) — blockt neue Orders. */
+  noTrade?: { active: boolean; reason: string } | null;
+};
+
 export function evaluateRisk(
   order: OrderIntent,
   settings: RiskSettings,
   state: AccountState,
   market: MarketLimits,
   adaptiveGates: AdaptiveGate[],
+  context: RiskContext = {},
 ): RiskVerdict {
   const checks: RiskCheck[] = [];
   const reasons: string[] = [];
@@ -110,6 +116,11 @@ export function evaluateRisk(
   // ── 1. Kill-Switch ──
   if (settings.killSwitchActive) fail('kill-switch', 'Kill-Switch ist aktiv — keine neuen Orders.');
   else pass('kill-switch', 'inaktiv');
+
+  // ── 1b. No-Trade-Fenster (High-Impact-Makro-Event, 09_ §3.7) ──
+  if (context.noTrade?.active) {
+    fail('no-trade-window', `No-Trade-Fenster aktiv: ${context.noTrade.reason} — keine neuen Orders rund um High-Impact-Events.`);
+  } else pass('no-trade-window', 'kein High-Impact-Event im Fenster');
 
   // ── 2. SAFE-001: Verlustlimits Tag/Woche/Monat ──
   if (state.dailyPnlPct <= -settings.dailyLossLimitPct) {

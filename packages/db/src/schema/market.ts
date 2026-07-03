@@ -59,6 +59,21 @@ export const macroSeries = pgTable(
   (t) => [primaryKey({ columns: [t.source, t.seriesId, t.ts] })],
 );
 
+/** News-Items (echte RSS-Feeds — Phase-1-Rest). Dedupe über die URL. */
+export const newsItems = pgTable(
+  'news_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    source: text('source').notNull(),
+    title: text('title').notNull(),
+    url: text('url').notNull().unique(),
+    summary: text('summary'),
+    publishedAt: timestamp('published_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('news_items_published_idx').on(t.publishedAt)],
+);
+
 /** Wirtschaftskalender-Events (echter Feed, kein MockMacroProvider). */
 export const economicEvents = pgTable(
   'economic_events',

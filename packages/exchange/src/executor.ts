@@ -1,10 +1,10 @@
-import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
-import { evaluateRisk, type AdaptiveGate, type RiskVerdict } from '@gladiator/risk';
+import { evaluateRisk, noTradeWindowFor, type AdaptiveGate, type RiskVerdict } from '@gladiator/risk';
 import type { TradingVenue } from './venue.js';
 
-const { signals, orders, positions, executedTrades, tradingSettings, riskGates, auditLog } = schema;
+const { signals, orders, positions, executedTrades, tradingSettings, riskGates, auditLog, economicEvents } = schema;
 
 /**
  * Order-Lifecycle (06_ §5): bestätigtes Signal → Risk-Gate (statisch + adaptiv)
@@ -83,6 +83,20 @@ export async function loadRiskSettings(db: Db, userId: string) {
   };
 }
 
+/** Aktives No-Trade-Fenster aus ECHTEN Kalender-Events (High-Impact ± 30 min). */
+export async function loadNoTradeWindow(db: Db, now = new Date()) {
+  const events = await db
+    .select({
+      title: economicEvents.title,
+      currency: economicEvents.currency,
+      importance: economicEvents.importance,
+      scheduledAt: economicEvents.scheduledAt,
+    })
+    .from(economicEvents)
+    .where(and(gte(economicEvents.scheduledAt, new Date(now.getTime() - 2 * 3_600_000)), lte(economicEvents.scheduledAt, new Date(now.getTime() + 2 * 3_600_000))));
+  return noTradeWindowFor(events, now);
+}
+
 export async function loadActiveGates(db: Db): Promise<AdaptiveGate[]> {
   const rows = await db.select().from(riskGates).where(eq(riskGates.isActive, true));
   return rows.map((g) => ({
@@ -138,6 +152,7 @@ export async function executeConfirmedSignal(
     state,
     rules,
     gates,
+    { noTrade: await loadNoTradeWindow(db) },
   );
 
   await db.insert(auditLog).values({

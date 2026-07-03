@@ -43,6 +43,13 @@
       "when": 1783073364816,
       "tag": "0005_friendly_wild_child",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783082090798,
+      "tag": "0006_wet_gladiator",
+      "breakpoints": true
     }
   ]
 }
