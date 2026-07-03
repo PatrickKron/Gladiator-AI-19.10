@@ -93,7 +93,7 @@ export class HyperliquidTestnetVenue implements TradingVenue {
       try {
         const params: Record<string, unknown> = { clientOrderId: req.clientOrderId };
         if (req.reduceOnly) params.reduceOnly = true;
-        let type = 'market';
+        const type = 'market';
         if (req.type !== 'market') {
           // Hyperliquid: Trigger-Orders als stopLossPrice/takeProfitPrice-Market
           params.triggerPrice = req.triggerPrice;
