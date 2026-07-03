@@ -61,7 +61,6 @@ function BucketTable({ title, rows }: { title: string; rows: [string, Bucket][] 
   );
 }
 
-const SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'] as const;
 const TIMEFRAMES = ['15m', '1h', '4h', '1d'] as const;
 const SETUPS = ['scalp', 'swing', 'position'] as const;
 
@@ -122,7 +121,18 @@ function EquityChart({ points }: { points: { ts: string; equity: number }[] }) {
 
 export function Labor() {
   const { t } = useTranslation();
-  const [symbol, setSymbol] = useState<(typeof SYMBOLS)[number]>('BTC/USDT');
+  const [symbol, setSymbol] = useState<string>('BTC/USDT');
+
+  const [strategyId, setStrategyId] = useState<string>('builtin');
+  const [dslStrategies, setDslStrategies] = useState<{ id: string; name: string; slug: string }[]>([]);
+  const [universe, setUniverse] = useState<string[]>(['BTC/USDT', 'ETH/USDT', 'SOL/USDT']);
+  useEffect(() => {
+    void trpc.strategies.list
+      .query()
+      .then((rows) => setDslStrategies(rows.filter((r) => r.kind === 'dsl').map((r) => ({ id: r.id, name: r.name, slug: r.slug }))))
+      .catch(() => setDslStrategies([]));
+    void trpc.market.scanUniverse.query().then(setUniverse).catch(() => undefined);
+  }, []);
   const [timeframe, setTimeframe] = useState<(typeof TIMEFRAMES)[number]>('1h');
   const [setupType, setSetupType] = useState<(typeof SETUPS)[number]>('swing');
   const [from, setFrom] = useState('2024-06-01');
@@ -163,6 +173,7 @@ export function Labor() {
     setError(null);
     try {
       const res = await trpc.lab.runBacktest.mutate({
+        strategyId: strategyId === 'builtin' ? undefined : strategyId,
         symbol,
         timeframe,
         setupType,
@@ -252,23 +263,35 @@ export function Labor() {
 
       {/* ── Lauf-Konfiguration ── */}
       <section className="glass reveal p-6" style={{ '--stagger': 1 } as React.CSSProperties}>
-        <h2 className="label">Backtest · SMC Core · netto nach Gebühren/Slippage/Funding</h2>
+        <h2 className="label">Backtest · netto nach Gebühren/Slippage/Funding</h2>
+        {strategyId !== 'builtin' && (
+          <p className="mt-2 text-xs" style={{ color: 'var(--color-violet)' }}>{t('lab.dslNote')}</p>
+        )}
         <div className="mt-4 grid gap-4 md:grid-cols-4">
           <label className="text-sm">
-            <span className="label">Symbol</span>
-            <select value={symbol} onChange={(e) => setSymbol(e.target.value as typeof symbol)} className="field mt-1.5 w-full px-3 py-2">
-              {SYMBOLS.map((s) => <option key={s} value={s}>{s}</option>)}
+            <span className="label">{t('lab.strategyLabel')}</span>
+            <select value={strategyId} onChange={(e) => setStrategyId(e.target.value)} className="field mt-1.5 w-full px-3 py-2">
+              <option value="builtin">{t('lab.builtinSmc')}</option>
+              {dslStrategies.map((d) => (
+                <option key={d.id} value={d.id}>DSL: {d.slug}</option>
+              ))}
             </select>
           </label>
-          <label className="text-sm">
+          <label className="text-sm" style={{ opacity: strategyId === 'builtin' ? 1 : 0.5 }}>
+            <span className="label">Symbol</span>
+            <select disabled={strategyId !== 'builtin'} value={symbol} onChange={(e) => setSymbol(e.target.value as typeof symbol)} className="field mt-1.5 w-full px-3 py-2">
+              {universe.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+          <label className="text-sm" style={{ opacity: strategyId === 'builtin' ? 1 : 0.5 }}>
             <span className="label">Timeframe</span>
-            <select value={timeframe} onChange={(e) => setTimeframe(e.target.value as typeof timeframe)} className="field mt-1.5 w-full px-3 py-2">
+            <select disabled={strategyId !== 'builtin'} value={timeframe} onChange={(e) => setTimeframe(e.target.value as typeof timeframe)} className="field mt-1.5 w-full px-3 py-2">
               {TIMEFRAMES.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </label>
-          <label className="text-sm">
+          <label className="text-sm" style={{ opacity: strategyId === 'builtin' ? 1 : 0.5 }}>
             <span className="label">Setup</span>
-            <select value={setupType} onChange={(e) => setSetupType(e.target.value as typeof setupType)} className="field mt-1.5 w-full px-3 py-2">
+            <select disabled={strategyId !== 'builtin'} value={setupType} onChange={(e) => setSetupType(e.target.value as typeof setupType)} className="field mt-1.5 w-full px-3 py-2">
               {SETUPS.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </label>

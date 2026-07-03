@@ -1,5 +1,6 @@
-import { index, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, jsonb, numeric, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { users } from './auth.js';
+import { assets } from './product.js';
 
 /**
  * Betriebs-Tabellen (Phase 7): Morning-Briefings (Nacht-Pipeline, 08_ §5/§7)
@@ -56,3 +57,46 @@ export const venueApprovals = pgTable(
   },
   (t) => [index('venue_approvals_venue_idx').on(t.venueId)],
 );
+
+/** Favoriten-Assets (Stern-System): steuern Scan-Universum, Signal-Priorität und Dashboard-Briefing. */
+export const assetFavorites = pgTable(
+  'asset_favorites',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    assetId: integer('asset_id')
+      .notNull()
+      .references(() => assets.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.assetId] })],
+);
+
+/** Preis-Alerts: Monitor prüft minütlich gegen den ECHTEN Preis; Trigger → Telegram + UI. */
+export const priceAlerts = pgTable(
+  'price_alerts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    symbol: text('symbol').notNull(),
+    condition: text('condition').notNull(), // 'above' | 'below'
+    price: numeric('price').notNull(),
+    note: text('note'),
+    active: boolean('active').notNull().default(true),
+    triggeredAt: timestamp('triggered_at', { withTimezone: true }),
+    /** Preis zum Trigger-Zeitpunkt (echter Markpreis, Beleg). */
+    triggeredPrice: numeric('triggered_price'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('price_alerts_active_idx').on(t.active, t.symbol)],
+);
+
+/** Trade-Journal: eine Notiz je geschlossenem Trade (executed_trades bleibt unangetastet). */
+export const tradeNotes = pgTable('trade_notes', {
+  tradeId: uuid('trade_id').primaryKey(),
+  note: text('note').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

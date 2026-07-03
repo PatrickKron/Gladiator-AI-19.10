@@ -97,13 +97,14 @@ export const labRouter = router({
   runBacktest: protectedProcedure
     .input(
       z.object({
-        symbol: z.enum(['BTC/USDT', 'ETH/USDT', 'SOL/USDT']),
+        symbol: z.string().min(3), // Universum waechst mit Favoriten — Kerzen-Check schuetzt
         timeframe: timeframeSchema,
         setupType: setupSchema,
         from: z.string().datetime(),
         to: z.string().datetime(),
         params: paramsSchema.optional(),
         versionId: z.string().uuid().optional(),
+        strategyId: z.string().uuid().optional(), // registrierte DSL-Strategie backtesten
         riskPctPerTrade: z.number().min(0.1).max(5).default(1),
         costModel: costSchema.optional(),
       }),
@@ -160,7 +161,7 @@ export const labRouter = router({
   runWalkForward: protectedProcedure
     .input(
       z.object({
-        symbol: z.enum(['BTC/USDT', 'ETH/USDT', 'SOL/USDT']),
+        symbol: z.string().min(3),
         timeframe: timeframeSchema,
         setupType: setupSchema,
         from: z.string().datetime(),
@@ -205,7 +206,7 @@ export const labRouter = router({
   calibrateRisk: protectedProcedure
     .input(
       z.object({
-        symbol: z.enum(['BTC/USDT', 'ETH/USDT', 'SOL/USDT']),
+        symbol: z.string().min(3),
         timeframe: timeframeSchema,
         setupType: setupSchema,
         from: z.string().datetime(),

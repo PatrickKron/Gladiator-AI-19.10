@@ -5,7 +5,7 @@ import { schema } from '@gladiator/db';
 import { executeConfirmedSignal } from '@gladiator/exchange';
 import { protectedProcedure, router } from '../trpc.js';
 
-const { signals, signalReviews, strategies, auditLog } = schema;
+const { signals, signalReviews, strategies, auditLog, assetFavorites, assets } = schema;
 
 /**
  * Signal-Feed + Mensch-im-Loop-Entscheidung.
@@ -28,6 +28,12 @@ export const signalsRouter = router({
       z.object({
         status: z.array(z.enum(['new', 'confirmed', 'rejected', 'expired', 'filled', 'closed'])).default(['new']),
         limit: z.number().int().min(1).max(200).default(50),
+        symbol: z.string().optional(),
+        timeframe: z.enum(['15m', '1h', '4h', '1d']).optional(),
+        setupType: z.enum(['scalp', 'swing', 'position']).optional(),
+        direction: z.enum(['long', 'short']).optional(),
+        source: z.enum(['engine', 'pine', 'instruction', 'manual']).optional(),
+        favoritesOnly: z.boolean().default(false),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -52,12 +58,39 @@ export const signalsRouter = router({
         })
         .from(signals)
         .innerJoin(strategies, eq(strategies.id, signals.strategyId))
-        .where(inArray(signals.status, input.status))
+        .where(
+          and(
+            inArray(signals.status, input.status),
+            input.symbol ? eq(signals.symbol, input.symbol) : undefined,
+            input.timeframe ? eq(signals.timeframe, input.timeframe) : undefined,
+            input.setupType ? eq(signals.setupType, input.setupType) : undefined,
+            input.direction ? eq(signals.direction, input.direction) : undefined,
+            input.source ? eq(signals.source, input.source) : undefined,
+          ),
+        )
         .orderBy(desc(signals.createdAt))
         .limit(input.limit);
 
+      // Favoriten (Stern-System): Symbole des Users → Filter/Priorität
+      const favRows = await ctx.db
+        .select({ pair: assets.tradingPair })
+        .from(assetFavorites)
+        .innerJoin(assets, eq(assets.id, assetFavorites.assetId))
+        .where(eq(assetFavorites.userId, ctx.user.id));
+      const favSymbols = new Set(
+        favRows
+          .map((f) => f.pair?.toUpperCase().replaceAll('/', ''))
+          .filter((x): x is string => Boolean(x))
+          .map((x) => (x.endsWith('USDT') ? x.slice(0, -4) + '/USDT' : x.endsWith('USDC') ? x.slice(0, -4) + '/USDC' : x)),
+      );
+      let filtered = rows.map((r) => ({ ...r, isFavorite: favSymbols.has(r.symbol) }));
+      if (input.favoritesOnly) filtered = filtered.filter((r) => r.isFavorite);
+      // Favoriten zuerst, dann Zeit
+      filtered.sort((a, b) => Number(b.isFavorite) - Number(a.isFavorite) || b.createdAt.getTime() - a.createdAt.getTime());
+      const rowsOut = filtered;
+
       // Schwarm-Urteile (Phase 5) in EINEM Batch dazuladen — transparent auf der Karte.
-      if (rows.length === 0) return rows.map((r) => ({ ...r, reviews: [] as SignalReviewDto[] }));
+      if (rowsOut.length === 0) return rowsOut.map((r) => ({ ...r, reviews: [] as SignalReviewDto[] }));
       const reviewRows = await ctx.db
         .select({
           signalId: signalReviews.signalId,
@@ -71,7 +104,7 @@ export const signalsRouter = router({
         .where(
           inArray(
             signalReviews.signalId,
-            rows.map((r) => r.id),
+            rowsOut.map((r) => r.id),
           ),
         );
       const bySignal = new Map<string, SignalReviewDto[]>();
@@ -80,7 +113,7 @@ export const signalsRouter = router({
         list.push({ agent: r.agent, vote: r.vote, confidence: Number(r.confidence), reason: r.reason, refs: r.refs });
         bySignal.set(r.signalId, list);
       }
-      return rows.map((r) => ({ ...r, reviews: bySignal.get(r.id) ?? [] }));
+      return rowsOut.map((r) => ({ ...r, reviews: bySignal.get(r.id) ?? [] }));
     }),
 
   /** Bestätigen (Mensch im Loop): Risk-Gate → Paper-Order. Nur aus Status 'new'. */

@@ -64,6 +64,13 @@
       "when": 1783093271156,
       "tag": "0008_legal_khan",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783099074047,
+      "tag": "0009_talented_ricochet",
+      "breakpoints": true
     }
   ]
 }

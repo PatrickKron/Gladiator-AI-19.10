@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel, StatusDot } from '../components/ui.js';
+import { SizingCalc } from '../components/SizingCalc.js';
+import { Sparkline } from '../components/Sparkline.js';
 
 /**
  * Trading & Börsen (09_ §3.9): Venues mit Verbindungsstatus, Paper-Konto,
@@ -26,6 +28,200 @@ const VENUE_LABEL_KEY: Record<string, string> = {
   'binance-testnet': 'trading.venueBinanceTestnet',
   'hyperliquid-testnet': 'trading.venueHyperliquidTestnet',
 };
+
+type Alert = Awaited<ReturnType<typeof trpc.trading.alerts.query>>[number];
+type Performance = Awaited<ReturnType<typeof trpc.trading.performance.query>>;
+
+/** Preis-Alerts (Patrick-Luecke 7): minutengenauer Monitor, Trigger -> Telegram. */
+function AlertsPanel() {
+  const { t } = useTranslation();
+  const [alerts, setAlerts] = useState<Alert[] | null>(null);
+  const [symbol, setSymbol] = useState('BTC/USDT');
+  const [condition, setCondition] = useState<'above' | 'below'>('above');
+  const [price, setPrice] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      setAlerts(await trpc.trading.alerts.query());
+    } catch {
+      setAlerts([]);
+    }
+  }
+  useEffect(() => {
+    void load();
+    const timer = window.setInterval(() => void load(), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  async function create() {
+    setBusy(true);
+    setError(null);
+    try {
+      await trpc.trading.createAlert.mutate({
+        symbol: symbol.trim(),
+        condition,
+        price: Number(price.replace(',', '.')),
+        note: note.trim() || undefined,
+      });
+      setPrice('');
+      setNote('');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const fmtP = (n: string) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 6 });
+
+  return (
+    <Panel label={t('trading.alertsTitle')} stagger={8} className="mt-5">
+      <div className="mt-4 flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1">
+          <span className="label">{t('trading.alertSymbol')}</span>
+          <input value={symbol} onChange={(e) => setSymbol(e.target.value)} className="field num w-32 px-2.5 py-1.5 text-sm" />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="label">{t('trading.alertCondition')}</span>
+          <select value={condition} onChange={(e) => setCondition(e.target.value as 'above' | 'below')} className="field cursor-pointer px-2.5 py-1.5 text-sm">
+            <option value="above">{t('trading.above')}</option>
+            <option value="below">{t('trading.below')}</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="label">{t('trading.alertPrice')}</span>
+          <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" className="field num w-32 px-2.5 py-1.5 text-sm" />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="label">{t('trading.alertNote')}</span>
+          <input value={note} onChange={(e) => setNote(e.target.value)} className="field w-48 px-2.5 py-1.5 text-sm" />
+        </label>
+        <button
+          onClick={() => void create()}
+          disabled={busy || Number(price.replace(',', '.')) <= 0 || symbol.trim().length < 3}
+          className="btn-primary px-4 py-1.5 text-sm disabled:opacity-50"
+        >
+          {t('trading.alertCreate')}
+        </button>
+      </div>
+      {error && (
+        <p className="mt-2 text-xs" style={{ color: 'var(--color-neg)' }}>
+          {error}
+        </p>
+      )}
+      {alerts === null ? (
+        <Loading />
+      ) : alerts.length === 0 ? (
+        <Empty text={t('trading.alertsEmpty')} />
+      ) : (
+        <ul className="mt-4 space-y-2">
+          {alerts.map((a) => (
+            <li
+              key={a.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-[0.625rem] border p-3 text-sm"
+              style={{ borderColor: a.active ? 'rgba(79,209,255,0.3)' : 'var(--color-line)', opacity: a.active ? 1 : 0.65 }}
+            >
+              <span className="num">
+                {a.symbol} {a.condition === 'above' ? '\u2265' : '\u2264'} {fmtP(a.price)}
+                {a.note ? <span style={{ color: 'var(--color-mut)' }}> · {a.note}</span> : null}
+              </span>
+              <span className="flex items-center gap-3">
+                <span className="label" style={{ color: a.active ? 'var(--color-pos)' : 'var(--color-warn)' }}>
+                  {a.active
+                    ? t('trading.alertActive')
+                    : t('trading.alertTriggeredAt', {
+                        time: a.triggeredAt ? new Date(a.triggeredAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '',
+                        price: a.triggeredPrice ? fmtP(a.triggeredPrice) : '',
+                      })}
+                </span>
+                <button
+                  onClick={() => void trpc.trading.deleteAlert.mutate({ id: a.id }).then(() => load())}
+                  className="rounded border px-2 py-0.5 text-xs"
+                  style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}
+                >
+                  {t('secrets.delete')}
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
+/** Performance (Patrick-Luecke 7): echte Netto-Kennzahlen + Equity-Verlauf. */
+function PerformancePanel() {
+  const { t } = useTranslation();
+  const [perf, setPerf] = useState<Performance | null>(null);
+
+  useEffect(() => {
+    void trpc.trading.performance.query().then(setPerf).catch(() => setPerf({ trades: 0 } as Performance));
+  }, []);
+
+  const fmtN = (n: number | null | undefined, d = 2) => (n == null ? '\u2014' : n.toLocaleString(undefined, { maximumFractionDigits: d }));
+
+  return (
+    <Panel label={t('trading.perfTitle')} stagger={9} className="mt-5">
+      {perf === null ? (
+        <Loading />
+      ) : !('netPnl' in perf) ? (
+        <Empty text={t('trading.perfEmpty')} />
+      ) : (
+        <>
+          <ul className="num mt-4 grid grid-cols-2 gap-x-6 gap-y-2 text-sm md:grid-cols-5">
+            <li>
+              <p className="label">{t('trading.perfTrades')}</p>
+              <p className="mt-0.5 text-lg font-semibold">{perf.trades}</p>
+            </li>
+            <li>
+              <p className="label">{t('trading.netPnl')}</p>
+              <p className="mt-0.5 text-lg font-semibold" style={{ color: (perf.netPnl ?? 0) >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+                {fmtN(perf.netPnl)} $
+              </p>
+            </li>
+            <li>
+              <p className="label">{t('trading.perfWinRate')}</p>
+              <p className="mt-0.5 text-lg font-semibold">{perf.winRate != null ? `${(perf.winRate * 100).toFixed(0)} %` : '\u2014'}</p>
+            </li>
+            <li>
+              <p className="label">{t('trading.perfPF')}</p>
+              <p className="mt-0.5 text-lg font-semibold">{fmtN(perf.profitFactor)}</p>
+            </li>
+            <li>
+              <p className="label">{t('trading.perfExpectancy')}</p>
+              <p className="mt-0.5 text-lg font-semibold">{fmtN(perf.expectancyR)}</p>
+            </li>
+          </ul>
+          {perf.equityCurve && perf.equityCurve.length > 1 && (
+            <div className="mt-4">
+              <Sparkline closes={perf.equityCurve.map((c) => c.equity)} id="perf-equity" />
+            </div>
+          )}
+          {perf.bySymbol && perf.bySymbol.length > 0 && (
+            <div className="mt-4">
+              <p className="label">{t('trading.perfBySymbol')}</p>
+              <ul className="num mt-2 space-y-1 text-sm">
+                {perf.bySymbol.map((r) => (
+                  <li key={r.symbol} className="flex justify-between gap-3">
+                    <span style={{ color: 'var(--color-mut)' }}>
+                      {r.symbol} ({r.trades})
+                    </span>
+                    <span style={{ color: r.netPnl >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>{fmtN(r.netPnl)} $</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+    </Panel>
+  );
+}
 
 type Approval = Awaited<ReturnType<typeof trpc.trading.approvals.query>>[number];
 
@@ -149,8 +345,19 @@ export function Trading() {
   const [prot, setProt] = useState<ProtOrder[]>([]);
   const [history, setHistory] = useState<Trade[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
+
+  async function saveNote(tradeId: string) {
+    try {
+      await trpc.trading.setTradeNote.mutate({ tradeId, note: noteDrafts[tradeId] ?? '' });
+      setNotes(await trpc.trading.tradeNotes.query());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'));
+    }
+  }
 
   async function load() {
     try {
@@ -162,6 +369,7 @@ export function Trading() {
         trpc.trading.history.query({ limit: 25 }),
         trpc.settings.get.query(),
       ]);
+      setNotes(await trpc.trading.tradeNotes.query());
       setAccount(a);
       setVenues(v);
       setPositions(p);
@@ -428,7 +636,8 @@ export function Trading() {
                   <th className="py-1.5 pr-3 font-normal" />
                   <th className="py-1.5 pr-3 text-right font-normal">Entry → Exit</th>
                   <th className="py-1.5 pr-3 text-right font-normal">{t('trading.netPnl')} $</th>
-                  <th className="py-1.5 text-right font-normal">R</th>
+                  <th className="py-1.5 pr-3 text-right font-normal">R</th>
+                  <th className="py-1.5 font-normal">{t('trading.journalNote')}</th>
                 </tr>
               </thead>
               <tbody className="num">
@@ -447,7 +656,22 @@ export function Trading() {
                     <td className="py-1.5 pr-3 text-right" style={{ color: Number(tr.netPnl ?? 0) >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
                       {fmt(Number(tr.netPnl ?? 0))}
                     </td>
-                    <td className="py-1.5 text-right">{tr.rMultiple ? fmt(Number(tr.rMultiple)) : '—'}</td>
+                    <td className="py-1.5 pr-3 text-right">{tr.rMultiple ? fmt(Number(tr.rMultiple)) : '—'}</td>
+                    <td className="py-1.5">
+                      <span className="flex items-center gap-1">
+                        <input
+                          value={noteDrafts[tr.id] ?? notes[tr.id] ?? ''}
+                          onChange={(e) => setNoteDrafts((d) => ({ ...d, [tr.id]: e.target.value }))}
+                          placeholder={t('trading.journalNote')}
+                          className="field w-40 px-2 py-1 text-xs"
+                        />
+                        {(noteDrafts[tr.id] ?? '') !== (notes[tr.id] ?? '') && noteDrafts[tr.id] !== undefined && (
+                          <button onClick={() => void saveNote(tr.id)} className="text-xs" style={{ color: 'var(--color-cyan)' }}>
+                            {t('trading.journalSave')}
+                          </button>
+                        )}
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -455,6 +679,12 @@ export function Trading() {
           </div>
         )}
       </Panel>
+
+      <SizingCalc />
+
+      <AlertsPanel />
+
+      <PerformancePanel />
 
       <LiveApprovals />
     </div>

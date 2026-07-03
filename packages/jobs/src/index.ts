@@ -5,3 +5,5 @@ export { runDslScan, type DslScanResult } from './dsl-scan.js';
 export { escapeHtml, formatKillSwitchAlert, formatSignalAlert, sendTelegram, telegramConfigured, type SignalAlertData } from './telegram.js';
 export { buildBriefing, latestBriefing, renderBriefing, runNightPipeline, type BriefingData, type NightPipelineResult } from './briefing.js';
 export { workerHeartbeatAgeSec } from './worker.js';
+export { buildUniverse, ensureCandles, normalizeTradingPair, scanUniverse, BASE_SYMBOLS } from './universe.js';
+export { alertTriggered, checkPriceAlerts } from './alerts.js';

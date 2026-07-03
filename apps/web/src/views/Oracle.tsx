@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Loading, NotConnected, PageHeader, Panel } from '../components/ui.js';
+import { AssetSelect, getSelectedAsset } from '../components/AssetSelect.js';
+import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
 import { Sparkline } from '../components/Sparkline.js';
 
 /**
@@ -41,6 +43,8 @@ export function Oracle() {
   const { t } = useTranslation();
   const [macro, setMacro] = useState<Macro | null>(null);
   const [deriv, setDeriv] = useState<Derivatives>([]);
+  const [asset, setAsset] = useState(getSelectedAsset());
+  const assetCtx = useAssetContext(asset);
 
   useEffect(() => {
     void trpc.market.macro.query().then(setMacro).catch(() => setMacro(null));
@@ -52,7 +56,12 @@ export function Oracle() {
 
   return (
     <div>
-      <PageHeader title={t('oracle.title')} subtitle={t('oracle.subtitle')} />
+      <PageHeader title={t('oracle.title')} subtitle={t('oracle.subtitle')} right={<AssetSelect value={asset} onChange={setAsset} />} />
+
+      {/* Asset-Kontext: Oracle bezieht sich auf GENAU dieses Asset */}
+      <Panel label={t('assetCtx.title', { symbol: asset })} stagger={1} className="mb-5">
+        <AssetContextBody ctx={assetCtx} />
+      </Panel>
 
       {/* GRS-Zentrum: Orrery-Ring mit ECHTEM Score */}
       <Panel stagger={1} className="relative overflow-hidden">

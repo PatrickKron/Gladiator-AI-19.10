@@ -6,6 +6,7 @@ import { runNightPipeline } from './briefing.js';
 import { runSignalScan } from './signal-scan.js';
 import { runDslScan } from './dsl-scan.js';
 import { reviewNewSignals } from './review.js';
+import { checkPriceAlerts } from './alerts.js';
 
 /**
  * BullMQ-Worker (04_ §2: robuste Jobs statt loser Loops — der v1-Fehler).
@@ -108,6 +109,9 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           if (res.fills > 0) {
             console.log(`[position-monitor] ${new Date().toISOString()} Positionen=${res.checked} Fills=${res.fills}`);
           }
+          const alerts = await checkPriceAlerts(db, venue);
+          if (alerts.triggered > 0) console.log(`[price-alerts] ausgelöst=${alerts.triggered}`);
+          for (const e of alerts.errors) console.warn('[price-alerts]', e);
           lastHeartbeat = new Date();
           await pingDeadMansSwitch();
           return res;

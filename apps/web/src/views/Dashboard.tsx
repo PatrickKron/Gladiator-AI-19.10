@@ -6,6 +6,7 @@ import { setRainHighlight } from '../components/MatrixRain.js';
 import { PlexusHero } from '../components/PlexusHero.js';
 import { SignalCard, type SignalRow } from '../components/SignalCard.js';
 import { Empty, ErrorBox, Loading, Panel, StatusDot } from '../components/ui.js';
+import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
 import { getLatest, onTick, type TickWithDirection } from '../lib/prices.js';
 
 /** Dashboard (09_ §3.1): Begrüßung, Live-Markt, offene Setups, Konto, System — alles echt. */
@@ -19,6 +20,55 @@ type SystemStatus = {
 type IngestRow = { symbol: string; timeframe: string; candles: number; from_ts: string; to_ts: string };
 type Account = Awaited<ReturnType<typeof trpc.trading.account.query>>;
 type Briefing = Awaited<ReturnType<typeof trpc.system.briefing.query>>;
+
+/** Favoriten-Briefing (Patrick-Luecke 5/6): live Asset-Kontext je Stern-Favorit, 60-s-Refresh. */
+function FavoriteBriefingCard({ symbol }: { symbol: string }) {
+  const { t } = useTranslation();
+  const ctx = useAssetContext(symbol, 60_000);
+  return (
+    <div className="rounded-[0.625rem] border p-4" style={{ borderColor: 'rgba(232,184,75,0.3)' }}>
+      <p className="flex items-center gap-1.5 text-sm font-medium">
+        <span style={{ color: 'var(--color-warn)' }}>{'\u2605'}</span> {symbol}
+      </p>
+      <AssetContextBody ctx={ctx} compact />
+      <p className="label mt-2">{t('dashboard.favBriefingUpdated', { time: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) })}</p>
+    </div>
+  );
+}
+
+function FavoritesBriefing() {
+  const { t } = useTranslation();
+  const [symbols, setSymbols] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    void trpc.product.favorites
+      .query()
+      .then((favs) => {
+        const pairs = favs
+          .map((f) => f.tradingPair?.toUpperCase().replaceAll('/', ''))
+          .filter((x): x is string => Boolean(x))
+          .map((x) => (x.endsWith('USDT') ? x.slice(0, -4) + '/USDT' : x.endsWith('USDC') ? x.slice(0, -4) + '/USDC' : x));
+        setSymbols([...new Set(pairs)].slice(0, 9));
+      })
+      .catch(() => setSymbols([]));
+  }, []);
+
+  return (
+    <Panel label={t('dashboard.favBriefingTitle')} stagger={5} className="mt-5">
+      {symbols === null ? (
+        <Loading />
+      ) : symbols.length === 0 ? (
+        <Empty text={t('dashboard.favBriefingEmpty')} />
+      ) : (
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {symbols.map((sym) => (
+            <FavoriteBriefingCard key={sym} symbol={sym} />
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
 
 /** Morning-Briefing der Nacht-Pipeline (08_ §7) — echter Inhalt aus der DB. */
 function BriefingPanel() {
@@ -240,6 +290,8 @@ export function Dashboard() {
           </div>
         )}
       </section>
+
+      <FavoritesBriefing />
 
       <BriefingPanel />
 

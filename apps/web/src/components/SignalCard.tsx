@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
+import { SignalChart } from './SignalChart.js';
 
 export type SignalReview = {
   agent: string;
@@ -28,6 +29,7 @@ export type SignalRow = {
   source: 'engine' | 'pine' | 'instruction' | 'manual';
   strategySlug: string;
   reviews: SignalReview[];
+  isFavorite?: boolean;
 };
 
 function fmt(n: string): string {
@@ -139,6 +141,7 @@ function SwarmReviews({ reviews }: { reviews: SignalReview[] }) {
  */
 export function SignalCard({ signal, onDecided, readOnly = false }: { signal: SignalRow; onDecided: () => void; readOnly?: boolean }) {
   const { t } = useTranslation();
+  const [showChart, setShowChart] = useState(false);
   const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [blocked, setBlocked] = useState<string[] | null>(null);
@@ -181,7 +184,10 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
           >
             {long ? 'LONG' : 'SHORT'}
           </span>
-          <span className="font-medium">{signal.symbol.replace('/USDT', '')}</span>
+          <span className="font-medium">
+            {signal.isFavorite && <span style={{ color: 'var(--color-warn)' }}>★ </span>}
+            {signal.symbol.replace('/USDT', '')}
+          </span>
           <span className="label">{signal.timeframe} · {signal.setupType}</span>
           {signal.source !== 'engine' && (
             <span
@@ -225,6 +231,19 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
           {t('common.session')}: {signal.session}
         </span>
       </div>
+
+      <button onClick={() => setShowChart(!showChart)} className="mt-3 text-xs" style={{ color: 'var(--color-cyan)' }}>
+        {showChart ? `− ${t('signals.chartHide')}` : `+ ${t('signals.chartShow')}`}
+      </button>
+      {showChart && (
+        <SignalChart
+          symbol={signal.symbol}
+          timeframe={signal.timeframe as '15m' | '1h' | '4h' | '1d'}
+          entry={Number(signal.entry)}
+          stopLoss={Number(signal.stopLoss)}
+          takeProfits={signal.takeProfits.map(Number)}
+        />
+      )}
 
       <SwarmReviews reviews={signal.reviews} />
 

@@ -2,10 +2,11 @@ import { TRPCError } from '@trpc/server';
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
-import { buildAccountState, PAPER_START_EQUITY } from '@gladiator/exchange';
+import { buildAccountState, loadActiveGates, loadRiskContext, loadRiskSettings, PAPER_START_EQUITY } from '@gladiator/exchange';
+import { evaluateRisk } from '@gladiator/risk';
 import { protectedProcedure, router } from '../trpc.js';
 
-const { positions, orders, executedTrades, venueApprovals, auditLog } = schema;
+const { positions, orders, executedTrades, venueApprovals, auditLog, priceAlerts, tradeNotes } = schema;
 
 /** Venues, für die eine Live-Freigabe überhaupt beantragbar ist. */
 const APPROVABLE_VENUES = ['binance-testnet', 'hyperliquid-testnet'] as const;
@@ -172,6 +173,163 @@ export const tradingRouter = router({
       });
       return row!;
     }),
+
+  /**
+   * Position-Sizing-Rechner (Patrick-Luecke 7) — EINE Wahrheit: exakt dieselbe
+   * evaluateRisk-Funktion wie die echte Order, mit echtem Kontostand, echten
+   * Marktregeln und echtem Risk-Kontext (No-Trade/VIX).
+   */
+  sizePreview: protectedProcedure
+    .input(
+      z.object({
+        symbol: z.string().min(3),
+        direction: z.enum(['long', 'short']),
+        entry: z.number().positive(),
+        stopLoss: z.number().positive(),
+        leverage: z.number().min(1).max(25).default(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.venue) return { available: false as const, detail: 'Kein Trading-Venue aktiv.' };
+      const settings = await loadRiskSettings(ctx.db, ctx.user.id);
+      const state = await buildAccountState(ctx.db, ctx.user.id);
+      const gates = await loadActiveGates(ctx.db);
+      let rules;
+      try {
+        rules = await ctx.venue.marketRules(input.symbol.toUpperCase());
+      } catch {
+        return { available: false as const, detail: `Keine Marktregeln fuer ${input.symbol} (Symbol an der Boerse unbekannt).` };
+      }
+      const verdict = evaluateRisk(
+        {
+          symbol: input.symbol.toUpperCase(),
+          direction: input.direction,
+          entry: input.entry,
+          stopLoss: input.stopLoss,
+          leverage: input.leverage,
+          session: 'london', // Vorschau: Session/Regime neutral — die echte Order prueft die Gates erneut
+          emaRegime: 'above',
+          marketPhase: 'bull',
+        },
+        settings,
+        state,
+        rules,
+        [], // adaptive Regime-Gates in der VORSCHAU nicht raten — echte Order prueft sie
+        await loadRiskContext(ctx.db),
+      );
+      return {
+        available: true as const,
+        equity: state.equity,
+        riskPctPerTrade: settings.riskPctPerTrade,
+        sizing: verdict.sizing,
+        allowed: verdict.allowed,
+        reasons: verdict.reasons,
+        gateCount: gates.length,
+        note: 'Vorschau ohne adaptive Regime-Gates — die echte Order prueft zusaetzlich Session/EMA-Regime/Marktphase.',
+      };
+    }),
+
+  /** Performance-Tracking (Luecke 7): echte Kennzahlen aus geschlossenen Trades. */
+  performance: protectedProcedure.query(async ({ ctx }) => {
+    const trades = await ctx.db
+      .select()
+      .from(executedTrades)
+      .where(eq(executedTrades.userId, ctx.user.id))
+      .orderBy(executedTrades.createdAt);
+    const closed = trades.filter((t) => t.exitTs !== null);
+    if (closed.length === 0) return { trades: 0 as const };
+
+    const pnls = closed.map((t) => Number(t.netPnl ?? 0));
+    const wins = pnls.filter((v) => v > 0);
+    const losses = pnls.filter((v) => v < 0);
+    const rs = closed.map((t) => (t.rMultiple ? Number(t.rMultiple) : null)).filter((v): v is number => v !== null);
+    const grossWin = wins.reduce((a, b) => a + b, 0);
+    const grossLoss = Math.abs(losses.reduce((a, b) => a + b, 0));
+
+    const bySymbol = new Map<string, { trades: number; netPnl: number; wins: number }>();
+    for (const t of closed) {
+      const e = bySymbol.get(t.symbol) ?? { trades: 0, netPnl: 0, wins: 0 };
+      e.trades++;
+      e.netPnl += Number(t.netPnl ?? 0);
+      if (Number(t.netPnl ?? 0) > 0) e.wins++;
+      bySymbol.set(t.symbol, e);
+    }
+
+    let equity = PAPER_START_EQUITY;
+    const curve = closed.map((t) => {
+      equity += Number(t.netPnl ?? 0);
+      return { ts: (t.exitTs ?? t.createdAt).toISOString(), equity: Math.round(equity * 100) / 100 };
+    });
+
+    return {
+      trades: closed.length,
+      netPnl: pnls.reduce((a, b) => a + b, 0),
+      winRate: wins.length / closed.length,
+      profitFactor: grossLoss > 0 ? grossWin / grossLoss : null,
+      expectancyR: rs.length > 0 ? rs.reduce((a, b) => a + b, 0) / rs.length : null,
+      bySymbol: [...bySymbol.entries()].map(([symbol, v]) => ({ symbol, ...v })),
+      equityCurve: curve,
+    };
+  }),
+
+  /** Trade-Journal (Luecke 7): Notiz je geschlossenem Trade. */
+  setTradeNote: protectedProcedure
+    .input(z.object({ tradeId: z.string().uuid(), note: z.string().max(2000) }))
+    .mutation(async ({ ctx, input }) => {
+      const [trade] = await ctx.db
+        .select({ id: executedTrades.id })
+        .from(executedTrades)
+        .where(and(eq(executedTrades.id, input.tradeId), eq(executedTrades.userId, ctx.user.id)))
+        .limit(1);
+      if (!trade) throw new TRPCError({ code: 'NOT_FOUND', message: 'Trade nicht gefunden.' });
+      if (input.note.trim().length === 0) {
+        await ctx.db.delete(tradeNotes).where(eq(tradeNotes.tradeId, input.tradeId));
+        return { ok: true };
+      }
+      await ctx.db
+        .insert(tradeNotes)
+        .values({ tradeId: input.tradeId, note: input.note.trim(), updatedAt: new Date() })
+        .onConflictDoUpdate({ target: tradeNotes.tradeId, set: { note: input.note.trim(), updatedAt: new Date() } });
+      return { ok: true };
+    }),
+
+  tradeNotes: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await ctx.db.select().from(tradeNotes);
+    return Object.fromEntries(rows.map((r) => [r.tradeId, r.note]));
+  }),
+
+  /** Preis-Alerts (Luecke 7): Monitor prueft minuetlich; Trigger -> Telegram + Audit. */
+  alerts: protectedProcedure.query(({ ctx }) =>
+    ctx.db.select().from(priceAlerts).where(eq(priceAlerts.userId, ctx.user.id)).orderBy(desc(priceAlerts.createdAt)).limit(100),
+  ),
+
+  createAlert: protectedProcedure
+    .input(
+      z.object({
+        symbol: z.string().min(3).max(20),
+        condition: z.enum(['above', 'below']),
+        price: z.number().positive(),
+        note: z.string().max(300).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .insert(priceAlerts)
+        .values({
+          userId: ctx.user.id,
+          symbol: input.symbol.toUpperCase(),
+          condition: input.condition,
+          price: String(input.price),
+          note: input.note ?? null,
+        })
+        .returning();
+      return row!;
+    }),
+
+  deleteAlert: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+    await ctx.db.delete(priceAlerts).where(and(eq(priceAlerts.id, input.id), eq(priceAlerts.userId, ctx.user.id)));
+    return { ok: true };
+  }),
 
   revokeVenue: protectedProcedure
     .input(z.object({ venueId: z.enum(APPROVABLE_VENUES) }))

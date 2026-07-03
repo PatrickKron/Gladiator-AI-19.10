@@ -13,6 +13,31 @@ import { getLatest, onTick } from '../lib/prices.js';
 type Pkg = Awaited<ReturnType<typeof trpc.product.packages.query>>[number];
 type Asset = Awaited<ReturnType<typeof trpc.product.assets.query>>[number];
 
+/** Stern-Toggle (Patrick-Luecke 5): Favorit -> Scan + Signale + Dashboard-Briefing. */
+function FavStar({ asset, onToggled }: { asset: Asset; onToggled: (assetId: number, fav: boolean) => void }) {
+  const { t } = useTranslation();
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      title={t('packages.favTooltip')}
+      disabled={busy}
+      onClick={(e) => {
+        e.stopPropagation();
+        setBusy(true);
+        trpc.product.toggleFavorite
+          .mutate({ assetId: asset.id })
+          .then((res) => onToggled(asset.id, res.favorite))
+          .catch(() => undefined)
+          .finally(() => setBusy(false));
+      }}
+      className="shrink-0 px-1 text-base leading-none transition-transform hover:scale-125 disabled:opacity-50"
+      style={{ color: asset.isFavorite ? 'var(--color-warn)' : 'rgba(139,148,184,0.45)' }}
+    >
+      {asset.isFavorite ? '\u2605' : '\u2606'}
+    </button>
+  );
+}
+
 type Quote = { price: number; previousClose: number | null } | null;
 
 function PackageCard({ pkg, stagger, prices }: { pkg: Pkg; stagger: number; prices: Map<string, number> }) {
@@ -45,7 +70,7 @@ function PackageCard({ pkg, stagger, prices }: { pkg: Pkg; stagger: number; pric
       className="glass glass-hover reveal p-5"
       style={{ '--stagger': Math.min(stagger, 10), borderTop: pkg.color ? `2px solid ${pkg.color}` : undefined } as React.CSSProperties}
     >
-      <div className="flex items-start justify-between gap-3">
+      <button onClick={() => void toggle()} className="flex w-full cursor-pointer items-start justify-between gap-3 text-left">
         <div>
           <p className="label">{pkg.category}{pkg.subcategory ? ` · ${pkg.subcategory}` : ''}</p>
           <h2 className="mt-1 text-[15px] font-medium">
@@ -53,10 +78,10 @@ function PackageCard({ pkg, stagger, prices }: { pkg: Pkg; stagger: number; pric
             {pkg.name}
           </h2>
         </div>
-        <span className="num rounded border px-1.5 py-0.5 text-xs" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
-          {pkg.assetCount} {t('packages.assets')}
+        <span className="num flex shrink-0 items-center gap-1.5 rounded border px-1.5 py-0.5 text-xs" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+          {pkg.assetCount} {t('packages.assets')} {open ? '\u2212' : '+'}
         </span>
-      </div>
+      </button>
       {pkg.description && (
         <p className="mt-2 line-clamp-2 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
           {pkg.description}
@@ -79,7 +104,8 @@ function PackageCard({ pkg, stagger, prices }: { pkg: Pkg; stagger: number; pric
                   stock && stock.previousClose ? ((stock.price / stock.previousClose - 1) * 100) : null;
                 return (
                   <li key={a.id} className="flex items-center justify-between gap-2 py-0.5">
-                    <span>
+                    <span className="flex items-center gap-1">
+                      <FavStar asset={a} onToggled={(assetId, fav) => setAssets((prev) => (prev ?? []).map((x) => (x.id === assetId ? { ...x, isFavorite: fav } : x)))} />
                       <span className="num font-medium">{a.ticker}</span>{' '}
                       <span style={{ color: 'var(--color-mut)' }}>{a.name}</span>
                     </span>
@@ -127,8 +153,11 @@ export function Pakete() {
         subtitle={t('packages.subtitle', { packages: pkgs?.length ?? '…', assets: totalAssets || '…' })}
       />
       {error && <ErrorBox message={error} />}
-      <p className="mb-5 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+      <p className="mb-2 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
         {t('packages.livePrice')}
+      </p>
+      <p className="mb-5 text-xs leading-relaxed" style={{ color: 'var(--color-warn)' }}>
+        {t('packages.favInfo')}
       </p>
       {pkgs === null ? (
         <div className="glass p-6">

@@ -2,6 +2,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { getOhlcv } from '@gladiator/market-data';
+import { ensureCandles, scanUniverse } from './universe.js';
 import {
   evaluateSmcCoreAt,
   SMC_CORE_DEFAULTS,
@@ -21,7 +22,7 @@ const { strategies, strategyVersions, signals } = schema;
  * NUR echte Kerzen aus der DB — nichts wird erfunden.
  */
 
-export const SCAN_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
+export const SCAN_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']; // Basis — Favoriten erweitern zur Laufzeit (universe.ts)
 export const SCAN_TIMEFRAMES = ['15m', '1h', '4h', '1d'] as const;
 type Timeframe = (typeof SCAN_TIMEFRAMES)[number];
 
@@ -90,7 +91,15 @@ export async function runSignalScan(db: Db): Promise<ScanResult> {
   const { strategyId, versionId } = await ensureSmcCoreStrategy(db);
   const result: ScanResult = { scanned: [], inserted: 0, skippedDuplicates: 0 };
 
-  for (const symbol of SCAN_SYMBOLS) {
+  // Universum = Basis + Stern-Favoriten (Krypto); neue Symbole erst mit echten Kerzen versorgen.
+  const universe = await scanUniverse(db);
+  for (const symbol of universe.filter((s) => !SCAN_SYMBOLS.includes(s))) {
+    const fill = await ensureCandles(db, symbol);
+    if (fill.inserted > 0) console.log(`[signal-scan] Backfill ${symbol}: +${fill.inserted} Kerzen`);
+    for (const e of fill.errors) console.warn('[signal-scan] Backfill', e);
+  }
+
+  for (const symbol of universe) {
     // Höhere TF-Trends einmal je Symbol laden
     const higherTrends = new Map<Timeframe, 'bull' | 'bear' | 'neutral'>();
     for (const tf of SCAN_TIMEFRAMES) {

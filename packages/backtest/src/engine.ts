@@ -38,7 +38,9 @@ export const ZERO_COSTS: CostModel = {
   fundingRatePer8h: 0,
 };
 
-export type Evaluator = (candles: Candle[], i: number) => SetupCandidate[];
+/** Minimales Setup-Shape, das die Engine braucht (SetupCandidate und DslSetup erfüllen es). */
+export type EvaluatorSetup = Omit<SetupCandidate, 'brokenLevel' | 'structureKind'>;
+export type Evaluator = (candles: Candle[], i: number) => EvaluatorSetup[];
 
 export type BacktestConfig = {
   evaluate: Evaluator;

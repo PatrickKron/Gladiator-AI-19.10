@@ -1,8 +1,8 @@
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { getOhlcv } from '@gladiator/market-data';
-import { detectStructure, evaluateSmcCoreAt, SMC_CORE_DEFAULTS, type SmcCoreParams } from '@gladiator/strategy-engine';
+import { detectStructure, evaluateDslAt, evaluateSmcCoreAt, parseInstructionDsl, SMC_CORE_DEFAULTS, type InstructionDsl, type SmcCoreParams } from '@gladiator/strategy-engine';
 import { DEFAULT_COSTS, runBacktest, type BacktestResult, type CostModel } from './engine.js';
 import { runWalkForward, type WalkForwardResult } from './walkforward.js';
 import { explainRapsChoice, rapsGrid, type RapsResult } from './raps.js';
@@ -25,6 +25,8 @@ export const BARS_PER_YEAR: Record<string, number> = {
 };
 
 export type LabRunInput = {
+  /** Optional: registrierte Strategie (kind 'dsl') statt SMC Core backtesten. */
+  strategyId?: string;
   symbol: string;
   timeframe: '15m' | '1h' | '4h' | '1d';
   setupType: 'scalp' | 'swing' | 'position';
@@ -70,6 +72,23 @@ async function smcCoreIds(db: Db): Promise<{ strategyId: string; defaultVersionI
   return { strategyId: s.id, defaultVersionId: v1.id };
 }
 
+/** Löst eine registrierte DSL-Strategie in (dsl, versionId) auf — neueste Paper-Version. */
+async function resolveDslStrategy(db: Db, strategyId: string): Promise<{ dsl: InstructionDsl; versionId: string; slug: string }> {
+  const [strategy] = await db.select().from(strategies).where(eq(strategies.id, strategyId)).limit(1);
+  if (!strategy) throw new Error('Strategie nicht gefunden.');
+  if (strategy.kind !== 'dsl') throw new Error(`Strategie ${strategy.slug} ist kind '${strategy.kind}' — im Labor sind SMC Core (Standard) und DSL-Strategien backtestbar.`);
+  const [version] = await db
+    .select()
+    .from(strategyVersions)
+    .where(eq(strategyVersions.strategyId, strategyId))
+    .orderBy(desc(strategyVersions.version))
+    .limit(1);
+  if (!version) throw new Error('Strategie hat keine Version.');
+  const parsed = parseInstructionDsl(version.params);
+  if (!parsed.ok) throw new Error(`DSL der Version ungültig: ${parsed.errors.join('; ')}`);
+  return { dsl: parsed.dsl, versionId: version.id, slug: strategy.slug };
+}
+
 export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRunOutput> {
   const { defaultVersionId } = await smcCoreIds(db);
   const versionParams = input.versionId ? await resolveVersion(db, input.versionId) : {};
@@ -77,36 +96,49 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
   const costModel = input.costModel ?? DEFAULT_COSTS;
   const riskPct = input.riskPctPerTrade ?? 1;
 
+  // DSL-Strategie? Symbol/Timeframe/Setup kommen aus der DSL (die Strategie definiert sie).
+  const dslResolved = input.strategyId ? await resolveDslStrategy(db, input.strategyId) : null;
+  const runSymbol = dslResolved ? dslResolved.dsl.symbol : input.symbol;
+  const runTimeframe = dslResolved ? dslResolved.dsl.timeframe : input.timeframe;
+  const runSetupType = dslResolved ? dslResolved.dsl.setupType : input.setupType;
+
   const candles = await getOhlcv(db, {
-    symbol: input.symbol,
-    timeframe: input.timeframe,
+    symbol: runSymbol,
+    timeframe: runTimeframe,
     since: input.from,
     until: input.to,
   });
   if (candles.length < 250) {
-    throw new Error(`Zu wenig echte Kerzen im Zeitraum (${candles.length}) — Backtest wäre nicht belastbar.`);
+    throw new Error(`Zu wenig echte Kerzen im Zeitraum (${candles.length}) für ${runSymbol}@${runTimeframe} — Backtest wäre nicht belastbar.`);
   }
 
   const result = runBacktest(candles, {
-    evaluate: (cs, i) => evaluateSmcCoreAt(cs, i, params, { higherTfTrend: 'neutral' }),
+    evaluate: dslResolved
+      ? (cs, i) => {
+          const setup = evaluateDslAt(cs, i, dslResolved.dsl);
+          return setup ? [setup] : [];
+        }
+      : (cs, i) => evaluateSmcCoreAt(cs, i, params, { higherTfTrend: 'neutral' }),
     initialEquity: 10_000,
     riskPctPerTrade: riskPct,
     costModel,
-    barsPerYear: BARS_PER_YEAR[input.timeframe]!,
+    barsPerYear: BARS_PER_YEAR[runTimeframe]!,
     tpWeights: [0.5, 0.3, 0.2],
-    setupType: input.setupType,
+    setupType: runSetupType,
   });
 
   const m = result.metrics;
   const [row] = await db
     .insert(backtests)
     .values({
-      strategyVersionId: input.versionId ?? defaultVersionId,
-      symbol: input.symbol,
-      timeframe: input.timeframe,
+      strategyVersionId: dslResolved ? dslResolved.versionId : (input.versionId ?? defaultVersionId),
+      symbol: runSymbol,
+      timeframe: runTimeframe,
       fromTs: input.from,
       toTs: input.to,
-      config: { setupType: input.setupType, riskPctPerTrade: riskPct, params },
+      config: dslResolved
+        ? { strategy: dslResolved.slug, dsl: dslResolved.dsl, riskPctPerTrade: riskPct }
+        : { setupType: input.setupType, riskPctPerTrade: riskPct, params },
       feesModel: costModel,
       sharpe: m.sharpe === null ? null : String(m.sharpe),
       sortino: m.sortino === null ? null : String(m.sortino),
@@ -123,7 +155,7 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
     .returning();
 
   // ── VDB1: Trades als study_trades (Quelle: echter Backtest, 13_ §3) ──
-  const clusterKey = `smc-core|${input.symbol}|${input.setupType}|${input.timeframe}|all|all`;
+  const clusterKey = `${dslResolved ? dslResolved.slug : 'smc-core'}|${runSymbol}|${runSetupType}|${runTimeframe}|all|all`;
   for (const t of result.trades) {
     await db.insert(studyTrades).values({
       clusterKey,

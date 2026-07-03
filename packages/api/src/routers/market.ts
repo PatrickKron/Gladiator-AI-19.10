@@ -10,6 +10,8 @@ import {
   getOhlcv,
 } from '@gladiator/market-data';
 import { noTradeWindowFor } from '@gladiator/risk';
+import { scanUniverse } from '@gladiator/jobs';
+import { atr, detectStructure, ema, rsi } from '@gladiator/strategy-engine';
 import { protectedProcedure, router } from '../trpc.js';
 
 export const marketRouter = router({
@@ -97,4 +99,98 @@ export const marketRouter = router({
 
   /** Funding/OI-Snapshot (Binance-Futures, Basis des Shadow-Agenten). */
   derivatives: protectedProcedure.query(({ ctx }) => getDerivativesSnapshot(ctx.db)),
+
+  /** Aktuelles Scan-Universum (Basis + Stern-Favoriten) — für Selektoren. */
+  scanUniverse: protectedProcedure.query(({ ctx }) => scanUniverse(ctx.db)),
+
+  /**
+   * Asset-Kontext (Patrick-Lücke 2/6): ALLES echt aus eigenen Kerzen + Feeds
+   * für GENAU dieses Asset — Basis für Oracle/Aegis/Favoriten-Briefing.
+   */
+  assetContext: protectedProcedure
+    .input(z.object({ symbol: z.string().min(3) }))
+    .query(async ({ ctx, input }) => {
+      const symbol = input.symbol.toUpperCase();
+      const candles1h = await getOhlcv(ctx.db, { symbol, timeframe: '1h', limit: 400 });
+      if (candles1h.length < 30) {
+        return { symbol, available: false as const, candles: candles1h.length };
+      }
+      const closes = candles1h.map((c) => c.close);
+      const last = closes[closes.length - 1]!;
+      const ago24h = closes.length > 24 ? closes[closes.length - 1 - 24]! : closes[0]!;
+
+      const ema200Series = ema(closes, 200);
+      const ema200 = ema200Series[ema200Series.length - 1];
+      const rsiSeries = rsi(closes);
+      const rsi14 = rsiSeries[rsiSeries.length - 1];
+      const atrSeries = atr(candles1h);
+      const atr14 = atrSeries[atrSeries.length - 1];
+      const events = detectStructure(candles1h);
+      const lastEvent = events[events.length - 1] ?? null;
+
+      // Intraday-Range (heute UTC) für SAFE-003-Kontext (BTC > 10 % Regel)
+      const todayStart = new Date();
+      todayStart.setUTCHours(0, 0, 0, 0);
+      const todays = candles1h.filter((c) => c.ts >= todayStart);
+      const dayHigh = todays.length > 0 ? Math.max(...todays.map((c) => c.high)) : null;
+      const dayLow = todays.length > 0 ? Math.min(...todays.map((c) => c.low)) : null;
+      const intradayRangePct = dayHigh !== null && dayLow !== null && dayLow > 0 ? ((dayHigh - dayLow) / dayLow) * 100 : null;
+
+      // Derivate für dieses Symbol (echt; null wenn kein Perp-Feed)
+      const deriv = (await getDerivativesSnapshot(ctx.db, [symbol]))[0] ?? null;
+
+      // Offene Signale + passende aktive Gates für dieses Symbol
+      const openSignals = await ctx.db.execute(
+        sql`SELECT count(*)::int AS n FROM signals WHERE symbol = ${symbol} AND status = 'new'`,
+      );
+      const gates = await ctx.db.execute(
+        sql`SELECT reason FROM risk_gates WHERE is_active = true AND (symbol IS NULL OR symbol = ${symbol}) LIMIT 10`,
+      );
+      // Exposure aus offenen Positionen (alle User — ein User-Typ)
+      const exposure = await ctx.db.execute(
+        sql`SELECT coalesce(sum(qty::float * entry_price::float), 0) AS notional FROM positions WHERE symbol = ${symbol}`,
+      );
+      // News-Treffer: Basis-Ticker im Titel (echte RSS-Items)
+      const base = symbol.split('/')[0]!;
+      const news = await ctx.db.execute(
+        sql`SELECT title, url, published_at FROM news_items WHERE title ILIKE ${'%' + base + '%'} ORDER BY published_at DESC LIMIT 3`,
+      );
+
+      return {
+        symbol,
+        available: true as const,
+        candles: candles1h.length,
+        price: last,
+        change24hPct: ago24h > 0 ? (last / ago24h - 1) * 100 : null,
+        emaRegime: ema200 != null ? ((last >= ema200 ? 'above' : 'below') as 'above' | 'below') : null,
+        marketPhase: lastEvent ? ((lastEvent.direction === 'bullish' ? 'bull' : 'bear') as 'bull' | 'bear') : null,
+        lastStructure: lastEvent ? { kind: lastEvent.kind, direction: lastEvent.direction, level: lastEvent.brokenLevel } : null,
+        rsi14: rsi14 ?? null,
+        atrPct: atr14 != null && last > 0 ? (atr14 / last) * 100 : null,
+        intradayRangePct,
+        funding: deriv ? { rate: deriv.fundingRate, oiChangePct24h: deriv.oiChangePct24h } : null,
+        openSignals: (openSignals.rows[0] as { n: number }).n,
+        matchingGates: (gates.rows as { reason: string }[]).map((g) => g.reason),
+        exposureNotional: Number((exposure.rows[0] as { notional: number }).notional),
+        news: (news.rows as { title: string; url: string; published_at: string }[]).map((n) => ({
+          title: n.title,
+          url: n.url,
+          publishedAt: n.published_at,
+        })),
+      };
+    }),
+
+  /** Kerzen für den Signal-Chart (echte eigene DB-Kerzen, alle 4 TFs). */
+  chartCandles: protectedProcedure
+    .input(
+      z.object({
+        symbol: z.string().min(3),
+        timeframe: z.enum(['15m', '1h', '4h', '1d']),
+        limit: z.number().int().min(50).max(500).default(200),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const candles = await getOhlcv(ctx.db, { symbol: input.symbol.toUpperCase(), timeframe: input.timeframe, limit: input.limit });
+      return candles.map((c) => ({ time: Math.floor(c.ts.getTime() / 1000), open: c.open, high: c.high, low: c.low, close: c.close }));
+    }),
 });

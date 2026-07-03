@@ -33,12 +33,28 @@ export function Signals() {
   const [status, setStatus] = useState<StatusFilter>('new');
   const [source, setSource] = useState<SignalRow['source'] | 'all'>('all');
   const [symbol, setSymbol] = useState<string>('all');
+  const [timeframe, setTimeframe] = useState<string>('all');
+  const [setupType, setSetupType] = useState<string>('all');
+  const [direction, setDirection] = useState<string>('all');
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [universe, setUniverse] = useState<string[]>([]);
   const [rows, setRows] = useState<SignalRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function load(currentStatus: StatusFilter) {
+  const filters = { status, source, symbol, timeframe, setupType, direction, favoritesOnly };
+
+  async function load(f: typeof filters) {
     try {
-      const res = await trpc.signals.list.query({ status: [currentStatus], limit: 100 });
+      const res = await trpc.signals.list.query({
+        status: [f.status],
+        limit: 100,
+        symbol: f.symbol === 'all' ? undefined : f.symbol,
+        timeframe: f.timeframe === 'all' ? undefined : (f.timeframe as '15m' | '1h' | '4h' | '1d'),
+        setupType: f.setupType === 'all' ? undefined : (f.setupType as 'scalp' | 'swing' | 'position'),
+        direction: f.direction === 'all' ? undefined : (f.direction as 'long' | 'short'),
+        source: f.source === 'all' ? undefined : f.source,
+        favoritesOnly: f.favoritesOnly,
+      });
       setRows(res as SignalRow[]);
       setError(null);
     } catch (err) {
@@ -47,20 +63,21 @@ export function Signals() {
   }
 
   useEffect(() => {
-    setRows(null);
-    void load(status);
-    const timer = window.setInterval(() => void load(status), 30_000);
-    return () => window.clearInterval(timer);
-  }, [status]);
+    void trpc.market.scanUniverse.query().then(setUniverse).catch(() => setUniverse([]));
+  }, []);
 
-  const symbols = useMemo(() => [...new Set((rows ?? []).map((r) => r.symbol))].sort(), [rows]);
-  const filtered = useMemo(
-    () =>
-      (rows ?? []).filter(
-        (r) => (source === 'all' || r.source === source) && (symbol === 'all' || r.symbol === symbol),
-      ),
-    [rows, source, symbol],
-  );
+  useEffect(() => {
+    setRows(null);
+    void load(filters);
+    const timer = window.setInterval(() => void load(filters), 30_000);
+    return () => window.clearInterval(timer);
+  }, [status, source, symbol, timeframe, setupType, direction, favoritesOnly]);
+
+  const symbols = useMemo(() => {
+    const fromRows = (rows ?? []).map((r) => r.symbol);
+    return [...new Set([...universe, ...fromRows])].sort();
+  }, [rows, universe]);
+  const filtered = rows ?? [];
 
   const select = 'field cursor-pointer px-2.5 py-1.5 text-sm';
 
@@ -102,6 +119,40 @@ export function Signals() {
                 ))}
               </select>
             </label>
+            <label className="flex flex-col gap-1">
+              <span className="label">{t('signals.filterTimeframe')}</span>
+              <select className={select} value={timeframe} onChange={(e) => setTimeframe(e.target.value)}>
+                <option value="all">{t('common.all')}</option>
+                {['15m', '1h', '4h', '1d'].map((tf) => (
+                  <option key={tf} value={tf}>
+                    {tf}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="label">{t('signals.filterSetup')}</span>
+              <select className={select} value={setupType} onChange={(e) => setSetupType(e.target.value)}>
+                <option value="all">{t('common.all')}</option>
+                {['scalp', 'swing', 'position'].map((st) => (
+                  <option key={st} value={st}>
+                    {st}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="label">{t('signals.filterDirection')}</span>
+              <select className={select} value={direction} onChange={(e) => setDirection(e.target.value)}>
+                <option value="all">{t('common.all')}</option>
+                <option value="long">LONG</option>
+                <option value="short">SHORT</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2 self-end pb-1.5">
+              <input type="checkbox" checked={favoritesOnly} onChange={(e) => setFavoritesOnly(e.target.checked)} />
+              <span className="text-xs" style={{ color: 'var(--color-warn)' }}>{t('signals.favoritesOnly')}</span>
+            </label>
           </div>
         }
       />
@@ -119,7 +170,7 @@ export function Signals() {
       ) : (
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((s) => (
-            <SignalCard key={s.id} signal={s} onDecided={() => void load(status)} readOnly={status !== 'new'} />
+            <SignalCard key={s.id} signal={s} onDecided={() => void load(filters)} readOnly={status !== 'new'} />
           ))}
         </div>
       )}

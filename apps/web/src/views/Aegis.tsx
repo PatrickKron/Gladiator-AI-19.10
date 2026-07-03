@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Empty, Loading, NotConnected, PageHeader, Panel } from '../components/ui.js';
+import { AssetSelect, getSelectedAsset } from '../components/AssetSelect.js';
+import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
 
 /**
  * Aegis / Hedging (09_ §3.8): GRS-Gauge braucht echte VIX/DXY/US10Y-Daten —
@@ -19,6 +21,8 @@ const GRS_COLOR = (label: string) =>
 
 export function Aegis() {
   const { t } = useTranslation();
+  const [asset, setAsset] = useState(getSelectedAsset());
+  const assetCtx = useAssetContext(asset);
   const [gates, setGates] = useState<Gate[] | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [macro, setMacro] = useState<Macro | null>(null);
@@ -44,7 +48,12 @@ export function Aegis() {
 
   return (
     <div>
-      <PageHeader title={t('aegis.title')} subtitle={t('aegis.subtitle')} />
+      <PageHeader title={t('aegis.title')} subtitle={t('aegis.subtitle')} right={<AssetSelect value={asset} onChange={setAsset} />} />
+
+      {/* Asset-Risiko: Aegis bezieht sich auf GENAU dieses Asset */}
+      <Panel label={t('assetCtx.title', { symbol: asset })} stagger={1} className="mb-5">
+        <AssetContextBody ctx={assetCtx} />
+      </Panel>
 
       <section className="grid gap-5 lg:grid-cols-2">
         {/* GRS-Gauge (Sentinel Eye) — ECHTER Score aus VIX/DXY/US10Y */}
