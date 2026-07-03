@@ -1,11 +1,13 @@
 import { router } from '../trpc.js';
 import { authRouter } from './auth.js';
 import { marketRouter } from './market.js';
+import { signalsRouter } from './signals.js';
 import { systemRouter } from './system.js';
 
 export const appRouter = router({
   auth: authRouter,
   market: marketRouter,
+  signals: signalsRouter,
   system: systemRouter,
 });
 

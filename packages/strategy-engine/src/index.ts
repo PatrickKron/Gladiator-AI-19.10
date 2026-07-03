@@ -1,3 +1,8 @@
-// @gladiator/strategy-engine — Skelett. Wird in der zugehörigen Phase gebaut (siehe CLAUDE.md).
-// Bewusst leer: kein Platzhalter-/Fake-Code in Laufpfaden.
-export {};
+export * from './types.js';
+export * from './indicators.js';
+export { computeSwings } from './swings.js';
+export { detectStructure, type StructureOptions } from './structure.js';
+export { detectOrderBlocks, detectFvgs, type Zone } from './zones.js';
+export { computeScore, riskClassOf, type ConfluenceFlags, type RiskClass, type TradingSession } from './scoring.js';
+export { sessionOf, isActiveSession } from './session.js';
+export { evaluateSmcCoreAt, SMC_CORE_DEFAULTS, type SmcCoreParams, type SetupCandidate, type SmcContext } from './smc-core.js';

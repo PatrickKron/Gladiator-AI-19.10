@@ -42,6 +42,8 @@ export const signalSchema = z
     strategyId: z.string().min(1),
     strategyVersionId: z.string().uuid().optional(),
     symbol: z.string().min(1),
+    /** Multi-TF-Ergänzung zum 04_-Modell: auf welcher Timeframe das Setup entstand. */
+    timeframe: z.enum(['15m', '1h', '4h', '1d']),
     assetClass: assetClassSchema,
     venueType: venueTypeSchema,
     direction: directionSchema,

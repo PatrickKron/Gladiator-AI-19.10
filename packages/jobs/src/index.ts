@@ -1,3 +1,2 @@
-// @gladiator/jobs — Skelett. Wird in der zugehörigen Phase gebaut (siehe CLAUDE.md).
-// Bewusst leer: kein Platzhalter-/Fake-Code in Laufpfaden.
-export {};
+export { runSignalScan, ensureSmcCoreStrategy, SCAN_SYMBOLS, SCAN_TIMEFRAMES, type ScanResult } from './signal-scan.js';
+export { startJobWorker } from './worker.js';

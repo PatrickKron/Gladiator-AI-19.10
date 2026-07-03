@@ -3,6 +3,7 @@ import { isUnauthorized, logout, refreshSession, trpc } from '../api.js';
 import { Sparkline } from '../components/Sparkline.js';
 import { setRainHighlight } from '../components/MatrixRain.js';
 import { PlexusHero } from '../components/PlexusHero.js';
+import { SignalCard, type SignalRow } from '../components/SignalCard.js';
 import {
   ensurePriceStream,
   getFeedState,
@@ -124,7 +125,17 @@ export function Dashboard() {
   const [system, setSystem] = useState<SystemStatus | null>(null);
   const [ingest, setIngest] = useState<IngestRow[] | null>(null);
   const [sparks, setSparks] = useState<Record<string, number[]>>({});
+  const [signalRows, setSignalRows] = useState<SignalRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  async function loadSignals() {
+    try {
+      const rows = await trpc.signals.list.query({ status: ['new'], limit: 30 });
+      setSignalRows(rows as SignalRow[]);
+    } catch (err) {
+      if (!isUnauthorized(err)) setSignalRows((prev) => prev ?? []);
+    }
+  }
 
   useEffect(() => {
     ensurePriceStream();
@@ -156,10 +167,13 @@ export function Dashboard() {
       }
     }
     void load();
+    void loadSignals();
     const t = window.setInterval(() => void load(), 60_000);
+    const ts = window.setInterval(() => void loadSignals(), 30_000);
     return () => {
       cancelled = true;
       window.clearInterval(t);
+      window.clearInterval(ts);
     };
   }, []);
 
@@ -214,6 +228,30 @@ export function Dashboard() {
         {SYMBOLS.map((symbol, i) => (
           <PriceCard key={symbol} symbol={symbol} closes={sparks[symbol] ?? []} stagger={i + 1} />
         ))}
+      </section>
+
+      {/* Signal-Feed: echte SMC-Core-Setups aus der Engine, Mensch im Loop */}
+      <section className="reveal mt-8" style={{ '--stagger': 3 } as React.CSSProperties}>
+        <div className="mb-4 flex items-baseline justify-between">
+          <h2 className="label">Signale · SMC Core · Multi-Timeframe</h2>
+          <span className="label">Scan alle 5 min auf 15m/1h/4h/1d</span>
+        </div>
+        {signalRows === null ? (
+          <div className="glass p-6">
+            <p className="animate-pulse text-sm" style={{ color: 'var(--color-mut)' }}>Lade Signale …</p>
+          </div>
+        ) : signalRows.length === 0 ? (
+          <div className="glass p-6 text-sm" style={{ color: 'var(--color-mut)' }}>
+            Aktuell kein offenes Setup. Die Engine handelt nur, wenn ALLE Pflicht-Confluences stimmen
+            (Trend + Struktur-Bruch + Retest + RSI + Volumen) — kein Setup ist ehrlicher als ein erfundenes.
+          </div>
+        ) : (
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+            {signalRows.map((s) => (
+              <SignalCard key={s.id} signal={s} onDecided={() => void loadSignals()} />
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="mt-5 grid gap-5 lg:grid-cols-3">

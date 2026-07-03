@@ -70,6 +70,8 @@ export const signals = pgTable(
       .references(() => strategies.id),
     strategyVersionId: uuid('strategy_version_id').references(() => strategyVersions.id),
     symbol: text('symbol').notNull(),
+    /** Timeframe des Scans (Multi-TF: 15m/1h/4h/1d) — Ergänzung zum 04_-Modell. */
+    timeframe: text('timeframe').notNull().default('1h'),
     assetClass: assetClassEnum('asset_class').notNull(),
     venueType: venueTypeEnum('venue_type').notNull(),
     direction: directionEnum('direction').notNull(),

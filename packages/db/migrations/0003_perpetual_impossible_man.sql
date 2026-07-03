@@ -1,0 +1,1 @@
+ALTER TABLE "signals" ADD COLUMN "timeframe" text DEFAULT '1h' NOT NULL;

@@ -4,11 +4,13 @@
  */
 import { createDb, requireEnv } from '@gladiator/db';
 import { LivePriceFeed } from '@gladiator/market-data';
+import { startJobWorker } from '@gladiator/jobs';
 import { createApp } from './app.js';
 
 requireEnv('DATABASE_URL');
 requireEnv('JWT_SECRET');
 requireEnv('ENCRYPTION_KEY'); // Vault-Schlüssel (0c) — Boot ohne ihn nicht erlaubt.
+requireEnv('REDIS_URL'); // BullMQ-Jobs (Signal-Scan) — Pflicht, keine losen Loops.
 
 const port = Number(process.env.API_PORT ?? 3010);
 // Mehrere Bind-Adressen (z. B. "127.0.0.1,100.72.94.1" für localhost + Tailscale).
@@ -21,6 +23,8 @@ const { db } = createDb();
 
 const prices = new LivePriceFeed(['BTC/USDT', 'ETH/USDT', 'SOL/USDT']);
 prices.start();
+
+const jobs = await startJobWorker(db);
 
 const app = createApp(db, { prices });
 
@@ -38,6 +42,6 @@ for (const host of hosts) {
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
-    void prices.stop().finally(() => process.exit(0));
+    void Promise.allSettled([prices.stop(), jobs.stop()]).finally(() => process.exit(0));
   });
 }

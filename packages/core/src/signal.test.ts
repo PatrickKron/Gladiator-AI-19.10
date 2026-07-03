@@ -7,6 +7,7 @@ const validLong: Signal = {
   source: 'engine',
   strategyId: 'smc-core',
   symbol: 'BTC/USDT',
+  timeframe: '1h',
   assetClass: 'crypto',
   venueType: 'cex',
   direction: 'long',

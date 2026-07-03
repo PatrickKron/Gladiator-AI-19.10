@@ -1,0 +1,216 @@
+import { atr, ema, rsi, sma } from './indicators.js';
+import { detectStructure } from './structure.js';
+import { detectFvgs } from './zones.js';
+import { computeScore, riskClassOf, type RiskClass, type TradingSession } from './scoring.js';
+import { isActiveSession, sessionOf } from './session.js';
+import type { Candle } from './types.js';
+
+/**
+ * Referenz-Strategie „SMC Core" — Port der Logik aus Patricks Pine-Script
+ * SmartMoney_BOS_CHOCH_Strategy.pine (05_ §4):
+ *
+ *   longEntry = (bosLong OR chochLong) AND trendUp AND retestLong AND rsiOk AND volOk
+ *
+ * Der RETEST (Pullback an Bruchlevel + Nähe EMA-Pullback + bestätigende Kerze)
+ * ist PFLICHT — das war der Qualitätshebel, der den alten Python-Generatoren
+ * fehlte. Scores werden IMMER echt berechnet (scoring.ts), nie hartkodiert.
+ */
+
+export type SmcCoreParams = {
+  swingLeftBars: number;
+  swingRightBars: number;
+  emaTrendPeriod: number;
+  emaPullbackPeriod: number;
+  rsiPeriod: number;
+  rsiLongMin: number;
+  rsiLongMax: number;
+  rsiShortMin: number;
+  rsiShortMax: number;
+  volumeMaPeriod: number;
+  atrPeriod: number;
+  /** Wie viele Bars nach BOS/CHoCH ein Retest zählt. */
+  retestWindowBars: number;
+  /** Nähe zum Pullback-EMA in Prozent (Pine: low <= EMA50 * 1.02). */
+  emaProximityPct: number;
+};
+
+/** Defaults gemäß 05_ (EMA200/EMA50, RSI-Band 30–50 long / 50–70 short, Pivot 8/8). */
+export const SMC_CORE_DEFAULTS: SmcCoreParams = {
+  swingLeftBars: 8,
+  swingRightBars: 8,
+  emaTrendPeriod: 200,
+  emaPullbackPeriod: 50,
+  rsiPeriod: 14,
+  rsiLongMin: 30,
+  rsiLongMax: 50,
+  rsiShortMin: 50,
+  rsiShortMax: 70,
+  volumeMaPeriod: 20,
+  atrPeriod: 14,
+  retestWindowBars: 12,
+  emaProximityPct: 2,
+};
+
+/** Multi-Setup-Staffel (05_ §5): ATR-basierte SLs, R-Multiple-TPs, RR-Minima. */
+const SETUPS = [
+  { type: 'scalp' as const, slAtrMult: 1.0, tpRs: [1, 2], rrMin: 1.2 },
+  { type: 'swing' as const, slAtrMult: 1.5, tpRs: [1, 2, 3], rrMin: 2.0 },
+  { type: 'position' as const, slAtrMult: 2.5, tpRs: [2, 3, 5], rrMin: 3.0 },
+];
+
+export type SetupCandidate = {
+  direction: 'long' | 'short';
+  setupType: 'scalp' | 'swing' | 'position';
+  entry: number;
+  stopLoss: number;
+  takeProfits: number[];
+  score: number;
+  riskClass: RiskClass;
+  confluence: string[];
+  session: TradingSession;
+  brokenLevel: number;
+  structureKind: 'BOS' | 'CHoCH';
+};
+
+export type SmcContext = {
+  /** Trend der nächsthöheren Timeframe (aus Multi-TF-Scan); fehlt → neutral. */
+  higherTfTrend?: 'bull' | 'bear' | 'neutral';
+};
+
+function round(n: number): number {
+  return Math.round(n * 1e8) / 1e8;
+}
+
+/** Bewertet GENAU den Bar `i` (nur Daten bis i — look-ahead-frei). */
+export function evaluateSmcCoreAt(
+  allCandles: Candle[],
+  i: number,
+  params: SmcCoreParams = SMC_CORE_DEFAULTS,
+  ctx: SmcContext = {},
+): SetupCandidate[] {
+  if (i < 1 || i >= allCandles.length) return [];
+  // Nur Vergangenheit + aktueller Bar — Zukunft ist physisch abgeschnitten.
+  const candles = allCandles.slice(0, i + 1);
+  const bar = candles[i]!;
+
+  const closes = candles.map((c) => c.close);
+  const emaTrendMaybe = ema(closes, params.emaTrendPeriod)[i];
+  const emaPullMaybe = ema(closes, params.emaPullbackPeriod)[i];
+  const rsiMaybe = rsi(closes, params.rsiPeriod)[i];
+  const volMaMaybe = sma(candles.map((c) => c.volume), params.volumeMaPeriod)[i];
+  const atrMaybe = atr(candles, params.atrPeriod)[i];
+  if (emaTrendMaybe == null || emaPullMaybe == null || rsiMaybe == null || volMaMaybe == null || atrMaybe == null) {
+    return [];
+  }
+  const emaTrend = emaTrendMaybe;
+  const emaPull = emaPullMaybe;
+  const rsiNow = rsiMaybe;
+  const volMa = volMaMaybe;
+  const atrNow = atrMaybe;
+  if (atrNow <= 0) return [];
+
+  const trendUp = bar.close > emaTrend;
+  const trendDown = bar.close < emaTrend;
+  const volOk = bar.volume > volMa;
+  if (!volOk) return [];
+
+  const events = detectStructure(candles, {
+    leftBars: params.swingLeftBars,
+    rightBars: params.swingRightBars,
+  });
+
+  const direction: 'long' | 'short' | null = trendUp ? 'long' : trendDown ? 'short' : null;
+  if (!direction) return [];
+
+  // Letztes Struktur-Ereignis in Trendrichtung innerhalb des Retest-Fensters
+  const wanted = direction === 'long' ? 'bullish' : 'bearish';
+  const event = [...events]
+    .reverse()
+    .find((e) => e.direction === wanted && e.index <= i && e.index >= i - params.retestWindowBars);
+  if (!event) return [];
+
+  // Retest-Bedingungen (Pine): Rückkehr zum Bruchlevel + Nähe Pullback-EMA + bestätigende Kerze
+  const proximity = params.emaProximityPct / 100;
+  const bullishBar = bar.close > bar.open;
+  const bearishBar = bar.close < bar.open;
+  const retestLong =
+    direction === 'long' &&
+    bar.low <= event.brokenLevel &&
+    bar.low <= emaPull * (1 + proximity) &&
+    bullishBar &&
+    bar.close >= event.brokenLevel;
+  const retestShort =
+    direction === 'short' &&
+    bar.high >= event.brokenLevel &&
+    bar.high >= emaPull * (1 - proximity) &&
+    bearishBar &&
+    bar.close <= event.brokenLevel;
+  if (!(retestLong || retestShort)) return [];
+
+  const rsiOk =
+    direction === 'long'
+      ? rsiNow >= params.rsiLongMin && rsiNow <= params.rsiLongMax
+      : rsiNow >= params.rsiShortMin && rsiNow <= params.rsiShortMax;
+  if (!rsiOk) return [];
+
+  // Optionale Confluences
+  const fvgs = detectFvgs(candles).filter((z) => z.createdAt <= i && z.filledAt === undefined);
+  const fvgTarget =
+    direction === 'long'
+      ? fvgs.some((z) => z.bottom > bar.close)
+      : fvgs.some((z) => z.top < bar.close);
+
+  const session = sessionOf(bar.ts);
+  const higherTf: 'aligned' | 'neutral' | 'opposed' =
+    !ctx.higherTfTrend || ctx.higherTfTrend === 'neutral'
+      ? 'neutral'
+      : (ctx.higherTfTrend === 'bull') === (direction === 'long')
+        ? 'aligned'
+        : 'opposed';
+
+  const entry = bar.close;
+  const candidates: SetupCandidate[] = [];
+
+  for (const setup of SETUPS) {
+    const slDistance = setup.slAtrMult * atrNow;
+    const stopLoss = direction === 'long' ? entry - slDistance : entry + slDistance;
+    const takeProfits = setup.tpRs.map((r) =>
+      round(direction === 'long' ? entry + r * slDistance : entry - r * slDistance),
+    );
+    const lastTp = takeProfits[takeProfits.length - 1]!;
+    const rr = Math.abs(lastTp - entry) / slDistance;
+    if (rr < setup.rrMin) continue; // RR-Minimum je Setup (05_ §5)
+
+    const { score, confluence } = computeScore({
+      trendAligned: true,
+      structureBreak: true,
+      validRetest: true,
+      rsiInBand: true,
+      volumeConfirmed: true,
+      fvgTarget,
+      sessionActive: isActiveSession(session),
+      rrAtLeast2: rr >= 2,
+      higherTf,
+      counterConfluence: false,
+    });
+
+    // Ausspiel-Schwelle (05_ §6): unter 6 wird verworfen
+    if (score < 6) continue;
+
+    candidates.push({
+      direction,
+      setupType: setup.type,
+      entry: round(entry),
+      stopLoss: round(stopLoss),
+      takeProfits,
+      score,
+      riskClass: riskClassOf(score),
+      confluence,
+      session,
+      brokenLevel: event.brokenLevel,
+      structureKind: event.kind,
+    });
+  }
+
+  return candidates;
+}
