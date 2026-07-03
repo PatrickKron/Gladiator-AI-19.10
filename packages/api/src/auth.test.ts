@@ -161,7 +161,10 @@ describe.skipIf(!hasDb)('HTTP-Ebene (Express + tRPC)', () => {
   it('GET /health → 200 mit echtem DB-Status', async () => {
     const res = await request(createApp(db)).get('/health');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ok: true, db: 'up' });
+    // Phase 7: /health traegt zusaetzlich Worker-Heartbeat + Feed-Status
+    expect(res.body.ok).toBe(true);
+    expect(res.body.db).toBe('up');
+    expect(res.body.degraded).toBe(false);
   });
 
   it('auth.me ohne Token → HTTP 401; mit Token → 200', async () => {
