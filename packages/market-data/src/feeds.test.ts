@@ -106,3 +106,23 @@ describe('parseRssFeed', () => {
     expect(parseRssFeed(broken, 'test')).toHaveLength(0);
   });
 });
+
+// ── FRED-public-CSV ───────────────────────────────────────────────────────
+import { parseFredCsv } from './fred-public.js';
+
+describe('parseFredCsv (fredgraph.csv, offizielle Fed-Daten ohne Key)', () => {
+  it('parst Datumszeilen und verwirft fehlende Werte (".") — nie interpolieren', () => {
+    const csv = 'DATE,VIXCLS\n2026-06-30,16.73\n2026-07-01,.\n2026-07-02,17.42\n';
+    const points = parseFredCsv(csv);
+    expect(points).toHaveLength(2);
+    expect(points[0]!.value).toBe(16.73);
+    expect(points[0]!.ts.toISOString()).toBe('2026-06-30T00:00:00.000Z');
+    expect(points[1]!.value).toBe(17.42);
+  });
+
+  it('leeres/kaputtes CSV → leere Liste', () => {
+    expect(parseFredCsv('')).toHaveLength(0);
+    expect(parseFredCsv('DATE,VIXCLS')).toHaveLength(0);
+    expect(parseFredCsv('kein,csv\nfoo,bar')).toHaveLength(0);
+  });
+});

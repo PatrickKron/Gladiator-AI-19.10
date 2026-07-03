@@ -40,3 +40,4 @@ export {
   type DerivativesSnapshot,
   type DerivativesSyncResult,
 } from './derivatives.js';
+export { fetchFredPublicSeries, parseFredCsv, FRED_PUBLIC_SERIES, type FredCsvPoint } from './fred-public.js';

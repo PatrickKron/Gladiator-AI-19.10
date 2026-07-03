@@ -1,55 +1,87 @@
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { deriveGrsFromSeries, type Grs, type MacroPoint } from './grs.js';
+import { FRED_PUBLIC_SERIES, fetchFredPublicSeries } from './fred-public.js';
 import { fetchYahooChart, MACRO_SYMBOLS, type MacroSeriesId } from './yahoo.js';
 
 const { macroSeries } = schema;
 
 /**
- * Makro-Zeitreihen (Phase-1-Rest): VIX/DXY/US10Y als Tages-Serien via Yahoo
- * (öffentlich, kein Key) → macro_series. Optional FRED (FRED_API_KEY, legt
- * nur Patrick an) für zusätzliche Serien — ohne Key ehrlich nicht verbunden.
+ * Makro-Zeitreihen (Phase-1-Rest): VIX/DXY/US10Y als Tages-Serien →
+ * macro_series. PRIMÄR über die öffentliche FRED-CSV (offizielle Fed-Daten,
+ * kein Key — Yahoo blockt Rechenzentrums-IPs mit 429); Yahoo als Fallback.
+ * Optional FRED-API (FRED_API_KEY) für Zusatz-Serien.
  */
 
-export type MacroSyncResult = { series: { seriesId: string; points: number; latest: number | null }[]; errors: string[] };
+export type MacroSyncResult = { series: { seriesId: string; points: number; latest: number | null; source: string }[]; errors: string[] };
+
+async function upsertPoints(db: Db, source: string, seriesId: string, points: { ts: Date; value: number }[]): Promise<number> {
+  let written = 0;
+  for (const p of points) {
+    // Tagespunkte auf Mitternacht UTC normalisieren (stabile PKs über Läufe)
+    const day = new Date(Date.UTC(p.ts.getUTCFullYear(), p.ts.getUTCMonth(), p.ts.getUTCDate()));
+    const res = await db
+      .insert(macroSeries)
+      .values({ source, seriesId, ts: day, value: String(p.value) })
+      .onConflictDoUpdate({
+        target: [macroSeries.source, macroSeries.seriesId, macroSeries.ts],
+        set: { value: String(p.value) },
+      })
+      .returning({ ts: macroSeries.ts });
+    written += res.length;
+  }
+  return written;
+}
 
 export async function syncMacroSeries(db: Db): Promise<MacroSyncResult> {
   const result: MacroSyncResult = { series: [], errors: [] };
-  for (const [seriesId, symbol] of Object.entries(MACRO_SYMBOLS)) {
+  const fromIso = new Date(Date.now() - 200 * 86_400_000).toISOString().slice(0, 10);
+
+  for (const seriesId of Object.keys(MACRO_SYMBOLS) as MacroSeriesId[]) {
+    // 1. Primär: FRED-public-CSV (offiziell, kein Key, kein IP-Block)
     try {
-      const chart = await fetchYahooChart(symbol, '6mo', '1d');
-      if (!chart) throw new Error('leere Antwort');
-      let written = 0;
-      for (const p of chart.points) {
-        // Tagespunkte auf Mitternacht UTC normalisieren (stabile PKs über Läufe)
-        const day = new Date(Date.UTC(p.ts.getUTCFullYear(), p.ts.getUTCMonth(), p.ts.getUTCDate()));
-        const res = await db
-          .insert(macroSeries)
-          .values({ source: 'yahoo', seriesId, ts: day, value: String(p.close) })
-          .onConflictDoUpdate({
-            target: [macroSeries.source, macroSeries.seriesId, macroSeries.ts],
-            set: { value: String(p.close) },
-          })
-          .returning({ ts: macroSeries.ts });
-        written += res.length;
-      }
-      result.series.push({ seriesId, points: written, latest: chart.price });
+      const points = await fetchFredPublicSeries(FRED_PUBLIC_SERIES[seriesId], fromIso);
+      if (points.length === 0) throw new Error('leere Serie');
+      const written = await upsertPoints(db, 'fred-public', seriesId, points);
+      result.series.push({ seriesId, points: written, latest: points[points.length - 1]!.value, source: 'fred-public' });
+      continue;
     } catch (err) {
-      result.errors.push(`${seriesId}: ${String(err)}`);
+      result.errors.push(`${seriesId} (fred-public): ${String(err)}`);
+    }
+    // 2. Fallback: Yahoo-Chart-API
+    try {
+      const chart = await fetchYahooChart(MACRO_SYMBOLS[seriesId], '6mo', '1d');
+      if (!chart) throw new Error('leere Antwort');
+      const written = await upsertPoints(db, 'yahoo', seriesId, chart.points.map((p) => ({ ts: p.ts, value: p.close })));
+      result.series.push({ seriesId, points: written, latest: chart.price, source: 'yahoo' });
+    } catch (err) {
+      result.errors.push(`${seriesId} (yahoo): ${String(err)}`);
     }
   }
   return result;
 }
 
+/** Liest beide Quellen; bei doppeltem Tag gewinnt fred-public (offizielle Daten). */
 export async function getMacroSeries(db: Db, seriesId: MacroSeriesId, limit = 130): Promise<MacroPoint[]> {
   const rows = await db
-    .select({ ts: macroSeries.ts, value: macroSeries.value })
+    .select({ ts: macroSeries.ts, value: macroSeries.value, source: macroSeries.source })
     .from(macroSeries)
-    .where(and(eq(macroSeries.source, 'yahoo'), eq(macroSeries.seriesId, seriesId)))
+    .where(and(inArray(macroSeries.source, ['fred-public', 'yahoo']), eq(macroSeries.seriesId, seriesId)))
     .orderBy(desc(macroSeries.ts))
-    .limit(limit);
-  return rows.reverse().map((r) => ({ ts: r.ts, value: Number(r.value) }));
+    .limit(limit * 2);
+  const byDay = new Map<number, { value: number; source: string }>();
+  for (const r of rows) {
+    const key = r.ts.getTime();
+    const existing = byDay.get(key);
+    if (!existing || (existing.source !== 'fred-public' && r.source === 'fred-public')) {
+      byDay.set(key, { value: Number(r.value), source: r.source });
+    }
+  }
+  return [...byDay.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .slice(-limit)
+    .map(([ts, v]) => ({ ts: new Date(ts), value: v.value }));
 }
 
 export type MacroSnapshot = {
