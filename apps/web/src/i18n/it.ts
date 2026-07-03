@@ -202,7 +202,7 @@ export const it: Catalog = {
   },
   magazine: {
     title: 'Rivista · Insights',
-    subtitle: '{{count}} articoli — patrimonio v1 reale. Una fonte di news live arriva con il resto della Fase 1.',
+    subtitle: '{{count}} articoli — patrimonio v1 reale · news live sopra via RSS (reali).',
     categoryAll: 'Tutte le categorie',
     readMore: 'Leggi di più',
     collapse: 'Comprimi',

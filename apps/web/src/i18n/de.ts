@@ -201,7 +201,7 @@ export const de = {
   },
   magazine: {
     title: 'Magazin · Insights',
-    subtitle: '{{count}} Artikel — echte v1-Bestände. Live-News-Quelle folgt mit dem Phase-1-Rest.',
+    subtitle: '{{count}} Artikel — echte v1-Bestände · Live-News oben via RSS (echt).',
     categoryAll: 'Alle Kategorien',
     readMore: 'Weiterlesen',
     collapse: 'Einklappen',

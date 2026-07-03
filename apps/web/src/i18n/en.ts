@@ -202,7 +202,7 @@ export const en: Catalog = {
   },
   magazine: {
     title: 'Magazine · Insights',
-    subtitle: '{{count}} articles — real v1 holdings. A live news source comes with the Phase 1 remainder.',
+    subtitle: '{{count}} articles — real v1 holdings · live news above via RSS (real).',
     categoryAll: 'All categories',
     readMore: 'Read more',
     collapse: 'Collapse',
