@@ -115,3 +115,17 @@ export async function guardedComplete(
   guard.record(result.costUsd, now);
   return result;
 }
+
+/**
+ * Lazy-Singleton: liest ANTHROPIC_API_KEY bei JEDEM Zugriff aus process.env
+ * und baut den Provider neu, wenn sich der Key geändert hat — so wirken
+ * UI-gepflegte Secrets sofort, ohne Dienst-Neustart.
+ */
+let envProviderCache: { key: string | undefined; provider: AnthropicProvider } | null = null;
+export function envAnthropicProvider(): AnthropicProvider {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!envProviderCache || envProviderCache.key !== key) {
+    envProviderCache = { key, provider: new AnthropicProvider(key) };
+  }
+  return envProviderCache.provider;
+}

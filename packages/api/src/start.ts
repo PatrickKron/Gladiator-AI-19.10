@@ -5,7 +5,7 @@
 import { createDb, requireEnv } from '@gladiator/db';
 import { LivePriceFeed } from '@gladiator/market-data';
 import { startJobWorker } from '@gladiator/jobs';
-import { BinanceTestnetVenue, HyperliquidTestnetVenue, PaperVenue } from '@gladiator/exchange';
+import { BinanceTestnetVenue, HyperliquidTestnetVenue, PaperVenue, captureBootEnv, loadSecretsIntoEnv } from '@gladiator/exchange';
 import { createApp } from './app.js';
 
 requireEnv('DATABASE_URL');
@@ -21,6 +21,13 @@ const hosts = (process.env.API_HOSTS ?? process.env.API_HOST ?? '127.0.0.1')
   .filter(Boolean);
 
 const { db } = createDb();
+
+// UI-gepflegte Secrets (Phase 7+): .env-Snapshot sichern, dann DB-Werte
+// entschlüsselt nach process.env laden — VOR der Venue-Konstruktion,
+// damit Börsen-Keys aus der DB beim (Neu-)Start greifen. DB > .env.
+captureBootEnv();
+const loadedSecrets = await loadSecretsIntoEnv(db);
+if (loadedSecrets.length > 0) console.log(`[secrets] ${loadedSecrets.length} Key(s) aus der DB geladen: ${loadedSecrets.join(', ')}`);
 
 const prices = new LivePriceFeed(['BTC/USDT', 'ETH/USDT', 'SOL/USDT']);
 prices.start();

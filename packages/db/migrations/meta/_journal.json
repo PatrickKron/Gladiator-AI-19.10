@@ -57,6 +57,13 @@
       "when": 1783091229815,
       "tag": "0007_superb_spot",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783093271156,
+      "tag": "0008_legal_khan",
+      "breakpoints": true
     }
   ]
 }

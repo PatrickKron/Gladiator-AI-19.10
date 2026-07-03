@@ -3,7 +3,7 @@ import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { buildAccountState, loadRiskSettings } from '@gladiator/exchange';
 import { getMacroSnapshot, latestNews, upcomingEvents } from '@gladiator/market-data';
-import { AnthropicProvider, CostGuard, guardedComplete } from '@gladiator/agents';
+import { CostGuard, envAnthropicProvider, guardedComplete } from '@gladiator/agents';
 import { escapeHtml, sendTelegram, telegramConfigured } from './telegram.js';
 
 const { briefings, executedTrades, signals, signalReviews, riskGates, users } = schema;
@@ -92,7 +92,6 @@ export function renderBriefing(d: BriefingData): string {
   return lines.join('\n');
 }
 
-const llmProvider = new AnthropicProvider(process.env.ANTHROPIC_API_KEY);
 const llmGuard = new CostGuard({ dailyBudgetUsd: Number(process.env.LLM_DAILY_BUDGET_USD ?? 5) });
 
 /** Sammelt ausschließlich echte Daten für das Briefing. */
@@ -152,6 +151,7 @@ export async function buildBriefing(db: Db, now = new Date()): Promise<BriefingD
 
   // Optionale LLM-Erkenntnis (08_ §5 Schritt 5) — NUR mit Provider, sonst null.
   let llmInsight: string | null = null;
+  const llmProvider = envAnthropicProvider();
   if (llmProvider.configured && yesterdayTrades.length > 0) {
     try {
       const completion = await guardedComplete(llmProvider, llmGuard, {

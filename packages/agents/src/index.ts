@@ -5,6 +5,7 @@ export { reviewDevil, type DevilBucket, type DevilEvidence } from './devil.js';
 export { aggregateVerdicts } from './portfolio.js';
 export {
   AnthropicProvider,
+  envAnthropicProvider,
   CostGuard,
   guardedComplete,
   type LlmCompletion,

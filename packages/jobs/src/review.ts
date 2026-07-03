@@ -11,8 +11,8 @@ import {
 import { derivativesFresh, getDerivativesSnapshot, getMacroSnapshot, upcomingEvents } from '@gladiator/market-data';
 import { evaluateRisk } from '@gladiator/risk';
 import {
-  AnthropicProvider,
   CostGuard,
+  envAnthropicProvider,
   runSwarm,
   type DevilEvidence,
   type SignalFacts,
@@ -30,7 +30,6 @@ const { signals, signalReviews, studyTrades, users, auditLog } = schema;
 
 /** Ein Kosten-Wächter je Prozess: Budget gilt über alle Job-Läufe des Tages (In-Memory; Neustart setzt zurück — dokumentiert). */
 const llmGuard = new CostGuard({ dailyBudgetUsd: Number(process.env.LLM_DAILY_BUDGET_USD ?? 5) });
-const llmProvider = new AnthropicProvider(process.env.ANTHROPIC_API_KEY);
 
 /** Devil-Evidenz: echte study_trades-Buckets, die auf das Signal zutreffen. */
 export async function buildDevilEvidence(db: Db, facts: SignalFacts): Promise<DevilEvidence> {
@@ -180,7 +179,7 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue): Promise<Rev
         riskVerdict,
         devilEvidence,
         llm: {
-          provider: llmProvider,
+          provider: envAnthropicProvider(),
           guard: llmGuard,
           macroDataConnected,
           onchainDataConnected: onchainDataConnected && symbolDerivatives !== undefined,

@@ -23,6 +23,20 @@ export const briefings = pgTable(
 );
 
 /**
+ * App-Secrets (Phase 7+): von Patrick ÜBER DIE UI gepflegte API-Keys.
+ * NIE Klartext — nur Vault-Ciphertext (AES-256-GCM, ENCRYPTION_KEY) + last4
+ * für die maskierte Anzeige. Auflösung zur Laufzeit: DB überschreibt .env.
+ */
+export const appSecrets = pgTable('app_secrets', {
+  /** Whitelist-Key (z. B. TELEGRAM_BOT_TOKEN) — Registry in @gladiator/exchange. */
+  key: text('key').primaryKey(),
+  ciphertext: text('ciphertext').notNull(),
+  last4: text('last4').notNull(),
+  updatedBy: uuid('updated_by').references(() => users.id),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
  * Live-Freigabe PRO Börse (10_ §5 / 11_ Phase 7): existiert keine aktive
  * Freigabe, ist Live für dieses Venue unmöglich. Freigabe erteilt NUR
  * Patrick (UI mit Bestätigungsphrase), jederzeit widerrufbar, voll auditiert.

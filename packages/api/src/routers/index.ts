@@ -5,6 +5,7 @@ import { labRouter } from './lab.js';
 import { marketRouter } from './market.js';
 import { productRouter } from './product.js';
 import { riskRouter } from './risk.js';
+import { secretsRouter } from './secrets.js';
 import { settingsRouter } from './settings.js';
 import { signalsRouter } from './signals.js';
 import { strategiesRouter } from './strategies.js';
@@ -18,6 +19,7 @@ export const appRouter = router({
   market: marketRouter,
   product: productRouter,
   risk: riskRouter,
+  secrets: secretsRouter,
   settings: settingsRouter,
   signals: signalsRouter,
   strategies: strategiesRouter,

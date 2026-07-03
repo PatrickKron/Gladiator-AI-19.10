@@ -21,6 +21,199 @@ const FIELDS: { name: keyof Omit<Settings, 'killSwitchActive' | 'mode' | 'update
   { name: 'maxDrawdownPct', key: 'settings.maxDrawdownPct', step: '1' },
 ];
 
+type SecretStatus = Awaited<ReturnType<typeof trpc.secrets.list.query>>[number];
+
+/**
+ * API-Keys & Secrets (Phase 7+): Patrick pflegt Keys OHNE SSH — Vault-
+ * verschlüsselt in der DB, maskierte Anzeige, echter Funktionstest je Key,
+ * Neustart-Button für Boot-Time-Keys (Börsen-Venues).
+ */
+function SecretsPanel() {
+  const { t } = useTranslation();
+  const [status, setStatus] = useState<SecretStatus[] | null>(null);
+  const [inputs, setInputs] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Record<string, { ok: boolean; text: string }>>({});
+  const [restartArmed, setRestartArmed] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+
+  async function load() {
+    try {
+      setStatus(await trpc.secrets.list.query());
+    } catch {
+      setStatus([]);
+    }
+  }
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const msg = (key: string, ok: boolean, text: string) => setMessages((m) => ({ ...m, [key]: { ok, text } }));
+
+  async function save(key: SecretStatus['key']) {
+    const value = inputs[key]?.trim();
+    if (!value) return;
+    setBusy(key);
+    try {
+      const res = await trpc.secrets.set.mutate({ key, value });
+      msg(key, true, res.immediate ? t('secrets.savedImmediate') : t('secrets.savedRestart'));
+      setInputs((i) => ({ ...i, [key]: '' }));
+      await load();
+    } catch (err) {
+      msg(key, false, err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function test(key: SecretStatus['key']) {
+    setBusy(key);
+    msg(key, true, t('secrets.testing'));
+    try {
+      const res = await trpc.secrets.test.mutate({ key });
+      msg(key, res.ok, res.detail);
+    } catch (err) {
+      msg(key, false, err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function remove(key: SecretStatus['key']) {
+    setBusy(key);
+    try {
+      await trpc.secrets.remove.mutate({ key });
+      msg(key, true, t('secrets.deleted'));
+      await load();
+    } catch (err) {
+      msg(key, false, err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function restart() {
+    if (!restartArmed) {
+      setRestartArmed(true);
+      return;
+    }
+    setRestarting(true);
+    try {
+      await trpc.secrets.restartService.mutate();
+    } catch {
+      /* Verbindung reißt beim Exit ab — erwartet */
+    }
+    window.setTimeout(() => window.location.reload(), 15_000);
+  }
+
+  const needsRestart = (status ?? []).some((s) => !s.immediate && s.source === 'db');
+
+  return (
+    <Panel label={t('secrets.title')} stagger={3} className="mt-5">
+      <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+        {t('secrets.subtitle')}
+      </p>
+      {status === null ? (
+        <Loading />
+      ) : (
+        <ul className="mt-4 space-y-4">
+          {status.map((s) => {
+            const m = messages[s.key];
+            return (
+              <li key={s.key} className="rounded-[0.625rem] border p-4" style={{ borderColor: s.source ? 'rgba(79,209,255,0.3)' : 'var(--color-line)' }}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="num text-sm font-medium">{s.key}</p>
+                  <span className="label flex items-center gap-2">
+                    {s.source ? (
+                      <>
+                        <span className="num" style={{ color: 'var(--color-cyan)' }}>{s.masked}</span>
+                        <span className="rounded border px-1.5 py-0.5" style={{ borderColor: 'var(--color-line)' }}>
+                          {s.source === 'db' ? t('secrets.sourceDb') : t('secrets.sourceEnv')}
+                        </span>
+                      </>
+                    ) : (
+                      <span>{t('secrets.notSet')}</span>
+                    )}
+                    <span
+                      className="rounded border px-1.5 py-0.5"
+                      style={s.immediate ? { borderColor: 'rgba(61,220,151,0.4)', color: 'var(--color-pos)' } : { borderColor: 'rgba(232,184,75,0.4)', color: 'var(--color-warn)' }}
+                    >
+                      {s.immediate ? t('secrets.immediate') : t('secrets.needsRestart')}
+                    </span>
+                  </span>
+                </div>
+                <p className="mt-1.5 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+                  {t(`secrets.desc_${s.key}`)}
+                </p>
+                <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={inputs[s.key] ?? ''}
+                    onChange={(e) => setInputs((i) => ({ ...i, [s.key]: e.target.value }))}
+                    placeholder={t('secrets.value')}
+                    className="field num min-w-56 flex-1 px-3 py-1.5 text-xs"
+                  />
+                  <button
+                    onClick={() => void save(s.key)}
+                    disabled={busy !== null || !(inputs[s.key] ?? '').trim()}
+                    className="btn-primary px-3 py-1.5 text-xs disabled:opacity-50"
+                  >
+                    {t('secrets.save')}
+                  </button>
+                  {s.testable && s.source && (
+                    <button
+                      onClick={() => void test(s.key)}
+                      disabled={busy !== null}
+                      className="rounded-[0.625rem] border px-3 py-1.5 text-xs disabled:opacity-50"
+                      style={{ borderColor: 'rgba(79,209,255,0.4)', color: 'var(--color-cyan)' }}
+                    >
+                      {busy === s.key ? t('secrets.testing') : t('secrets.test')}
+                    </button>
+                  )}
+                  {s.source === 'db' && (
+                    <button
+                      onClick={() => void remove(s.key)}
+                      disabled={busy !== null}
+                      className="rounded-[0.625rem] border px-3 py-1.5 text-xs disabled:opacity-50"
+                      style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}
+                    >
+                      {t('secrets.delete')}
+                    </button>
+                  )}
+                </div>
+                {m && (
+                  <p className="mt-2 text-xs leading-relaxed" style={{ color: m.ok ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+                    {m.text}
+                  </p>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {(needsRestart || restartArmed) && (
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => void restart()}
+            disabled={restarting}
+            className="rounded-[0.625rem] border px-4 py-2 text-sm disabled:opacity-50"
+            style={{ borderColor: 'rgba(232,184,75,0.5)', color: 'var(--color-warn)' }}
+          >
+            {restarting ? t('secrets.restarting') : t('secrets.restartBtn')}
+          </button>
+          {restartArmed && !restarting && (
+            <span className="text-xs" style={{ color: 'var(--color-warn)' }}>
+              {t('secrets.restartConfirm')}
+            </span>
+          )}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 export function Einstellungen() {
   const { t } = useTranslation();
   const [form, setForm] = useState<Record<string, string> | null>(null);
@@ -179,6 +372,8 @@ export function Einstellungen() {
           </ul>
         )}
       </Panel>
+
+      <SecretsPanel />
     </div>
   );
 }

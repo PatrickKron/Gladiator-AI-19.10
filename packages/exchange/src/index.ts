@@ -16,3 +16,17 @@ export {
   type ExecutionResult,
 } from './executor.js';
 export { HyperliquidTestnetVenue } from './hyperliquid-venue.js';
+export {
+  SECRET_KEYS,
+  captureBootEnv,
+  deleteSecret,
+  getSecretStatus,
+  loadSecretsIntoEnv,
+  maskSecret,
+  secretDef,
+  setSecret,
+  validateSecretValue,
+  type SecretDef,
+  type SecretKey,
+  type SecretStatus,
+} from './secrets.js';

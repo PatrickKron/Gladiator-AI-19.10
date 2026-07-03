@@ -32,6 +32,15 @@ mit EHRLICHEM Status. ⚠-Punkte sind offen und blockieren die Live-Freigabe.
   automatischer Restore-Test** in eine Wegwerf-DB mit echten Zeilenzahl-Checks;
   Fehler alarmieren via Telegram.
 
+- **UI-Secrets-Verwaltung (Nachtrag 2026-07-03):** Patrick pflegt alle Betriebs-Keys
+  in Einstellungen → „API-Keys & Secrets" — ohne SSH. At-rest ausschließlich
+  Vault-verschlüsselt (AES-256-GCM, `ENCRYPTION_KEY`); DB hält nur Ciphertext +
+  last4; UI zeigt nur maskiert; Audit-Log enthält nur Key-Name + last4, NIE Werte.
+  Auflösung DB > .env; Call-Time-Keys wirken sofort, Venue-Keys nach Dienst-
+  Neustart (auditierter Neustart-Button in der UI). Whitelist-Validierung je Key
+  inkl. aktiver Verweigerung des kompromittierten v1-Telegram-Tokens; „Testen"
+  führt ECHTE Funktionstests gegen die jeweiligen APIs aus.
+
 ## Offene Punkte vor Live (Blocker)
 
 1. **Alt-Secrets rotieren** (Patrick): Telegram-BotFather revoke + neu, OpenAI revoke, OKX löschen.

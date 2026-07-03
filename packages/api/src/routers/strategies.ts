@@ -3,7 +3,7 @@ import { desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
 import { parseInstructionDsl, type InstructionDsl } from '@gladiator/strategy-engine';
-import { AnthropicProvider, CostGuard, guardedComplete } from '@gladiator/agents';
+import { CostGuard, envAnthropicProvider, guardedComplete } from '@gladiator/agents';
 import { protectedProcedure, router } from '../trpc.js';
 
 const { strategies, strategyVersions, auditLog } = schema;
@@ -15,7 +15,6 @@ const { strategies, strategyVersions, auditLog } = schema;
  *   per dslRegister. Das LLM schaltet NIE selbst scharf (07_ §3).
  */
 
-const llmProvider = new AnthropicProvider(process.env.ANTHROPIC_API_KEY);
 const llmGuard = new CostGuard({ dailyBudgetUsd: Number(process.env.LLM_DAILY_BUDGET_USD ?? 5) });
 
 const DSL_SYSTEM_PROMPT = `Du übersetzt natürlichsprachige Trading-Anweisungen in die Gladiator-Strategie-DSL (JSON).
@@ -167,6 +166,7 @@ export const strategiesRouter = router({
       let llmUsed = false;
 
       if (candidate === undefined && input.text !== undefined) {
+        const llmProvider = envAnthropicProvider();
         if (!llmProvider.configured) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
