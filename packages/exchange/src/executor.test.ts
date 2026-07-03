@@ -77,7 +77,7 @@ describe.skipIf(!hasDb)('Order-Lifecycle (Paper, echte DB)', () => {
         source: 'engine',
         strategyId: s!.id,
         strategyVersionId: v!.id,
-        symbol: 'BTC/USDT',
+        symbol: 'TEST/USDT',
         timeframe: '1h',
         assetClass: 'crypto',
         venueType: 'cex',
@@ -143,7 +143,7 @@ describe.skipIf(!hasDb)('Order-Lifecycle (Paper, echte DB)', () => {
   it('Reconciliation: Position mit Schutz-Orders ist sauber', async () => {
     const venue = new TestVenue();
     const rec = await reconcile(db, venue);
-    const own = rec.findings.filter((f) => f.includes('BTC/USDT'));
+    const own = rec.findings.filter((f) => f.includes('TEST/USDT'));
     expect(own).toHaveLength(0);
   });
 
@@ -183,7 +183,7 @@ describe.skipIf(!hasDb)('Order-Lifecycle (Paper, echte DB)', () => {
       .values({
         source: 'engine',
         strategyId: (await db.execute(sql`SELECT id FROM strategies WHERE slug LIKE ${'exec-test-%'} LIMIT 1`)).rows[0]!.id as string,
-        symbol: 'BTC/USDT',
+        symbol: 'TEST/USDT',
         timeframe: '1h',
         assetClass: 'crypto',
         venueType: 'cex',

@@ -279,7 +279,15 @@ export async function monitorOpenPositions(db: Db, venue: TradingVenue): Promise
   let fills = 0;
 
   for (const pos of open) {
-    const price = await venue.markPrice(pos.symbol); // ECHTER Live-Preis
+    // Fehler-Isolation: eine defekte Position (z. B. Preis nicht verfügbar)
+    // darf die Überwachung der anderen NIE verhindern (06_ §7b).
+    let price: number;
+    try {
+      price = await venue.markPrice(pos.symbol); // ECHTER Live-Preis
+    } catch (err) {
+      console.warn(`[position-monitor] Preis für ${pos.symbol} nicht verfügbar: ${String(err)}`);
+      continue;
+    }
     const prot = await db
       .select()
       .from(orders)
