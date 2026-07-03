@@ -74,7 +74,7 @@ describe.skipIf(!hasDb)('Phase-6-Router (Settings, Product, Agents, Promotion)',
     const off = await caller.settings.setKillSwitch({ active: false });
     expect(off.killSwitchActive).toBe(false);
     const audits = await db.execute(
-      sql`SELECT action FROM audit_log WHERE action IN ('risk.kill_switch.on','risk.kill_switch.off') ORDER BY created_at DESC LIMIT 2`,
+      sql`SELECT action FROM audit_log WHERE action IN ('risk.kill_switch.on','risk.kill_switch.off') ORDER BY ts DESC LIMIT 2`,
     );
     expect(audits.rows.length).toBe(2);
   });
