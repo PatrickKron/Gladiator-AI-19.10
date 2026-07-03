@@ -32,7 +32,7 @@ export const systemRouter = router({
         fred_makro: 'nicht verbunden (Phase 1, Rest)',
         wirtschaftskalender: 'nicht verbunden (Phase 1, Rest)',
         news: 'nicht verbunden (Phase 1, Rest)',
-        strategie_engine: 'nicht gebaut (Phase 2)',
+        strategie_engine: 'verbunden',
         backtesting: 'nicht gebaut (Phase 3)',
         boersen_trading: 'nicht gebaut (Phase 4)',
         agenten: 'nicht gebaut (Phase 5)',

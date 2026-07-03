@@ -28,7 +28,7 @@ const SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
 const PHASEN: { name: string; status: 'fertig' | 'teilweise' | 'offen' }[] = [
   { name: '0 Fundament: DB, Auth, Vault', status: 'fertig' },
   { name: '1 Marktdaten (Live + Historie)', status: 'teilweise' },
-  { name: '2 Strategie-Engine → Signale bestätigen', status: 'offen' },
+  { name: '2 Strategie-Engine → Signale bestätigen', status: 'teilweise' },
   { name: '3 Eigenes Backtesting (netto)', status: 'offen' },
   { name: '4 Risk-Engine + Börsen (Paper)', status: 'offen' },
   { name: '5 KI-Agenten-Schwarm', status: 'offen' },
