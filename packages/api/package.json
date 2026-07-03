@@ -24,7 +24,8 @@
     "@gladiator/market-data": "*",
     "@gladiator/jobs": "*",
     "@gladiator/backtest": "*",
-    "@gladiator/risk": "*"
+    "@gladiator/risk": "*",
+    "@gladiator/exchange": "*"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

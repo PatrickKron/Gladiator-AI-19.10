@@ -251,6 +251,7 @@ export function Labor() {
           <nav className="flex gap-4 text-sm">
             <a href="#/" style={{ color: 'var(--color-mut)' }}>Dashboard</a>
             <a href="#/labor" style={{ color: 'var(--color-cyan)' }}>Strategie-Labor</a>
+            <a href="#/trading" style={{ color: 'var(--color-mut)' }}>Trading</a>
           </nav>
         </div>
         <button onClick={() => void logout()} className="text-sm" style={{ color: 'var(--color-mut)' }}>

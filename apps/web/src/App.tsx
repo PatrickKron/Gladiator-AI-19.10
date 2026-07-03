@@ -4,6 +4,7 @@ import { MatrixRain } from './components/MatrixRain.js';
 import { Login } from './views/Login.js';
 import { Dashboard } from './views/Dashboard.js';
 import { Labor } from './views/Labor.js';
+import { Trading } from './views/Trading.js';
 
 type AuthState = 'restoring' | 'anonymous' | 'authenticated';
 
@@ -35,7 +36,7 @@ export function App() {
           <p className="label animate-pulse">Sitzung wird wiederhergestellt …</p>
         </div>
       ) : auth === 'authenticated' ? (
-        route === '#/labor' ? <Labor /> : <Dashboard />
+        route === '#/labor' ? <Labor /> : route === '#/trading' ? <Trading /> : <Dashboard />
       ) : (
         <Login />
       )}

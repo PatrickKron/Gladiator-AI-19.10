@@ -87,6 +87,9 @@ export const signals = pgTable(
     session: tradingSessionEnum('session').notNull(),
     reentry: jsonb('reentry'),
     leverageUpgrade: jsonb('leverage_upgrade'),
+    /** Für Live-Matching der adaptiven Risk-Gates (Phase 4a). */
+    emaRegime: text('ema_regime').notNull().default('above'),
+    marketPhase: text('market_phase').notNull().default('bull'),
     status: signalStatusEnum('status').notNull().default('new'),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
   },

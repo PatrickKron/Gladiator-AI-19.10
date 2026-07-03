@@ -2,16 +2,17 @@ import { TRPCError } from '@trpc/server';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
+import { executeConfirmedSignal } from '@gladiator/exchange';
 import { protectedProcedure, router } from '../trpc.js';
 
 const { signals, strategies, auditLog } = schema;
 
 /**
  * Signal-Feed + Mensch-im-Loop-Entscheidung.
- * WICHTIG (ehrlich): „Bestätigen" markiert das Signal als confirmed und
- * auditiert die Entscheidung — die ORDER-AUSFÜHRUNG existiert erst mit
- * Phase 4 (Risk-Engine + Börsen-Adapter). Bis dahin führt Bestätigen
- * bewusst NICHTS aus.
+ * Seit Phase 4b führt „Bestätigen" den vollen Lifecycle aus:
+ * Risk-Gate (statisch + adaptiv) → Paper-Order gegen echte Live-Preise
+ * → Schutz-Orders → Position. Blockt das Gate, bleibt das Signal 'new'
+ * und die Gründe gehen an die UI. Jeder Schritt ist auditiert.
  */
 export const signalsRouter = router({
   list: protectedProcedure
@@ -48,10 +49,13 @@ export const signalsRouter = router({
       return rows;
     }),
 
-  /** Bestätigen (Mensch im Loop). Nur aus Status 'new'. */
+  /** Bestätigen (Mensch im Loop): Risk-Gate → Paper-Order. Nur aus Status 'new'. */
   confirm: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      if (!ctx.venue) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Kein Trading-Venue aktiv — Ausführung nicht möglich.' });
+      }
       const [updated] = await ctx.db
         .update(signals)
         .set({ status: 'confirmed', updatedAt: new Date() })
@@ -69,7 +73,29 @@ export const signalsRouter = router({
         details: { symbol: updated.symbol, timeframe: updated.timeframe, direction: updated.direction },
         ip: ctx.ip,
       });
-      return updated;
+
+      const execution = await executeConfirmedSignal(ctx.db, ctx.venue, {
+        signalId: updated.id,
+        userId: ctx.user.id,
+        ip: ctx.ip,
+      });
+
+      if (!execution.executed) {
+        // Gate hat geblockt → Signal bleibt handlungsfähig ('new'), Gründe an die UI
+        await ctx.db
+          .update(signals)
+          .set({ status: 'new', updatedAt: new Date() })
+          .where(eq(signals.id, updated.id));
+      }
+
+      return {
+        signal: updated,
+        executed: execution.executed,
+        detail: execution.detail,
+        riskReasons: execution.verdict.reasons,
+        entryFill: execution.entryFill,
+        qty: execution.qty,
+      };
     }),
 
   /** Ablehnen (Mensch im Loop). Nur aus Status 'new'. */

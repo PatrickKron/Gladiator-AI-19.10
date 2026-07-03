@@ -40,16 +40,30 @@ const RISK_COLOR: Record<SignalRow['riskClass'], string> = {
 export function SignalCard({ signal, onDecided }: { signal: SignalRow; onDecided: () => void }) {
   const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState<string[] | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const long = signal.direction === 'long';
   const dirColor = long ? 'var(--color-pos)' : 'var(--color-neg)';
 
   async function decide(action: 'confirm' | 'reject') {
     setBusy(action);
     setError(null);
+    setBlocked(null);
     try {
-      if (action === 'confirm') await trpc.signals.confirm.mutate({ id: signal.id });
-      else await trpc.signals.reject.mutate({ id: signal.id });
-      onDecided();
+      if (action === 'confirm') {
+        const res = await trpc.signals.confirm.mutate({ id: signal.id });
+        if (res.executed) {
+          setSuccess(`✓ ${res.detail} Menge ${res.qty?.toFixed(6)} — Position offen (siehe Trading).`);
+          window.setTimeout(onDecided, 2500);
+        } else {
+          // Risk-Gate hat geblockt — Signal bleibt offen, Gründe anzeigen
+          setBlocked(res.riskReasons.length > 0 ? res.riskReasons : [res.detail]);
+          setBusy(null);
+        }
+      } else {
+        await trpc.signals.reject.mutate({ id: signal.id });
+        onDecided();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Aktion fehlgeschlagen.');
       setBusy(null);
@@ -104,6 +118,19 @@ export function SignalCard({ signal, onDecided }: { signal: SignalRow; onDecided
       </div>
 
       {error && <p className="mt-3 text-xs" style={{ color: 'var(--color-neg)' }}>{error}</p>}
+      {success && (
+        <p className="mt-3 rounded border p-2 text-xs" style={{ borderColor: 'rgba(61,220,151,0.4)', color: 'var(--color-pos)' }}>
+          {success}
+        </p>
+      )}
+      {blocked && (
+        <div className="mt-3 rounded border p-2 text-xs" style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}>
+          <p className="font-medium">Risk-Gate hat geblockt:</p>
+          <ul className="mt-1 list-disc pl-4">
+            {blocked.map((r, i) => <li key={i}>{r}</li>)}
+          </ul>
+        </div>
+      )}
 
       <div className="mt-4 flex items-center gap-2.5">
         <button
@@ -123,7 +150,7 @@ export function SignalCard({ signal, onDecided }: { signal: SignalRow; onDecided
         </button>
       </div>
       <p className="mt-2.5 text-center text-[11px]" style={{ color: 'var(--color-mut)' }}>
-        Bestätigen merkt die Entscheidung auditiert vor — Order-Ausführung folgt mit Phase 4 (Paper).
+        Bestätigen → Risk-Gate (statisch + adaptiv) → Paper-Order gegen echten Live-Preis. Alles auditiert.
       </p>
     </div>
   );

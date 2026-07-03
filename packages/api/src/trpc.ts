@@ -1,6 +1,7 @@
 import { initTRPC, TRPCError } from '@trpc/server';
 import type { Db } from '@gladiator/db';
 import type { LivePriceFeed } from '@gladiator/market-data';
+import type { TradingVenue } from '@gladiator/exchange';
 import { verifyAccessToken } from './auth/tokens.js';
 import { getUserById, type PublicUser } from './auth/service.js';
 
@@ -10,6 +11,8 @@ export type Context = {
   user: PublicUser | null;
   /** Live-Preis-Feed; null = Feed nicht gestartet → UI zeigt ehrlich "nicht verbunden". */
   prices: LivePriceFeed | null;
+  /** Aktiver Trading-Venue (Paper-Default); null = kein Venue → Ausführung unmöglich. */
+  venue: TradingVenue | null;
   userAgent: string | null;
   ip: string | null;
 };
@@ -18,6 +21,7 @@ export type Context = {
 export async function buildContext(opts: {
   db: Db;
   prices?: LivePriceFeed | null;
+  venue?: TradingVenue | null;
   authorizationHeader?: string | null;
   userAgent?: string | null;
   ip?: string | null;
@@ -34,6 +38,7 @@ export async function buildContext(opts: {
     db: opts.db,
     user,
     prices: opts.prices ?? null,
+    venue: opts.venue ?? null,
     userAgent: opts.userAgent ?? null,
     ip: opts.ip ?? null,
   };

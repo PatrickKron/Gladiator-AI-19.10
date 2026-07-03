@@ -36,6 +36,13 @@
       "when": 1783069965903,
       "tag": "0004_flawless_vector",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783073364816,
+      "tag": "0005_friendly_wild_child",
+      "breakpoints": true
     }
   ]
 }

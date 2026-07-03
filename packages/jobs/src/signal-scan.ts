@@ -167,6 +167,8 @@ async function persistCandidate(
     riskClass: candidate.riskClass,
     confluence: candidate.confluence,
     session: candidate.session,
+    emaRegime: candidate.emaRegime,
+    marketPhase: candidate.marketPhase,
     status: 'new',
   });
   return true;

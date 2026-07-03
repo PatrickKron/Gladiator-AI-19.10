@@ -10,6 +10,8 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@gladiator/db": "*"
+    "@gladiator/db": "*",
+    "@gladiator/risk": "*",
+    "ccxt": "^4.4.0"
   }
 }

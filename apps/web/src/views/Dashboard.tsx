@@ -201,6 +201,7 @@ export function Dashboard() {
           <nav className="flex gap-4 text-sm">
             <a href="#/" style={{ color: 'var(--color-cyan)' }}>Dashboard</a>
             <a href="#/labor" style={{ color: 'var(--color-mut)' }}>Strategie-Labor</a>
+            <a href="#/trading" style={{ color: 'var(--color-mut)' }}>Trading</a>
           </nav>
           <span className="label rounded border border-warn/40 px-1.5 py-0.5" style={{ color: 'var(--color-warn)' }}>
             Rohbau

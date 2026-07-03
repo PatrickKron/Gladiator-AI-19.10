@@ -9,11 +9,13 @@ import { sql } from 'drizzle-orm';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import type { Db } from '@gladiator/db';
 import type { LivePriceFeed, Ticker } from '@gladiator/market-data';
+import type { TradingVenue } from '@gladiator/exchange';
 import { appRouter } from './routers/index.js';
 import { buildContext } from './trpc.js';
 
 export type AppOptions = {
   prices?: LivePriceFeed | null;
+  venue?: TradingVenue | null;
   /** Pfad zum gebauten Web-Frontend (dist). Fehlt er, wird nur die API bedient. */
   webDistDir?: string | null;
 };
@@ -136,6 +138,7 @@ export function createApp(db: Db, opts: AppOptions = {}): express.Express {
         buildContext({
           db,
           prices: opts.prices ?? null,
+          venue: opts.venue ?? null,
           authorizationHeader: req.headers.authorization ?? null,
           userAgent: req.headers['user-agent'] ?? null,
           ip: req.ip ?? null,

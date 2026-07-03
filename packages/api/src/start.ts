@@ -5,6 +5,7 @@
 import { createDb, requireEnv } from '@gladiator/db';
 import { LivePriceFeed } from '@gladiator/market-data';
 import { startJobWorker } from '@gladiator/jobs';
+import { BinanceTestnetVenue, PaperVenue } from '@gladiator/exchange';
 import { createApp } from './app.js';
 
 requireEnv('DATABASE_URL');
@@ -24,9 +25,18 @@ const { db } = createDb();
 const prices = new LivePriceFeed(['BTC/USDT', 'ETH/USDT', 'SOL/USDT']);
 prices.start();
 
-const jobs = await startJobWorker(db);
+/**
+ * Venue-Wahl (06_ §7): Binance-Testnet NUR wenn Patrick Keys hinterlegt hat —
+ * sonst die interne Paper-Engine gegen echte Live-Preise. Beides Paper-Modus;
+ * Live existiert in dieser Phase nicht.
+ */
+const binance = new BinanceTestnetVenue(process.env.BINANCE_TESTNET_KEY, process.env.BINANCE_TESTNET_SECRET);
+const venue = binance.configured ? binance : new PaperVenue();
+console.log(`Trading-Venue: ${venue.id} (${venue.kind})`);
 
-const app = createApp(db, { prices });
+const jobs = await startJobWorker(db, venue);
+
+const app = createApp(db, { prices, venue });
 
 for (const host of hosts) {
   const server = app.listen(port, host, () => {
