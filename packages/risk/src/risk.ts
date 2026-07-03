@@ -95,7 +95,12 @@ export function gateMatches(gate: AdaptiveGate, order: OrderIntent): boolean {
 export type RiskContext = {
   /** Aktives No-Trade-Fenster (High-Impact-Makro-Event) — blockt neue Orders. */
   noTrade?: { active: boolean; reason: string } | null;
+  /** Aktueller VIX (echte Serie) für SAFE-003; null = Daten nicht verfügbar (ehrlich, keine Blockade). */
+  vix?: number | null;
 };
+
+/** SAFE-003-Schwelle (10_ §5a): VIX > 40 ⇒ keine neuen Positionen. */
+export const SAFE_003_VIX_MAX = 40;
 
 export function evaluateRisk(
   order: OrderIntent,
@@ -121,6 +126,13 @@ export function evaluateRisk(
   if (context.noTrade?.active) {
     fail('no-trade-window', `No-Trade-Fenster aktiv: ${context.noTrade.reason} — keine neuen Orders rund um High-Impact-Events.`);
   } else pass('no-trade-window', 'kein High-Impact-Event im Fenster');
+
+  // ── 1c. SAFE-003: Volatilität (10_ §5a) — VIX > 40 ⇒ keine neuen Positionen ──
+  if (typeof context.vix === 'number') {
+    if (context.vix > SAFE_003_VIX_MAX) {
+      fail('safe-003-vix', `SAFE-003: VIX ${context.vix.toFixed(1)} > ${SAFE_003_VIX_MAX} — keine neuen Positionen bei Extremvolatilität.`);
+    } else pass('safe-003-vix', `VIX ${context.vix.toFixed(1)} ≤ ${SAFE_003_VIX_MAX}`);
+  } else pass('safe-003-vix', 'VIX-Daten nicht verfügbar — Check ohne Datengrundlage nicht erzwingbar (ehrlich markiert)');
 
   // ── 2. SAFE-001: Verlustlimits Tag/Woche/Monat ──
   if (state.dailyPnlPct <= -settings.dailyLossLimitPct) {

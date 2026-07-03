@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import { latestBriefing, telegramConfigured } from '@gladiator/jobs';
 import { derivativesFresh, fredConfigured, getMacroSnapshot } from '@gladiator/market-data';
 import { protectedProcedure, router } from '../trpc.js';
 
@@ -60,7 +61,19 @@ export const systemRouter = router({
           ? 'aktiv (/api/webhook/pine, HMAC-gesichert)'
           : 'deaktiviert (PINE_WEBHOOK_SECRET fehlt)',
         anweisungs_dsl: 'aktiv (Vorschau → Bestätigung → Paper-Scan)',
+        telegram: telegramConfigured()
+          ? 'verbunden (Alerts + Briefing)'
+          : 'deaktiviert (TELEGRAM_BOT_TOKEN/_CHAT_ID fehlen — NEUEN Bot anlegen, Alt-Token ist kompromittiert)',
+        dead_man_switch: process.env.HEALTHCHECKS_URL
+          ? 'aktiv (externer Monitor)'
+          : 'nur lokaler Watchdog (HEALTHCHECKS_URL für externen Monitor fehlt)',
       },
     };
+  }),
+
+  /** Neuestes Morning-Briefing (Nacht-Pipeline, 08_ §7). */
+  briefing: protectedProcedure.query(async ({ ctx }) => {
+    const row = await latestBriefing(ctx.db);
+    return row ? { day: row.day, text: row.text, sentAt: row.sentAt, createdAt: row.createdAt } : null;
   }),
 });

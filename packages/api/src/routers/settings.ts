@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema, type Db } from '@gladiator/db';
+import { formatKillSwitchAlert, sendTelegram } from '@gladiator/jobs';
 import { protectedProcedure, router } from '../trpc.js';
 
 const { tradingSettings, auditLog } = schema;
@@ -92,6 +93,8 @@ export const settingsRouter = router({
         details: { active: input.active },
         ip: ctx.ip,
       });
+      // Telegram-Warnung (Phase 7) — Versand-Fehler blockieren den Schalter nie.
+      void sendTelegram(formatKillSwitchAlert(input.active, ctx.user.email));
       return { killSwitchActive: updated!.killSwitchActive };
     }),
 });

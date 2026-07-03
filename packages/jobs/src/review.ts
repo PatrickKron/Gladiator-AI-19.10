@@ -4,7 +4,7 @@ import { schema } from '@gladiator/db';
 import {
   buildAccountState,
   loadActiveGates,
-  loadNoTradeWindow,
+  loadRiskContext,
   loadRiskSettings,
   type TradingVenue,
 } from '@gladiator/exchange';
@@ -17,6 +17,7 @@ import {
   type DevilEvidence,
   type SignalFacts,
 } from '@gladiator/agents';
+import { formatSignalAlert, sendTelegram } from './telegram.js';
 
 const { signals, signalReviews, studyTrades, users, auditLog } = schema;
 
@@ -106,7 +107,8 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue): Promise<Rev
   const settings = await loadRiskSettings(db, user.id);
   const state = await buildAccountState(db, user.id);
   const gates = await loadActiveGates(db);
-  const noTrade = await loadNoTradeWindow(db);
+  const riskContext = await loadRiskContext(db);
+  const noTrade = riskContext.noTrade;
 
   // ── Echte Kontexte für die LLM-Agenten (Phase-1-Rest) ──
   // Makro: VIX/DXY/US10Y + GRS + kommende High-Impact-Events (48 h).
@@ -167,7 +169,7 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue): Promise<Rev
         state,
         rules,
         gates,
-        { noTrade },
+        riskContext,
       );
 
       const devilEvidence = await buildDevilEvidence(db, facts);
@@ -207,6 +209,25 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue): Promise<Rev
       }
 
       const portfolio = verdicts[verdicts.length - 1]!;
+
+      // Telegram-Alert (Phase 7): echtes Signal + Schwarm-Urteil; Fehler crashen nie den Review.
+      await sendTelegram(
+        formatSignalAlert({
+          symbol: facts.symbol,
+          timeframe: facts.timeframe,
+          direction: facts.direction,
+          setupType: facts.setupType,
+          source: facts.source,
+          entry: facts.entry,
+          stopLoss: facts.stopLoss,
+          takeProfits: facts.takeProfits,
+          score: facts.score,
+          portfolioVote: portfolio.vote,
+          portfolioConfidence: portfolio.confidence,
+          disabledAgents: disabled.map((d) => d.agent),
+        }),
+      );
+
       await db.insert(auditLog).values({
         actor: 'system',
         userId: user.id,

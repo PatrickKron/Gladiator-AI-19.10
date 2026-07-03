@@ -27,6 +27,120 @@ const VENUE_LABEL_KEY: Record<string, string> = {
   'hyperliquid-testnet': 'trading.venueHyperliquidTestnet',
 };
 
+type Approval = Awaited<ReturnType<typeof trpc.trading.approvals.query>>[number];
+
+/** Live-Freigabe pro Börse (Phase 7): Phrase, auditiert, widerrufbar — nur Patrick. */
+function LiveApprovals() {
+  const { t } = useTranslation();
+  const [approvals, setApprovals] = useState<Approval[] | null>(null);
+  const [phrases, setPhrases] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      setApprovals(await trpc.trading.approvals.query());
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'));
+    }
+  }
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  async function approve(venueId: Approval['venueId']) {
+    setBusy(venueId);
+    setError(null);
+    try {
+      await trpc.trading.approveVenue.mutate({ venueId, confirmation: phrases[venueId] ?? '' });
+      setPhrases({ ...phrases, [venueId]: '' });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function revoke(venueId: Approval['venueId']) {
+    setBusy(venueId);
+    setError(null);
+    try {
+      await trpc.trading.revokeVenue.mutate({ venueId });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Panel label={t('trading.liveTitle')} stagger={10} className="mt-5">
+      <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+        {t('trading.liveHint')}
+      </p>
+      {error && (
+        <p className="mt-3 text-xs" style={{ color: 'var(--color-neg)' }}>
+          {error}
+        </p>
+      )}
+      {approvals === null ? (
+        <Loading />
+      ) : (
+        <ul className="mt-4 space-y-3">
+          {approvals.map((a) => (
+            <li
+              key={a.venueId}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-[0.625rem] border p-4"
+              style={{ borderColor: a.approved ? 'rgba(79,209,255,0.45)' : 'var(--color-line)' }}
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{t(VENUE_LABEL_KEY[a.venueId] ?? a.venueId)}</p>
+                <p className="label mt-1">
+                  {a.approved
+                    ? `${t('trading.liveApproved')} · ${a.approvedAt ? new Date(a.approvedAt).toLocaleString() : ''}`
+                    : a.lastRevokedAt
+                      ? `${t('trading.liveNotApproved')} · ${t('trading.liveRevokedAt', { date: new Date(a.lastRevokedAt).toLocaleDateString() })}`
+                      : t('trading.liveNotApproved')}
+                </p>
+              </div>
+              {a.approved ? (
+                <button
+                  onClick={() => void revoke(a.venueId)}
+                  disabled={busy !== null}
+                  className="shrink-0 rounded-[0.625rem] border px-3 py-1.5 text-xs disabled:opacity-50"
+                  style={{ borderColor: 'rgba(255,92,108,0.5)', color: 'var(--color-neg)' }}
+                >
+                  {t('trading.liveRevoke')}
+                </button>
+              ) : (
+                <span className="flex flex-wrap items-center gap-2">
+                  <input
+                    value={phrases[a.venueId] ?? ''}
+                    onChange={(e) => setPhrases({ ...phrases, [a.venueId]: e.target.value })}
+                    placeholder={t('trading.livePhrase', { venue: a.venueId })}
+                    className="field w-72 max-w-full px-2.5 py-1.5 text-xs"
+                  />
+                  <button
+                    onClick={() => void approve(a.venueId)}
+                    disabled={busy !== null || (phrases[a.venueId] ?? '') !== `LIVE-FREIGABE ${a.venueId}`}
+                    className="btn-primary shrink-0 px-3 py-1.5 text-xs disabled:opacity-50"
+                  >
+                    {t('trading.liveApprove')}
+                  </button>
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
 export function Trading() {
   const { t } = useTranslation();
   const [account, setAccount] = useState<Account | null>(null);
@@ -341,6 +455,8 @@ export function Trading() {
           </div>
         )}
       </Panel>
+
+      <LiveApprovals />
     </div>
   );
 }

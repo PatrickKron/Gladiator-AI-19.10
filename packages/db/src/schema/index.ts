@@ -8,3 +8,4 @@ export * from './risk.js';
 export * from './product.js';
 export * from './study.js';
 export * from './audit.js';
+export * from './ops.js';

@@ -33,6 +33,7 @@ export const de = {
     language: 'Sprache',
     perDay: 'pro Tag',
     audited: 'Alles auditiert.',
+    disclaimer: 'Keine Anlageberatung. Paper-Modus: Ausführung simuliert, Preise echt. Handel auf eigenes Risiko.',
   },
   nav: {
     dashboard: 'Dashboard',
@@ -89,6 +90,10 @@ export const de = {
     candlesCol: 'Kerzen',
     from: 'von',
     to: 'bis',
+    briefingTitle: 'Morning-Briefing (Nacht-Pipeline)',
+    briefingNone: 'Noch kein Briefing — die Nacht-Pipeline läuft täglich 03:30 UTC und stellt es hier + per Telegram zu.',
+    briefingSent: 'per Telegram versendet',
+    briefingNotSent: 'Telegram nicht konfiguriert — nur hier sichtbar',
   },
   signals: {
     title: 'Signal-Feed',
@@ -282,6 +287,14 @@ export const de = {
     killSwitchDisable: 'Kill-Switch deaktivieren',
     consecutiveLosses: 'Verlustserie',
     exposure: 'Exposure',
+    liveTitle: 'Live-Freigabe pro Börse',
+    liveHint: 'Eine Freigabe schaltet NICHTS automatisch live — ein Live-Order-Pfad existiert bewusst nicht. Sie ist die auditierte, jederzeit widerrufbare Voraussetzung für einen künftigen Live-Adapter (Mensch im Loop).',
+    liveApproved: 'FREIGEGEBEN',
+    liveNotApproved: 'nicht freigegeben',
+    liveApprove: 'Freigeben',
+    liveRevoke: 'Widerrufen',
+    livePhrase: 'Bestätigungsphrase (exakt „LIVE-FREIGABE {{venue}}")',
+    liveRevokedAt: 'widerrufen am {{date}}',
   },
   agents: {
     title: 'Agenten-Schwarm',

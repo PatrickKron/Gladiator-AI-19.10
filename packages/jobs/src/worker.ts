@@ -2,6 +2,7 @@ import { Queue, Worker } from 'bullmq';
 import { requireEnv, type Db } from '@gladiator/db';
 import { monitorOpenPositions, reconcile, type TradingVenue } from '@gladiator/exchange';
 import { fredConfigured, syncDerivatives, syncEconomicCalendar, syncFredSeries, syncMacroSeries, syncNews } from '@gladiator/market-data';
+import { runNightPipeline } from './briefing.js';
 import { runSignalScan } from './signal-scan.js';
 import { runDslScan } from './dsl-scan.js';
 import { reviewNewSignals } from './review.js';
@@ -19,6 +20,33 @@ const MACRO_JOB = 'macro-sync';
 const CALENDAR_JOB = 'calendar-sync';
 const NEWS_JOB = 'news-sync';
 const DERIVATIVES_JOB = 'derivatives-sync';
+const NIGHT_JOB = 'night-pipeline';
+
+/**
+ * Worker-Heartbeat (Phase 7): /health prüft das Alter; der Monitor-Job pingt
+ * zusätzlich HEALTHCHECKS_URL (externer Dead-Man's-Switch, legt Patrick an —
+ * bleiben die Pings aus, alarmiert der externe Dienst unabhängig vom Server).
+ */
+let lastHeartbeat: Date | null = null;
+export function workerHeartbeatAgeSec(): number | null {
+  return lastHeartbeat ? Math.floor((Date.now() - lastHeartbeat.getTime()) / 1000) : null;
+}
+let healthchecksWarned = false;
+async function pingDeadMansSwitch(): Promise<void> {
+  const url = process.env.HEALTHCHECKS_URL;
+  if (!url) {
+    if (!healthchecksWarned) {
+      console.warn('[dead-man] HEALTHCHECKS_URL nicht gesetzt — externer Dead-Man-Switch inaktiv (nur lokaler Watchdog).');
+      healthchecksWarned = true;
+    }
+    return;
+  }
+  try {
+    await fetch(url, { method: 'GET' });
+  } catch (err) {
+    console.warn('[dead-man] Ping fehlgeschlagen:', String(err));
+  }
+}
 
 const SCHEDULES: [string, number][] = [
   [SCAN_JOB, 5 * 60_000],
@@ -28,6 +56,9 @@ const SCHEDULES: [string, number][] = [
   [NEWS_JOB, 15 * 60_000],
   [DERIVATIVES_JOB, 30 * 60_000],
 ];
+
+/** Nacht-Pipeline: täglich 03:30 UTC (08_ §5) — Cron statt Intervall. */
+const NIGHT_CRON = '30 3 * * *';
 
 function redisConnection() {
   const url = new URL(requireEnv('REDIS_URL'));
@@ -41,6 +72,7 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
   for (const [name, every] of SCHEDULES) {
     await queue.upsertJobScheduler(name, { every }, { name });
   }
+  await queue.upsertJobScheduler(NIGHT_JOB, { pattern: NIGHT_CRON }, { name: NIGHT_JOB });
 
   // Absturz-Reconciliation beim Start (06_ §7c): Befunde landen im Audit-Log.
   const rec = await reconcile(db, venue);
@@ -76,6 +108,13 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           if (res.fills > 0) {
             console.log(`[position-monitor] ${new Date().toISOString()} Positionen=${res.checked} Fills=${res.fills}`);
           }
+          lastHeartbeat = new Date();
+          await pingDeadMansSwitch();
+          return res;
+        }
+        case NIGHT_JOB: {
+          const res = await runNightPipeline(db);
+          console.log(`[night-pipeline] ${res.day} erstellt=${res.created} versendet=${res.sent}`);
           return res;
         }
         case MACRO_JOB: {

@@ -10,6 +10,7 @@ import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import type { Db } from '@gladiator/db';
 import type { LivePriceFeed, Ticker } from '@gladiator/market-data';
 import type { TradingVenue } from '@gladiator/exchange';
+import { workerHeartbeatAgeSec } from '@gladiator/jobs';
 import { appRouter } from './routers/index.js';
 import { buildContext } from './trpc.js';
 import { pineWebhookHandler } from './webhook/pine.js';
@@ -84,14 +85,28 @@ export function createApp(db: Db, opts: AppOptions = {}): express.Express {
     }),
   );
 
-  // Ehrlicher Health-Check: prüft die echte DB-Verbindung.
+  /**
+   * Ehrlicher Health-Check (Phase 7): echte DB-Verbindung + Worker-Heartbeat
+   * (Position-Monitor läuft minütlich) + Preis-Feed-Status. `degraded` wird
+   * true, wenn der Worker > 5 min still ist — der Watchdog alarmiert dann.
+   */
   app.get('/health', async (_req, res) => {
+    let dbUp = true;
     try {
       await db.execute(sql`SELECT 1`);
-      res.json({ ok: true, db: 'up' });
     } catch {
-      res.status(503).json({ ok: false, db: 'down' });
+      dbUp = false;
     }
+    const workerAgeSec = workerHeartbeatAgeSec();
+    const degraded = workerAgeSec !== null && workerAgeSec > 300;
+    const feed = opts.prices ? opts.prices.snapshot().status : null;
+    res.status(dbUp ? 200 : 503).json({
+      ok: dbUp && !degraded,
+      db: dbUp ? 'up' : 'down',
+      workerAgeSec, // null = Worker noch nicht gestartet (Boot-Phase)
+      degraded,
+      feed,
+    });
   });
 
   /**

@@ -4,7 +4,7 @@ import { schema } from '@gladiator/db';
 import { evaluateRisk, noTradeWindowFor, type AdaptiveGate, type RiskVerdict } from '@gladiator/risk';
 import type { TradingVenue } from './venue.js';
 
-const { signals, orders, positions, executedTrades, tradingSettings, riskGates, auditLog, economicEvents } = schema;
+const { signals, orders, positions, executedTrades, tradingSettings, riskGates, auditLog, economicEvents, macroSeries } = schema;
 
 /**
  * Order-Lifecycle (06_ §5): bestätigtes Signal → Risk-Gate (statisch + adaptiv)
@@ -83,6 +83,20 @@ export async function loadRiskSettings(db: Db, userId: string) {
   };
 }
 
+/** Risk-Kontext: No-Trade-Fenster + aktueller VIX (SAFE-003) aus echten Daten. */
+export async function loadRiskContext(db: Db, now = new Date()) {
+  const noTrade = await loadNoTradeWindow(db, now);
+  // Jüngster VIX-Punkt (< 5 Tage alt, sonst ehrlich null — SAFE-003 braucht frische Daten)
+  const [vixRow] = await db
+    .select({ ts: macroSeries.ts, value: macroSeries.value })
+    .from(macroSeries)
+    .where(eq(macroSeries.seriesId, 'VIX'))
+    .orderBy(desc(macroSeries.ts))
+    .limit(1);
+  const vix = vixRow && now.getTime() - vixRow.ts.getTime() < 5 * 86_400_000 ? Number(vixRow.value) : null;
+  return { noTrade, vix };
+}
+
 /** Aktives No-Trade-Fenster aus ECHTEN Kalender-Events (High-Impact ± 30 min). */
 export async function loadNoTradeWindow(db: Db, now = new Date()) {
   const events = await db
@@ -152,7 +166,7 @@ export async function executeConfirmedSignal(
     state,
     rules,
     gates,
-    { noTrade: await loadNoTradeWindow(db) },
+    await loadRiskContext(db),
   );
 
   await db.insert(auditLog).values({

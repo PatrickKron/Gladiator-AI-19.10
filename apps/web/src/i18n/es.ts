@@ -34,6 +34,7 @@ export const es: Catalog = {
     language: 'Idioma',
     perDay: 'por día',
     audited: 'Todo auditado.',
+    disclaimer: 'No es asesoramiento financiero. Modo paper: ejecución simulada, precios reales. Opera bajo tu propio riesgo.',
   },
   nav: {
     dashboard: 'Panel',
@@ -90,6 +91,10 @@ export const es: Catalog = {
     candlesCol: 'Velas',
     from: 'desde',
     to: 'hasta',
+    briefingTitle: 'Morning briefing (pipeline nocturna)',
+    briefingNone: 'Aún no hay briefing — la pipeline nocturna corre a diario a las 03:30 UTC y lo entrega aquí + vía Telegram.',
+    briefingSent: 'enviado vía Telegram',
+    briefingNotSent: 'Telegram no configurado — visible solo aquí',
   },
   signals: {
     title: 'Feed de señales',
@@ -283,6 +288,14 @@ export const es: Catalog = {
     killSwitchDisable: 'Desactivar kill switch',
     consecutiveLosses: 'Racha de pérdidas',
     exposure: 'Exposición',
+    liveTitle: 'Aprobación live por bolsa',
+    liveHint: 'Una aprobación no activa NADA automáticamente — deliberadamente no existe una ruta de órdenes live. Es el requisito auditado y revocable para un futuro adaptador live (humano en el bucle).',
+    liveApproved: 'APROBADO',
+    liveNotApproved: 'no aprobado',
+    liveApprove: 'Aprobar',
+    liveRevoke: 'Revocar',
+    livePhrase: 'Frase de confirmación (exactamente "LIVE-FREIGABE {{venue}}")',
+    liveRevokedAt: 'revocada el {{date}}',
   },
   agents: {
     title: 'Enjambre de agentes',

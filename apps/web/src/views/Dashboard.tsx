@@ -18,6 +18,37 @@ type SystemStatus = {
 };
 type IngestRow = { symbol: string; timeframe: string; candles: number; from_ts: string; to_ts: string };
 type Account = Awaited<ReturnType<typeof trpc.trading.account.query>>;
+type Briefing = Awaited<ReturnType<typeof trpc.system.briefing.query>>;
+
+/** Morning-Briefing der Nacht-Pipeline (08_ §7) — echter Inhalt aus der DB. */
+function BriefingPanel() {
+  const { t } = useTranslation();
+  const [briefing, setBriefing] = useState<Briefing | undefined>(undefined);
+
+  useEffect(() => {
+    void trpc.system.briefing.query().then(setBriefing).catch(() => setBriefing(null));
+  }, []);
+
+  return (
+    <Panel label={t('dashboard.briefingTitle')} stagger={4} className="mt-5">
+      {briefing === undefined ? (
+        <Loading />
+      ) : briefing === null ? (
+        <Empty text={t('dashboard.briefingNone')} />
+      ) : (
+        <>
+          {/* Telegram-HTML-Tags für die Web-Anzeige entfernen — Inhalt bleibt identisch */}
+          <pre className="mt-3 text-sm leading-relaxed whitespace-pre-wrap" style={{ fontFamily: 'var(--font-sans)' }}>
+            {briefing.text.replace(/<\/?(b|i|code)>/g, '')}
+          </pre>
+          <p className="label mt-3">
+            {briefing.day} · {briefing.sentAt ? t('dashboard.briefingSent') : t('dashboard.briefingNotSent')}
+          </p>
+        </>
+      )}
+    </Panel>
+  );
+}
 
 const SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
 
@@ -209,6 +240,8 @@ export function Dashboard() {
           </div>
         )}
       </section>
+
+      <BriefingPanel />
 
       <section className="mt-5 grid gap-5 lg:grid-cols-3">
         {/* Konto-Snapshot */}

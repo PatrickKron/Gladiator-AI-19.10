@@ -110,3 +110,26 @@ describe('evaluateRisk mit No-Trade-Kontext', () => {
     expect(v.checks.some((c) => c.name === 'no-trade-window' && c.passed)).toBe(true);
   });
 });
+
+describe('evaluateRisk mit SAFE-003 (VIX > 40, 10_ §5a)', () => {
+  it('VIX 45 → keine neuen Positionen (HALT mit Begründung)', () => {
+    const v = evaluateRisk(order, settings, state, market, [], { vix: 45 });
+    expect(v.allowed).toBe(false);
+    expect(v.reasons.join(' ')).toMatch(/SAFE-003/);
+    expect(v.reasons.join(' ')).toMatch(/45/);
+  });
+
+  it('VIX 18 → Check bestanden', () => {
+    const v = evaluateRisk(order, settings, state, market, [], { vix: 18 });
+    expect(v.allowed).toBe(true);
+    expect(v.checks.some((c) => c.name === 'safe-003-vix' && c.passed)).toBe(true);
+  });
+
+  it('VIX unbekannt (null) → Check ehrlich als bestanden mit Hinweis (keine Fantasie-Blockade)', () => {
+    const v = evaluateRisk(order, settings, state, market, [], { vix: null });
+    expect(v.allowed).toBe(true);
+    const check = v.checks.find((c) => c.name === 'safe-003-vix')!;
+    expect(check.passed).toBe(true);
+    expect(check.detail).toMatch(/nicht verfügbar/i);
+  });
+});

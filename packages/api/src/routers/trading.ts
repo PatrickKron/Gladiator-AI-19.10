@@ -1,10 +1,14 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { TRPCError } from '@trpc/server';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
 import { buildAccountState, PAPER_START_EQUITY } from '@gladiator/exchange';
 import { protectedProcedure, router } from '../trpc.js';
 
-const { positions, orders, executedTrades } = schema;
+const { positions, orders, executedTrades, venueApprovals, auditLog } = schema;
+
+/** Venues, für die eine Live-Freigabe überhaupt beantragbar ist. */
+const APPROVABLE_VENUES = ['binance-testnet', 'hyperliquid-testnet'] as const;
 
 /** Trading-Seite (09_ §3.9): Konto, offene Positionen, Schutz-Orders, Historie — alles echt. */
 export const tradingRouter = router({
@@ -104,5 +108,94 @@ export const tradingRouter = router({
         .where(eq(executedTrades.userId, ctx.user.id))
         .orderBy(desc(executedTrades.createdAt))
         .limit(input.limit);
+    }),
+
+  /**
+   * Live-Freigaben pro Börse (11_ Phase 7 / 10_ §5) — NUR Patrick, Mensch im
+   * Loop. WICHTIG: Eine Freigabe hier schaltet NICHTS automatisch live —
+   * es existiert bewusst kein Live-Order-Pfad; sie ist die dokumentierte,
+   * auditierte Voraussetzung dafür, dass ein künftiger Live-Adapter für
+   * dieses Venue überhaupt gebaut/aktiviert werden darf.
+   */
+  approvals: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await ctx.db.select().from(venueApprovals).orderBy(desc(venueApprovals.approvedAt));
+    return APPROVABLE_VENUES.map((venueId) => {
+      const active = rows.find((r) => r.venueId === venueId && r.revokedAt === null);
+      const last = rows.find((r) => r.venueId === venueId);
+      return {
+        venueId,
+        approved: Boolean(active),
+        approvedAt: active?.approvedAt ?? null,
+        note: active?.note ?? null,
+        lastRevokedAt: !active ? (last?.revokedAt ?? null) : null,
+      };
+    });
+  }),
+
+  approveVenue: protectedProcedure
+    .input(
+      z.object({
+        venueId: z.enum(APPROVABLE_VENUES),
+        /** Exakte Bestätigungsphrase — verhindert versehentliche Klicks. */
+        confirmation: z.string(),
+        note: z.string().max(500).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const expected = `LIVE-FREIGABE ${input.venueId}`;
+      if (input.confirmation !== expected) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Bestätigungsphrase falsch — exakt "${expected}" eingeben.`,
+        });
+      }
+      const [existing] = await ctx.db
+        .select()
+        .from(venueApprovals)
+        .where(and(eq(venueApprovals.venueId, input.venueId), isNull(venueApprovals.revokedAt)))
+        .limit(1);
+      if (existing) {
+        throw new TRPCError({ code: 'CONFLICT', message: 'Für dieses Venue existiert bereits eine aktive Freigabe.' });
+      }
+      const [row] = await ctx.db
+        .insert(venueApprovals)
+        .values({ venueId: input.venueId, approvedBy: ctx.user.id, note: input.note ?? null })
+        .returning();
+      await ctx.db.insert(auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: 'venue.live_approval.granted',
+        entityType: 'venue_approval',
+        entityId: row!.id,
+        details: { venueId: input.venueId, note: input.note ?? null },
+        ip: ctx.ip,
+      });
+      return row!;
+    }),
+
+  revokeVenue: protectedProcedure
+    .input(z.object({ venueId: z.enum(APPROVABLE_VENUES) }))
+    .mutation(async ({ ctx, input }) => {
+      const [existing] = await ctx.db
+        .select()
+        .from(venueApprovals)
+        .where(and(eq(venueApprovals.venueId, input.venueId), isNull(venueApprovals.revokedAt)))
+        .limit(1);
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Keine aktive Freigabe für dieses Venue.' });
+      const [row] = await ctx.db
+        .update(venueApprovals)
+        .set({ revokedAt: new Date(), revokedBy: ctx.user.id })
+        .where(eq(venueApprovals.id, existing.id))
+        .returning();
+      await ctx.db.insert(auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: 'venue.live_approval.revoked',
+        entityType: 'venue_approval',
+        entityId: existing.id,
+        details: { venueId: input.venueId },
+        ip: ctx.ip,
+      });
+      return row!;
     }),
 });

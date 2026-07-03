@@ -242,7 +242,11 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
           </div>
         </header>
 
-        <main className="mx-auto max-w-6xl px-5 pt-8 pb-16 md:px-8">{children}</main>
+        <main className="mx-auto max-w-6xl px-5 pt-8 pb-6 md:px-8">{children}</main>
+        {/* Disclaimer (10_ §7 Abnahme): auf jeder Seite sichtbar */}
+        <footer className="mx-auto max-w-6xl px-5 pb-8 text-center text-[11px] leading-relaxed md:px-8" style={{ color: 'var(--color-mut)' }}>
+          {t('common.disclaimer')}
+        </footer>
       </div>
     </div>
   );
