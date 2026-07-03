@@ -246,7 +246,7 @@ export const en: Catalog = {
     evidence: '{{trades}} trades · {{expectancy}} R · WR {{winRate}} %',
     shadowNote: 'Hedge recommendations and sector rotation appear here once macro sources are connected — clearly marked as recommendations, never auto-executed.',
     grsComponents: 'Components (documented formula: VIX 50% · DXY 25% · US10Y 25%)',
-    grsFormulaHint: 'GRS from real VIX/DXY/US10Y series (Yahoo). Anchor points documented in code, tunable in the lab.',
+    grsFormulaHint: 'GRS from real VIX/DXY/US10Y series (FRED public, Yahoo fallback). Anchor points documented in code, tunable in the lab.',
     noTradeActive: 'No-trade window active: {{reason}} — the risk engine blocks new orders.',
   },
   trading: {

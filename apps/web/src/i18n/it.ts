@@ -246,7 +246,7 @@ export const it: Catalog = {
     evidence: '{{trades}} trade · {{expectancy}} R · WR {{winRate}} %',
     shadowNote: 'Le raccomandazioni di hedge e la rotazione settoriale appariranno qui quando le fonti macro saranno collegate — chiaramente contrassegnate come raccomandazioni, mai eseguite automaticamente.',
     grsComponents: 'Componenti (formula documentata: VIX 50 % · DXY 25 % · US10Y 25 %)',
-    grsFormulaHint: 'GRS da serie reali VIX/DXY/US10Y (Yahoo). Punti di ancoraggio documentati nel codice, regolabili in laboratorio.',
+    grsFormulaHint: 'GRS da serie reali VIX/DXY/US10Y (FRED pubblico, fallback Yahoo). Punti di ancoraggio documentati nel codice, regolabili in laboratorio.',
     noTradeActive: 'Finestra no-trade attiva: {{reason}} — il risk engine blocca i nuovi ordini.',
   },
   trading: {

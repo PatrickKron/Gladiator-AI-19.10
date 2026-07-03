@@ -245,7 +245,7 @@ export const de = {
     evidence: '{{trades}} Trades · {{expectancy}} R · WR {{winRate}} %',
     shadowNote: 'Hedge-Empfehlungen und Sektor-Rotation erscheinen hier, sobald Makro-Quellen verbunden sind — klar als Empfehlung gekennzeichnet, nie automatisch ausgeführt.',
     grsComponents: 'Komponenten (dokumentierte Formel: VIX 50 % · DXY 25 % · US10Y 25 %)',
-    grsFormulaHint: 'GRS aus echten VIX/DXY/US10Y-Serien (Yahoo). Stützstellen im Code dokumentiert, im Labor nachjustierbar.',
+    grsFormulaHint: 'GRS aus echten VIX/DXY/US10Y-Serien (FRED-public, Fallback Yahoo). Stützstellen im Code dokumentiert, im Labor nachjustierbar.',
     noTradeActive: 'No-Trade-Fenster aktiv: {{reason}} — die Risk-Engine blockt neue Orders.',
   },
   trading: {

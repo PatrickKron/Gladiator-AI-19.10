@@ -246,7 +246,7 @@ export const es: Catalog = {
     evidence: '{{trades}} trades · {{expectancy}} R · WR {{winRate}} %',
     shadowNote: 'Las recomendaciones de cobertura y la rotación sectorial aparecerán aquí cuando las fuentes macro estén conectadas — claramente marcadas como recomendaciones, nunca ejecutadas automáticamente.',
     grsComponents: 'Componentes (fórmula documentada: VIX 50 % · DXY 25 % · US10Y 25 %)',
-    grsFormulaHint: 'GRS de series reales VIX/DXY/US10Y (Yahoo). Puntos de anclaje documentados en el código, ajustables en el laboratorio.',
+    grsFormulaHint: 'GRS de series reales VIX/DXY/US10Y (FRED público, respaldo Yahoo). Puntos de anclaje documentados en el código, ajustables en el laboratorio.',
     noTradeActive: 'Ventana no-trade activa: {{reason}} — el risk engine bloquea órdenes nuevas.',
   },
   trading: {
