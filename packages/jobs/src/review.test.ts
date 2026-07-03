@@ -27,14 +27,16 @@ describe.skipIf(!hasDb)('Schwarm-Review neuer Signale', () => {
   beforeAll(async () => {
     ({ db, pool } = createDb());
     const { strategyId, versionId } = await ensureSmcCoreStrategy(db);
-    // Test-Signal AUSSERHALB der Gate-Scopes (Symbol TEST/USDT wie im Executor-Test)
+    // ECHTES Symbol: PaperVenue braucht reale Marktregeln (Binance). Das Risk-
+    // Urteil darf beliebig ausfallen (auch reject durch adaptive Gates) —
+    // geprüft wird, dass der Schwarm URTEILE erzeugt, nicht deren Richtung.
     const [s] = await db
       .insert(signals)
       .values({
         source: 'engine',
         strategyId,
         strategyVersionId: versionId,
-        symbol: 'TEST/USDT',
+        symbol: 'BTC/USDT',
         timeframe: '1h',
         assetClass: 'crypto',
         venueType: 'cex',

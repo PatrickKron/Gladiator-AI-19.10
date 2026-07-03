@@ -96,6 +96,7 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue): Promise<Rev
         notExists(db.select().from(signalReviews).where(eq(signalReviews.signalId, signals.id))),
       ),
     )
+    .orderBy(desc(signals.createdAt))
     .limit(50);
 
   if (pending.length === 0) return result;
