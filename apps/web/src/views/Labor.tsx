@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
+import { PageHeader } from '../components/ui.js';
 
 /**
  * Strategie-Labor (09_ §3.5/§3.15): Backtests auf ECHTEN Kerzen, alles netto.
@@ -119,6 +121,7 @@ function EquityChart({ points }: { points: { ts: string; equity: number }[] }) {
 }
 
 export function Labor() {
+  const { t } = useTranslation();
   const [symbol, setSymbol] = useState<(typeof SYMBOLS)[number]>('BTC/USDT');
   const [timeframe, setTimeframe] = useState<(typeof TIMEFRAMES)[number]>('1h');
   const [setupType, setSetupType] = useState<(typeof SETUPS)[number]>('swing');
@@ -244,7 +247,8 @@ export function Labor() {
   const compareRows = runs.filter((r) => compare.includes(r.id));
 
   return (
-    <div className="relative z-10 mx-auto max-w-6xl px-6 pt-8 pb-16">
+    <div>
+      <PageHeader title={t('lab.title')} />
 
       {/* ── Lauf-Konfiguration ── */}
       <section className="glass reveal p-6" style={{ '--stagger': 1 } as React.CSSProperties}>

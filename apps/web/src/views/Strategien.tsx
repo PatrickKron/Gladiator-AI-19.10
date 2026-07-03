@@ -385,8 +385,8 @@ export function Strategien() {
       {tab === 'pine' && <PineTab />}
       {tab === 'dsl' && <DslTab />}
       {tab === 'builtin' && (
-        <Panel label={t('builder.registry')} stagger={2}>
-          <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+        <Panel stagger={2}>
+          <p className="text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
             {t('builder.builtinHint')}
           </p>
         </Panel>
