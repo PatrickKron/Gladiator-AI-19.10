@@ -6,7 +6,8 @@ import { createDb } from '@gladiator/db';
 import { backfillOhlcv } from '../src/ohlcv.js';
 
 const SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
-const TIMEFRAMES = ['1h', '4h', '1d'];
+const tfArg = process.argv.find((a) => a.startsWith('--timeframes='))?.split('=')[1];
+const TIMEFRAMES = tfArg ? tfArg.split(',') : ['15m', '1h', '4h', '1d'];
 
 const sinceArg = process.argv.find((a) => a.startsWith('--since='))?.split('=')[1];
 const since = new Date(sinceArg ?? '2024-01-01T00:00:00Z');
