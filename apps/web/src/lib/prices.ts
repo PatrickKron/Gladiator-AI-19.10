@@ -35,9 +35,17 @@ function handleTick(t: Tick) {
   for (const fn of tickListeners) fn(tick);
 }
 
-/** Startet die Verbindung (idempotent). Läuft app-weit genau einmal. */
+/**
+ * Startet die Verbindung (idempotent). Läuft app-weit genau einmal.
+ * WICHTIG: erst NACH dem window-load-Event verbinden — eine EventSource,
+ * die vor "load" öffnet, lässt Chromes Tab-Spinner endlos drehen.
+ */
 export function ensurePriceStream(): void {
   if (es) return;
+  if (document.readyState !== 'complete') {
+    window.addEventListener('load', () => ensurePriceStream(), { once: true });
+    return;
+  }
   es = new EventSource('/api/stream/prices');
   es.addEventListener('snapshot', (e) => {
     const snap = JSON.parse((e as MessageEvent).data) as { tickers: Tick[] };
