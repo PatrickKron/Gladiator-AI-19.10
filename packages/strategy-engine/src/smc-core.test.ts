@@ -26,6 +26,7 @@ const TEST_PARAMS: SmcCoreParams = {
   atrPeriod: 5,
   retestWindowBars: 10,
   emaProximityPct: 2,
+  rsiLookbackBars: 1,
 };
 
 function longScenario(): Candle[] {

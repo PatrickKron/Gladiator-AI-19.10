@@ -32,6 +32,14 @@ export type SmcCoreParams = {
   retestWindowBars: number;
   /** Nähe zum Pullback-EMA in Prozent (Pine: low <= EMA50 * 1.02). */
   emaProximityPct: number;
+  /**
+   * RSI wird als Extremwert der letzten N Bars geprüft (Pullback-Tief),
+   * nicht am Bestätigungs-Bar: Die bullishe Retest-Kerze hat den RSI meist
+   * schon über 50 gezogen. Messung auf echten Kerzen (07/2026, 9 Kombis à
+   * 780 Bars): am Bar geprüft 0 Treffer, Pullback-Tief (5 Bars) 2–12 Treffer.
+   * Kalibrierbar; Feinabstimmung folgt im Backtesting (Phase 3).
+   */
+  rsiLookbackBars: number;
 };
 
 /** Defaults gemäß 05_ (EMA200/EMA50, RSI-Band 30–50 long / 50–70 short, Pivot 8/8). */
@@ -49,6 +57,7 @@ export const SMC_CORE_DEFAULTS: SmcCoreParams = {
   atrPeriod: 14,
   retestWindowBars: 12,
   emaProximityPct: 2,
+  rsiLookbackBars: 5,
 };
 
 /** Multi-Setup-Staffel (05_ §5): ATR-basierte SLs, R-Multiple-TPs, RR-Minima. */
@@ -94,9 +103,10 @@ export function evaluateSmcCoreAt(
   const bar = candles[i]!;
 
   const closes = candles.map((c) => c.close);
+  const rsiSeries = rsi(closes, params.rsiPeriod);
   const emaTrendMaybe = ema(closes, params.emaTrendPeriod)[i];
   const emaPullMaybe = ema(closes, params.emaPullbackPeriod)[i];
-  const rsiMaybe = rsi(closes, params.rsiPeriod)[i];
+  const rsiMaybe = rsiSeries[i];
   const volMaMaybe = sma(candles.map((c) => c.volume), params.volumeMaPeriod)[i];
   const atrMaybe = atr(candles, params.atrPeriod)[i];
   if (emaTrendMaybe == null || emaPullMaybe == null || rsiMaybe == null || volMaMaybe == null || atrMaybe == null) {
@@ -104,7 +114,6 @@ export function evaluateSmcCoreAt(
   }
   const emaTrend = emaTrendMaybe;
   const emaPull = emaPullMaybe;
-  const rsiNow = rsiMaybe;
   const volMa = volMaMaybe;
   const atrNow = atrMaybe;
   if (atrNow <= 0) return [];
@@ -147,10 +156,17 @@ export function evaluateSmcCoreAt(
     bar.close <= event.brokenLevel;
   if (!(retestLong || retestShort)) return [];
 
+  // RSI: Extremwert des Pullbacks (letzte rsiLookbackBars) muss im Band liegen
+  const lookback = Math.max(1, params.rsiLookbackBars);
+  const rsiWindow = rsiSeries
+    .slice(Math.max(0, i - lookback + 1), i + 1)
+    .filter((v): v is number => v != null);
+  if (rsiWindow.length === 0) return [];
+  const rsiExtreme = direction === 'long' ? Math.min(...rsiWindow) : Math.max(...rsiWindow);
   const rsiOk =
     direction === 'long'
-      ? rsiNow >= params.rsiLongMin && rsiNow <= params.rsiLongMax
-      : rsiNow >= params.rsiShortMin && rsiNow <= params.rsiShortMax;
+      ? rsiExtreme >= params.rsiLongMin && rsiExtreme <= params.rsiLongMax
+      : rsiExtreme >= params.rsiShortMin && rsiExtreme <= params.rsiShortMax;
   if (!rsiOk) return [];
 
   // Optionale Confluences
