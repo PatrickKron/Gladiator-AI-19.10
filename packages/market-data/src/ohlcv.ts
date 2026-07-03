@@ -1,5 +1,5 @@
 import ccxt from 'ccxt';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lte } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { sanitizeCandles, type RawOhlcv } from './candles.js';
@@ -75,25 +75,45 @@ export async function backfillOhlcv(
   return { venue, symbol: opts.symbol, timeframe: opts.timeframe, fetched, inserted, rejected: rejectedTotal };
 }
 
-/** Kerzen aus der DB lesen (neueste zuerst → chronologisch zurückgegeben). */
+/**
+ * Kerzen aus der DB lesen, chronologisch. Ohne Zeitraum: die letzten `limit`
+ * Kerzen (Cap 1000). Mit `since`/`until` (Backtesting): aufsteigend im
+ * Zeitfenster, Cap 100.000.
+ */
 export async function getOhlcv(
   db: Db,
-  opts: { venue?: string; symbol: string; timeframe: string; limit?: number },
+  opts: { venue?: string; symbol: string; timeframe: string; limit?: number; since?: Date; until?: Date },
 ): Promise<{ ts: Date; open: number; high: number; low: number; close: number; volume: number }[]> {
-  const rows = await db
-    .select()
-    .from(ohlcv)
-    .where(
-      and(
-        eq(ohlcv.venue, opts.venue ?? 'binance'),
-        eq(ohlcv.symbol, opts.symbol),
-        eq(ohlcv.timeframe, opts.timeframe),
-      ),
-    )
-    .orderBy(desc(ohlcv.ts))
-    .limit(Math.min(opts.limit ?? 200, 1000));
+  const base = and(
+    eq(ohlcv.venue, opts.venue ?? 'binance'),
+    eq(ohlcv.symbol, opts.symbol),
+    eq(ohlcv.timeframe, opts.timeframe),
+  );
 
-  return rows.reverse().map((r) => ({
+  const ranged = opts.since !== undefined || opts.until !== undefined;
+  const rows = ranged
+    ? await db
+        .select()
+        .from(ohlcv)
+        .where(
+          and(
+            base,
+            opts.since ? gte(ohlcv.ts, opts.since) : undefined,
+            opts.until ? lte(ohlcv.ts, opts.until) : undefined,
+          ),
+        )
+        .orderBy(asc(ohlcv.ts))
+        .limit(Math.min(opts.limit ?? 100_000, 100_000))
+    : (
+        await db
+          .select()
+          .from(ohlcv)
+          .where(base)
+          .orderBy(desc(ohlcv.ts))
+          .limit(Math.min(opts.limit ?? 200, 1000))
+      ).reverse();
+
+  return rows.map((r) => ({
     ts: r.ts,
     open: Number(r.open),
     high: Number(r.high),

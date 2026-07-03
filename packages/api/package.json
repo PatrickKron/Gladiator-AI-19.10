@@ -22,7 +22,8 @@
     "jsonwebtoken": "^9.0.2",
     "zod": "^3.24.1",
     "@gladiator/market-data": "*",
-    "@gladiator/jobs": "*"
+    "@gladiator/jobs": "*",
+    "@gladiator/backtest": "*"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
