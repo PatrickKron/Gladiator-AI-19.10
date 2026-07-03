@@ -1,15 +1,17 @@
-# Gladiator v2 — Design-System „Blue Matrix Premium"
+# Gladiator v2 — Design-System „Blue Matrix Premium" (v2, Neon-Dual)
 
 > Verbindlich für alle Seiten (auch Phase 6). Richtung von Patrick (2026-07-02): dunkles, edles
-> Sci-Fi-Command-Center in Blau; Signatur-Effekt = Digital Rain aus **echten** Live-Marktdaten.
-> Kalibriert an: Awwwards-Dark-Fintech-Referenzen, Arwes (Sci-Fi-UI), Linear/Vercel-Reduktion,
-> Hyperliquid-Terminal (Informationsdichte + Ruhe), Dark-Glassmorphism-Techniken (12–16px Blur,
-> Licht-Kante, Ambient-Orbs), Matrix-Rain-Canvas-Pattern (1D-Drop-Array, Alpha-Trail).
+> Sci-Fi-Command-Center. **v2-Kalibrierung direkt an Patricks Referenzbild (magnific.com,
+> „Eine Website für unsere Technologie"):** tiefes Nachtblau mit ZWEI Lichtwelten
+> (Elektro-Blau/Cyan **und** Violett/Magenta), kinematisches Partikel-/Wireframe-Hero-Element,
+> Neon-Badges, Licht als tragendes Gestaltungsmittel — Bühne statt Formular.
+> Ergänzend: Arwes (Sci-Fi-UI), Hyperliquid (Datendichte), Dark-Glassmorphism, Matrix-Rain-Canvas.
 
 ## 1. Prinzipien
 
-1. **Ein Signatur-Effekt** — der Daten-Rain. Alles andere ist Zurückhaltung: viel Dunkelraum,
-   Licht nur wo Bedeutung ist.
+1. **Zwei Signatur-Effekte, beide datengespeist:** der Daten-Rain (echte Ticks) und die
+   Plexus-Konstellation (Hero; pulst auf echte Ticks). Licht ist das tragende Gestaltungsmittel —
+   kräftig, aber immer hinter/neben dem Content, nie im Weg.
 2. **Ehrlichkeit** — jede angezeigte Zahl ist echt oder der Zustand heißt sichtbar „nicht verbunden".
    Auch der Rain besteht aus echten Ticks (Preise, %-Änderungen, Symbole), nie aus Zufallswerten.
 3. **Lesbarkeit vor Effekt** — Content-Kontrast AA; Rain-Opacity ≤ 0.25; Rain konkurriert nie mit Text.
@@ -22,19 +24,24 @@
 
 | Token | Wert | Verwendung |
 |---|---|---|
-| `--color-bg` | `#050810` | Grundfläche (blaugetöntes Fast-Schwarz, nie reines Schwarz) |
-| `--color-bg2` | `#070d18` | Vertiefungen, Tabellen-Zebra |
-| `--color-glass` | `rgba(255,255,255,0.04)` | Glas-Karten-Fläche |
-| `--color-line` | `rgba(79,209,255,0.14)` | Licht-Kante (Border) der Glas-Karten |
-| `--color-ink` | `#eaf2ff` | Primärtext |
-| `--color-mut` | `#7d8cab` | Sekundärtext, Labels |
-| `--color-blue` | `#2e7cf6` | Primär-Blau (Aktionen, Marken-Glow) |
+| `--color-bg` | `#060818` | Grundfläche: tiefes Nachtblau (Referenzbild), nie reines Schwarz |
+| `--color-bg2` | `#0a0d24` | Vertiefungen, Bänder |
+| `--color-glass` | `rgba(120,140,255,0.05)` | Glas-Karten-Fläche (leicht blauviolett) |
+| `--color-line` | `rgba(99,140,255,0.22)` | Licht-Kante (Border) der Glas-Karten |
+| `--color-ink` | `#edf1ff` | Primärtext |
+| `--color-mut` | `#8b94b8` | Sekundärtext, Labels |
+| `--color-blue` | `#2e7cf6` | Elektro-Blau (Lichtwelt 1: Daten, Aktionen) |
 | `--color-cyan` | `#4fd1ff` | Glow-Spitzen, Rain-Köpfe, Fokus |
+| `--color-violet` | `#8b5cf6` | Violett (Lichtwelt 2: Tiefe, Sekundär-Glow) |
+| `--color-magenta` | `#e14ecf` | Magenta (Lichtwelt 2: CTAs, Hero-Akzente, Badges) |
 | `--color-pos` | `#3ddc97` | Long/positiv |
 | `--color-neg` | `#ff5c6c` | Short/negativ |
 | `--color-warn` | `#e8b84b` | Warnung, ROHBAU-Badge |
 
-Rain-Verlauf: Kopf `#eaf6ff` (fast weiß-blau, Glow), Schweif `#4fd1ff → #2e7cf6 → transparent`.
+Rain-Verlauf: Kopf `#eaf6ff` (fast weiß-blau, Glow), Schweif `#4fd1ff → #2e7cf6 → transparent`;
+Element-Opacity **0.25** (volle erlaubte Präsenz). Wortmarke: Gradient Blau → Cyan → Violett.
+Hero: **Plexus-Konstellation** (Punkte + Verbindungslinien in Blau/Violett/Magenta, langsame Drift,
+Puls-Aufleuchten bei echten Ticks — Datenbezug Pflicht).
 
 ## 3. Typografie
 

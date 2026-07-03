@@ -138,7 +138,7 @@ export function MatrixRain() {
         ctx.globalAlpha = Math.min(1, alpha * (highlighted ? 1.4 : 1));
         ctx.fillStyle = HEAD;
         ctx.shadowColor = flashing ? flash.color : GLOW;
-        ctx.shadowBlur = col.depth === 2 || highlighted ? 10 : 6;
+        ctx.shadowBlur = col.depth === 2 || highlighted ? 14 : 8;
         ctx.fillText(headCh, col.x, nextY);
         ctx.shadowBlur = 0;
 
@@ -181,7 +181,7 @@ export function MatrixRain() {
       ref={canvasRef}
       aria-hidden="true"
       className="pointer-events-none fixed inset-0 z-0"
-      style={{ opacity: 0.22 }}
+      style={{ opacity: 0.25 }}
     />
   );
 }

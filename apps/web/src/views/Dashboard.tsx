@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { isUnauthorized, logout, refreshSession, trpc } from '../api.js';
 import { Sparkline } from '../components/Sparkline.js';
 import { setRainHighlight } from '../components/MatrixRain.js';
+import { PlexusHero } from '../components/PlexusHero.js';
 import {
   ensurePriceStream,
   getFeedState,
@@ -173,6 +174,10 @@ export function Dashboard() {
 
   return (
     <div className="relative z-10 mx-auto max-w-6xl px-6 pt-8 pb-16">
+      {/* Hero-Konstellation hinter Kopfzeile + Preiskarten (pulst auf echte Ticks) */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[420px] overflow-hidden" aria-hidden="true">
+        <PlexusHero density={22} className="opacity-60" />
+      </div>
       <header
         className="reveal mb-10 flex flex-wrap items-center justify-between gap-4"
         style={{ '--stagger': 0 } as React.CSSProperties}
@@ -255,14 +260,8 @@ export function Dashboard() {
                 return (
                   <li key={key} className="flex items-center justify-between gap-3">
                     <span style={{ color: 'var(--color-mut)' }}>{key.replaceAll('_', ' ')}</span>
-                    <span className="flex items-center gap-1.5" style={{ color: connected ? 'var(--color-pos)' : 'var(--color-mut)' }}>
-                      <span
-                        className="inline-block h-1.5 w-1.5 rounded-full"
-                        style={{
-                          background: connected ? 'var(--color-pos)' : 'var(--color-line)',
-                          boxShadow: connected ? '0 0 8px rgba(61,220,151,0.7)' : 'none',
-                        }}
-                      />
+                    <span className="flex items-center gap-2" style={{ color: connected ? 'var(--color-pos)' : 'var(--color-mut)' }}>
+                      <span className={`neon-dot ${connected ? 'neon-dot--on' : 'neon-dot--off'}`} />
                       {value}
                     </span>
                   </li>
