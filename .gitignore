@@ -7,3 +7,4 @@ dist/
 # Seed-Daten enthalten echte User-Daten (E-Mail, Passwort-Hash) — werden per scp übertragen, nie committet
 packages/db/seed/data/
 .DS_Store
+*.tsbuildinfo
