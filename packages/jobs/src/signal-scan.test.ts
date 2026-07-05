@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, type Db } from '@gladiator/db';
 import type pg from 'pg';
 import { ensureSmcCoreStrategy, runSignalScan } from './signal-scan.js';
+import { scanUniverse } from './universe.js';
 
 const hasDb = Boolean(process.env.DATABASE_URL);
 if (!hasDb) {
@@ -35,8 +36,11 @@ describe.skipIf(!hasDb)('Signal-Scan (Multi-TF, echte Kerzen)', () => {
 
   it('scannt alle Symbol×TF-Kombinationen und dedupliziert beim zweiten Lauf', async () => {
     const first = await runSignalScan(db);
-    // 3 Symbole × 4 TFs = 12 Scans (auch wenn 15m evtl. noch ohne Historie ist)
-    expect(first.scanned).toHaveLength(12);
+    // Universum ist dynamisch (Basis + ★ Favoriten aus der DB) × 4 TFs —
+    // die Erwartung wird aus derselben Quelle berechnet, nicht hart kodiert.
+    const universe = await scanUniverse(db);
+    expect(universe.length).toBeGreaterThanOrEqual(3);
+    expect(first.scanned).toHaveLength(universe.length * 4);
     for (const s of first.scanned) {
       expect(s.candles).toBeGreaterThanOrEqual(0);
     }
