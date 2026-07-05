@@ -65,6 +65,67 @@ export function trueRange(candle: Candle, prevClose: number | null): number {
   );
 }
 
+/**
+ * MACD (12/26/9): Linie = EMA(fast) − EMA(slow), Signal = EMA(Linie, signalPeriod),
+ * Histogramm = Linie − Signal. Positionen ohne definierte EMAs bleiben null.
+ * Der Signal-EMA wird nur über die definierten Linienwerte gebildet (kein Raten).
+ */
+export function macd(
+  closes: number[],
+  fastPeriod = 12,
+  slowPeriod = 26,
+  signalPeriod = 9,
+): { macd: (number | null)[]; signal: (number | null)[]; histogram: (number | null)[] } {
+  const n = closes.length;
+  const fast = ema(closes, fastPeriod);
+  const slow = ema(closes, slowPeriod);
+  const line: (number | null)[] = new Array(n).fill(null);
+  for (let i = 0; i < n; i++) {
+    if (fast[i] != null && slow[i] != null) line[i] = fast[i]! - slow[i]!;
+  }
+
+  // Signal-EMA über den zusammenhängenden, definierten Teil der MACD-Linie
+  const firstDefined = line.findIndex((v) => v != null);
+  const signal: (number | null)[] = new Array(n).fill(null);
+  const histogram: (number | null)[] = new Array(n).fill(null);
+  if (firstDefined !== -1) {
+    const defined = line.slice(firstDefined).map((v) => v ?? 0);
+    const sig = ema(defined, signalPeriod);
+    for (let i = 0; i < sig.length; i++) {
+      const idx = firstDefined + i;
+      const sv = sig[i] ?? null;
+      signal[idx] = sv;
+      if (line[idx] != null && sv != null) histogram[idx] = line[idx]! - sv;
+    }
+  }
+  return { macd: line, signal, histogram };
+}
+
+/**
+ * Bollinger-Bänder: Mittelband = SMA(period), Bänder = ± mult × Standardabweichung
+ * (Populations-σ über dasselbe Fenster). Ohne volles Fenster: null.
+ */
+export function bollinger(
+  closes: number[],
+  period = 20,
+  mult = 2,
+): { middle: (number | null)[]; upper: (number | null)[]; lower: (number | null)[] } {
+  const n = closes.length;
+  const middle = sma(closes, period);
+  const upper: (number | null)[] = new Array(n).fill(null);
+  const lower: (number | null)[] = new Array(n).fill(null);
+  for (let i = period - 1; i < n; i++) {
+    const mean = middle[i];
+    if (mean == null) continue;
+    let variance = 0;
+    for (let j = i - period + 1; j <= i; j++) variance += (closes[j]! - mean) ** 2;
+    const sd = Math.sqrt(variance / period);
+    upper[i] = mean + mult * sd;
+    lower[i] = mean - mult * sd;
+  }
+  return { middle, upper, lower };
+}
+
 /** ATR nach Wilder. */
 export function atr(candles: Candle[], period = 14): (number | null)[] {
   const out: (number | null)[] = new Array(candles.length).fill(null);

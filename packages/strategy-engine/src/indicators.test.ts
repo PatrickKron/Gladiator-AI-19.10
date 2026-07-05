@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { atr, ema, rsi, sma } from './indicators.js';
+import { atr, bollinger, ema, macd, rsi, sma } from './indicators.js';
 import type { Candle } from './types.js';
 
 function candle(o: number, h: number, l: number, c: number, v = 100): Candle {
@@ -53,6 +53,59 @@ describe('RSI (Wilder)', () => {
     const out = rsi(closes, 14);
     expect(out[59]!).toBeGreaterThan(45);
     expect(out[59]!).toBeLessThan(55);
+  });
+});
+
+describe('MACD (12/26/9)', () => {
+  it('konstante Serie → MACD-Linie und Histogramm 0', () => {
+    const closes = Array(60).fill(100);
+    const { macd: line, signal, histogram } = macd(closes);
+    expect(line[59]).toBeCloseTo(0, 8);
+    expect(signal[59]).toBeCloseTo(0, 8);
+    expect(histogram[59]).toBeCloseTo(0, 8);
+  });
+
+  it('null vor definierten EMAs, danach ausgerichtete Serien gleicher Länge', () => {
+    const closes = Array.from({ length: 60 }, (_, i) => 100 + i);
+    const { macd: line, signal, histogram } = macd(closes);
+    expect(line).toHaveLength(60);
+    expect(signal).toHaveLength(60);
+    expect(histogram).toHaveLength(60);
+    expect(line[10]).toBeNull(); // vor slow-EMA-Seed (26)
+    expect(line[59]).not.toBeNull();
+  });
+
+  it('steigende Serie → MACD-Linie positiv (fast über slow)', () => {
+    const closes = Array.from({ length: 80 }, (_, i) => 100 + i * 2);
+    const { macd: line } = macd(closes);
+    expect(line[79]!).toBeGreaterThan(0);
+  });
+});
+
+describe('Bollinger', () => {
+  it('konstante Serie → Bänder = Mittelband (σ = 0)', () => {
+    const closes = Array(30).fill(50);
+    const { middle, upper, lower } = bollinger(closes, 20, 2);
+    expect(middle[29]).toBeCloseTo(50);
+    expect(upper[29]).toBeCloseTo(50);
+    expect(lower[29]).toBeCloseTo(50);
+  });
+
+  it('null vor vollem Fenster, danach oben > Mitte > unten', () => {
+    const closes = Array.from({ length: 40 }, (_, i) => 100 + (i % 2 === 0 ? 5 : -5));
+    const { middle, upper, lower } = bollinger(closes, 20, 2);
+    expect(middle[18]).toBeNull();
+    expect(upper[39]!).toBeGreaterThan(middle[39]!);
+    expect(middle[39]!).toBeGreaterThan(lower[39]!);
+  });
+
+  it('handgerechnet: σ eines bekannten Fensters', () => {
+    // 20× Werte: zehn 0 und zehn 10 → mean 5, Populations-σ = 5
+    const closes = Array.from({ length: 20 }, (_, i) => (i < 10 ? 0 : 10));
+    const { middle, upper, lower } = bollinger(closes, 20, 2);
+    expect(middle[19]).toBeCloseTo(5);
+    expect(upper[19]).toBeCloseTo(15); // 5 + 2*5
+    expect(lower[19]).toBeCloseTo(-5); // 5 - 2*5
   });
 });
 

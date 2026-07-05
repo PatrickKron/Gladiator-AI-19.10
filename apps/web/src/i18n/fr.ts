@@ -47,6 +47,7 @@ export const fr: Catalog = {
     calendar: 'Calendrier',
     aegis: 'Aegis',
     trading: 'Trading',
+    charts: 'Graphiques',
     agents: 'Agents',
     settings: 'Réglages',
     profile: 'Profil',
@@ -54,6 +55,14 @@ export const fr: Catalog = {
     groupIntel: 'Intelligence',
     groupOps: 'Opérations',
     groupSystem: 'Système',
+  },
+  chart: {
+    title: 'Graphiques',
+    subtitle: 'Analyse interactive des prix avec indicateurs — vraies bougies propres.',
+    volume: 'Volume',
+    legend: 'Chaque série est calculée sur les mêmes bougies DB que le moteur de signaux — rien d\'inventé.',
+    noData: 'Aucune bougie dans la base pour {{symbol}} (pour l\'instant). Le scan alimente automatiquement les favoris crypto.',
+    zonesInfo: '{{shown}} sur {{total}} zones smart-money actives (order blocks + FVG).',
   },
   auth: {
     title: 'Demander l\'accès',

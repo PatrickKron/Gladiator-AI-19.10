@@ -11,8 +11,27 @@ import {
 } from '@gladiator/market-data';
 import { noTradeWindowFor } from '@gladiator/risk';
 import { scanUniverse } from '@gladiator/jobs';
-import { atr, detectStructure, ema, rsi } from '@gladiator/strategy-engine';
+import {
+  atr,
+  bollinger,
+  detectFvgs,
+  detectOrderBlocks,
+  detectStructure,
+  ema,
+  macd,
+  rsi,
+} from '@gladiator/strategy-engine';
 import { protectedProcedure, router } from '../trpc.js';
+
+/** Indikator-Serie (index-basiert) → zeitgestempelte, null-freie Punkte für den Chart. */
+function toTimed(times: number[], values: (number | null)[]): { time: number; value: number }[] {
+  const out: { time: number; value: number }[] = [];
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    if (v != null && Number.isFinite(v)) out.push({ time: times[i]!, value: v });
+  }
+  return out;
+}
 
 export const marketRouter = router({
   /** Letzter echter Tick je Symbol + Verbindungsstatus. Kein Feed → ehrlich 'offline'. */
@@ -192,5 +211,100 @@ export const marketRouter = router({
     .query(async ({ ctx, input }) => {
       const candles = await getOhlcv(ctx.db, { symbol: input.symbol.toUpperCase(), timeframe: input.timeframe, limit: input.limit });
       return candles.map((c) => ({ time: Math.floor(c.ts.getTime() / 1000), open: c.open, high: c.high, low: c.low, close: c.close }));
+    }),
+
+  /**
+   * Voll-Chart-Daten (Krypto-Charting): echte Kerzen + ALLE Indikatorserien
+   * (EMA 20/50/200, Bollinger, RSI, MACD, ATR) + Smart-Money-Marker
+   * (BOS/CHoCH-Struktur, Order Blocks, FVG-Zonen) — zeitlich ausgerichtet.
+   * Nichts erfunden: Indikatoren rechnen exakt auf denselben DB-Kerzen wie
+   * die Signal-Engine; Positionen ohne Historie fehlen (kein Raten).
+   */
+  chartData: protectedProcedure
+    .input(
+      z.object({
+        symbol: z.string().min(3),
+        timeframe: z.enum(['15m', '1h', '4h', '1d']),
+        limit: z.number().int().min(60).max(1000).default(400),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const symbol = input.symbol.toUpperCase();
+      const candles = await getOhlcv(ctx.db, { symbol, timeframe: input.timeframe, limit: input.limit });
+      if (candles.length === 0) {
+        return { symbol, timeframe: input.timeframe, candles: [], available: false as const };
+      }
+
+      const times = candles.map((c) => Math.floor(c.ts.getTime() / 1000));
+      const closes = candles.map((c) => c.close);
+
+      const bb = bollinger(closes, 20, 2);
+      const mac = macd(closes, 12, 26, 9);
+      const macdHist = mac.histogram.map((v, i) =>
+        v != null && Number.isFinite(v) ? { time: times[i]!, value: v, color: v >= 0 ? '#3ddc97' : '#ff5c6c' } : null,
+      ).filter((x): x is { time: number; value: number; color: string } => x !== null);
+
+      // Struktur (BOS/CHoCH) → Zeit + gebrochenes Level
+      const structure = detectStructure(candles).map((e) => ({
+        time: times[e.index]!,
+        kind: e.kind,
+        direction: e.direction,
+        level: e.brokenLevel,
+      }));
+
+      // Zonen: Order Blocks + FVG; Zeitspanne von Entstehung bis Mitigation/Füllung
+      // (aktive Zonen laufen bis zur letzten Kerze). Cap: die 12 jüngsten, damit
+      // der Chart lesbar bleibt (ehrlich protokolliert im Feld `zonesTotal`).
+      const lastTime = times[times.length - 1]!;
+      const allZones = [...detectOrderBlocks(candles), ...detectFvgs(candles)].map((z) => {
+        const closeIdx = z.mitigatedAt ?? z.filledAt ?? null;
+        return {
+          kind: z.kind,
+          top: z.top,
+          bottom: z.bottom,
+          fromTime: times[z.createdAt] ?? times[z.index]!,
+          toTime: closeIdx != null ? times[closeIdx]! : lastTime,
+          active: closeIdx == null,
+        };
+      });
+      const zones = allZones.sort((a, b) => b.fromTime - a.fromTime).slice(0, 12);
+
+      return {
+        symbol,
+        timeframe: input.timeframe,
+        available: true as const,
+        candles: candles.map((c, i) => ({
+          time: times[i]!,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+        })),
+        volume: candles.map((c, i) => ({
+          time: times[i]!,
+          value: c.volume,
+          color: c.close >= c.open ? 'rgba(61,220,151,0.4)' : 'rgba(255,92,108,0.4)',
+        })),
+        ema: {
+          e20: toTimed(times, ema(closes, 20)),
+          e50: toTimed(times, ema(closes, 50)),
+          e200: toTimed(times, ema(closes, 200)),
+        },
+        bollinger: {
+          upper: toTimed(times, bb.upper),
+          middle: toTimed(times, bb.middle),
+          lower: toTimed(times, bb.lower),
+        },
+        rsi: toTimed(times, rsi(closes, 14)),
+        macd: {
+          line: toTimed(times, mac.macd),
+          signal: toTimed(times, mac.signal),
+          histogram: macdHist,
+        },
+        atr: toTimed(times, atr(candles, 14)),
+        structure,
+        zones,
+        zonesTotal: allZones.length,
+      };
     }),
 });

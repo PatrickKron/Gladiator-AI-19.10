@@ -47,6 +47,7 @@ export const es: Catalog = {
     calendar: 'Calendario',
     aegis: 'Aegis',
     trading: 'Trading',
+    charts: 'Gráficos',
     agents: 'Agentes',
     settings: 'Ajustes',
     profile: 'Perfil',
@@ -54,6 +55,14 @@ export const es: Catalog = {
     groupIntel: 'Inteligencia',
     groupOps: 'Operaciones',
     groupSystem: 'Sistema',
+  },
+  chart: {
+    title: 'Gráficos',
+    subtitle: 'Análisis interactivo de precios con indicadores — velas reales propias.',
+    volume: 'Volumen',
+    legend: 'Cada serie se calcula sobre las mismas velas de la BD que el motor de señales — nada inventado.',
+    noData: 'No hay velas en la BD para {{symbol}} (todavía). El escaneo alimenta automáticamente los favoritos cripto.',
+    zonesInfo: '{{shown}} de {{total}} zonas smart-money activas (order blocks + FVG).',
   },
   auth: {
     title: 'Solicitar acceso',

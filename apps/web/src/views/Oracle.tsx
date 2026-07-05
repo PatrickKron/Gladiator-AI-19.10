@@ -4,6 +4,7 @@ import { trpc } from '../api.js';
 import { Loading, NotConnected, PageHeader, Panel } from '../components/ui.js';
 import { AssetSelect, getSelectedAsset } from '../components/AssetSelect.js';
 import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
+import { AssetChart } from '../components/AssetChart.js';
 import { Sparkline } from '../components/Sparkline.js';
 
 /**
@@ -61,6 +62,11 @@ export function Oracle() {
       {/* Asset-Kontext: Oracle bezieht sich auf GENAU dieses Asset */}
       <Panel label={t('assetCtx.title', { symbol: asset })} stagger={1} className="mb-5">
         <AssetContextBody ctx={assetCtx} />
+      </Panel>
+
+      {/* Chart mit Indikatoren für GENAU dieses Asset */}
+      <Panel label={t('chart.title')} stagger={1} className="mb-5">
+        <AssetChart symbol={asset} initialTimeframe="1h" />
       </Panel>
 
       {/* GRS-Zentrum: Orrery-Ring mit ECHTEM Score */}

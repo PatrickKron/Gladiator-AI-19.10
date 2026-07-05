@@ -4,6 +4,7 @@ import { trpc } from '../api.js';
 import { Empty, Loading, NotConnected, PageHeader, Panel } from '../components/ui.js';
 import { AssetSelect, getSelectedAsset } from '../components/AssetSelect.js';
 import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
+import { AssetChart } from '../components/AssetChart.js';
 
 /**
  * Aegis / Hedging (09_ §3.8): GRS-Gauge braucht echte VIX/DXY/US10Y-Daten —
@@ -53,6 +54,11 @@ export function Aegis() {
       {/* Asset-Risiko: Aegis bezieht sich auf GENAU dieses Asset */}
       <Panel label={t('assetCtx.title', { symbol: asset })} stagger={1} className="mb-5">
         <AssetContextBody ctx={assetCtx} />
+      </Panel>
+
+      {/* Chart mit Indikatoren für GENAU dieses Asset */}
+      <Panel label={t('chart.title')} stagger={1} className="mb-5">
+        <AssetChart symbol={asset} initialTimeframe="1h" />
       </Panel>
 
       <section className="grid gap-5 lg:grid-cols-2">

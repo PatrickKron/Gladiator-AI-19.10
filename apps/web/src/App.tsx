@@ -8,6 +8,7 @@ import { Dashboard } from './views/Dashboard.js';
 import { Signals } from './views/Signals.js';
 import { Labor } from './views/Labor.js';
 import { Trading } from './views/Trading.js';
+import { Charts } from './views/Charts.js';
 import { Pakete } from './views/Pakete.js';
 import { Oracle } from './views/Oracle.js';
 import { Magazine } from './views/Magazine.js';
@@ -25,6 +26,7 @@ const ROUTES: Record<string, () => React.JSX.Element> = {
   '#/signals': Signals,
   '#/labor': Labor,
   '#/trading': Trading,
+  '#/charts': Charts,
   '#/pakete': Pakete,
   '#/oracle': Oracle,
   '#/magazine': Magazine,

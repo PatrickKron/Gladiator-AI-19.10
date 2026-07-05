@@ -46,6 +46,7 @@ export const de = {
     calendar: 'Kalender',
     aegis: 'Aegis',
     trading: 'Trading',
+    charts: 'Charts',
     agents: 'Agenten',
     settings: 'Einstellungen',
     profile: 'Profil',
@@ -53,6 +54,14 @@ export const de = {
     groupIntel: 'Intelligenz',
     groupOps: 'Operationen',
     groupSystem: 'System',
+  },
+  chart: {
+    title: 'Charts',
+    subtitle: 'Interaktive Kurs-Analyse mit Indikatoren — echte eigene Kerzen.',
+    volume: 'Volumen',
+    legend: 'Alle Serien rechnen auf denselben DB-Kerzen wie die Signal-Engine — nichts erfunden.',
+    noData: 'Für {{symbol}} liegen (noch) keine Kerzen in der DB. Krypto-Favoriten versorgt der Scan automatisch.',
+    zonesInfo: '{{shown}} von {{total}} aktiven Smart-Money-Zonen gezeigt (Order Blocks + FVG).',
   },
   auth: {
     title: 'Zugriff anfordern',

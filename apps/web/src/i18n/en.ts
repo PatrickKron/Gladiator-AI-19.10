@@ -47,6 +47,7 @@ export const en: Catalog = {
     calendar: 'Calendar',
     aegis: 'Aegis',
     trading: 'Trading',
+    charts: 'Charts',
     agents: 'Agents',
     settings: 'Settings',
     profile: 'Profile',
@@ -54,6 +55,14 @@ export const en: Catalog = {
     groupIntel: 'Intelligence',
     groupOps: 'Operations',
     groupSystem: 'System',
+  },
+  chart: {
+    title: 'Charts',
+    subtitle: 'Interactive price analysis with indicators — real own candles.',
+    volume: 'Volume',
+    legend: 'Every series computes on the same DB candles as the signal engine — nothing invented.',
+    noData: 'No candles in the DB for {{symbol}} (yet). The scan feeds crypto favorites automatically.',
+    zonesInfo: '{{shown}} of {{total}} active smart-money zones shown (order blocks + FVG).',
   },
   auth: {
     title: 'Request access',
