@@ -45,8 +45,8 @@ export function App() {
     const off = onAuthChange((authed) => setAuth(authed ? 'authenticated' : 'anonymous'));
     const onHash = () => setRoute(window.location.hash || '#/');
     window.addEventListener('hashchange', onHash);
-    void refreshSession().then((ok) => {
-      if (!ok && getAccessToken() === null) setAuth('anonymous');
+    void refreshSession().then((outcome) => {
+      if (outcome !== 'ok' && getAccessToken() === null) setAuth('anonymous');
     });
     return () => {
       off();

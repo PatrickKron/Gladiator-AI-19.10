@@ -1,5 +1,7 @@
-import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client';
+import { createTRPCClient, httpBatchLink, TRPCClientError, type TRPCLink } from '@trpc/client';
+import { observable, type Unsubscribable } from '@trpc/server/observable';
 import type { AppRouter } from '@gladiator/api';
+import { refreshWithConflictResolution, webLock, type RefreshOutcome } from './lib/session-refresh.js';
 
 const REFRESH_KEY = 'gladiator.refreshToken';
 
@@ -7,8 +9,43 @@ let accessToken: string | null = null;
 let refreshTimer: number | null = null;
 const authListeners = new Set<(authed: boolean) => void>();
 
+/**
+ * 401-Retry: Läuft ein Access-Token mitten in der Nutzung ab, wird EINMAL
+ * still refresht und der Call wiederholt — statt Server-Fehlertext im UI.
+ * auth.*-Calls sind ausgenommen (sonst Rekursion über auth.refresh).
+ */
+function authRetryLink(): TRPCLink<AppRouter> {
+  return () =>
+    ({ next, op }) =>
+      observable((observer) => {
+        let sub: Unsubscribable | null = null;
+        let retried = false;
+        const attempt = () => {
+          sub = next(op).subscribe({
+            next: (v) => observer.next(v),
+            complete: () => observer.complete(),
+            error: (err) => {
+              const unauthorized = err instanceof TRPCClientError && err.data?.code === 'UNAUTHORIZED';
+              if (unauthorized && !retried && !op.path.startsWith('auth.')) {
+                retried = true;
+                void refreshSession().then((outcome) => {
+                  if (outcome === 'ok') attempt();
+                  else observer.error(err);
+                });
+              } else {
+                observer.error(err);
+              }
+            },
+          });
+        };
+        attempt();
+        return () => sub?.unsubscribe();
+      });
+}
+
 export const trpc = createTRPCClient<AppRouter>({
   links: [
+    authRetryLink(),
     httpBatchLink({
       url: '/api/trpc',
       headers: () => (accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
@@ -33,7 +70,7 @@ function setSession(tokens: { accessToken: string; refreshToken: string } | null
   if (refreshTimer !== null) window.clearInterval(refreshTimer);
   refreshTimer = null;
   if (tokens) {
-    // Access-Token hält 15 min → alle 10 min rotieren.
+    // Access-Token hält 15 min → alle 10 min rotieren (multi-tab-sicher via Lock).
     refreshTimer = window.setInterval(() => void refreshSession(), 10 * 60 * 1000);
   }
   for (const fn of authListeners) fn(accessToken !== null);
@@ -44,17 +81,19 @@ export async function login(email: string, password: string): Promise<void> {
   setSession({ accessToken: res.accessToken, refreshToken: res.refreshToken });
 }
 
-export async function refreshSession(): Promise<boolean> {
-  const refreshToken = localStorage.getItem(REFRESH_KEY);
-  if (!refreshToken) return false;
-  try {
-    const res = await trpc.auth.refresh.mutate({ refreshToken });
-    setSession(res);
-    return true;
-  } catch {
-    setSession(null);
-    return false;
-  }
+const refreshLock = webLock('gladiator.session-refresh');
+
+export async function refreshSession(): Promise<RefreshOutcome> {
+  const outcome = await refreshWithConflictResolution({
+    readStored: () => localStorage.getItem(REFRESH_KEY),
+    writeSession: setSession,
+    mutate: (refreshToken) => trpc.auth.refresh.mutate({ refreshToken }),
+    isAuthError: isUnauthorized,
+    lock: refreshLock,
+  });
+  // Bei transienten Fehlern läuft der Timer weiter und versucht es erneut;
+  // die bestehende Session (Access-Token bis zu 15 min gültig) bleibt nutzbar.
+  return outcome;
 }
 
 export async function logout(): Promise<void> {
