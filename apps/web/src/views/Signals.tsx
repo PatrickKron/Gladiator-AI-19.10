@@ -9,10 +9,14 @@ import { ErrorBox, Loading, PageHeader } from '../components/ui.js';
  * (Status, Symbol, Quelle). Agenten-Urteile hängen an jeder Karte.
  */
 
-type StatusFilter = 'new' | 'confirmed' | 'rejected' | 'filled' | 'closed' | 'expired';
+type SignalStatus = 'new' | 'confirmed' | 'rejected' | 'filled' | 'closed' | 'expired';
+type StatusFilter = SignalStatus | 'all';
+
+const ALL_STATUSES: SignalStatus[] = ['new', 'confirmed', 'rejected', 'filled', 'closed', 'expired'];
 
 const STATUS_OPTIONS: { value: StatusFilter; key: string }[] = [
   { value: 'new', key: 'signals.statusNew' },
+  { value: 'all', key: 'common.all' },
   { value: 'confirmed', key: 'signals.statusConfirmed' },
   { value: 'rejected', key: 'signals.statusRejected' },
   { value: 'filled', key: 'signals.statusFilled' },
@@ -46,7 +50,7 @@ export function Signals() {
   async function load(f: typeof filters) {
     try {
       const res = await trpc.signals.list.query({
-        status: [f.status],
+        status: f.status === 'all' ? ALL_STATUSES : [f.status],
         limit: 100,
         symbol: f.symbol === 'all' ? undefined : f.symbol,
         timeframe: f.timeframe === 'all' ? undefined : (f.timeframe as '15m' | '1h' | '4h' | '1d'),
@@ -170,7 +174,7 @@ export function Signals() {
       ) : (
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((s) => (
-            <SignalCard key={s.id} signal={s} onDecided={() => void load(filters)} readOnly={status !== 'new'} />
+            <SignalCard key={s.id} signal={s} onDecided={() => void load(filters)} readOnly={s.status !== 'new'} />
           ))}
         </div>
       )}

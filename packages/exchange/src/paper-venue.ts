@@ -1,5 +1,5 @@
 import ccxt from 'ccxt';
-import type { MarketRules, TradingVenue, VenueOrderRequest, VenueOrderResult, VenuePosition } from './venue.js';
+import { stepFromPrecision, type MarketRules, type TradingVenue, type VenueOrderRequest, type VenueOrderResult, type VenuePosition } from './venue.js';
 
 /**
  * Interne Paper-Engine (06_ §7): füllt Market-Orders sofort zum ECHTEN
@@ -29,9 +29,10 @@ export class PaperVenue implements TradingVenue {
   async marketRules(symbol: string): Promise<MarketRules> {
     await this.exchange.loadMarkets();
     const m = this.exchange.market(symbol);
+    const tickSizeMode = this.exchange.precisionMode === ccxt.TICK_SIZE;
     return {
-      tickSize: m.precision?.price ? Math.pow(10, -Number(m.precision.price)) : 0.01,
-      lotSize: m.precision?.amount ? Math.pow(10, -Number(m.precision.amount)) : 0.000001,
+      tickSize: stepFromPrecision(m.precision?.price, tickSizeMode, 0.01),
+      lotSize: stepFromPrecision(m.precision?.amount, tickSizeMode, 0.000001),
       minNotional: Number(m.limits?.cost?.min ?? 10),
     };
   }

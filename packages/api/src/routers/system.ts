@@ -21,6 +21,12 @@ export const systemRouter = router({
         (SELECT count(*)::int FROM signals) AS signals
     `);
 
+    // Kerzen-Frische statt Behauptung: der Scan hält 15m-Kerzen inkrementell
+    // aktuell — steht die letzte Kerze länger als 45 min, stimmt etwas nicht.
+    const lastCandleRow = await ctx.db.execute(sql`SELECT max(ts) AS ts FROM ohlcv WHERE timeframe = '15m'`);
+    const lastCandleTs = (lastCandleRow.rows[0] as { ts: string | null }).ts;
+    const candleAgeMin = lastCandleTs ? Math.floor((Date.now() - new Date(lastCandleTs).getTime()) / 60_000) : null;
+
     const macro = await getMacroSnapshot(ctx.db);
     const macroConnected = macro.fresh && macro.grs !== null;
     const derivConnected = await derivativesFresh(ctx.db);
@@ -39,7 +45,12 @@ export const systemRouter = router({
       /** Quellen-Wahrheit: was ist angebunden, was (noch) nicht. */
       sources: {
         binance_ws: ctx.prices ? 'verbunden' : 'nicht verbunden',
-        binance_ohlcv: 'verbunden',
+        binance_ohlcv:
+          candleAgeMin === null
+            ? 'keine Kerzen in der DB (Backfill ausstehend)'
+            : candleAgeMin <= 45
+              ? `verbunden (letzte 15m-Kerze vor ${candleAgeMin} min)`
+              : `VERALTET: letzte 15m-Kerze vor ${candleAgeMin} min — Scan-Backfill prüfen`,
         stocks_etf: 'verbunden: Yahoo-Quotes (5-min-Cache)',
         makro_vix_dxy_us10y: macroConnected
           ? `verbunden: Yahoo (VIX ${macro.vix?.value.toFixed(1) ?? '—'})`

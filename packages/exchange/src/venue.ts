@@ -35,6 +35,20 @@ export type VenuePosition = {
 
 export type MarketRules = { tickSize: number; lotSize: number; minNotional: number };
 
+/**
+ * ccxt-Precision → Schrittweite. Börsen im TICK_SIZE-Modus (z. B. Binance)
+ * liefern die Schrittweite DIREKT (0.00001); DECIMAL_PLACES-Börsen liefern die
+ * Nachkommastellen (5 → 10^-5). Wird das verwechselt, entsteht aus 0.00001
+ * „10^-0.00001 ≈ 1" — und das Sizing rundet jede Order auf qty 0.
+ */
+export function stepFromPrecision(value: unknown, tickSizeMode: boolean, fallback: number): number {
+  if (value === null || value === undefined) return fallback; // Number(null) wäre 0
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  if (tickSizeMode) return n > 0 ? n : fallback;
+  return n >= 0 ? Math.pow(10, -n) : fallback; // 0 Nachkommastellen = Schrittweite 1
+}
+
 export interface TradingVenue {
   readonly id: string;
   readonly kind: 'paper' | 'testnet' | 'live';

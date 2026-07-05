@@ -91,9 +91,11 @@ export async function runSignalScan(db: Db): Promise<ScanResult> {
   const { strategyId, versionId } = await ensureSmcCoreStrategy(db);
   const result: ScanResult = { scanned: [], inserted: 0, skippedDuplicates: 0 };
 
-  // Universum = Basis + Stern-Favoriten (Krypto); neue Symbole erst mit echten Kerzen versorgen.
+  // Universum = Basis + Stern-Favoriten (Krypto). ALLE Symbole inkrementell
+  // frisch halten — auch die Basis: deren Kerzen kommen sonst nur aus dem Seed
+  // und veralten für immer (der Scan bewertete dann tagelang denselben Bar).
   const universe = await scanUniverse(db);
-  for (const symbol of universe.filter((s) => !SCAN_SYMBOLS.includes(s))) {
+  for (const symbol of universe) {
     const fill = await ensureCandles(db, symbol);
     if (fill.inserted > 0) console.log(`[signal-scan] Backfill ${symbol}: +${fill.inserted} Kerzen`);
     for (const e of fill.errors) console.warn('[signal-scan] Backfill', e);

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { ErrorBox, Loading, PageHeader } from '../components/ui.js';
 import { getLatest, onTick } from '../lib/prices.js';
+import { feedSymbol } from '../lib/pairs.js';
 
 /**
  * Pakete / Trading-Universum (09_ §3.3): echte v1-Bestände (35 Pakete,
@@ -97,7 +98,8 @@ function PackageCard({ pkg, stagger, prices }: { pkg: Pkg; stagger: number; pric
           ) : (
             <ul className="space-y-1 text-xs">
               {assets.map((a) => {
-                const crypto = a.tradingPair ? prices.get(a.tradingPair.replace('USDT', '/USDT')) : undefined;
+                const feedKey = feedSymbol(a.tradingPair);
+                const crypto = feedKey ? prices.get(feedKey) : undefined;
                 const stock = quotes[a.ticker];
                 const price = crypto ?? stock?.price;
                 const changePct =

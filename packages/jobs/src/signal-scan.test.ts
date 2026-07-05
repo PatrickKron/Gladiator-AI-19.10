@@ -34,6 +34,21 @@ describe.skipIf(!hasDb)('Signal-Scan (Multi-TF, echte Kerzen)', () => {
     expect(first.versionId).toBe(second.versionId);
   });
 
+  it('hält die Kerzen der BASIS-Symbole frisch (Befund: Seed-Kerzen veralteten für immer)', async () => {
+    await runSignalScan(db);
+    const rows = await db.execute(sql`
+      SELECT symbol, max(ts) AS ts FROM ohlcv
+      WHERE symbol IN ('BTC/USDT', 'ETH/USDT', 'SOL/USDT') AND timeframe = '15m'
+      GROUP BY symbol
+    `);
+    expect(rows.rows.length).toBe(3);
+    for (const r of rows.rows as { symbol: string; ts: string }[]) {
+      const ageMs = Date.now() - new Date(r.ts).getTime();
+      // < 4 Intervalle: letzte ABGESCHLOSSENE 15m-Kerze + Puffer (echte Börse, kein Fake)
+      expect(ageMs, `${r.symbol}: letzte 15m-Kerze ist ${Math.round(ageMs / 60_000)} min alt`).toBeLessThan(4 * 900_000);
+    }
+  }, 180_000);
+
   it('scannt alle Symbol×TF-Kombinationen und dedupliziert beim zweiten Lauf', async () => {
     const first = await runSignalScan(db);
     // Universum ist dynamisch (Basis + ★ Favoriten aus der DB) × 4 TFs —

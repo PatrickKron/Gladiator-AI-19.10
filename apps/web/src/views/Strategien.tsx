@@ -124,7 +124,7 @@ function StrategyRow({ s, onChanged }: { s: Strategy; onChanged: () => void }) {
   );
 }
 
-function PineTab() {
+function PineTab({ onRegistered }: { onRegistered: () => void }) {
   const { t } = useTranslation();
   const [slug, setSlug] = useState('');
   const [name, setName] = useState('');
@@ -143,6 +143,7 @@ function PineTab() {
         description: description || undefined,
       });
       setResult({ id: res.strategy.id });
+      onRegistered();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.error'));
     } finally {
@@ -195,7 +196,7 @@ function PineTab() {
   );
 }
 
-function DslTab() {
+function DslTab({ onRegistered }: { onRegistered: () => void }) {
   const { t } = useTranslation();
   const [text, setText] = useState('');
   const [json, setJson] = useState('');
@@ -238,6 +239,7 @@ function DslTab() {
       setPreview(null);
       setText('');
       setJson('');
+      onRegistered();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.error'));
     } finally {
@@ -382,8 +384,8 @@ export function Strategien() {
       />
       {error && <ErrorBox message={error} />}
 
-      {tab === 'pine' && <PineTab />}
-      {tab === 'dsl' && <DslTab />}
+      {tab === 'pine' && <PineTab onRegistered={() => void load()} />}
+      {tab === 'dsl' && <DslTab onRegistered={() => void load()} />}
       {tab === 'builtin' && (
         <Panel stagger={2}>
           <p className="text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>

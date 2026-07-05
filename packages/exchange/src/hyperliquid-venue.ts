@@ -1,5 +1,5 @@
 import ccxt from 'ccxt';
-import type { MarketRules, TradingVenue, VenueOrderRequest, VenueOrderResult, VenuePosition } from './venue.js';
+import { stepFromPrecision, type MarketRules, type TradingVenue, type VenueOrderRequest, type VenueOrderResult, type VenuePosition } from './venue.js';
 
 /**
  * Hyperliquid-TESTNET (06_ §3) — erster DEX-Adapter, via ccxt.
@@ -71,9 +71,10 @@ export class HyperliquidTestnetVenue implements TradingVenue {
     const ex = this.ex();
     await ex.loadMarkets();
     const m = ex.market(HyperliquidTestnetVenue.mapSymbol(symbol));
+    const tickSizeMode = ex.precisionMode === ccxt.TICK_SIZE;
     return {
-      tickSize: m.precision?.price ? Math.pow(10, -Number(m.precision.price)) : 0.01,
-      lotSize: m.precision?.amount ? Math.pow(10, -Number(m.precision.amount)) : 0.0001,
+      tickSize: stepFromPrecision(m.precision?.price, tickSizeMode, 0.01),
+      lotSize: stepFromPrecision(m.precision?.amount, tickSizeMode, 0.0001),
       minNotional: Number(m.limits?.cost?.min ?? 10),
     };
   }
