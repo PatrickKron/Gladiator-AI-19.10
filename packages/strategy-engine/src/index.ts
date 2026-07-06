@@ -1,5 +1,6 @@
 export * from './types.js';
 export * from './indicators.js';
+export * from './indicators-extra.js';
 export { computeSwings } from './swings.js';
 export { detectStructure, type StructureOptions } from './structure.js';
 export { detectOrderBlocks, detectFvgs, type Zone } from './zones.js';
