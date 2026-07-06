@@ -250,6 +250,12 @@ export const de = {
     versions: 'Versionen',
     noVersions: 'Keine Versionen',
     liveBlocked: 'Live-Promotion ist bewusst gesperrt — Live-Freigabe erfolgt pro Börse in Phase 7 (Mensch im Loop).',
+    validated: '✓ Backtest-validiert',
+    notValid: '✗ Backtest nicht valide',
+    noBacktest: '⚠ kein Backtest',
+    noBacktestHint: 'Noch kein Netto-Backtest — im Labor testen, bevor die Strategie selbstständig laufen darf.',
+    runsUnvalidated: 'läuft ohne bestandenen Backtest',
+    validityGateHint: 'Selbstständig laufen (Paper-Auto-Loop) darf eine Strategie nur mit bestandenem Backtest — sonst blockt das Gate die Promotion.',
   },
   magazine: {
     title: 'Magazin · Insights',

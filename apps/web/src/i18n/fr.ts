@@ -251,6 +251,12 @@ export const fr: Catalog = {
     versions: 'Versions',
     noVersions: 'Aucune version',
     liveBlocked: 'La promotion live est volontairement verrouillée — l\'approbation live se fait par bourse en phase 7 (humain dans la boucle).',
+    validated: '✓ validée par backtest',
+    notValid: '✗ backtest non valide',
+    noBacktest: '⚠ aucun backtest',
+    noBacktestHint: 'Pas encore de backtest net — testez-la dans le Labo avant que la stratégie puisse tourner seule.',
+    runsUnvalidated: 'tourne sans backtest validé',
+    validityGateHint: 'Une stratégie ne peut tourner seule (auto-boucle paper) qu\'avec un backtest validé — sinon le gate bloque la promotion.',
   },
   magazine: {
     title: 'Magazine · Insights',

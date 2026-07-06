@@ -251,6 +251,12 @@ export const en: Catalog = {
     versions: 'Versions',
     noVersions: 'No versions',
     liveBlocked: 'Live promotion is deliberately locked — live approval happens per exchange in Phase 7 (human in the loop).',
+    validated: '✓ backtest-validated',
+    notValid: '✗ backtest not valid',
+    noBacktest: '⚠ no backtest',
+    noBacktestHint: 'No net backtest yet — test it in the Lab before the strategy may run on its own.',
+    runsUnvalidated: 'runs without a passing backtest',
+    validityGateHint: 'A strategy may only run on its own (paper auto-loop) with a passing backtest — otherwise the gate blocks promotion.',
   },
   magazine: {
     title: 'Magazine · Insights',

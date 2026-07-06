@@ -19,6 +19,85 @@ const KIND_COLOR: Record<string, string> = {
   dsl: 'var(--color-violet)',
 };
 
+type Validity = Awaited<ReturnType<typeof trpc.strategies.validity.query>>;
+
+/**
+ * Version mit Validitäts-Badge (Vision 5): zeigt, ob ein bestandener Netto-
+ * Backtest existiert — nur dann darf die Strategie selbstständig laufen. Der
+ * Promote-Button ist ohne bestandenen Backtest gesperrt (Details im Tooltip).
+ */
+function VersionRow({ v, busy, onPromote }: { v: Version; busy: boolean; onPromote: (id: string) => void }) {
+  const { t } = useTranslation();
+  const [val, setVal] = useState<Validity | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void trpc.strategies.validity
+      .query({ versionId: v.id })
+      .then((res) => {
+        if (!cancelled) setVal(res);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [v.id]);
+
+  const passed = Boolean(val?.hasBacktest && val.verdict?.passed);
+  const badge = !val
+    ? null
+    : !val.hasBacktest
+      ? { label: t('builder.noBacktest'), color: 'var(--color-warn)', title: t('builder.noBacktestHint') }
+      : passed
+        ? { label: t('builder.validated'), color: 'var(--color-pos)', title: checksTitle(val) }
+        : { label: t('builder.notValid'), color: 'var(--color-neg)', title: checksTitle(val) };
+
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-2 text-sm">
+      <span className="flex items-center gap-2">
+        <span className="num">
+          v{v.version} ·{' '}
+          <span style={{ color: v.status === 'paper' ? 'var(--color-pos)' : v.status === 'live' ? 'var(--color-cyan)' : 'var(--color-mut)' }}>
+            {v.status}
+          </span>
+        </span>
+        {badge && (
+          <span className="label rounded border px-1.5 py-0.5" style={{ borderColor: badge.color, color: badge.color }} title={badge.title}>
+            {badge.label}
+          </span>
+        )}
+        {/* Ehrlich: eine paper-Strategie ohne bestandenen Backtest läuft ungeprüft im Auto-Loop */}
+        {v.status === 'paper' && val && !passed && (
+          <span className="text-[11px]" style={{ color: 'var(--color-warn)' }} title={t('builder.validityGateHint')}>
+            {t('builder.runsUnvalidated')}
+          </span>
+        )}
+      </span>
+      <span className="flex items-center gap-3">
+        {v.status === 'draft' && (
+          <button
+            onClick={() => onPromote(v.id)}
+            disabled={busy || !passed}
+            title={passed ? '' : t('builder.noBacktestHint')}
+            className="rounded border px-2 py-1 text-xs disabled:opacity-40"
+            style={{ borderColor: 'rgba(61,220,151,0.4)', color: 'var(--color-pos)' }}
+          >
+            {t('builder.promote')} ({t('builder.promoteDraftToPaper')})
+          </button>
+        )}
+        <a href="#/labor" className="text-xs" style={{ color: 'var(--color-cyan)' }}>
+          → {t('builder.backtest')}
+        </a>
+      </span>
+    </li>
+  );
+}
+
+function checksTitle(val: Validity): string {
+  if (!val.verdict) return '';
+  return val.verdict.checks.map((c) => `${c.passed ? '✓' : '✗'} ${c.detail}`).join('\n');
+}
+
 function StrategyRow({ s, onChanged }: { s: Strategy; onChanged: () => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -82,33 +161,16 @@ function StrategyRow({ s, onChanged }: { s: Strategy; onChanged: () => void }) {
           ) : versions.length === 0 ? (
             <Empty text={t('builder.noVersions')} />
           ) : (
-            <ul className="space-y-2">
-              {versions.map((v) => (
-                <li key={v.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                  <span className="num">
-                    v{v.version} ·{' '}
-                    <span style={{ color: v.status === 'paper' ? 'var(--color-pos)' : v.status === 'live' ? 'var(--color-cyan)' : 'var(--color-mut)' }}>
-                      {v.status}
-                    </span>
-                  </span>
-                  <span className="flex items-center gap-3">
-                    {v.status === 'draft' && (
-                      <button
-                        onClick={() => void promote(v.id)}
-                        disabled={busy}
-                        className="rounded border px-2 py-1 text-xs disabled:opacity-50"
-                        style={{ borderColor: 'rgba(61,220,151,0.4)', color: 'var(--color-pos)' }}
-                      >
-                        {t('builder.promote')} ({t('builder.promoteDraftToPaper')})
-                      </button>
-                    )}
-                    <a href="#/labor" className="text-xs" style={{ color: 'var(--color-cyan)' }}>
-                      → {t('builder.backtest')}
-                    </a>
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="space-y-2">
+                {versions.map((v) => (
+                  <VersionRow key={v.id} v={v} busy={busy} onPromote={(id) => void promote(id)} />
+                ))}
+              </ul>
+              <p className="mt-2 text-[11px] leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+                {t('builder.validityGateHint')}
+              </p>
+            </>
           )}
           {error && (
             <p className="mt-2 text-xs" style={{ color: 'var(--color-neg)' }}>

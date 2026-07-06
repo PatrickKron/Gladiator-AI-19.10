@@ -251,6 +251,12 @@ export const es: Catalog = {
     versions: 'Versiones',
     noVersions: 'Sin versiones',
     liveBlocked: 'La promoción a live está bloqueada a propósito — la aprobación live se hace por bolsa en la Fase 7 (humano en el bucle).',
+    validated: '✓ validada por backtest',
+    notValid: '✗ backtest no válido',
+    noBacktest: '⚠ sin backtest',
+    noBacktestHint: 'Aún sin backtest neto — pruébala en el Laboratorio antes de que la estrategia pueda correr sola.',
+    runsUnvalidated: 'corre sin un backtest aprobado',
+    validityGateHint: 'Una estrategia solo puede correr sola (auto-bucle paper) con un backtest aprobado — si no, el gate bloquea la promoción.',
   },
   magazine: {
     title: 'Revista · Insights',
