@@ -196,6 +196,29 @@ export function AssetChart({
 
   const activeZones = useMemo(() => (data?.zones ?? []).filter((z) => z.active).slice(0, 6), [data]);
 
+  /**
+   * Indikator-Warmup (Patrick: „ab welcher Kerze läuft ein Indikator wirklich"):
+   * die erste definierte Kerze je aktivem Indikator. EMA200 braucht 200 Kerzen,
+   * RSI 14 usw. — bis dahin ist der Indikator ehrlich NICHT definiert.
+   */
+  const warmupInfo = useMemo(() => {
+    const items: { label: string; bar: number; time: number }[] = [];
+    if (!data) return items;
+    const idxOf = (time?: number) => (time == null ? -1 : data.candles.findIndex((c) => c.time === time));
+    const add = (on: boolean, label: string, series: { time: number }[]) => {
+      if (!on || series.length === 0) return;
+      const t0 = series[0]!.time;
+      const bar = idxOf(t0);
+      if (bar >= 0) items.push({ label, bar: bar + 1, time: t0 });
+    };
+    add(toggles.ema, 'EMA200', data.ema.e200);
+    add(toggles.bollinger, 'Bollinger', data.bollinger.middle);
+    add(toggles.rsi, 'RSI', data.rsi);
+    add(toggles.macd, 'MACD', data.macd.signal);
+    add(toggles.atr, 'ATR', data.atr);
+    return items.sort((a, b) => a.bar - b.bar);
+  }, [data, toggles]);
+
   // Charts (neu)bauen bei Daten- oder Toggle-Änderung
   useEffect(() => {
     if (state !== 'ready' || !data || !priceRef.current) return;
@@ -277,6 +300,17 @@ export function AssetChart({
           text: `${long ? 'L' : 'S'}·${s.setupType.slice(0, 4)}·${SIGNAL_STATUS_LABEL[s.status]}`,
         });
       }
+    }
+    // Warmup-Markierung: ab welcher Kerze der langsamste aktive Indikator läuft
+    if (warmupInfo.length > 0) {
+      const slowest = warmupInfo[warmupInfo.length - 1]!;
+      markers.push({
+        time: slowest.time as UTCTimestamp,
+        position: 'aboveBar',
+        color: C.mut,
+        shape: 'circle',
+        text: `▸ ${t('chart.warmupMarker')}`,
+      });
     }
     if (markers.length > 0) {
       markers.sort((a, b) => (a.time as number) - (b.time as number));
@@ -383,7 +417,7 @@ export function AssetChart({
         }
       }
     };
-  }, [state, data, toggles, tf, levels, activeZones, signals]);
+  }, [state, data, toggles, tf, levels, activeZones, signals, warmupInfo, t]);
 
   const chip = (key: ToggleKey, label: string) => (
     <button
@@ -469,6 +503,12 @@ export function AssetChart({
         )}
         {data && data.zonesTotal > activeZones.length && (
           <p className="label mt-1.5 px-2">{t('chart.zonesInfo', { shown: activeZones.length, total: data.zonesTotal })}</p>
+        )}
+        {warmupInfo.length > 0 && (
+          <p className="label mt-1.5 px-2">
+            {t('chart.warmupTitle')}{' '}
+            {warmupInfo.map((w) => `${w.label} ${t('chart.warmupBar', { bar: w.bar })}`).join(' · ')}
+          </p>
         )}
         <p className="label mt-1.5 px-2">{t('chart.legend')}</p>
       </div>

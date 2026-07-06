@@ -63,6 +63,9 @@ export const en: Catalog = {
     legend: 'Every series computes on the same DB candles as the signal engine — nothing invented.',
     noData: 'No candles in the DB for {{symbol}} (yet). The scan feeds crypto favorites automatically.',
     zonesInfo: '{{shown}} of {{total}} active smart-money zones shown (order blocks + FVG).',
+    warmupTitle: 'Indicator start (from which candle the indicator actually runs):',
+    warmupBar: 'from candle {{bar}}',
+    warmupMarker: 'indicators active',
   },
   auth: {
     title: 'Request access',

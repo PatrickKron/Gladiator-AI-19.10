@@ -63,6 +63,9 @@ export const fr: Catalog = {
     legend: 'Chaque série est calculée sur les mêmes bougies DB que le moteur de signaux — rien d\'inventé.',
     noData: 'Aucune bougie dans la base pour {{symbol}} (pour l\'instant). Le scan alimente automatiquement les favoris crypto.',
     zonesInfo: '{{shown}} sur {{total}} zones smart-money actives (order blocks + FVG).',
+    warmupTitle: 'Départ de l\'indicateur (à partir de quelle bougie l\'indicateur tourne vraiment) :',
+    warmupBar: 'dès la bougie {{bar}}',
+    warmupMarker: 'indicateurs actifs',
   },
   auth: {
     title: 'Demander l\'accès',

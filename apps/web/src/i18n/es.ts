@@ -63,6 +63,9 @@ export const es: Catalog = {
     legend: 'Cada serie se calcula sobre las mismas velas de la BD que el motor de señales — nada inventado.',
     noData: 'No hay velas en la BD para {{symbol}} (todavía). El escaneo alimenta automáticamente los favoritos cripto.',
     zonesInfo: '{{shown}} de {{total}} zonas smart-money activas (order blocks + FVG).',
+    warmupTitle: 'Inicio del indicador (desde qué vela el indicador realmente corre):',
+    warmupBar: 'desde la vela {{bar}}',
+    warmupMarker: 'indicadores activos',
   },
   auth: {
     title: 'Solicitar acceso',

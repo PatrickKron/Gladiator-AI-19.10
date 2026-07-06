@@ -62,6 +62,9 @@ export const de = {
     legend: 'Alle Serien rechnen auf denselben DB-Kerzen wie die Signal-Engine — nichts erfunden.',
     noData: 'Für {{symbol}} liegen (noch) keine Kerzen in der DB. Krypto-Favoriten versorgt der Scan automatisch.',
     zonesInfo: '{{shown}} von {{total}} aktiven Smart-Money-Zonen gezeigt (Order Blocks + FVG).',
+    warmupTitle: 'Indikator-Start (ab welcher Kerze der Indikator wirklich läuft):',
+    warmupBar: 'ab Kerze {{bar}}',
+    warmupMarker: 'Indikatoren aktiv',
   },
   auth: {
     title: 'Zugriff anfordern',

@@ -63,6 +63,9 @@ export const it: Catalog = {
     legend: 'Ogni serie è calcolata sulle stesse candele DB del motore dei segnali — nulla di inventato.',
     noData: 'Nessuna candela nel DB per {{symbol}} (ancora). Lo scan alimenta automaticamente i preferiti cripto.',
     zonesInfo: '{{shown}} di {{total}} zone smart-money attive (order block + FVG).',
+    warmupTitle: 'Avvio indicatore (da quale candela l\'indicatore è realmente attivo):',
+    warmupBar: 'dalla candela {{bar}}',
+    warmupMarker: 'indicatori attivi',
   },
   auth: {
     title: 'Richiedi accesso',
