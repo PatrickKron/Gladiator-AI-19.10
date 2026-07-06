@@ -1,12 +1,75 @@
 import { TRPCError } from '@trpc/server';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
+import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { parseInstructionDsl, type InstructionDsl } from '@gladiator/strategy-engine';
+import { evaluateBacktestValidity, DEFAULT_VALIDITY_THRESHOLDS, type ValidityVerdict } from '@gladiator/backtest';
 import { CostGuard, envAnthropicProvider, guardedComplete } from '@gladiator/agents';
 import { protectedProcedure, router } from '../trpc.js';
 
-const { strategies, strategyVersions, auditLog } = schema;
+const { strategies, strategyVersions, backtests, auditLog } = schema;
+
+/**
+ * Validitäts-Prüfung einer Version (Vision 5): lädt den neuesten fertigen
+ * Netto-Backtest dieser Version und bewertet ihn gegen das Gate. Kein Backtest
+ * → hasBacktest:false. Reine Wahrheit aus der DB, kein Raten.
+ */
+type VersionValidity = {
+  hasBacktest: boolean;
+  verdict: ValidityVerdict | null;
+  backtest:
+    | { symbol: string; timeframe: string; createdAt: Date; tradeCount: number; profitFactor: number | null; maxDrawdownPct: number; expectancy: number | null; winRate: number | null }
+    | null;
+};
+
+async function loadVersionValidity(db: Db, versionId: string): Promise<VersionValidity> {
+  const [bt] = await db
+    .select({
+      symbol: backtests.symbol,
+      timeframe: backtests.timeframe,
+      createdAt: backtests.createdAt,
+      sharpe: backtests.sharpe,
+      maxDrawdown: backtests.maxDrawdown,
+      winRate: backtests.winRate,
+      profitFactor: backtests.profitFactor,
+      expectancy: backtests.expectancy,
+      netReturn: backtests.netReturn,
+      tradeCount: backtests.tradeCount,
+    })
+    .from(backtests)
+    .where(and(eq(backtests.strategyVersionId, versionId), eq(backtests.status, 'done')))
+    .orderBy(desc(backtests.createdAt))
+    .limit(1);
+
+  if (!bt) return { hasBacktest: false, verdict: null, backtest: null };
+
+  const num = (v: string | null): number | null => (v === null ? null : Number(v));
+  const metrics = {
+    tradeCount: Number(bt.tradeCount),
+    winRate: num(bt.winRate),
+    profitFactor: num(bt.profitFactor),
+    expectancy: num(bt.expectancy),
+    maxDrawdownPct: Number(bt.maxDrawdown),
+    sharpe: num(bt.sharpe),
+    netReturnPct: num(bt.netReturn),
+  };
+  const verdict = evaluateBacktestValidity(metrics);
+  return {
+    hasBacktest: true,
+    verdict,
+    backtest: {
+      symbol: bt.symbol,
+      timeframe: bt.timeframe,
+      createdAt: bt.createdAt,
+      tradeCount: metrics.tradeCount,
+      profitFactor: metrics.profitFactor,
+      maxDrawdownPct: metrics.maxDrawdownPct,
+      expectancy: metrics.expectancy,
+      winRate: metrics.winRate,
+    },
+  };
+}
 
 /**
  * Strategie-Verwaltung (07_): drei Wege, EIN kanonisches Signal-System.
@@ -72,8 +135,20 @@ export const strategiesRouter = router({
     }),
 
   /**
-   * Promotion draft → paper (Mensch im Loop). Live-Promotion ist hier BEWUSST
-   * nicht möglich — Live-Freigabe erfolgt pro Börse in Phase 7 (Regel 3/7).
+   * Validität einer Version (Vision 5): besteht der neueste Netto-Backtest das
+   * Gate? Read-only — Grundlage für Badge + gaten des Promote-Buttons.
+   */
+  validity: protectedProcedure
+    .input(z.object({ versionId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const v = await loadVersionValidity(ctx.db, input.versionId);
+      return { ...v, thresholds: DEFAULT_VALIDITY_THRESHOLDS };
+    }),
+
+  /**
+   * Promotion draft → paper (Mensch im Loop). GATE (Vision 5): NUR mit einem
+   * bestandenen Netto-Backtest — eine ungetestete Strategie darf nicht in den
+   * Paper-Auto-Loop. Live-Promotion ist hier BEWUSST nicht möglich (Regel 3/7).
    */
   promote: protectedProcedure
     .input(z.object({ versionId: z.string().uuid() }))
@@ -87,6 +162,22 @@ export const strategiesRouter = router({
       if (version.status !== 'draft') {
         throw new TRPCError({ code: 'CONFLICT', message: `Nur draft → paper möglich (Status ist ${version.status}).` });
       }
+
+      // ── Validitäts-Gate: ohne bestandenen Backtest keine Promotion ──
+      const validity = await loadVersionValidity(ctx.db, input.versionId);
+      if (!validity.hasBacktest) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Kein Backtest — diese Version muss erst im Labor backtestet werden (netto, mind. ${DEFAULT_VALIDITY_THRESHOLDS.minTrades} Trades) bevor sie selbstständig laufen darf.`,
+        });
+      }
+      if (!validity.verdict!.passed) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Backtest nicht valide: ${validity.verdict!.reasons.join(' · ')}`,
+        });
+      }
+
       const [updated] = await ctx.db
         .update(strategyVersions)
         .set({ status: 'paper', promotedBy: ctx.user.id, promotedAt: new Date() })
@@ -98,7 +189,13 @@ export const strategiesRouter = router({
         action: 'strategy.version.promoted',
         entityType: 'strategy_version',
         entityId: input.versionId,
-        details: { from: 'draft', to: 'paper', version: version.version },
+        details: {
+          from: 'draft',
+          to: 'paper',
+          version: version.version,
+          gate: 'passed',
+          backtest: validity.backtest,
+        },
         ip: ctx.ip,
       });
       return updated!;

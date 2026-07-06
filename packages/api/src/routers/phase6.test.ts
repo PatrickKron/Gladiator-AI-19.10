@@ -22,7 +22,7 @@ const createCaller = createCallerFactory(appRouter);
 const RUN = `${process.pid}-${Date.now()}`;
 const EMAIL = `phase6-test-${RUN}@test.invalid`;
 
-const { users, strategies, strategyVersions } = schema;
+const { users, strategies, strategyVersions, backtests } = schema;
 
 describe.skipIf(!hasDb)('Phase-6-Router (Settings, Product, Agents, Promotion)', () => {
   let db: Db;
@@ -114,11 +114,39 @@ describe.skipIf(!hasDb)('Phase-6-Router (Settings, Product, Agents, Promotion)',
     expect(status.llm.dailyBudgetUsd).toBeGreaterThan(0);
   });
 
-  it('strategies: versions + promote draft→paper (Mensch im Loop); paper→live gesperrt', async () => {
+  it('strategies: promote-GATE — ohne bestandenen Backtest keine Promotion, mit → paper; paper→live gesperrt', async () => {
     const [draft] = await db
       .insert(strategyVersions)
       .values({ strategyId, version: 1, params: { test: true }, status: 'draft' })
       .returning();
+
+    // Gate (Vision 5): ohne Backtest darf die Strategie NICHT selbstständig laufen
+    const noBt = await caller.strategies.validity({ versionId: draft!.id });
+    expect(noBt.hasBacktest).toBe(false);
+    await expect(caller.strategies.promote({ versionId: draft!.id })).rejects.toThrow(/Backtest/i);
+
+    // Ein bestandener Netto-Backtest (40 Trades, PF 1.6, DD 18 %, Erwartung 0.3 R)
+    await db.insert(backtests).values({
+      strategyVersionId: draft!.id,
+      symbol: 'BTC/USDT',
+      timeframe: '1h',
+      fromTs: new Date('2024-01-01T00:00:00Z'),
+      toTs: new Date('2024-06-01T00:00:00Z'),
+      config: { test: true },
+      feesModel: { taker: 0.0004, slippageBps: 2, fundingBps: 1 },
+      sharpe: '1.2',
+      maxDrawdown: '18',
+      winRate: '0.55',
+      profitFactor: '1.6',
+      expectancy: '0.3',
+      netReturn: '30',
+      tradeCount: '40',
+      status: 'done',
+    });
+
+    const valid = await caller.strategies.validity({ versionId: draft!.id });
+    expect(valid.hasBacktest).toBe(true);
+    expect(valid.verdict!.passed).toBe(true);
 
     const promoted = await caller.strategies.promote({ versionId: draft!.id });
     expect(promoted.status).toBe('paper');
