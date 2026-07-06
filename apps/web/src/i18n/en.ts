@@ -120,6 +120,8 @@ export const en: Catalog = {
     statusFilled: 'Filled',
     statusClosed: 'Closed',
     statusExpired: 'Expired',
+    expiresIn: 'expires in {{time}}',
+    expiresHint: 'Unconfirmed signals expire after a timeframe-based window and drop off the open list.',
     sourceEngine: 'Engine',
     sourcePine: 'Pine/TradingView',
     sourceInstruction: 'Instruction (DSL)',

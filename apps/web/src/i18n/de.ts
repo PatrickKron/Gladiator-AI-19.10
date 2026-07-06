@@ -119,6 +119,8 @@ export const de = {
     statusFilled: 'Gefüllt',
     statusClosed: 'Geschlossen',
     statusExpired: 'Abgelaufen',
+    expiresIn: 'läuft ab in {{time}}',
+    expiresHint: 'Unbestätigte Signale laufen nach einer timeframe-abhängigen Frist ab und verschwinden aus der Offen-Liste.',
     sourceEngine: 'Engine',
     sourcePine: 'Pine/TradingView',
     sourceInstruction: 'Anweisung (DSL)',

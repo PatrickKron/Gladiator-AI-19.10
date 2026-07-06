@@ -7,3 +7,4 @@ export { buildBriefing, latestBriefing, renderBriefing, runNightPipeline, type B
 export { workerHeartbeatAgeSec } from './worker.js';
 export { buildUniverse, ensureCandles, normalizeTradingPair, scanUniverse, BASE_SYMBOLS } from './universe.js';
 export { alertTriggered, checkPriceAlerts } from './alerts.js';
+export { expireStaleSignals, isSignalExpired, signalExpiryCutoff, ttlHoursFor, SIGNAL_TTL_HOURS, DEFAULT_TTL_HOURS } from './signal-expiry.js';

@@ -3,6 +3,7 @@ import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { getOhlcv } from '@gladiator/market-data';
 import { ensureCandles, scanUniverse } from './universe.js';
+import { expireStaleSignals } from './signal-expiry.js';
 import {
   evaluateSmcCoreAt,
   SMC_CORE_DEFAULTS,
@@ -85,11 +86,17 @@ export type ScanResult = {
   scanned: { symbol: string; timeframe: string; candles: number }[];
   inserted: number;
   skippedDuplicates: number;
+  /** Überfällige 'new'-Signale, die dieser Lauf auf 'expired' gesetzt hat. */
+  expired: number;
 };
 
 export async function runSignalScan(db: Db): Promise<ScanResult> {
   const { strategyId, versionId } = await ensureSmcCoreStrategy(db);
-  const result: ScanResult = { scanned: [], inserted: 0, skippedDuplicates: 0 };
+  const result: ScanResult = { scanned: [], inserted: 0, skippedDuplicates: 0, expired: 0 };
+
+  // Zuerst veraltete offene Signale ablaufen lassen → „offen"-Liste bleibt aktuell.
+  result.expired = await expireStaleSignals(db);
+  if (result.expired > 0) console.log(`[signal-scan] ${result.expired} überfällige Signale auf 'expired' gesetzt.`);
 
   // Universum = Basis + Stern-Favoriten (Krypto). ALLE Symbole inkrementell
   // frisch halten — auch die Basis: deren Kerzen kommen sonst nur aus dem Seed

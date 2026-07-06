@@ -120,6 +120,8 @@ export const es: Catalog = {
     statusFilled: 'Ejecutada',
     statusClosed: 'Cerrada',
     statusExpired: 'Caducada',
+    expiresIn: 'caduca en {{time}}',
+    expiresHint: 'Las señales sin confirmar caducan tras un plazo según el timeframe y salen de la lista de abiertas.',
     sourceEngine: 'Engine',
     sourcePine: 'Pine/TradingView',
     sourceInstruction: 'Instrucción (DSL)',

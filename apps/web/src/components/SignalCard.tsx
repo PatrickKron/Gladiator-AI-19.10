@@ -39,6 +39,19 @@ function fmt(n: string): string {
     : v.toLocaleString('de-DE', { maximumFractionDigits: 2 });
 }
 
+/** Ablauf-Frist je Timeframe in Stunden — Spiegel der Backend-Regel (signal-expiry.ts). */
+const TTL_HOURS: Record<string, number> = { '15m': 4, '1h': 12, '4h': 48, '1d': 120 };
+
+/** Verbleibende Gültigkeit eines offenen Signals (null = überfällig, läuft beim nächsten Scan ab). */
+function expiryInfo(createdAt: string, timeframe: string): { text: string; soon: boolean } | null {
+  const ttlMs = (TTL_HOURS[timeframe] ?? 24) * 3_600_000;
+  const leftMs = ttlMs - (Date.now() - new Date(createdAt).getTime());
+  if (leftMs <= 0) return null;
+  const h = leftMs / 3_600_000;
+  const text = h >= 1 ? `${Math.round(h)} h` : `${Math.max(1, Math.round(leftMs / 60_000))} min`;
+  return { text, soon: leftMs < ttlMs * 0.25 };
+}
+
 const RISK_COLOR: Record<SignalRow['riskClass'], string> = {
   low: 'var(--color-pos)',
   medium: 'var(--color-warn)',
@@ -148,6 +161,7 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
   const [success, setSuccess] = useState<string | null>(null);
   const long = signal.direction === 'long';
   const dirColor = long ? 'var(--color-pos)' : 'var(--color-neg)';
+  const exp = signal.status === 'new' ? expiryInfo(signal.createdAt, signal.timeframe) : null;
 
   async function decide(action: 'confirm' | 'reject') {
     setBusy(action);
@@ -189,6 +203,24 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
             {signal.symbol.replace('/USDT', '')}
           </span>
           <span className="label">{signal.timeframe} · {signal.setupType}</span>
+          {signal.status === 'new' && exp && (
+            <span
+              className="rounded border px-1.5 py-0.5 text-[10px]"
+              style={
+                exp.soon
+                  ? { borderColor: 'rgba(232,184,75,0.5)', color: 'var(--color-warn)' }
+                  : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
+              }
+              title={t('signals.expiresHint')}
+            >
+              ⏳ {t('signals.expiresIn', { time: exp.text })}
+            </span>
+          )}
+          {signal.status === 'expired' && (
+            <span className="rounded border px-1.5 py-0.5 text-[10px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+              {t('signals.statusExpired')}
+            </span>
+          )}
           {signal.source !== 'engine' && (
             <span
               className="rounded border px-1.5 py-0.5 text-[10px] tracking-wider"

@@ -120,6 +120,8 @@ export const it: Catalog = {
     statusFilled: 'Eseguito',
     statusClosed: 'Chiuso',
     statusExpired: 'Scaduto',
+    expiresIn: 'scade tra {{time}}',
+    expiresHint: 'I segnali non confermati scadono dopo un intervallo legato al timeframe ed escono dalla lista degli aperti.',
     sourceEngine: 'Engine',
     sourcePine: 'Pine/TradingView',
     sourceInstruction: 'Istruzione (DSL)',
