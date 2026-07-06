@@ -13,6 +13,15 @@ export {
   type YahooChart,
 } from './yahoo.js';
 export {
+  ingestYahooChart,
+  fetchYahooOhlcv,
+  parseYahooOhlcv,
+  yahooIntervalFor,
+  YAHOO_VENUE,
+  type YahooOhlcvParse,
+  type YahooIngestResult,
+} from './yahoo-chart.js';
+export {
   getMacroSeries,
   getMacroSnapshot,
   fredConfigured,

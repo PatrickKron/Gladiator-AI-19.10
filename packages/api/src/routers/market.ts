@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { sql } from 'drizzle-orm';
+import { schema } from '@gladiator/db';
 import {
   fredConfigured,
   getDerivativesSnapshot,
@@ -14,6 +15,8 @@ import {
   twelveDataIntervalFor,
   TWELVE_DATA_INTERVALS,
   TWELVEDATA_VENUE,
+  ingestYahooChart,
+  YAHOO_VENUE,
 } from '@gladiator/market-data';
 import { noTradeWindowFor } from '@gladiator/risk';
 import { scanUniverse } from '@gladiator/jobs';
@@ -209,13 +212,14 @@ export const marketRouter = router({
   chartCandles: protectedProcedure
     .input(
       z.object({
-        symbol: z.string().min(3),
+        symbol: z.string().min(1),
         timeframe: z.enum(['15m', '1h', '4h', '1d']),
         limit: z.number().int().min(50).max(500).default(200),
+        venue: z.string().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
-      const candles = await getOhlcv(ctx.db, { symbol: input.symbol.toUpperCase(), timeframe: input.timeframe, limit: input.limit });
+      const candles = await getOhlcv(ctx.db, { symbol: input.symbol.toUpperCase(), timeframe: input.timeframe, limit: input.limit, venue: input.venue });
       return candles.map((c) => ({ time: Math.floor(c.ts.getTime() / 1000), open: c.open, high: c.high, low: c.low, close: c.close }));
     }),
 
@@ -259,14 +263,16 @@ export const marketRouter = router({
   chartData: protectedProcedure
     .input(
       z.object({
-        symbol: z.string().min(3),
+        symbol: z.string().min(1),
         timeframe: z.enum(['15m', '1h', '4h', '1d']),
         limit: z.number().int().min(60).max(1000).default(400),
+        /** Kerzenquelle: 'binance' (Krypto, Default) oder 'yahoo'/'twelvedata' (Aktien/ETF). */
+        venue: z.string().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
       const symbol = input.symbol.toUpperCase();
-      const candles = await getOhlcv(ctx.db, { symbol, timeframe: input.timeframe, limit: input.limit });
+      const candles = await getOhlcv(ctx.db, { symbol, timeframe: input.timeframe, limit: input.limit, venue: input.venue });
       if (candles.length === 0) {
         return { symbol, timeframe: input.timeframe, candles: [], available: false as const };
       }
@@ -386,5 +392,34 @@ export const marketRouter = router({
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'Ingest fehlgeschlagen.' });
       }
+    }),
+
+  /**
+   * Aktien-/ETF-Kerzen von Yahoo (v8-Chart, KEIN API-Key — Reverse-Engineering,
+   * Patricks bevorzugter Weg). Echte OHLCV, venue='yahoo', idempotent. Ein Symbol
+   * je Aufruf, schonend gegen das Rate-Limit. Ehrlicher Fehler bei Nichterreichbarkeit.
+   */
+  ingestStockYahoo: protectedProcedure
+    .input(
+      z.object({
+        symbol: z.string().min(1).max(12),
+        timeframe: z.enum(['1h', '1d', '1wk', '1M']).default('1d'),
+        range: z.enum(['1mo', '3mo', '6mo', '1y', '2y', '5y', '10y', 'max']).default('2y'),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const res = await ingestYahooChart(ctx.db, { symbol: input.symbol, timeframe: input.timeframe, range: input.range });
+      if (res.error) {
+        throw new TRPCError({ code: 'BAD_GATEWAY', message: `Yahoo: ${res.error}` });
+      }
+      await ctx.db.insert(schema.auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: 'market.stock.ingest_yahoo',
+        entityType: 'ohlcv',
+        details: { venue: YAHOO_VENUE, symbol: res.symbol, timeframe: res.timeframe, fetched: res.fetched, inserted: res.inserted },
+        ip: ctx.ip,
+      });
+      return res;
     }),
 });
