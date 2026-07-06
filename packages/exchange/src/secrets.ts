@@ -32,7 +32,8 @@ export type SecretKey =
   | 'HYPERLIQUID_TESTNET_WALLET'
   | 'HYPERLIQUID_TESTNET_AGENT_KEY'
   | 'HEALTHCHECKS_URL'
-  | 'FRED_API_KEY';
+  | 'FRED_API_KEY'
+  | 'TWELVE_DATA_API_KEY';
 
 export type SecretDef = {
   key: SecretKey;
@@ -118,6 +119,12 @@ export const SECRET_KEYS: SecretDef[] = [
     immediate: true,
     testable: true,
     validate: (v) => (/^[a-z0-9]{16,64}$/.test(v) ? null : 'Format ungültig — FRED-Keys sind 32 Kleinbuchstaben/Ziffern.'),
+  },
+  {
+    key: 'TWELVE_DATA_API_KEY',
+    immediate: true, // Call-Time-Leser (Ingest liest process.env bei jedem Lauf)
+    testable: true,
+    validate: (v) => (/^[A-Za-z0-9]{16,64}$/.test(v) ? null : 'Format ungültig — Twelve-Data-Keys sind alphanumerisch (32 Zeichen).'),
   },
 ];
 

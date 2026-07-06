@@ -440,6 +440,7 @@ export const de = {
     desc_HYPERLIQUID_TESTNET_AGENT_KEY: 'Private Key der AGENT-Wallet (kann nativ NICHT auszahlen) — NIE der Haupt-Wallet-Key.',
     desc_HEALTHCHECKS_URL: 'Ping-URL eines externen Monitors (z. B. healthchecks.io) — echter Dead-Man-Switch.',
     desc_FRED_API_KEY: 'Optional: FRED-API-Key für Zusatz-Makroserien (fred.stlouisfed.org).',
+    desc_TWELVE_DATA_API_KEY: 'Aktien-/ETF-/Forex-Kerzen (alle Timeframes) via Twelve Data — 800 Calls/Tag gratis (twelvedata.com).',
   },
   profile: {
     title: 'Profil',

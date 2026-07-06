@@ -214,6 +214,144 @@ function SecretsPanel() {
   );
 }
 
+type TwelveStatus = Awaited<ReturnType<typeof trpc.market.twelveDataStatus.query>>;
+
+/**
+ * Aktien-/ETF-/Forex-Daten via Twelve Data (Feature 4): Symbol + Auflösungen
+ * wählen, echte Kerzen in die DB laden. Ein Timeframe je Aufruf mit
+ * clientseitigem Pacing (Free-Plan: 8 Calls/min). Nichts erfunden — bei
+ * fehlendem Key oder API-Fehler ehrliche Meldung je Auflösung.
+ */
+function StockDataPanel() {
+  const [status, setStatus] = useState<TwelveStatus | null>(null);
+  const [symbol, setSymbol] = useState('AAPL');
+  const [selTf, setSelTf] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{ tf: string; ok: boolean; text: string }[]>([]);
+
+  async function load() {
+    try {
+      setStatus(await trpc.market.twelveDataStatus.query());
+    } catch {
+      setStatus(null);
+    }
+  }
+  useEffect(() => {
+    void load();
+  }, []);
+
+  async function ingest() {
+    const tfs = selTf.length > 0 ? selTf : (status?.timeframes ?? []);
+    const sym = symbol.trim().toUpperCase();
+    if (!sym || tfs.length === 0) return;
+    setBusy(true);
+    setProgress([]);
+    for (let i = 0; i < tfs.length; i++) {
+      const tf = tfs[i]!;
+      try {
+        const res = await trpc.market.ingestStock.mutate({ symbol: sym, timeframe: tf });
+        setProgress((p) => [...p, { tf, ok: true, text: `${res.inserted} neu · ${res.fetched} geladen · ${res.rejected} verworfen` }]);
+      } catch (err) {
+        setProgress((p) => [...p, { tf, ok: false, text: err instanceof Error ? err.message : 'Fehler' }]);
+      }
+      // Free-Plan: 8 Calls/min → ~7,5 s Abstand
+      if (i < tfs.length - 1) await new Promise((r) => window.setTimeout(r, 7500));
+    }
+    setBusy(false);
+    await load();
+  }
+
+  return (
+    <Panel label="Aktien / ETF / Forex · Twelve Data" stagger={4} className="mt-5">
+      <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+        Echte Kerzen für Aktien, ETFs und Forex — alle verfügbaren Auflösungen. Voraussetzung: TWELVE_DATA_API_KEY oben eintragen
+        (800 Calls/Tag gratis auf twelvedata.com). Ein Timeframe je Aufruf, ~7,5 s Abstand (8 Calls/min-Limit).
+      </p>
+      {status && !status.configured && (
+        <p className="mt-3 text-xs" style={{ color: 'var(--color-warn)' }}>
+          Noch kein Key gesetzt — trage TWELVE_DATA_API_KEY oben ein, dann hier laden.
+        </p>
+      )}
+
+      <div className="mt-4 flex flex-wrap items-end gap-3">
+        <label className="text-sm">
+          <span className="label">Symbol (z. B. AAPL, MSFT, EUR/USD)</span>
+          <input value={symbol} onChange={(e) => setSymbol(e.target.value)} className="field num mt-1.5 w-48 px-3 py-2 text-sm" />
+        </label>
+      </div>
+
+      <p className="label mt-4">Auflösungen (leer = alle)</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {(status?.timeframes ?? []).map((tf) => {
+          const on = selTf.includes(tf);
+          return (
+            <button
+              key={tf}
+              onClick={() => setSelTf((prev) => (on ? prev.filter((x) => x !== tf) : [...prev, tf]))}
+              className="num rounded border px-2.5 py-1 text-xs transition-colors"
+              style={{
+                borderColor: on ? 'rgba(79,209,255,0.5)' : 'var(--color-line)',
+                color: on ? 'var(--color-cyan)' : 'var(--color-mut)',
+                background: on ? 'rgba(79,209,255,0.08)' : 'transparent',
+              }}
+            >
+              {tf}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-4">
+        <button
+          onClick={() => void ingest()}
+          disabled={busy || !status?.configured}
+          className="btn-primary px-5 py-2.5 text-sm disabled:opacity-50"
+        >
+          {busy ? 'Lade Kerzen …' : `${symbol.trim().toUpperCase() || 'Symbol'} laden (${selTf.length > 0 ? selTf.length : (status?.timeframes.length ?? 0)} TF)`}
+        </button>
+      </div>
+
+      {progress.length > 0 && (
+        <ul className="num mt-4 space-y-1 text-xs">
+          {progress.map((p, i) => (
+            <li key={i} style={{ color: p.ok ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+              {p.tf}: {p.text}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {status && status.symbols.length > 0 && (
+        <div className="mt-5 overflow-x-auto">
+          <p className="label">In der DB (venue=twelvedata)</p>
+          <table className="mt-2 w-full text-sm">
+            <thead>
+              <tr className="label text-left">
+                <th className="py-1 pr-3 font-normal">Symbol</th>
+                <th className="py-1 pr-3 font-normal">TF</th>
+                <th className="py-1 pr-3 text-right font-normal">Kerzen</th>
+                <th className="py-1 pr-3 font-normal">Von</th>
+                <th className="py-1 font-normal">Bis</th>
+              </tr>
+            </thead>
+            <tbody className="num">
+              {status.symbols.map((s, i) => (
+                <tr key={i} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                  <td className="py-1 pr-3">{s.symbol}</td>
+                  <td className="py-1 pr-3">{s.timeframe}</td>
+                  <td className="py-1 pr-3 text-right">{s.candles}</td>
+                  <td className="py-1 pr-3">{new Date(s.from_ts).toLocaleDateString('de-DE')}</td>
+                  <td className="py-1">{new Date(s.to_ts).toLocaleDateString('de-DE')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 export function Einstellungen() {
   const { t } = useTranslation();
   const [form, setForm] = useState<Record<string, string> | null>(null);
@@ -374,6 +512,7 @@ export function Einstellungen() {
       </Panel>
 
       <SecretsPanel />
+      <StockDataPanel />
     </div>
   );
 }

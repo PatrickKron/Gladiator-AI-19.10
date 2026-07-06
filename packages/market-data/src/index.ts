@@ -41,3 +41,16 @@ export {
   type DerivativesSyncResult,
 } from './derivatives.js';
 export { fetchFredPublicSeries, parseFredCsv, FRED_PUBLIC_SERIES, type FredCsvPoint } from './fred-public.js';
+export {
+  ingestTwelveData,
+  ingestTwelveDataAllTimeframes,
+  fetchTwelveDataTimeSeries,
+  parseTwelveDataTimeSeries,
+  twelveDataConfigured,
+  twelveDataIntervalFor,
+  appTimeframeForInterval,
+  TWELVE_DATA_INTERVALS,
+  TWELVEDATA_VENUE,
+  type TwelveDataParse,
+  type TwelveDataIngestResult,
+} from './twelvedata.js';

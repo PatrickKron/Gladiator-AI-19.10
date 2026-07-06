@@ -441,6 +441,7 @@ export const fr: Catalog = {
     desc_HYPERLIQUID_TESTNET_AGENT_KEY: "Clé privée du wallet AGENT (nativement SANS retrait) — JAMAIS la clé du wallet principal.",
     desc_HEALTHCHECKS_URL: 'URL de ping d\'un moniteur externe (p. ex. healthchecks.io) — vrai dead-man switch.',
     desc_FRED_API_KEY: 'Optionnel : clé API FRED pour des séries macro supplémentaires (fred.stlouisfed.org).',
+    desc_TWELVE_DATA_API_KEY: 'Bougies actions/ETF/forex (tous les timeframes) via Twelve Data — 800 appels/jour gratuits (twelvedata.com).',
   },
   profile: {
     title: 'Profil',

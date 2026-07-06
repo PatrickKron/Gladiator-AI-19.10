@@ -33,6 +33,7 @@ const KEY_ENUM = z.enum([
   'HYPERLIQUID_TESTNET_AGENT_KEY',
   'HEALTHCHECKS_URL',
   'FRED_API_KEY',
+  'TWELVE_DATA_API_KEY',
 ]);
 
 type TestResult = { ok: boolean; detail: string };
@@ -98,6 +99,17 @@ async function testSecret(key: SecretKey): Promise<TestResult> {
         return res.ok
           ? { ok: true, detail: 'FRED-API akzeptiert den Key.' }
           : { ok: false, detail: `FRED lehnt ab (HTTP ${res.status}).` };
+      }
+      case 'TWELVE_DATA_API_KEY': {
+        // api_usage validiert den Key ohne Daten-Credit zu verbrauchen.
+        const res = await fetch(`https://api.twelvedata.com/api_usage?apikey=${encodeURIComponent(value)}`);
+        const json = (await res.json()) as { status?: string; message?: string; current_usage?: number; plan_limit?: number };
+        if (json.status === 'error') return { ok: false, detail: `Twelve Data lehnt ab: ${json.message ?? 'Key ungültig'}.` };
+        if (!res.ok) return { ok: false, detail: `Twelve Data HTTP ${res.status}.` };
+        return {
+          ok: true,
+          detail: `Twelve Data akzeptiert den Key — Nutzung heute: ${json.current_usage ?? '?'}/${json.plan_limit ?? '?'} Calls.`,
+        };
       }
       case 'PINE_WEBHOOK_SECRET':
         // Ehrlich: kein externer Test möglich — das Secret prüft eingehende Alerts.

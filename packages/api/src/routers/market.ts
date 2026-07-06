@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TRPCError } from '@trpc/server';
 import { sql } from 'drizzle-orm';
 import {
   fredConfigured,
@@ -8,6 +9,11 @@ import {
   latestNews,
   upcomingEvents,
   getOhlcv,
+  ingestTwelveData,
+  twelveDataConfigured,
+  twelveDataIntervalFor,
+  TWELVE_DATA_INTERVALS,
+  TWELVEDATA_VENUE,
 } from '@gladiator/market-data';
 import { noTradeWindowFor } from '@gladiator/risk';
 import { scanUniverse } from '@gladiator/jobs';
@@ -336,5 +342,49 @@ export const marketRouter = router({
         zones,
         zonesTotal: allZones.length,
       };
+    }),
+
+  /**
+   * Twelve-Data-Status (Feature 4): ist ein Key gesetzt, welche Auflösungen sind
+   * verfügbar, und welche Aktien-Kerzen liegen schon in der DB (venue=twelvedata).
+   */
+  twelveDataStatus: protectedProcedure.query(async ({ ctx }) => {
+    const res = await ctx.db.execute(sql`
+      SELECT symbol, timeframe, count(*)::int AS candles,
+             min(ts) AS from_ts, max(ts) AS to_ts
+      FROM ohlcv WHERE venue = ${TWELVEDATA_VENUE}
+      GROUP BY symbol, timeframe ORDER BY symbol, timeframe
+    `);
+    return {
+      configured: twelveDataConfigured(),
+      timeframes: Object.keys(TWELVE_DATA_INTERVALS),
+      symbols: res.rows as { symbol: string; timeframe: string; candles: number; from_ts: string; to_ts: string }[],
+    };
+  }),
+
+  /**
+   * Aktien-/ETF-/Forex-Kerzen EINER Auflösung von Twelve Data in die DB laden
+   * (echt, idempotent). Ein Timeframe je Aufruf → schnell + rate-limit-schonend;
+   * die UI durchläuft alle gewünschten Auflösungen mit clientseitigem Pacing.
+   */
+  ingestStock: protectedProcedure
+    .input(
+      z.object({
+        symbol: z.string().min(1).max(20),
+        timeframe: z.enum(Object.keys(TWELVE_DATA_INTERVALS) as [string, ...string[]]),
+        outputsize: z.number().int().min(50).max(5000).default(5000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!twelveDataConfigured()) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Kein TWELVE_DATA_API_KEY gesetzt — in den Einstellungen eintragen.' });
+      }
+      // Frühe, klare Fehlermeldung bei unbekanntem Timeframe (defensiv)
+      twelveDataIntervalFor(input.timeframe);
+      try {
+        return await ingestTwelveData(ctx.db, { symbol: input.symbol.toUpperCase(), timeframe: input.timeframe, outputsize: input.outputsize });
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'Ingest fehlgeschlagen.' });
+      }
     }),
 });

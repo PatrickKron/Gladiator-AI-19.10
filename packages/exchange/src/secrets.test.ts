@@ -43,6 +43,11 @@ describe('validateSecretValue (pur)', () => {
     expect(validateSecretValue('PINE_WEBHOOK_SECRET', 'kurz')).toMatch(/16/);
   });
 
+  it('Twelve Data: alphanumerischer Key akzeptiert, Sonderzeichen abgelehnt', () => {
+    expect(validateSecretValue('TWELVE_DATA_API_KEY', 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4')).toBeNull();
+    expect(validateSecretValue('TWELVE_DATA_API_KEY', 'hat-bindestrich!')).toMatch(/Format/);
+  });
+
   it('unbekannter Key wird abgelehnt (Whitelist)', () => {
     expect(validateSecretValue('BOESER_KEY' as never, 'wert')).toMatch(/unbekannt/i);
   });
@@ -120,7 +125,7 @@ describe.skipIf(!hasDb)('Secrets-Store (Vault-verschlüsselt, DB > .env)', () =>
     expect(process.env[KEY]).toBeUndefined();
   });
 
-  it('Registry: alle 10 geforderten Keys sind verwaltbar', () => {
+  it('Registry: alle 11 geforderten Keys sind verwaltbar', () => {
     const keys = SECRET_KEYS.map((k) => k.key);
     for (const required of [
       'TELEGRAM_BOT_TOKEN',
@@ -133,6 +138,7 @@ describe.skipIf(!hasDb)('Secrets-Store (Vault-verschlüsselt, DB > .env)', () =>
       'HYPERLIQUID_TESTNET_AGENT_KEY',
       'HEALTHCHECKS_URL',
       'FRED_API_KEY',
+      'TWELVE_DATA_API_KEY',
     ]) {
       expect(keys).toContain(required);
     }
