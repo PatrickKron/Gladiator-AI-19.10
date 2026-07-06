@@ -34,16 +34,42 @@ const C = {
   faint: 'rgba(139,148,184,0.35)',
 };
 
-type ToggleKey = 'ema' | 'bollinger' | 'volume' | 'structure' | 'zones' | 'rsi' | 'macd' | 'atr';
+type ToggleKey = 'ema' | 'bollinger' | 'volume' | 'structure' | 'zones' | 'signals' | 'rsi' | 'macd' | 'atr';
 const DEFAULT_TOGGLES: Record<ToggleKey, boolean> = {
   ema: true,
   bollinger: false,
   volume: true,
   structure: true,
   zones: true,
+  signals: true,
   rsi: true,
   macd: false,
   atr: false,
+};
+
+type SignalMarker = {
+  createdAt: string;
+  direction: 'long' | 'short';
+  setupType: string;
+  status: 'new' | 'confirmed' | 'rejected' | 'expired' | 'filled' | 'closed';
+};
+
+/** Farbe je Signal-Status (Feature 2): offen/bestätigt/gefüllt/geschlossen/abgelehnt. */
+const SIGNAL_STATUS_COLOR: Record<SignalMarker['status'], string> = {
+  new: '#4fd1ff', // offen — cyan
+  confirmed: '#f5b642', // bestätigt — amber
+  filled: '#3ddc97', // im Markt — grün
+  closed: '#8b94b8', // geschlossen — grau
+  rejected: '#ff5c6c', // abgelehnt — rot
+  expired: 'rgba(139,148,184,0.6)', // verfallen — blassgrau
+};
+const SIGNAL_STATUS_LABEL: Record<SignalMarker['status'], string> = {
+  new: 'offen',
+  confirmed: 'bestät.',
+  filled: 'aktiv',
+  closed: 'zu',
+  rejected: 'abgel.',
+  expired: 'verf.',
 };
 
 /** Alle Zeitskalen aneinander koppeln, damit die Panels zum Kurs ausgerichtet bleiben. */
@@ -82,6 +108,7 @@ export function AssetChart({
   const [tf, setTf] = useState<Timeframe>(initialTimeframe);
   const [toggles, setToggles] = useState<Record<ToggleKey, boolean>>(DEFAULT_TOGGLES);
   const [data, setData] = useState<ChartData | null>(null);
+  const [signals, setSignals] = useState<SignalMarker[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'empty'>('loading');
 
   const priceRef = useRef<HTMLDivElement>(null);
@@ -113,6 +140,31 @@ export function AssetChart({
       cancelled = true;
     };
   }, [symbol, tf]);
+
+  // Signale dieses Symbols (Feature 2): offen + Historie, als Chart-Marker
+  useEffect(() => {
+    let cancelled = false;
+    void trpc.signals.list
+      .query({ symbol, status: ['new', 'confirmed', 'filled', 'closed', 'rejected', 'expired'], limit: 200 })
+      .then((rows) => {
+        if (!cancelled) {
+          setSignals(
+            rows.map((r) => ({
+              createdAt: new Date(r.createdAt as unknown as string).toISOString(),
+              direction: r.direction,
+              setupType: r.setupType,
+              status: r.status,
+            })),
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSignals([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol]);
 
   const activeZones = useMemo(() => (data?.zones ?? []).filter((z) => z.active).slice(0, 6), [data]);
 
@@ -168,15 +220,38 @@ export function AssetChart({
       addBand(data.bollinger.lower, LineStyle.Dotted);
     }
 
-    // Smart-Money-Struktur (BOS/CHoCH) als Marker
+    // Marker: Smart-Money-Struktur (BOS/CHoCH) + Signale (Feature 2) auf EINER
+    // Serie zusammengeführt (setMarkers ersetzt sonst die jeweils anderen).
+    const markers: SeriesMarker<Time>[] = [];
     if (toggles.structure && data.structure.length > 0) {
-      const markers: SeriesMarker<Time>[] = data.structure.slice(-40).map((e) => ({
-        time: e.time as UTCTimestamp,
-        position: e.direction === 'bullish' ? 'belowBar' : 'aboveBar',
-        color: e.kind === 'CHoCH' ? C.amber : e.direction === 'bullish' ? C.green : C.red,
-        shape: e.direction === 'bullish' ? 'arrowUp' : 'arrowDown',
-        text: e.kind,
-      }));
+      for (const e of data.structure.slice(-40)) {
+        markers.push({
+          time: e.time as UTCTimestamp,
+          position: e.direction === 'bullish' ? 'belowBar' : 'aboveBar',
+          color: e.kind === 'CHoCH' ? C.amber : e.direction === 'bullish' ? C.green : C.red,
+          shape: e.direction === 'bullish' ? 'arrowUp' : 'arrowDown',
+          text: e.kind,
+        });
+      }
+    }
+    if (toggles.signals && signals.length > 0 && data.candles.length > 0) {
+      const first = data.candles[0]!.time as number;
+      const last = data.candles[data.candles.length - 1]!.time as number;
+      for (const s of signals) {
+        const sec = Math.floor(new Date(s.createdAt).getTime() / 1000);
+        if (sec < first || sec > last) continue; // außerhalb des Fensters → kein Marker
+        const long = s.direction === 'long';
+        markers.push({
+          time: sec as UTCTimestamp,
+          position: long ? 'belowBar' : 'aboveBar',
+          color: SIGNAL_STATUS_COLOR[s.status],
+          shape: long ? 'arrowUp' : 'arrowDown',
+          text: `${long ? 'L' : 'S'}·${s.setupType.slice(0, 4)}·${SIGNAL_STATUS_LABEL[s.status]}`,
+        });
+      }
+    }
+    if (markers.length > 0) {
+      markers.sort((a, b) => (a.time as number) - (b.time as number));
       candle.setMarkers(markers);
     }
 
@@ -270,7 +345,7 @@ export function AssetChart({
       for (const fn of cleanups) fn();
       for (const c of charts) c.remove();
     };
-  }, [state, data, toggles, tf, levels, activeZones]);
+  }, [state, data, toggles, tf, levels, activeZones, signals]);
 
   const chip = (key: ToggleKey, label: string) => (
     <button
@@ -313,6 +388,7 @@ export function AssetChart({
           {chip('volume', t('chart.volume'))}
           {chip('structure', 'BOS/CHoCH')}
           {chip('zones', 'OB/FVG')}
+          {chip('signals', 'Signale')}
           {chip('rsi', 'RSI')}
           {chip('macd', 'MACD')}
           {chip('atr', 'ATR')}

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { PageHeader } from '../components/ui.js';
+import { BacktestChart } from '../components/BacktestChart.js';
 
 /**
  * Strategie-Labor (09_ §3.5/§3.15): Backtests auf ECHTEN Kerzen, alles netto.
@@ -83,6 +84,62 @@ function MetricCard({ label, value, tone }: { label: string; value: string; tone
   );
 }
 
+const COMPARE_COLORS = ['#4fd1ff', '#3ddc97', '#f5b642', '#8b5cf6', '#e14ecf', '#ff5c6c'];
+
+type StrategyRun = {
+  key: string;
+  label: string;
+  color: string;
+  metrics: Metrics;
+  equityCurve: { ts: string; equity: number }[];
+};
+
+/** Overlay mehrerer Equity-Kurven, jede auf %-Return ab Start normiert (Feature 3). */
+function MultiEquityChart({ runs }: { runs: StrategyRun[] }) {
+  const withCurve = runs.filter((r) => r.equityCurve.length >= 2);
+  if (withCurve.length === 0) return <p className="label">Zu wenig Punkte.</p>;
+  const W = 860;
+  const H = 240;
+  const series = withCurve.map((r) => {
+    const start = r.equityCurve[0]!.equity || 1;
+    return { ...r, pct: r.equityCurve.map((p) => (p.equity / start - 1) * 100) };
+  });
+  const allPct = series.flatMap((s) => s.pct);
+  const min = Math.min(0, ...allPct);
+  const max = Math.max(0, ...allPct);
+  const span = max - min || 1;
+  const y = (v: number) => H - 8 - ((v - min) / span) * (H - 16);
+  const x = (i: number, n: number) => (n <= 1 ? 0 : (i / (n - 1)) * W);
+  return (
+    <div className="overflow-x-auto">
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="max-w-full">
+        {/* Nulllinie */}
+        <line x1="0" y1={y(0)} x2={W} y2={y(0)} stroke="rgba(139,148,184,0.3)" strokeWidth="1" strokeDasharray="4 4" />
+        {series.map((s) => (
+          <polyline
+            key={s.key}
+            points={s.pct.map((v, i) => `${x(i, s.pct.length).toFixed(1)},${y(v).toFixed(1)}`).join(' ')}
+            fill="none"
+            stroke={s.color}
+            strokeWidth="1.8"
+            strokeLinejoin="round"
+          />
+        ))}
+        <text x="4" y="14" className="num" fill="var(--color-mut)" fontSize="11">{fmt(max, 1)} %</text>
+        <text x="4" y={H - 4} className="num" fill="var(--color-mut)" fontSize="11">{fmt(min, 1)} %</text>
+      </svg>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+        {series.map((s) => (
+          <span key={s.key} className="flex items-center gap-1.5">
+            <span className="inline-block h-2 w-4 rounded" style={{ background: s.color }} />
+            <span style={{ color: 'var(--color-mut)' }}>{s.label}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function EquityChart({ points }: { points: { ts: string; equity: number }[] }) {
   if (points.length < 2) return <p className="label">Zu wenig Punkte.</p>;
   const W = 860;
@@ -146,11 +203,17 @@ export function Labor() {
   const [busy, setBusy] = useState<'bt' | 'wf' | 'save' | 'cal' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [run, setRun] = useState<RunResult | null>(null);
+  const [runWindow, setRunWindow] = useState<{ from: string; to: string } | null>(null);
+  const [selectedTrade, setSelectedTrade] = useState<number | null>(null);
   const [wf, setWf] = useState<WfResult | null>(null);
   const [runs, setRuns] = useState<RunRow[]>([]);
   const [versions, setVersions] = useState<VersionRow[]>([]);
   const [gates, setGates] = useState<GateRow[]>([]);
   const [compare, setCompare] = useState<string[]>([]);
+  const [compareSel, setCompareSel] = useState<string[]>(['builtin']);
+  const [strategyRuns, setStrategyRuns] = useState<StrategyRun[]>([]);
+  const [busyCompare, setBusyCompare] = useState(false);
+  const [compareErr, setCompareErr] = useState<string | null>(null);
 
   async function refreshLists() {
     const [r, v, g] = await Promise.all([
@@ -172,18 +235,22 @@ export function Labor() {
     setBusy('bt');
     setError(null);
     try {
+      const fromIso = new Date(from).toISOString();
+      const toIso = new Date(`${to}T23:59:59Z`).toISOString();
       const res = await trpc.lab.runBacktest.mutate({
         strategyId: strategyId === 'builtin' ? undefined : strategyId,
         symbol,
         timeframe,
         setupType,
-        from: new Date(from).toISOString(),
-        to: new Date(`${to}T23:59:59Z`).toISOString(),
+        from: fromIso,
+        to: toIso,
         params: paramOverrides,
         versionId: versionId || undefined,
         riskPctPerTrade: riskPct,
       });
       setRun(res);
+      setRunWindow({ from: fromIso, to: toIso });
+      setSelectedTrade(res.trades.length > 0 ? res.trades.length - 1 : null);
       await refreshLists();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Backtest fehlgeschlagen.');
@@ -234,6 +301,56 @@ export function Labor() {
     } finally {
       setBusy(null);
     }
+  }
+
+  /**
+   * Feature 3: mehrere Strategien über DASSELBE Fenster backtesten und
+   * nebeneinander vergleichen. Builtin SMC nutzt Symbol/TF/Setup oben;
+   * DSL-Strategien bringen ihr eigenes Symbol/TF mit (ehrlich beschriftet).
+   * Läuft sequenziell, damit Fehler je Strategie sauber zugeordnet werden.
+   */
+  async function onCompareStrategies() {
+    if (compareSel.length < 2) {
+      setCompareErr('Mindestens zwei Strategien auswählen.');
+      return;
+    }
+    setBusyCompare(true);
+    setCompareErr(null);
+    const fromIso = new Date(from).toISOString();
+    const toIso = new Date(`${to}T23:59:59Z`).toISOString();
+    const results: StrategyRun[] = [];
+    const errors: string[] = [];
+    for (let idx = 0; idx < compareSel.length; idx++) {
+      const sel = compareSel[idx]!;
+      const isBuiltin = sel === 'builtin';
+      const dsl = dslStrategies.find((d) => d.id === sel);
+      const label = isBuiltin ? `SMC Core · ${symbol} ${timeframe}` : `DSL: ${dsl?.slug ?? sel}`;
+      try {
+        const res = await trpc.lab.runBacktest.mutate({
+          strategyId: isBuiltin ? undefined : sel,
+          symbol,
+          timeframe,
+          setupType,
+          from: fromIso,
+          to: toIso,
+          params: paramOverrides,
+          riskPctPerTrade: riskPct,
+        });
+        results.push({
+          key: sel,
+          label,
+          color: COMPARE_COLORS[idx % COMPARE_COLORS.length]!,
+          metrics: res.metrics as Metrics,
+          equityCurve: res.equityCurve,
+        });
+      } catch (err) {
+        errors.push(`${label}: ${err instanceof Error ? err.message : 'Fehler'}`);
+      }
+    }
+    setStrategyRuns(results);
+    if (errors.length > 0) setCompareErr(errors.join(' · '));
+    setBusyCompare(false);
+    await refreshLists();
   }
 
   async function onToggleGate(id: string, active: boolean) {
@@ -376,6 +493,30 @@ export function Labor() {
             <div className="mt-4"><EquityChart points={run.equityCurve} /></div>
           </section>
 
+          {runWindow && run.trades.length > 0 && (() => {
+            // Symbol/Timeframe aus dem RAPS-clusterKey (`slug|symbol|setup|tf|all|all`) —
+            // robust für builtin SMC und DSL-Strategien gleichermaßen.
+            const parts = run.raps.clusterKey.split('|');
+            const chartSymbol = parts[1] ?? symbol;
+            const chartTf = parts[3] ?? timeframe;
+            return (
+              <section className="glass mt-6 p-6">
+                <h2 className="label">Visuelles Backtesting · {chartSymbol} · {chartTf} · Entry/Exit + SL/TP im Chart</h2>
+                <div className="mt-4">
+                  <BacktestChart
+                    symbol={chartSymbol}
+                    timeframe={chartTf}
+                    from={runWindow.from}
+                    to={runWindow.to}
+                    trades={run.trades}
+                    selected={selectedTrade}
+                    onSelect={setSelectedTrade}
+                  />
+                </div>
+              </section>
+            );
+          })()}
+
           <section className="glass mt-6 p-6">
             <h2 className="label">RAPS-Gitter (Hebel × TP-Schema, 13_) · {run.raps.explanation}</h2>
             <div className="mt-4 overflow-x-auto">
@@ -478,11 +619,12 @@ export function Labor() {
           </section>
 
           <section className="glass mt-6 p-6">
-            <h2 className="label">Trades ({run.trades.length}) · inkl. MFE/MAE in R</h2>
+            <h2 className="label">Trades ({run.trades.length}) · inkl. MFE/MAE in R · Zeile anklicken → im Chart fokussieren</h2>
             <div className="mt-4 max-h-96 overflow-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="label text-left">
+                    <th className="py-1.5 pr-3 font-normal">#</th>
                     <th className="py-1.5 pr-3 font-normal">Entry</th>
                     <th className="py-1.5 pr-3 font-normal">Richtung</th>
                     <th className="py-1.5 pr-3 text-right font-normal">R</th>
@@ -495,7 +637,16 @@ export function Labor() {
                 </thead>
                 <tbody className="num">
                   {run.trades.map((t, i) => (
-                    <tr key={i} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                    <tr
+                      key={i}
+                      onClick={() => setSelectedTrade(i === selectedTrade ? null : i)}
+                      className="cursor-pointer"
+                      style={{
+                        borderTop: '1px solid rgba(99,140,255,0.08)',
+                        background: i === selectedTrade ? 'rgba(79,209,255,0.1)' : 'transparent',
+                      }}
+                    >
+                      <td className="py-1.5 pr-3" style={{ color: 'var(--color-mut)' }}>{i + 1}</td>
                       <td className="py-1.5 pr-3">{new Date(t.entryTs).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}</td>
                       <td className="py-1.5 pr-3" style={{ color: t.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>{t.direction}</td>
                       <td className="py-1.5 pr-3 text-right" style={{ color: t.rMultiple >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>{fmt(t.rMultiple)}</td>
@@ -549,6 +700,86 @@ export function Labor() {
           </p>
         </section>
       )}
+
+      {/* ── Multi-Strategie-Vergleich (Feature 3) ── */}
+      <section className="glass mt-6 p-6">
+        <h2 className="label">Multi-Strategie-Vergleich · gleiche Periode ({from} – {to}) · netto</h2>
+        <p className="mt-2 text-xs" style={{ color: 'var(--color-mut)' }}>
+          Strategien auswählen und über dasselbe Zeitfenster gegeneinander backtesten. Builtin SMC nutzt Symbol/Timeframe/Setup oben;
+          DSL-Strategien bringen ihr eigenes Symbol/Timeframe mit.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {[{ id: 'builtin', slug: `SMC Core (${symbol} ${timeframe})` }, ...dslStrategies.map((d) => ({ id: d.id, slug: `DSL: ${d.slug}` }))].map((s) => {
+            const on = compareSel.includes(s.id);
+            return (
+              <button
+                key={s.id}
+                onClick={() => setCompareSel((prev) => (on ? prev.filter((x) => x !== s.id) : [...prev, s.id]))}
+                className="rounded border px-3 py-1.5 text-xs transition-colors"
+                style={{
+                  borderColor: on ? 'rgba(79,209,255,0.5)' : 'var(--color-line)',
+                  color: on ? 'var(--color-cyan)' : 'var(--color-mut)',
+                  background: on ? 'rgba(79,209,255,0.08)' : 'transparent',
+                }}
+              >
+                {on ? '✓ ' : ''}{s.slug}
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-4">
+          <button onClick={() => void onCompareStrategies()} disabled={busyCompare || compareSel.length < 2} className="btn-primary px-5 py-2.5 text-sm disabled:opacity-50">
+            {busyCompare ? 'Vergleiche …' : `${compareSel.length} Strategien vergleichen`}
+          </button>
+        </div>
+        {compareErr && <p className="mt-3 text-sm" style={{ color: 'var(--color-neg)' }}>{compareErr}</p>}
+
+        {strategyRuns.length > 0 && (
+          <>
+            <div className="mt-6 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="label text-left">
+                    <th className="py-1.5 pr-3 font-normal">Strategie</th>
+                    <th className="py-1.5 pr-3 text-right font-normal">Netto-PnL $</th>
+                    <th className="py-1.5 pr-3 text-right font-normal">Return %</th>
+                    <th className="py-1.5 pr-3 text-right font-normal">Max-DD %</th>
+                    <th className="py-1.5 pr-3 text-right font-normal">Sharpe</th>
+                    <th className="py-1.5 pr-3 text-right font-normal">Sortino</th>
+                    <th className="py-1.5 pr-3 text-right font-normal">WinRate</th>
+                    <th className="py-1.5 pr-3 text-right font-normal">PF</th>
+                    <th className="py-1.5 pr-3 text-right font-normal">Expectancy R</th>
+                    <th className="py-1.5 text-right font-normal">Trades</th>
+                  </tr>
+                </thead>
+                <tbody className="num">
+                  {strategyRuns.map((r) => (
+                    <tr key={r.key} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                      <td className="py-1.5 pr-3">
+                        <span className="inline-block h-2 w-3 rounded" style={{ background: r.color, marginRight: 6 }} />
+                        {r.label}
+                      </td>
+                      <td className="py-1.5 pr-3 text-right" style={{ color: r.metrics.netPnl >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>{fmt(r.metrics.netPnl)}</td>
+                      <td className="py-1.5 pr-3 text-right" style={{ color: r.metrics.netReturnPct >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>{fmt(r.metrics.netReturnPct)}</td>
+                      <td className="py-1.5 pr-3 text-right">{fmt(r.metrics.maxDrawdownPct)}</td>
+                      <td className="py-1.5 pr-3 text-right">{fmt(r.metrics.sharpe)}</td>
+                      <td className="py-1.5 pr-3 text-right">{fmt(r.metrics.sortino)}</td>
+                      <td className="py-1.5 pr-3 text-right">{r.metrics.winRate === null ? '—' : `${fmt(r.metrics.winRate * 100, 1)} %`}</td>
+                      <td className="py-1.5 pr-3 text-right">{fmt(r.metrics.profitFactor)}</td>
+                      <td className="py-1.5 pr-3 text-right">{r.metrics.expectancy === null ? '—' : fmt(r.metrics.expectancy)}</td>
+                      <td className="py-1.5 text-right">{r.metrics.tradeCount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-6">
+              <h3 className="label">Equity-Overlay · %-Return ab Start · netto</h3>
+              <div className="mt-3"><MultiEquityChart runs={strategyRuns} /></div>
+            </div>
+          </>
+        )}
+      </section>
 
       {/* ── Adaptive Risk-Gates (Selbst-Kalibrierung) ── */}
       <section className="glass mt-6 p-6">

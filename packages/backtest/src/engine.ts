@@ -62,6 +62,10 @@ export type BacktestTrade = {
   direction: 'long' | 'short';
   setupType: string;
   entry: number;
+  /** Ursprünglicher Stop-Loss-Preis des Setups (für Chart-Overlay; unabhängig vom BE-Shift). */
+  stopLoss: number;
+  /** Take-Profit-Preise des Setups in Reihenfolge (für Chart-Overlay). */
+  takeProfits: number[];
   qty: number;
   riskAmount: number;
   grossPnl: number;
@@ -255,6 +259,8 @@ export function runBacktest(candles: Candle[], config: BacktestConfig): Backtest
       direction: setup.direction,
       setupType: setup.setupType,
       entry: entryFill,
+      stopLoss: setup.stopLoss,
+      takeProfits: [...setup.takeProfits],
       qty,
       riskAmount,
       grossPnl,

@@ -131,6 +131,8 @@ export const labRouter = router({
             exitTs: t.exitTs.toISOString(),
             direction: t.direction,
             entry: t.entry,
+            stopLoss: t.stopLoss,
+            takeProfits: t.takeProfits,
             netPnl: Math.round(t.netPnl * 100) / 100,
             rMultiple: Math.round(t.rMultiple * 100) / 100,
             mfeR: Math.round(t.mfeR * 100) / 100,

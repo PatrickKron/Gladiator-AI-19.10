@@ -151,6 +151,18 @@ describe('Backtest-Engine (look-ahead-frei, netto)', () => {
     expect(res.trades[0]!.netPnl).toBeCloseTo(30, 6); // qty 10 × (103−100)
   });
 
+  it('SL/TP-Preise des Setups landen im Trade-Output (fürs Chart-Overlay)', () => {
+    const candles = [
+      c(0, 100, 101, 99, 100), c(1, 100, 101, 99, 100), c(2, 100, 101, 99, 100),
+      c(3, 100, 112, 100, 111), c(4, 111, 122, 110, 121), c(5, 121, 132, 120, 131),
+    ];
+    const res = runBacktest(candles, { ...BASE, evaluate: setupAt(2) });
+    const t = res.trades[0]!;
+    // Setup @bar2: entry 100, SL 90, TPs 110/120/130 (unverändert vom Signal übernommen)
+    expect(t.stopLoss).toBeCloseTo(90, 6);
+    expect(t.takeProfits).toEqual([110, 120, 130]);
+  });
+
   it('TP-Schema-Simulation je Trade: A/B/C/D liefern unterschiedliche R (13_ §3)', () => {
     const candles = [
       c(0, 100, 101, 99, 100), c(1, 100, 101, 99, 100), c(2, 100, 101, 99, 100),

@@ -214,6 +214,36 @@ export const marketRouter = router({
     }),
 
   /**
+   * Kerzen über ein Zeitfenster (Backtest-Overlay): das gesamte [from,to]-Fenster
+   * aufsteigend, gekappt bei `max` (ehrlich als `truncated` markiert). Getrennt
+   * von chartCandles, damit der Signal-Chart unberührt bleibt. Optional `venue`
+   * (z. B. 'twelvedata' für Aktien) und beliebiger Timeframe-String.
+   */
+  rangedCandles: protectedProcedure
+    .input(
+      z.object({
+        symbol: z.string().min(3),
+        timeframe: z.string().min(2).max(4),
+        from: z.string().datetime(),
+        to: z.string().datetime(),
+        max: z.number().int().min(200).max(6000).default(5000),
+        venue: z.string().min(2).max(32).optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const candles = await getOhlcv(ctx.db, {
+        symbol: input.symbol.toUpperCase(),
+        timeframe: input.timeframe,
+        venue: input.venue,
+        since: new Date(input.from),
+        until: new Date(input.to),
+        limit: input.max,
+      });
+      const bars = candles.map((c) => ({ time: Math.floor(c.ts.getTime() / 1000), open: c.open, high: c.high, low: c.low, close: c.close }));
+      return { bars, truncated: candles.length >= input.max };
+    }),
+
+  /**
    * Voll-Chart-Daten (Krypto-Charting): echte Kerzen + ALLE Indikatorserien
    * (EMA 20/50/200, Bollinger, RSI, MACD, ATR) + Smart-Money-Marker
    * (BOS/CHoCH-Struktur, Order Blocks, FVG-Zonen) — zeitlich ausgerichtet.
