@@ -242,8 +242,16 @@ export function BacktestChart({
     path.setData(pathPts as never);
 
     return () => {
-      for (const pl of priceLines) candle.removePriceLine(pl);
-      chart.removeSeries(path);
+      // Wenn der Basis-Effekt den Chart schon entsorgt hat (Unmount/Neuaufbau),
+      // würde removeSeries/removePriceLine auf einem disposed Chart werfen
+      // (`Value is undefined`) und beim Unmount die ganze App weiß reißen.
+      if (chartRef.current !== chart) return;
+      try {
+        for (const pl of priceLines) candle.removePriceLine(pl);
+        chart.removeSeries(path);
+      } catch {
+        /* Chart bereits entsorgt — ignorieren */
+      }
     };
   }, [selected, trades, state]);
 

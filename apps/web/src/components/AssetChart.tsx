@@ -4,6 +4,7 @@ import {
   CrosshairMode,
   LineStyle,
   type IChartApi,
+  type LogicalRange,
   type SeriesMarker,
   type Time,
   type UTCTimestamp,
@@ -72,17 +73,44 @@ const SIGNAL_STATUS_LABEL: Record<SignalMarker['status'], string> = {
   expired: 'verf.',
 };
 
-/** Alle Zeitskalen aneinander koppeln, damit die Panels zum Kurs ausgerichtet bleiben. */
-function linkTimeScales(charts: IChartApi[]): void {
+/**
+ * Alle Zeitskalen aneinander koppeln, damit die Panels zum Kurs ausgerichtet
+ * bleiben. Gibt einen Disposer zurück: der MUSS vor `chart.remove()` laufen,
+ * sonst feuert die Sync-Callback während des Entsorgens auf einen bereits
+ * disposed Chart (`Object is disposed` / `removeSeries: Value is undefined`)
+ * und reißt beim Unmount die ganze App weiß.
+ */
+function linkTimeScales(charts: IChartApi[]): () => void {
   let syncing = false;
+  let disposed = false;
+  const offs: (() => void)[] = [];
   for (const src of charts) {
-    src.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-      if (syncing || !range) return;
+    const handler = (range: LogicalRange | null) => {
+      if (disposed || syncing || !range) return;
       syncing = true;
-      for (const tgt of charts) if (tgt !== src) tgt.timeScale().setVisibleLogicalRange(range);
+      for (const tgt of charts) {
+        if (tgt === src) continue;
+        try {
+          tgt.timeScale().setVisibleLogicalRange(range);
+        } catch {
+          /* Ziel-Chart schon entsorgt — ignorieren */
+        }
+      }
       syncing = false;
+    };
+    src.timeScale().subscribeVisibleLogicalRangeChange(handler);
+    offs.push(() => {
+      try {
+        src.timeScale().unsubscribeVisibleLogicalRangeChange(handler);
+      } catch {
+        /* Chart schon entsorgt */
+      }
     });
   }
+  return () => {
+    disposed = true;
+    for (const off of offs) off();
+  };
 }
 
 const baseChartOptions = (timeframe: Timeframe, height: number) => ({
@@ -331,7 +359,7 @@ export function AssetChart({
     }
 
     price.timeScale().fitContent();
-    linkTimeScales(charts);
+    const unlinkTimeScales = linkTimeScales(charts);
 
     // Alle Charts teilen sich die Spaltenbreite (gleiche linke/rechte Kante).
     const observer = new ResizeObserver(() => {
@@ -342,8 +370,18 @@ export function AssetChart({
     cleanups.push(() => observer.disconnect());
 
     return () => {
+      // Reihenfolge ist kritisch: erst Sync-Kopplung + Observer/Subscriptions
+      // lösen, DANN die Charts entsorgen — sonst feuert eine Callback auf einen
+      // schon disposed Chart und der Fehler reißt beim Unmount die App weiß.
+      unlinkTimeScales();
       for (const fn of cleanups) fn();
-      for (const c of charts) c.remove();
+      for (const c of charts) {
+        try {
+          c.remove();
+        } catch {
+          /* schon entsorgt — ignorieren */
+        }
+      }
     };
   }, [state, data, toggles, tf, levels, activeZones, signals]);
 
