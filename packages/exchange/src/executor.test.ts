@@ -56,6 +56,9 @@ describe.skipIf(!hasDb)('Order-Lifecycle (Paper, echte DB)', () => {
   let userId: string;
   let signalId: string;
   const RUN = `${process.pid}-${Date.now()}`;
+  // Deterministischer Risk-Kontext: kein zufällig aktives Kalender-No-Trade-Fenster
+  // (sonst kippt der Lifecycle-Test, wenn die CI nahe einem High-Impact-Event läuft).
+  const NEUTRAL_CTX = { noTrade: null, vix: null };
 
   beforeAll(async () => {
     ({ db, pool } = createDb());
@@ -112,7 +115,7 @@ describe.skipIf(!hasDb)('Order-Lifecycle (Paper, echte DB)', () => {
 
   it('führt bestätigtes Signal aus: Entry + 4 Schutz-Orders + Position + Audit', async () => {
     const venue = new TestVenue();
-    const res = await executeConfirmedSignal(db, venue, { signalId, userId });
+    const res = await executeConfirmedSignal(db, venue, { signalId, userId, riskContext: NEUTRAL_CTX });
 
     expect(res.verdict.allowed).toBe(true);
     expect(res.executed).toBe(true);
@@ -134,7 +137,7 @@ describe.skipIf(!hasDb)('Order-Lifecycle (Paper, echte DB)', () => {
   it('IDEMPOTENZ: zweiter Confirm platziert KEINE zweite Order', async () => {
     const venue = new TestVenue();
     await db.execute(sql`UPDATE signals SET status = 'confirmed' WHERE id = ${signalId}`);
-    const res = await executeConfirmedSignal(db, venue, { signalId, userId });
+    const res = await executeConfirmedSignal(db, venue, { signalId, userId, riskContext: NEUTRAL_CTX });
     expect(res.executed).toBe(false);
     expect(res.detail).toMatch(/Idempotenz/);
     expect(venue.placed).toHaveLength(0);
@@ -215,7 +218,7 @@ describe.skipIf(!hasDb)('Order-Lifecycle (Paper, echte DB)', () => {
       .returning();
 
     const venue = new TestVenue();
-    const res = await executeConfirmedSignal(db, venue, { signalId: sig2!.id, userId });
+    const res = await executeConfirmedSignal(db, venue, { signalId: sig2!.id, userId, riskContext: NEUTRAL_CTX });
     expect(res.executed).toBe(false);
     expect(res.verdict.reasons.join(' ')).toMatch(/TEST-Gate/);
     expect(venue.placed).toHaveLength(0);

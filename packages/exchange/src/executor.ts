@@ -138,7 +138,18 @@ export type ExecutionResult = {
 export async function executeConfirmedSignal(
   db: Db,
   venue: TradingVenue,
-  opts: { signalId: string; userId: string; ip?: string | null },
+  opts: {
+    signalId: string;
+    userId: string;
+    ip?: string | null;
+    /**
+     * Optionaler Risk-Kontext-Override. Produktion lässt das weg → echter
+     * Kontext (No-Trade-Fenster aus dem Live-Kalender, aktueller VIX). Nur
+     * Integrationstests injizieren hier einen deterministischen Kontext, damit
+     * ein zufällig aktives Kalender-Fenster den Lifecycle-Test nicht kippt.
+     */
+    riskContext?: Awaited<ReturnType<typeof loadRiskContext>>;
+  },
 ): Promise<ExecutionResult> {
   const [signal] = await db.select().from(signals).where(eq(signals.id, opts.signalId)).limit(1);
   if (!signal) throw new Error('Signal nicht gefunden.');
@@ -166,7 +177,7 @@ export async function executeConfirmedSignal(
     state,
     rules,
     gates,
-    await loadRiskContext(db),
+    opts.riskContext ?? (await loadRiskContext(db)),
   );
 
   await db.insert(auditLog).values({
