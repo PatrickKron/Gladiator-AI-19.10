@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, eq, gte } from 'drizzle-orm';
+import { and, eq, gte, lte } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 
@@ -11,7 +11,15 @@ const { economicEvents } = schema;
  * No-Trade-Fenster der Risk-Engine. Kaputte Einträge werden verworfen.
  */
 
-const FEED_URL = 'https://nfs.faireconomy.media/ff_calendar_thisweek.json';
+/**
+ * Zwei freie Wochen-Feeds (kein Key): laufende + nächste Woche. So hat die
+ * Monats-/Wochenansicht echten Vorlauf, statt nur die aktuelle Woche zu zeigen.
+ * Beide upserten in dieselbe Tabelle (Dedupe über source+externalId).
+ */
+const FEED_URLS = [
+  'https://nfs.faireconomy.media/ff_calendar_thisweek.json',
+  'https://nfs.faireconomy.media/ff_calendar_nextweek.json',
+];
 
 export type ParsedEvent = {
   externalId: string;
@@ -66,11 +74,25 @@ export function parseForexFactoryFeed(json: unknown): ParsedEvent[] {
 
 export type CalendarSyncResult = { fetched: number; inserted: number; updated: number };
 
-/** Holt den Wochen-Feed und upsertet (Dedupe über source+externalId). */
+/** Holt die Wochen-Feeds (diese + nächste Woche) und upsertet (Dedupe über source+externalId). */
 export async function syncEconomicCalendar(db: Db): Promise<CalendarSyncResult> {
-  const res = await fetch(FEED_URL, { headers: { Accept: 'application/json' } });
-  if (!res.ok) throw new Error(`Kalender-Feed: HTTP ${res.status}`);
-  const events = parseForexFactoryFeed(await res.json());
+  const events: ParsedEvent[] = [];
+  let ok = false;
+  for (const url of FEED_URLS) {
+    try {
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!res.ok) {
+        console.warn(`[calendar] Feed ${url}: HTTP ${res.status} — übersprungen`);
+        continue;
+      }
+      events.push(...parseForexFactoryFeed(await res.json()));
+      ok = true;
+    } catch (err) {
+      console.warn(`[calendar] Feed ${url} nicht erreichbar:`, String(err));
+    }
+  }
+  // Nur hart abbrechen, wenn KEIN Feed lieferte (sonst ist Teil-Erfolg besser als Fehler).
+  if (!ok) throw new Error('Kalender-Feed: kein Wochen-Feed erreichbar.');
 
   const result: CalendarSyncResult = { fetched: events.length, inserted: 0, updated: 0 };
   for (const e of events) {
@@ -120,4 +142,18 @@ export async function upcomingEvents(db: Db, opts: { from?: Date; days?: number 
     .orderBy(economicEvents.scheduledAt)
     .limit(300);
   return rows.filter((r) => r.scheduledAt <= to);
+}
+
+/**
+ * Events in einem beliebigen Zeitfenster [from, to] — Basis der Monats-/
+ * Wochenansicht. Anders als upcomingEvents auch für die Vergangenheit (bereits
+ * synchronisierte Wochen bleiben erhalten und lassen sich zurückblättern).
+ */
+export async function eventsBetween(db: Db, from: Date, to: Date) {
+  return db
+    .select()
+    .from(economicEvents)
+    .where(and(gte(economicEvents.scheduledAt, from), lte(economicEvents.scheduledAt, to)))
+    .orderBy(economicEvents.scheduledAt)
+    .limit(1000);
 }

@@ -9,6 +9,8 @@ import {
   getStockQuotes,
   latestNews,
   upcomingEvents,
+  eventsBetween,
+  classifyEvent,
   getOhlcv,
   ingestTwelveData,
   twelveDataConfigured,
@@ -38,6 +40,36 @@ function toTimed(times: number[], values: (number | null)[]): { time: number; va
   for (let i = 0; i < values.length; i++) {
     const v = values[i];
     if (v != null && Number.isFinite(v)) out.push({ time: times[i]!, value: v });
+  }
+  return out;
+}
+
+/** Basis-Ticker aus einem Handelspaar (z. B. „BTC/USDT" → „BTC"). */
+function baseTicker(pair: string): string {
+  return (pair.split('/')[0] ?? pair).toUpperCase();
+}
+
+type AffectedAsset = { symbol: string; level: 1 | 2 | 3; kind: 'crypto' | 'stock' };
+
+/**
+ * Konkrete, ECHT im System vorhandene Assets, die ein Event voraussichtlich
+ * bewegt — Schnitt aus Impact-Profil und dem tatsächlichen Gladiator-Universum
+ * (Krypto = Scan-Universum, Aktien/ETF/Forex = geladene Twelve-Data-Symbole).
+ * Nichts erfunden: sind keine Aktien geladen, erscheinen auch keine.
+ */
+function resolveAffectedAssets(
+  impact: ReturnType<typeof classifyEvent>,
+  cryptoTickers: string[],
+  stockTickers: string[],
+): AffectedAsset[] {
+  const out: AffectedAsset[] = [];
+  const cryptoLevel = Math.min(impact.severity, impact.cryptoRelevance);
+  if (cryptoLevel > 0) {
+    for (const s of cryptoTickers) out.push({ symbol: s, level: cryptoLevel as 1 | 2 | 3, kind: 'crypto' });
+  }
+  const stockLevel = Math.min(impact.severity, impact.equityRelevance);
+  if (stockLevel > 0) {
+    for (const s of stockTickers) out.push({ symbol: s, level: stockLevel as 1 | 2 | 3, kind: 'stock' });
   }
   return out;
 }
@@ -91,26 +123,65 @@ export const marketRouter = router({
     };
   }),
 
-  /** Wirtschaftskalender (echter Feed) + aktives No-Trade-Fenster. */
+  /**
+   * Wirtschaftskalender (echter Feed) + aktives No-Trade-Fenster.
+   * Jedes Event wird regelbasiert um sein Impact-Profil angereichert: Kategorie,
+   * typisch reagierende Märkte und die konkret betroffenen Gladiator-Assets
+   * (Krypto-Universum + geladene Twelve-Data-Symbole), farbfähig nach Impact.
+   * Wahlweise `from`/`to` (ISO) für die Monats-/Wochenansicht, sonst `days` ab jetzt.
+   */
   calendar: protectedProcedure
-    .input(z.object({ days: z.number().int().min(1).max(14).default(7) }))
+    .input(
+      z.object({
+        days: z.number().int().min(1).max(14).default(7),
+        from: z.string().datetime().optional(),
+        to: z.string().datetime().optional(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
-      const events = await upcomingEvents(ctx.db, { days: input.days });
       const now = new Date();
+      const useRange = Boolean(input.from || input.to);
+      const rangeFrom = input.from ? new Date(input.from) : now;
+      const rangeTo = input.to ? new Date(input.to) : new Date(rangeFrom.getTime() + input.days * 86_400_000);
+
+      const events = useRange
+        ? await eventsBetween(ctx.db, rangeFrom, rangeTo)
+        : await upcomingEvents(ctx.db, { days: input.days });
+
+      // No-Trade-Fenster hängt IMMER an „jetzt", unabhängig vom Blätter-Fenster.
+      const nowEvents = useRange ? await upcomingEvents(ctx.db, { days: 3 }) : events;
       const noTrade = noTradeWindowFor(
-        events.map((e) => ({ title: e.title, currency: e.currency, importance: e.importance, scheduledAt: e.scheduledAt })),
+        nowEvents.map((e) => ({ title: e.title, currency: e.currency, importance: e.importance, scheduledAt: e.scheduledAt })),
         now,
       );
+
+      // Reales Universum EINMAL auflösen (nicht je Event neu abfragen).
+      const cryptoTickers = [...new Set((await scanUniverse(ctx.db)).map(baseTicker))];
+      const stockRows = await ctx.db.execute(
+        sql`SELECT DISTINCT symbol FROM ohlcv WHERE venue = ${TWELVEDATA_VENUE} ORDER BY symbol`,
+      );
+      const stockTickers = (stockRows.rows as { symbol: string }[]).map((r) => r.symbol.toUpperCase());
+
       return {
-        events: events.map((e) => ({
-          id: e.id,
-          title: e.title,
-          currency: e.currency,
-          importance: e.importance,
-          scheduledAt: e.scheduledAt,
-          forecast: e.forecast,
-          previous: e.previous,
-        })),
+        events: events.map((e) => {
+          const impact = classifyEvent({ title: e.title, currency: e.currency, importance: e.importance });
+          return {
+            id: e.id,
+            title: e.title,
+            currency: e.currency,
+            importance: e.importance,
+            scheduledAt: e.scheduledAt,
+            forecast: e.forecast,
+            previous: e.previous,
+            impact: {
+              category: impact.category,
+              severity: impact.severity,
+              scope: impact.scope,
+              markets: impact.markets,
+              assets: resolveAffectedAssets(impact, cryptoTickers, stockTickers),
+            },
+          };
+        }),
         noTrade: noTrade ? { reason: noTrade.reason } : null,
       };
     }),

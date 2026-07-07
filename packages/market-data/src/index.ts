@@ -36,9 +36,18 @@ export {
   parseForexFactoryFeed,
   syncEconomicCalendar,
   upcomingEvents,
+  eventsBetween,
   type CalendarSyncResult,
   type ParsedEvent,
 } from './calendar.js';
+export {
+  classifyEvent,
+  detectCategory,
+  type EventImpact,
+  type EventCategory,
+  type MarketTag,
+  type ImpactLevel,
+} from './event-impact.js';
 export { latestNews, parseRssFeed, syncNews, NEWS_FEEDS, type NewsSyncResult, type ParsedNewsItem } from './news.js';
 export {
   derivativesFresh,

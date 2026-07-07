@@ -146,6 +146,14 @@ function SecretsPanel() {
                 <p className="mt-1.5 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
                   {t(`secrets.desc_${s.key}`)}
                 </p>
+                {s.key === 'ANTHROPIC_API_KEY' && (
+                  <p
+                    className="mt-2 rounded-[0.5rem] border px-2.5 py-1.5 text-xs font-medium"
+                    style={{ borderColor: 'rgba(139,92,246,0.45)', color: 'var(--color-violet)', background: 'rgba(139,92,246,0.08)' }}
+                  >
+                    ✦ {t('secrets.aiOneKey')}
+                  </p>
+                )}
                 <div className="mt-2.5 flex flex-wrap items-center gap-2">
                   <input
                     type="password"
