@@ -13,13 +13,14 @@ import {
   deserializeForest,
   computeBetSize,
   runTruthCore,
+  detectRegimeMultiWindow,
   DEFAULT_HYPERPARAMS,
   type TrainingSample,
   type FeatureVector,
 } from '@gladiator/ml';
 import { protectedProcedure, router } from '../trpc.js';
 
-const { mlFeatures, mlLabels, mlModels, mlPredictions, signals } = schema;
+const { mlFeatures, mlLabels, mlModels, mlPredictions, signals, marketRegimes, modelVersions } = schema;
 
 export const mlRouter = router({
   /** Compute features for a symbol/timeframe from current OHLCV data. */
@@ -409,5 +410,145 @@ export const mlRouter = router({
         .limit(1);
 
       return pred ?? null;
+    }),
+
+  /** Get current regime for a symbol/timeframe. */
+  regime: protectedProcedure
+    .input(z.object({
+      symbol: z.string(),
+      timeframe: z.string(),
+      venue: z.string().default('binance'),
+    }))
+    .query(async ({ ctx, input }) => {
+      // Check if we have a recent regime classification
+      const [cached] = await ctx.db.select()
+        .from(marketRegimes)
+        .where(and(
+          eq(marketRegimes.symbol, input.symbol),
+          eq(marketRegimes.timeframe, input.timeframe),
+        ))
+        .orderBy(desc(marketRegimes.ts))
+        .limit(1);
+
+      // If cached regime is less than 15 min old, return it
+      if (cached && (Date.now() - new Date(cached.ts).getTime()) < 15 * 60_000) {
+        return {
+          regime: cached.regime,
+          confidence: Number(cached.confidence),
+          components: cached.components,
+          ts: cached.ts,
+          cached: true,
+        };
+      }
+
+      // Compute fresh regime
+      const candles = await getOhlcv(ctx.db, {
+        symbol: input.symbol,
+        timeframe: input.timeframe,
+        venue: input.venue,
+        limit: 400,
+      });
+
+      if (candles.length < 50) {
+        return { regime: null, confidence: 0, components: [], ts: null, cached: false, reason: 'Insufficient candles' };
+      }
+
+      const result = detectRegimeMultiWindow(candles);
+
+      // Persist
+      const ts = candles[candles.length - 1]!.ts;
+      await ctx.db.insert(marketRegimes).values({
+        symbol: input.symbol,
+        timeframe: input.timeframe,
+        ts,
+        regime: result.regime,
+        confidence: String(result.confidence),
+        components: result.components,
+      });
+
+      return {
+        regime: result.regime,
+        confidence: result.confidence,
+        components: result.components,
+        ts,
+        cached: false,
+      };
+    }),
+
+  /** Get regime history for a symbol/timeframe. */
+  regimeHistory: protectedProcedure
+    .input(z.object({
+      symbol: z.string(),
+      timeframe: z.string(),
+      limit: z.number().int().min(1).max(500).default(100),
+    }))
+    .query(async ({ ctx, input }) => {
+      const history = await ctx.db.select()
+        .from(marketRegimes)
+        .where(and(
+          eq(marketRegimes.symbol, input.symbol),
+          eq(marketRegimes.timeframe, input.timeframe),
+        ))
+        .orderBy(desc(marketRegimes.ts))
+        .limit(input.limit);
+
+      return { history };
+    }),
+
+  /** Get model version history with metrics comparison. */
+  modelVersions: protectedProcedure
+    .input(z.object({
+      modelId: z.number().int().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      let query = ctx.db.select().from(modelVersions).$dynamic();
+      if (input.modelId) {
+        query = query.where(eq(modelVersions.modelId, input.modelId));
+      }
+      const versions = await query.orderBy(desc(modelVersions.createdAt)).limit(50);
+      return { versions };
+    }),
+
+  /** Manually promote a model version (human gate). */
+  promoteModelVersion: protectedProcedure
+    .input(z.object({
+      versionId: z.string().uuid(),
+      confirm: z.boolean(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!input.confirm) {
+        return { promoted: false, reason: 'Not confirmed — human approval required' };
+      }
+
+      const [version] = await ctx.db.select()
+        .from(modelVersions)
+        .where(eq(modelVersions.id, input.versionId))
+        .limit(1);
+
+      if (!version) return { promoted: false, reason: 'Version not found' };
+      if (version.promoted) return { promoted: false, reason: 'Already promoted' };
+      if (!version.modelId) return { promoted: false, reason: 'No model ID linked' };
+
+      // Deactivate all models of same scope, then activate this one
+      const [model] = await ctx.db.select()
+        .from(mlModels)
+        .where(eq(mlModels.id, version.modelId))
+        .limit(1);
+
+      if (!model) return { promoted: false, reason: 'Model not found' };
+
+      await ctx.db.update(mlModels)
+        .set({ isActive: false })
+        .where(eq(mlModels.isActive, true));
+
+      await ctx.db.update(mlModels)
+        .set({ isActive: true })
+        .where(eq(mlModels.id, version.modelId));
+
+      await ctx.db.update(modelVersions)
+        .set({ promoted: true, promotedAt: new Date(), promotedBy: 'manual' })
+        .where(eq(modelVersions.id, input.versionId));
+
+      return { promoted: true, reason: `Model v${version.version} promoted to active` };
     }),
 });

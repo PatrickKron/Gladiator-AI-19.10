@@ -43,5 +43,30 @@ export {
   type TruthCoreResult,
 } from './truth-core.js';
 
+export {
+  REGIMES,
+  detectRegime,
+  detectRegimeMultiWindow,
+  regimeStrategyWeights,
+  type Regime,
+  type RegimeResult,
+  type RegimeComponent,
+} from './regime.js';
+
+export {
+  computeRollingMetrics,
+  evaluateAgent,
+  compareModels,
+  retrainWithFeedback,
+  computeVaR,
+  computeExpectedShortfall,
+  computeSortino,
+  computeCalmar,
+  type RollingMetrics,
+  type AgentEvaluation,
+  type ModelComparison,
+  type RetrainResult,
+} from './self-improve.js';
+
 // RL Agent Architecture (Phase 2)
 export * from './agents/index.js';

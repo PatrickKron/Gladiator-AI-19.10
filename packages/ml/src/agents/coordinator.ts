@@ -414,6 +414,28 @@ export function evaluatePromotion(
 }
 
 /**
+ * Apply regime-based weight adjustments to HRP allocations.
+ * Multiplies each agent's weight by its strategy type's regime multiplier,
+ * then re-normalizes to sum to 1.
+ */
+export function applyRegimeWeights(
+  allocations: PortfolioAllocation[],
+  agentStrategies: Map<string, StrategyType>,
+  regimeWeights: Record<string, number>,
+): PortfolioAllocation[] {
+  const adjusted = allocations.map(a => {
+    const strategy = agentStrategies.get(a.agentId);
+    const multiplier = strategy ? (regimeWeights[strategy] ?? 1) : 1;
+    return { ...a, weight: a.weight * multiplier };
+  });
+
+  const total = adjusted.reduce((s, a) => s + a.weight, 0);
+  if (total <= 0) return allocations;
+
+  return adjusted.map(a => ({ ...a, weight: a.weight / total }));
+}
+
+/**
  * Default feature subsets for each strategy type.
  * Each agent focuses on the features most relevant to its strategy.
  */

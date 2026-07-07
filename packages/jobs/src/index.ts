@@ -36,3 +36,13 @@ export {
   type MlAutoLabelResult,
   type MlRetrainResult,
 } from './ml-pipeline.js';
+export {
+  detectAllRegimes,
+  runSelfEvaluation,
+  runModelComparison,
+  createPerformanceSnapshots,
+  type RegimeDetectionResult,
+  type SelfEvaluationResult,
+  type ModelComparisonResult,
+  type SnapshotResult,
+} from './self-improve-pipeline.js';

@@ -12,3 +12,4 @@ export * from './audit.js';
 export * from './ops.js';
 export * from './ml.js';
 export * from './rl.js';
+export * from './regime.js';

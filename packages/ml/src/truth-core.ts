@@ -1,6 +1,7 @@
 import type { Candle } from '@gladiator/strategy-engine';
 import { ema, rsi, atr, macd } from '@gladiator/strategy-engine';
 import type { FeatureVector } from './features.js';
+import type { RegimeResult } from './regime.js';
 
 /**
  * Truth Core: Cross-reference validation layer for signals.
@@ -27,6 +28,7 @@ export type TruthCoreInput = {
   features: FeatureVector | null;
   candles: Candle[];
   higherTfCandles?: Candle[];
+  regime?: RegimeResult;
 };
 
 export type TruthCoreCheck = {
@@ -206,7 +208,33 @@ function checkMacdConfirmation(candles: Candle[], direction: 'long' | 'short'): 
   }
 }
 
-function checkRegimeCoherence(features: FeatureVector | null, direction: 'long' | 'short'): TruthCoreCheck {
+function checkRegimeCoherence(features: FeatureVector | null, direction: 'long' | 'short', regime?: RegimeResult): TruthCoreCheck {
+  // Prefer the multi-window regime detector when available
+  if (regime) {
+    if (direction === 'long') {
+      const ok = regime.regime !== 'bear' && regime.regime !== 'crisis';
+      return {
+        name: 'regime',
+        passed: ok,
+        reason: ok
+          ? `Regime ${regime.regime} (${(regime.confidence * 100).toFixed(0)}% conf) compatible with long`
+          : `Regime ${regime.regime} (${(regime.confidence * 100).toFixed(0)}% conf) contradicts long`,
+        weight: 0.1,
+      };
+    } else {
+      const ok = regime.regime !== 'bull';
+      return {
+        name: 'regime',
+        passed: ok,
+        reason: ok
+          ? `Regime ${regime.regime} (${(regime.confidence * 100).toFixed(0)}% conf) compatible with short`
+          : `Regime ${regime.regime} (${(regime.confidence * 100).toFixed(0)}% conf) contradicts short`,
+        weight: 0.1,
+      };
+    }
+  }
+
+  // Fallback to simple feature-based regime
   if (!features) {
     return { name: 'regime', passed: true, reason: 'No features available — skipped', weight: 0.1 };
   }
@@ -287,7 +315,7 @@ export function runTruthCore(input: TruthCoreInput): TruthCoreResult {
     checkVolatility(input.candles, input.entry, input.stopLoss),
     checkVolume(input.candles),
     checkMacdConfirmation(input.candles, input.direction),
-    checkRegimeCoherence(input.features, input.direction),
+    checkRegimeCoherence(input.features, input.direction, input.regime),
     checkHigherTf(input.higherTfCandles, input.direction),
   ];
 

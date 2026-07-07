@@ -10,6 +10,7 @@ import { checkPriceAlerts } from './alerts.js';
 import { runSubAgents } from './sub-agent-runner.js';
 import { computeAllFeatures, autoLabelSignals, retrainModel } from './ml-pipeline.js';
 import { runRlEpisodes, aggregateRlPerformance, rebalanceRlWeights } from './rl-pipeline.js';
+import { detectAllRegimes, runSelfEvaluation, runModelComparison, createPerformanceSnapshots } from './self-improve-pipeline.js';
 
 /**
  * BullMQ-Worker (04_ §2: robuste Jobs statt loser Loops — der v1-Fehler).
@@ -32,6 +33,10 @@ const ML_RETRAIN_JOB = 'ml-retrain';
 const RL_EPISODE_JOB = 'rl-episodes';
 const RL_PERF_JOB = 'rl-perf-aggregate';
 const RL_REBALANCE_JOB = 'rl-rebalance';
+const REGIME_JOB = 'regime-detect';
+const SELF_EVAL_JOB = 'self-evaluate';
+const MODEL_COMPARE_JOB = 'model-compare';
+const PERF_SNAPSHOT_JOB = 'perf-snapshot';
 
 /**
  * Worker-Heartbeat (Phase 7): /health prüft das Alter; der Monitor-Job pingt
@@ -70,6 +75,7 @@ const SCHEDULES: [string, number][] = [
   [ML_FEATURES_JOB, 30 * 60_000],     // Feature-Berechnung alle 30 min
   [ML_LABEL_JOB, 60 * 60_000],         // Auto-Labeling stündlich
   [RL_EPISODE_JOB, 30 * 60_000],       // RL-Episoden alle 30 min
+  [REGIME_JOB, 15 * 60_000],            // Regime-Erkennung alle 15 min
 ];
 
 /** Nacht-Pipeline: täglich 03:30 UTC (08_ §5) — Cron statt Intervall. */
@@ -80,6 +86,16 @@ const ML_RETRAIN_CRON = '0 4 * * 0';
 const RL_PERF_CRON = '55 23 * * *';
 /** RL-HRP-Rebalancing: sonntags 05:00 UTC — wöchentliche Portfolio-Gewichtung. */
 const RL_REBALANCE_CRON = '0 5 * * 0';
+/** Self-Evaluation: täglich 00:30 UTC — Agenten bewerten und Vorschläge erstellen. */
+const SELF_EVAL_CRON = '30 0 * * *';
+/** Model-Vergleich: sonntags 04:30 UTC — nach Retrain neues vs. altes Modell. */
+const MODEL_COMPARE_CRON = '30 4 * * 0';
+/** Performance-Snapshots: täglich 23:50 UTC (vor RL-Perf-Aggregation). */
+const PERF_SNAPSHOT_DAILY_CRON = '50 23 * * *';
+/** Wöchentliche Snapshots: sonntags 23:50 UTC. */
+const PERF_SNAPSHOT_WEEKLY_CRON = '50 23 * * 0';
+/** Monatliche Snapshots: 1. des Monats 00:10 UTC. */
+const PERF_SNAPSHOT_MONTHLY_CRON = '10 0 1 * *';
 
 function redisConnection() {
   const url = new URL(requireEnv('REDIS_URL'));
@@ -97,6 +113,11 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
   await queue.upsertJobScheduler(ML_RETRAIN_JOB, { pattern: ML_RETRAIN_CRON }, { name: ML_RETRAIN_JOB });
   await queue.upsertJobScheduler(RL_PERF_JOB, { pattern: RL_PERF_CRON }, { name: RL_PERF_JOB });
   await queue.upsertJobScheduler(RL_REBALANCE_JOB, { pattern: RL_REBALANCE_CRON }, { name: RL_REBALANCE_JOB });
+  await queue.upsertJobScheduler(SELF_EVAL_JOB, { pattern: SELF_EVAL_CRON }, { name: SELF_EVAL_JOB });
+  await queue.upsertJobScheduler(MODEL_COMPARE_JOB, { pattern: MODEL_COMPARE_CRON }, { name: MODEL_COMPARE_JOB });
+  await queue.upsertJobScheduler(PERF_SNAPSHOT_JOB + '-daily', { pattern: PERF_SNAPSHOT_DAILY_CRON }, { name: PERF_SNAPSHOT_JOB, data: { type: 'daily' } });
+  await queue.upsertJobScheduler(PERF_SNAPSHOT_JOB + '-weekly', { pattern: PERF_SNAPSHOT_WEEKLY_CRON }, { name: PERF_SNAPSHOT_JOB, data: { type: 'weekly' } });
+  await queue.upsertJobScheduler(PERF_SNAPSHOT_JOB + '-monthly', { pattern: PERF_SNAPSHOT_MONTHLY_CRON }, { name: PERF_SNAPSHOT_JOB, data: { type: 'monthly' } });
 
   // Absturz-Reconciliation beim Start (06_ §7c): Befunde landen im Audit-Log.
   const rec = await reconcile(db, venue);
@@ -234,6 +255,41 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
             console.log(`[rl-rebalance] Agenten=${res.agentCount} Gewichte=${res.weights.map(w => `${w.name}:${(w.weight * 100).toFixed(1)}%`).join(' ')}`);
           }
           for (const e of res.errors) console.warn('[rl-rebalance]', e);
+          return res;
+        }
+        case REGIME_JOB: {
+          const res = await detectAllRegimes(db);
+          if (res.detected > 0 || res.errors.length > 0) {
+            console.log(`[regime-detect] erkannt=${res.detected} übersprungen=${res.skipped} Fehler=${res.errors.length}`);
+            for (const e of res.errors) console.warn('[regime-detect]', e);
+          }
+          return res;
+        }
+        case SELF_EVAL_JOB: {
+          const res = await runSelfEvaluation(db);
+          console.log(`[self-eval] bewertet=${res.evaluated} Vorschläge=${res.proposals.length}`);
+          for (const p of res.proposals) {
+            console.log(`[self-eval] ${p.agentName}: ${p.recommendation} — ${p.reasons.join('; ')}`);
+          }
+          for (const e of res.errors) console.warn('[self-eval]', e);
+          return res;
+        }
+        case MODEL_COMPARE_JOB: {
+          const res = await runModelComparison(db);
+          if (res.retrained) {
+            console.log(`[model-compare] Version=${res.version} Accuracy=${res.accuracy?.toFixed(3)} Verbesserung=${((res.improvement ?? 0) * 100).toFixed(1)}pp promoted=${res.promoted}`);
+          } else {
+            console.log(`[model-compare] ${res.reason}`);
+          }
+          return res;
+        }
+        case PERF_SNAPSHOT_JOB: {
+          const snapshotType = (job.data as { type?: string })?.type as 'daily' | 'weekly' | 'monthly' ?? 'daily';
+          const res = await createPerformanceSnapshots(db, snapshotType);
+          if (res.snapshots > 0 || res.errors.length > 0) {
+            console.log(`[perf-snapshot] typ=${snapshotType} erstellt=${res.snapshots} Fehler=${res.errors.length}`);
+            for (const e of res.errors) console.warn('[perf-snapshot]', e);
+          }
           return res;
         }
         default:

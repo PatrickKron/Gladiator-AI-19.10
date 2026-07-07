@@ -57,6 +57,7 @@ export {
   aggregateSignals,
   evaluatePromotion,
   getFeatureSubset,
+  applyRegimeWeights,
   type StrategyType,
   type SubAgentConfig,
   type SubAgentSignal,

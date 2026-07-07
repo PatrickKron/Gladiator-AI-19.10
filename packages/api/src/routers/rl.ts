@@ -6,12 +6,17 @@ import {
   evaluatePromotion,
   computeHRPWeights,
   aggregateSignals,
+  evaluateAgent,
+  computeVaR,
+  computeExpectedShortfall,
+  computeSortino,
+  computeCalmar,
   type AgentPerformanceRecord,
   type SubAgentSignal,
 } from '@gladiator/ml';
 import { protectedProcedure, router } from '../trpc.js';
 
-const { rlAgents, rlEpisodes, rlActions, rlAgentPerformance } = schema;
+const { rlAgents, rlEpisodes, rlActions, rlAgentPerformance, performanceSnapshots } = schema;
 
 export const rlRouter = router({
   /** List all RL agents with their latest performance. */
@@ -287,5 +292,187 @@ export const rlRouter = router({
         reason: `Promoted from ${agent.status} to ${promotion.targetStatus}`,
         evaluation: promotion,
       };
+    }),
+
+  /** Performance dashboard: aggregated metrics across all or one agent. */
+  performanceDashboard: protectedProcedure
+    .input(z.object({
+      agentId: z.string().uuid().optional(),
+      period: z.enum(['daily', 'weekly', 'monthly']).default('daily'),
+    }))
+    .query(async ({ ctx, input }) => {
+      const conditions = [eq(rlAgentPerformance.period, input.period)];
+      if (input.agentId) conditions.push(eq(rlAgentPerformance.agentId, input.agentId));
+
+      const perfs = await ctx.db.select()
+        .from(rlAgentPerformance)
+        .where(and(...conditions))
+        .orderBy(desc(rlAgentPerformance.periodEnd))
+        .limit(90);
+
+      if (perfs.length === 0) return { metrics: null, dataPoints: 0 };
+
+      const returns = perfs.map(p => Number(p.returnPct ?? 0));
+      const sharpes = perfs.filter(p => p.sharpeRatio != null).map(p => Number(p.sharpeRatio));
+      const drawdowns = perfs.filter(p => p.maxDrawdown != null).map(p => Number(p.maxDrawdown));
+      const winRates = perfs.filter(p => p.winRate != null).map(p => Number(p.winRate));
+      const totalTradesSum = perfs.reduce((s, p) => s + (p.totalTrades ?? 0), 0);
+
+      const totalReturn = returns.reduce((a, b) => a + b, 0);
+      const avgSharpe = sharpes.length > 0 ? sharpes.reduce((a, b) => a + b, 0) / sharpes.length : 0;
+      const maxDD = drawdowns.length > 0 ? Math.max(...drawdowns) : 0;
+      const avgWinRate = winRates.length > 0 ? winRates.reduce((a, b) => a + b, 0) / winRates.length : 0;
+
+      return {
+        metrics: {
+          totalReturn,
+          avgSharpe,
+          maxDrawdown: maxDD,
+          avgWinRate,
+          totalTrades: totalTradesSum,
+          sortino: computeSortino(returns),
+          calmar: computeCalmar(totalReturn, maxDD),
+          var95: computeVaR(returns, 0.95),
+          es95: computeExpectedShortfall(returns, 0.95),
+        },
+        dataPoints: perfs.length,
+        timeSeries: perfs.map(p => ({
+          ts: p.periodEnd,
+          returnPct: Number(p.returnPct ?? 0),
+          sharpe: Number(p.sharpeRatio ?? 0),
+          drawdown: Number(p.maxDrawdown ?? 0),
+          winRate: Number(p.winRate ?? 0),
+        })).reverse(),
+      };
+    }),
+
+  /** Equity curve data for charting. */
+  equityCurve: protectedProcedure
+    .input(z.object({
+      agentId: z.string().uuid().optional(),
+      limit: z.number().int().min(1).max(365).default(90),
+    }))
+    .query(async ({ ctx, input }) => {
+      const conditions = [eq(rlAgentPerformance.period, 'daily')];
+      if (input.agentId) conditions.push(eq(rlAgentPerformance.agentId, input.agentId));
+
+      const perfs = await ctx.db.select({
+        periodEnd: rlAgentPerformance.periodEnd,
+        returnPct: rlAgentPerformance.returnPct,
+      })
+        .from(rlAgentPerformance)
+        .where(and(...conditions))
+        .orderBy(desc(rlAgentPerformance.periodEnd))
+        .limit(input.limit);
+
+      // Build cumulative equity curve starting at 1.0
+      const sorted = perfs.reverse();
+      let equity = 1.0;
+      const curve = sorted.map(p => {
+        equity *= (1 + Number(p.returnPct ?? 0));
+        return { ts: p.periodEnd, value: equity };
+      });
+
+      return { curve };
+    }),
+
+  /** Risk metrics for portfolio or single agent. */
+  riskMetrics: protectedProcedure
+    .input(z.object({
+      agentId: z.string().uuid().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const conditions = [eq(rlAgentPerformance.period, 'daily')];
+      if (input.agentId) conditions.push(eq(rlAgentPerformance.agentId, input.agentId));
+
+      const perfs = await ctx.db.select()
+        .from(rlAgentPerformance)
+        .where(and(...conditions))
+        .orderBy(desc(rlAgentPerformance.periodEnd))
+        .limit(90);
+
+      if (perfs.length < 5) return { metrics: null, reason: 'Insufficient data (need ≥5 daily records)' };
+
+      const returns = perfs.map(p => Number(p.returnPct ?? 0));
+      const drawdowns = perfs.filter(p => p.maxDrawdown != null).map(p => Number(p.maxDrawdown));
+
+      return {
+        metrics: {
+          var95: computeVaR(returns, 0.95),
+          var99: computeVaR(returns, 0.99),
+          es95: computeExpectedShortfall(returns, 0.95),
+          maxDrawdown: drawdowns.length > 0 ? Math.max(...drawdowns) : 0,
+          currentDrawdown: drawdowns.length > 0 ? drawdowns[0] : 0,
+          sortino: computeSortino(returns),
+          sharpe: (() => {
+            const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+            const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / (returns.length - 1);
+            return variance > 0 ? (mean / Math.sqrt(variance)) * Math.sqrt(252) : 0;
+          })(),
+        },
+        reason: null,
+      };
+    }),
+
+  /** Run self-evaluation for an agent. */
+  autoEvaluate: protectedProcedure
+    .input(z.object({
+      agentId: z.string().uuid(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const [agent] = await ctx.db.select().from(rlAgents)
+        .where(eq(rlAgents.id, input.agentId))
+        .limit(1);
+
+      if (!agent) return { evaluation: null, reason: 'Agent not found' };
+
+      const episodes = await ctx.db.select()
+        .from(rlEpisodes)
+        .where(and(
+          eq(rlEpisodes.agentId, input.agentId),
+          sql`${rlEpisodes.endedAt} IS NOT NULL`,
+        ))
+        .orderBy(desc(rlEpisodes.endedAt))
+        .limit(90);
+
+      if (episodes.length < 5) {
+        return { evaluation: null, reason: `Insufficient episodes (${episodes.length}, need ≥5)` };
+      }
+
+      const returns = episodes.map(e => Number(e.totalReward ?? 0));
+      const wins = episodes.map(e => Number(e.winRate ?? 0) > 0.5);
+      const bars = episodes.map(() => 50); // approximate
+      const benchmark = returns.map(() => 0.001); // naive benchmark
+
+      const evaluation = evaluateAgent(
+        input.agentId,
+        returns,
+        wins,
+        bars,
+        benchmark,
+        [],
+      );
+
+      return { evaluation, reason: null };
+    }),
+
+  /** Get performance snapshots with equity curves and regime breakdown. */
+  performanceSnapshots: protectedProcedure
+    .input(z.object({
+      agentId: z.string().uuid().optional(),
+      snapshotType: z.enum(['daily', 'weekly', 'monthly']).default('daily'),
+      limit: z.number().int().min(1).max(365).default(90),
+    }))
+    .query(async ({ ctx, input }) => {
+      const conditions = [eq(performanceSnapshots.snapshotType, input.snapshotType)];
+      if (input.agentId) conditions.push(eq(performanceSnapshots.agentId, input.agentId));
+
+      const snapshots = await ctx.db.select()
+        .from(performanceSnapshots)
+        .where(and(...conditions))
+        .orderBy(desc(performanceSnapshots.periodEnd))
+        .limit(input.limit);
+
+      return { snapshots };
     }),
 });
