@@ -9,7 +9,7 @@ CREATE TABLE "ml_features" (
 --> statement-breakpoint
 CREATE TABLE "ml_labels" (
 	"id" serial PRIMARY KEY NOT NULL,
-	"signal_id" text,
+	"signal_id" uuid,
 	"symbol" text NOT NULL,
 	"timeframe" text NOT NULL,
 	"ts" timestamp with time zone NOT NULL,
@@ -39,7 +39,7 @@ CREATE TABLE "ml_models" (
 CREATE TABLE "ml_predictions" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"model_id" integer,
-	"signal_id" text,
+	"signal_id" uuid,
 	"symbol" text NOT NULL,
 	"timeframe" text NOT NULL,
 	"ts" timestamp with time zone NOT NULL,

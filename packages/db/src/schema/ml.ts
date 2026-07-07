@@ -9,6 +9,7 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  uuid,
 } from 'drizzle-orm/pg-core';
 import { signals } from './strategy.js';
 
@@ -40,7 +41,7 @@ export const mlLabels = pgTable(
   'ml_labels',
   {
     id: serial('id').primaryKey(),
-    signalId: text('signal_id').references(() => signals.id),
+    signalId: uuid('signal_id').references(() => signals.id),
     symbol: text('symbol').notNull(),
     timeframe: text('timeframe').notNull(),
     ts: timestamp('ts', { withTimezone: true }).notNull(),
@@ -90,7 +91,7 @@ export const mlPredictions = pgTable(
   {
     id: serial('id').primaryKey(),
     modelId: integer('model_id').references(() => mlModels.id),
-    signalId: text('signal_id'),
+    signalId: uuid('signal_id'),
     symbol: text('symbol').notNull(),
     timeframe: text('timeframe').notNull(),
     ts: timestamp('ts', { withTimezone: true }).notNull(),

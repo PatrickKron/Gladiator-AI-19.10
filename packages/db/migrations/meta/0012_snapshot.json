@@ -4654,7 +4654,7 @@
         },
         "signal_id": {
           "name": "signal_id",
-          "type": "text",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
@@ -4908,7 +4908,7 @@
         },
         "signal_id": {
           "name": "signal_id",
-          "type": "text",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
