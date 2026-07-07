@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { getOhlcv } from '@gladiator/market-data';
@@ -9,8 +9,6 @@ import {
   trainForest,
   evaluateForest,
   serializeForest,
-  computeBetSize,
-  runTruthCore,
   DEFAULT_HYPERPARAMS,
   type TrainingSample,
   type FeatureVector,
@@ -18,7 +16,7 @@ import {
 import { scanUniverse } from './universe.js';
 import { SCAN_TIMEFRAMES } from './signal-scan.js';
 
-const { mlFeatures, mlLabels, mlModels, mlPredictions, signals } = schema;
+const { mlFeatures, mlLabels, mlModels } = schema;
 
 export type MlFeatureResult = {
   computed: number;

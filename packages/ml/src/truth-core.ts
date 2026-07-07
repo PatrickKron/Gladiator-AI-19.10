@@ -1,5 +1,5 @@
 import type { Candle } from '@gladiator/strategy-engine';
-import { ema, rsi, atr, macd, bollinger } from '@gladiator/strategy-engine';
+import { ema, rsi, atr, macd } from '@gladiator/strategy-engine';
 import type { FeatureVector } from './features.js';
 
 /**
@@ -44,7 +44,6 @@ export type TruthCoreResult = {
 };
 
 const MIN_CONFIDENCE = 0.55;
-const MIN_PASSING_WEIGHT = 0.5;
 
 function checkTrendAlignment(candles: Candle[], direction: 'long' | 'short'): TruthCoreCheck {
   const closes = candles.map(c => c.close);
@@ -278,7 +277,7 @@ function checkHigherTf(higherTfCandles: Candle[] | undefined, direction: 'long' 
  * Run all Truth Core checks on a signal.
  *
  * A signal passes if the weighted sum of passing checks exceeds
- * MIN_PASSING_WEIGHT (0.5 = at least half the weighted checks pass).
+ * MIN_CONFIDENCE (0.55).
  * The confidence is the weighted passing ratio.
  */
 export function runTruthCore(input: TruthCoreInput): TruthCoreResult {

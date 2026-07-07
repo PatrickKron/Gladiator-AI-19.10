@@ -23,23 +23,6 @@ function makeTrendingCandles(count: number, direction: 'up' | 'down', basePrice 
   return candles;
 }
 
-function makeRangingCandles(count: number, basePrice = 100): Candle[] {
-  const candles: Candle[] = [];
-  for (let i = 0; i < count; i++) {
-    const osc = Math.sin(i * 0.5) * 3;
-    const price = basePrice + osc;
-    candles.push({
-      ts: new Date(Date.UTC(2024, 0, 1) + i * 3600_000),
-      open: price - 0.5,
-      high: price + 2,
-      low: price - 2,
-      close: price,
-      volume: 1000,
-    });
-  }
-  return candles;
-}
-
 describe('runTruthCore', () => {
   it('passes for long signal in uptrend', () => {
     const candles = makeTrendingCandles(250, 'up');
