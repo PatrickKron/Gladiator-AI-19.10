@@ -9,6 +9,7 @@ import { reviewNewSignals } from './review.js';
 import { checkPriceAlerts } from './alerts.js';
 import { runSubAgents } from './sub-agent-runner.js';
 import { computeAllFeatures, autoLabelSignals, retrainModel } from './ml-pipeline.js';
+import { runRlEpisodes, aggregateRlPerformance, rebalanceRlWeights } from './rl-pipeline.js';
 
 /**
  * BullMQ-Worker (04_ §2: robuste Jobs statt loser Loops — der v1-Fehler).
@@ -28,6 +29,9 @@ const NIGHT_JOB = 'night-pipeline';
 const ML_FEATURES_JOB = 'ml-features';
 const ML_LABEL_JOB = 'ml-auto-label';
 const ML_RETRAIN_JOB = 'ml-retrain';
+const RL_EPISODE_JOB = 'rl-episodes';
+const RL_PERF_JOB = 'rl-perf-aggregate';
+const RL_REBALANCE_JOB = 'rl-rebalance';
 
 /**
  * Worker-Heartbeat (Phase 7): /health prüft das Alter; der Monitor-Job pingt
@@ -65,12 +69,17 @@ const SCHEDULES: [string, number][] = [
   [SUB_AGENT_JOB, 5 * 60_000],
   [ML_FEATURES_JOB, 30 * 60_000],     // Feature-Berechnung alle 30 min
   [ML_LABEL_JOB, 60 * 60_000],         // Auto-Labeling stündlich
+  [RL_EPISODE_JOB, 30 * 60_000],       // RL-Episoden alle 30 min
 ];
 
 /** Nacht-Pipeline: täglich 03:30 UTC (08_ §5) — Cron statt Intervall. */
 const NIGHT_CRON = '30 3 * * *';
 /** ML-Retraining: wöchentlich sonntags 04:00 UTC — genug Labels sammeln vor Neutraining. */
 const ML_RETRAIN_CRON = '0 4 * * 0';
+/** RL-Performance-Aggregation: täglich 23:55 UTC — Tages-Rollup der Agenten-Metriken. */
+const RL_PERF_CRON = '55 23 * * *';
+/** RL-HRP-Rebalancing: sonntags 05:00 UTC — wöchentliche Portfolio-Gewichtung. */
+const RL_REBALANCE_CRON = '0 5 * * 0';
 
 function redisConnection() {
   const url = new URL(requireEnv('REDIS_URL'));
@@ -86,6 +95,8 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
   }
   await queue.upsertJobScheduler(NIGHT_JOB, { pattern: NIGHT_CRON }, { name: NIGHT_JOB });
   await queue.upsertJobScheduler(ML_RETRAIN_JOB, { pattern: ML_RETRAIN_CRON }, { name: ML_RETRAIN_JOB });
+  await queue.upsertJobScheduler(RL_PERF_JOB, { pattern: RL_PERF_CRON }, { name: RL_PERF_JOB });
+  await queue.upsertJobScheduler(RL_REBALANCE_JOB, { pattern: RL_REBALANCE_CRON }, { name: RL_REBALANCE_JOB });
 
   // Absturz-Reconciliation beim Start (06_ §7c): Befunde landen im Audit-Log.
   const rec = await reconcile(db, venue);
@@ -199,6 +210,30 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           } else {
             console.log(`[ml-retrain] Kein Retraining: ${res.reason}`);
           }
+          return res;
+        }
+        case RL_EPISODE_JOB: {
+          const res = await runRlEpisodes(db);
+          if (res.episodesRun > 0 || res.errors.length > 0) {
+            console.log(`[rl-episodes] Episoden=${res.episodesRun} übersprungen=${res.skipped} Fehler=${res.errors.length}`);
+            for (const e of res.errors) console.warn('[rl-episodes]', e);
+          }
+          return res;
+        }
+        case RL_PERF_JOB: {
+          const res = await aggregateRlPerformance(db);
+          if (res.aggregated > 0 || res.errors.length > 0) {
+            console.log(`[rl-perf] aggregiert=${res.aggregated} Fehler=${res.errors.length}`);
+            for (const e of res.errors) console.warn('[rl-perf]', e);
+          }
+          return res;
+        }
+        case RL_REBALANCE_JOB: {
+          const res = await rebalanceRlWeights(db);
+          if (res.rebalanced) {
+            console.log(`[rl-rebalance] Agenten=${res.agentCount} Gewichte=${res.weights.map(w => `${w.name}:${(w.weight * 100).toFixed(1)}%`).join(' ')}`);
+          }
+          for (const e of res.errors) console.warn('[rl-rebalance]', e);
           return res;
         }
         default:

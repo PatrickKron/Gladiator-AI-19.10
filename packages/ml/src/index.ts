@@ -42,3 +42,6 @@ export {
   type TruthCoreCheck,
   type TruthCoreResult,
 } from './truth-core.js';
+
+// RL Agent Architecture (Phase 2)
+export * from './agents/index.js';

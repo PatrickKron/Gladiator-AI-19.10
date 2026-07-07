@@ -11,3 +11,4 @@ export * from './study.js';
 export * from './audit.js';
 export * from './ops.js';
 export * from './ml.js';
+export * from './rl.js';

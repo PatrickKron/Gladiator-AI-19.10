@@ -92,6 +92,13 @@
       "when": 1783428823360,
       "tag": "0012_late_tusk",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1783435859202,
+      "tag": "0013_quick_zaladane",
+      "breakpoints": true
     }
   ]
 }

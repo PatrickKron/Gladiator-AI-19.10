@@ -38,6 +38,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { hash: '#/werkstatt', key: 'nav.workshop', icon: ico('M14.7 6.3a4 4 0 00-5.4 5.3L3 18v3h3l6.9-6.9a4 4 0 005.3-5.4l-2.6 2.6-2.3-.6-.6-2.3z') },
       { hash: '#/agenten', key: 'nav.agents', icon: ico('M12 8a4 4 0 100-8 4 4 0 000 8zm-7 13a7 7 0 0114 0M2 21h20') },
       { hash: '#/ml', key: 'nav.mlModels', icon: ico('M4 20V10l4-6h8l4 6v10M9 20v-6h6v6M2 10h20M12 4v6') },
+      { hash: '#/rl-agenten', key: 'nav.rlAgents', icon: ico('M12 2a4 4 0 014 4v1h3l1 4-4 2v3l3 4H5l3-4v-3L4 11l1-4h3V6a4 4 0 014-4z') },
     ],
   },
   {

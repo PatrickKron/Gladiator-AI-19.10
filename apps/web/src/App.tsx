@@ -24,6 +24,7 @@ const Agenten = lazyView(() => import('./views/Agenten.js'), 'Agenten');
 const Werkstatt = lazyView(() => import('./views/Werkstatt.js'), 'Werkstatt');
 const Strategien = lazyView(() => import('./views/Strategien.js'), 'Strategien');
 const MlModels = lazyView(() => import('./views/MlModels.js'), 'MlModels');
+const RlAgents = lazyView(() => import('./views/RlAgents.js'), 'RlAgents');
 const Einstellungen = lazyView(() => import('./views/Einstellungen.js'), 'Einstellungen');
 const Profil = lazyView(() => import('./views/Profil.js'), 'Profil');
 
@@ -52,6 +53,7 @@ const ROUTES: Record<string, ComponentType> = {
   '#/werkstatt': Werkstatt,
   '#/strategien': Strategien,
   '#/ml': MlModels,
+  '#/rl-agenten': RlAgents,
   '#/einstellungen': Einstellungen,
   '#/profil': Profil,
 };
