@@ -34,6 +34,14 @@ function createRng(seed: number) {
   return () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
 }
 
+/**
+ * Gibt die Event-Loop frei. Das Episoden-Training ist rein synchron und CPU-schwer;
+ * ohne periodisches Yield blockiert es den (im selben Prozess laufenden) Webserver
+ * und verhindert, dass BullMQ seine Job-Lock erneuert → Stall-Retry-Sturm.
+ * setImmediate lässt anstehende HTTP-Requests + den Lock-Renew-Timer dazwischen laufen.
+ */
+const yieldToLoop = () => new Promise<void>((resolve) => setImmediate(resolve));
+
 export type RlEpisodeResult = {
   episodesRun: number;
   skipped: number;
@@ -138,10 +146,15 @@ export async function runRlEpisodes(db: Db): Promise<RlEpisodeResult> {
         stepCount++;
         if (stepResult.done) break;
         state = stepResult.nextState;
+
+        // Event-Loop periodisch freigeben, damit HTTP-Requests + BullMQ-Lock-Renew
+        // während des synchronen Trainings nicht verhungern.
+        if (stepCount % 16 === 0) await yieldToLoop();
       }
 
       // PPO update from trajectory
       if (trajectory.states.length >= 10) {
+        await yieldToLoop();
         ppoUpdate(model, trajectory);
       }
 

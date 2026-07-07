@@ -296,7 +296,10 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           return;
       }
     },
-    { connection, concurrency: 1 },
+    // lockDuration großzügig (3 min): CPU-schwere Jobs (RL-Episoden, ML-Retrain) dürfen
+    // länger als der 30-s-Default laufen, ohne als "stalled" zu gelten und in einen
+    // Retry-Sturm zu geraten, der den Webserver verhungert. maxStalledCount als Sicherung.
+    { connection, concurrency: 1, lockDuration: 180_000, maxStalledCount: 2 },
   );
 
   worker.on('failed', (job, err) => {
