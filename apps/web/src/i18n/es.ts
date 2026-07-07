@@ -176,7 +176,13 @@ export const es: Catalog = {
     failed: 'Inicio de sesión fallido.',
     subtitle: 'Gladiator AI · Centro de mando de trading',
   },
+  fav: {
+    add: 'Añadir a favoritos',
+    remove: 'Quitar de favoritos',
+    noAsset: 'No está en el registro de activos — no se puede marcar',
+  },
   dashboard: {
+    openChart: 'Abrir gráfico: {{symbol}}',
     greetingMorning: 'Buenos días',
     greetingDay: 'Bienvenido de nuevo',
     greetingEvening: 'Buenas tardes',

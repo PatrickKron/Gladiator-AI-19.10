@@ -1,6 +1,7 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
+import { normalizeTradingPair } from '@gladiator/jobs';
 import { protectedProcedure, router } from '../trpc.js';
 
 const { packages, assets, magazineArticles, assetFavorites } = schema;
@@ -87,6 +88,58 @@ export const productRouter = router({
       .where(eq(assetFavorites.userId, ctx.user.id))
       .orderBy(asc(assets.ticker));
   }),
+
+  /**
+   * Favoriten als normalisierte Handelspaare ('BTC/USDT') — für den Stern-Zustand
+   * überall dort, wo mit Symbolen statt asset-IDs gearbeitet wird (Charts/Aegis/Oracle).
+   */
+  favoriteSymbols: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await ctx.db
+      .select({ pair: assets.tradingPair })
+      .from(assetFavorites)
+      .innerJoin(assets, eq(assets.id, assetFavorites.assetId))
+      .where(eq(assetFavorites.userId, ctx.user.id));
+    const set = new Set<string>();
+    for (const r of rows) {
+      const norm = normalizeTradingPair(r.pair);
+      if (norm) set.add(norm);
+    }
+    return [...set];
+  }),
+
+  /**
+   * Favorit per Symbol toggeln (P0.3): findet die Asset-Zeile(n) mit passendem
+   * Handelspaar und setzt/entfernt den Stern. `ok:false`, wenn das Symbol nicht
+   * im Asset-Register liegt (dann kein Favorit möglich — ehrlich, kein Fake).
+   */
+  toggleFavoriteBySymbol: protectedProcedure
+    .input(z.object({ symbol: z.string().min(3).max(20) }))
+    .mutation(async ({ ctx, input }) => {
+      const pair = normalizeTradingPair(input.symbol);
+      if (!pair) return { ok: false as const, favorite: false };
+      const noSlash = pair.replace('/', '');
+      const matches = await ctx.db
+        .select({ id: assets.id })
+        .from(assets)
+        .where(sql`upper(replace(${assets.tradingPair}, '/', '')) = ${noSlash}`);
+      const ids = matches.map((m) => m.id);
+      if (ids.length === 0) return { ok: false as const, favorite: false };
+
+      const [existing] = await ctx.db
+        .select({ assetId: assetFavorites.assetId })
+        .from(assetFavorites)
+        .where(and(eq(assetFavorites.userId, ctx.user.id), inArray(assetFavorites.assetId, ids)))
+        .limit(1);
+
+      if (existing) {
+        await ctx.db
+          .delete(assetFavorites)
+          .where(and(eq(assetFavorites.userId, ctx.user.id), inArray(assetFavorites.assetId, ids)));
+        return { ok: true as const, favorite: false };
+      }
+      await ctx.db.insert(assetFavorites).values({ userId: ctx.user.id, assetId: ids[0]! }).onConflictDoNothing();
+      return { ok: true as const, favorite: true };
+    }),
 
   articles: protectedProcedure
     .input(z.object({ category: z.string().optional(), limit: z.number().int().min(1).max(100).default(50) }))

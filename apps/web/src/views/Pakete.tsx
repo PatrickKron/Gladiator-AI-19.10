@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { ErrorBox, Loading, PageHeader } from '../components/ui.js';
+import { FavStar } from '../components/FavStar.js';
 import { getLatest, onTick } from '../lib/prices.js';
 import { feedSymbol } from '../lib/pairs.js';
 
@@ -13,31 +14,6 @@ import { feedSymbol } from '../lib/pairs.js';
 
 type Pkg = Awaited<ReturnType<typeof trpc.product.packages.query>>[number];
 type Asset = Awaited<ReturnType<typeof trpc.product.assets.query>>[number];
-
-/** Stern-Toggle (Patrick-Luecke 5): Favorit -> Scan + Signale + Dashboard-Briefing. */
-function FavStar({ asset, onToggled }: { asset: Asset; onToggled: (assetId: number, fav: boolean) => void }) {
-  const { t } = useTranslation();
-  const [busy, setBusy] = useState(false);
-  return (
-    <button
-      title={t('packages.favTooltip')}
-      disabled={busy}
-      onClick={(e) => {
-        e.stopPropagation();
-        setBusy(true);
-        trpc.product.toggleFavorite
-          .mutate({ assetId: asset.id })
-          .then((res) => onToggled(asset.id, res.favorite))
-          .catch(() => undefined)
-          .finally(() => setBusy(false));
-      }}
-      className="shrink-0 px-1 text-base leading-none transition-transform hover:scale-125 disabled:opacity-50"
-      style={{ color: asset.isFavorite ? 'var(--color-warn)' : 'rgba(139,148,184,0.45)' }}
-    >
-      {asset.isFavorite ? '\u2605' : '\u2606'}
-    </button>
-  );
-}
 
 type Quote = { price: number; previousClose: number | null } | null;
 
@@ -107,7 +83,7 @@ function PackageCard({ pkg, stagger, prices }: { pkg: Pkg; stagger: number; pric
                 return (
                   <li key={a.id} className="flex items-center justify-between gap-2 py-0.5">
                     <span className="flex items-center gap-1">
-                      <FavStar asset={a} onToggled={(assetId, fav) => setAssets((prev) => (prev ?? []).map((x) => (x.id === assetId ? { ...x, isFavorite: fav } : x)))} />
+                      <FavStar assetId={a.id} isFavorite={a.isFavorite} onToggled={(assetId, fav) => setAssets((prev) => (prev ?? []).map((x) => (x.id === assetId ? { ...x, isFavorite: fav } : x)))} />
                       <span className="num font-medium">{a.ticker}</span>{' '}
                       <span style={{ color: 'var(--color-mut)' }}>{a.name}</span>
                     </span>

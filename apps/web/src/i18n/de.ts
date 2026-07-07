@@ -175,7 +175,13 @@ export const de = {
     failed: 'Anmeldung fehlgeschlagen.',
     subtitle: 'Gladiator AI · Trading-Kommandozentrale',
   },
+  fav: {
+    add: 'Zu Favoriten',
+    remove: 'Aus Favoriten entfernen',
+    noAsset: 'Kein Asset im Register — nicht favorisierbar',
+  },
   dashboard: {
+    openChart: 'Chart öffnen: {{symbol}}',
     greetingMorning: 'Guten Morgen',
     greetingDay: 'Willkommen zurück',
     greetingEvening: 'Guten Abend',

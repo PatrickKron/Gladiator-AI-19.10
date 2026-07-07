@@ -11,6 +11,7 @@ import {
 } from 'lightweight-charts';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
+import { loadTf, pickTf, saveTf } from '../lib/chart-tf.js';
 
 /**
  * Voll-Chart mit Indikatoren (Krypto-Charting):
@@ -125,15 +126,32 @@ const baseChartOptions = (timeframe: Timeframe, height: number) => ({
 export function AssetChart({
   symbol,
   initialTimeframe = '1h',
+  timeframeOverride,
   levels,
 }: {
   symbol: string;
   initialTimeframe?: Timeframe;
+  /** Erzwungener Timeframe aus einem Deep-Link (`?tf=`) — schlägt das Gedächtnis. */
+  timeframeOverride?: Timeframe;
   /** Optionale Signal-Level (Entry/SL/TP) — für die Einbettung in Signal-Karten. */
   levels?: { entry: number; stopLoss: number; takeProfits: number[] };
 }) {
   const { t } = useTranslation();
-  const [tf, setTf] = useState<Timeframe>(initialTimeframe);
+  // Timeframe pro Asset gemerkt (P0.2): Query-Override > gemerkt > Default.
+  const [tf, setTf] = useState<Timeframe>(() => pickTf(timeframeOverride ?? null, loadTf(symbol), initialTimeframe));
+  const firstSymbolRender = useRef(true);
+  // Symbolwechsel (z. B. via Dropdown): den für dieses Asset gemerkten Timeframe laden.
+  useEffect(() => {
+    if (firstSymbolRender.current) {
+      firstSymbolRender.current = false;
+      return;
+    }
+    setTf(loadTf(symbol) ?? initialTimeframe);
+  }, [symbol, initialTimeframe]);
+  const changeTf = (next: Timeframe) => {
+    setTf(next);
+    saveTf(symbol, next);
+  };
   const [toggles, setToggles] = useState<Record<ToggleKey, boolean>>(DEFAULT_TOGGLES);
   const [data, setData] = useState<ChartData | null>(null);
   const [signals, setSignals] = useState<SignalMarker[]>([]);
@@ -441,7 +459,7 @@ export function AssetChart({
           {TIMEFRAMES.map((f) => (
             <button
               key={f}
-              onClick={() => setTf(f)}
+              onClick={() => changeTf(f)}
               className="num rounded border px-2 py-0.5 text-[11px] transition-colors"
               style={{
                 borderColor: tf === f ? 'rgba(79,209,255,0.5)' : 'var(--color-line)',

@@ -5,6 +5,7 @@ import { Empty, Loading, NotConnected, PageHeader, Panel } from '../components/u
 import { AssetSelect, getSelectedAsset } from '../components/AssetSelect.js';
 import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
 import { AssetChart } from '../components/AssetChart.js';
+import { FavStarSymbol } from '../components/FavStar.js';
 
 /**
  * Aegis / Hedging (09_ §3.8): GRS-Gauge braucht echte VIX/DXY/US10Y-Daten —
@@ -49,7 +50,16 @@ export function Aegis() {
 
   return (
     <div>
-      <PageHeader title={t('aegis.title')} subtitle={t('aegis.subtitle')} right={<AssetSelect value={asset} onChange={setAsset} />} />
+      <PageHeader
+        title={t('aegis.title')}
+        subtitle={t('aegis.subtitle')}
+        right={
+          <div className="flex items-center gap-2">
+            <FavStarSymbol symbol={asset} />
+            <AssetSelect value={asset} onChange={setAsset} />
+          </div>
+        }
+      />
 
       {/* Asset-Risiko: Aegis bezieht sich auf GENAU dieses Asset */}
       <Panel label={t('assetCtx.title', { symbol: asset })} stagger={1} className="mb-5">

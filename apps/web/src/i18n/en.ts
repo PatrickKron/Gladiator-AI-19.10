@@ -176,7 +176,13 @@ export const en: Catalog = {
     failed: 'Sign-in failed.',
     subtitle: 'Gladiator AI · Trading command center',
   },
+  fav: {
+    add: 'Add to favorites',
+    remove: 'Remove from favorites',
+    noAsset: 'Not in the asset registry — cannot favorite',
+  },
   dashboard: {
+    openChart: 'Open chart: {{symbol}}',
     greetingMorning: 'Good morning',
     greetingDay: 'Welcome back',
     greetingEvening: 'Good evening',

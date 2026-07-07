@@ -13,6 +13,15 @@ export function getSelectedAsset(): string {
   return localStorage.getItem(STORAGE_KEY) ?? 'BTC/USDT';
 }
 
+/** Ausgewähltes Asset persistieren (z. B. beim Deep-Link-Sprung in Charts). */
+export function setSelectedAsset(symbol: string): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, symbol.toUpperCase());
+  } catch {
+    /* localStorage nicht verfügbar — ignorieren */
+  }
+}
+
 export function AssetSelect({ value, onChange }: { value: string; onChange: (symbol: string) => void }) {
   const { t } = useTranslation();
   const [universe, setUniverse] = useState<string[]>([value]);

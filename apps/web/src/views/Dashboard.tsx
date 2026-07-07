@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isUnauthorized, refreshSession, trpc } from '../api.js';
 import { Sparkline } from '../components/Sparkline.js';
@@ -7,7 +7,11 @@ import { PlexusHero } from '../components/PlexusHero.js';
 import { SignalCard, type SignalRow } from '../components/SignalCard.js';
 import { Empty, ErrorBox, Loading, Panel, StatusDot } from '../components/ui.js';
 import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
+import { FavStarSymbol } from '../components/FavStar.js';
 import { getLatest, onTick, type TickWithDirection } from '../lib/prices.js';
+import { buildChartUrl } from '../lib/chart-url.js';
+import { loadTf } from '../lib/chart-tf.js';
+import { feedSymbol } from '../lib/pairs.js';
 
 /** Dashboard (09_ §3.1): Begrüßung, Live-Markt, offene Setups, Konto, System — alles echt. */
 
@@ -114,7 +118,20 @@ function fmtUptime(sec: number): string {
   return h > 0 ? `${h} h ${m} min` : `${m} min ${sec % 60} s`;
 }
 
-function PriceCard({ symbol, closes, stagger, footnote }: { symbol: string; closes: number[]; stagger: number; footnote: string }) {
+/** Preis + 24h-Änderung aus 1h-Kerzen ableiten (Fallback, wenn kein Live-Tick vorliegt). */
+function deriveFromCloses(closes: number[]): { price: number | null; change24h: number | null } {
+  if (closes.length === 0) return { price: null, change24h: null };
+  const price = closes[closes.length - 1]!;
+  const ref = closes.length >= 25 ? closes[closes.length - 25] : undefined; // ~24h zurück (1h-Kerzen)
+  return { price, change24h: ref && ref > 0 ? (price / ref - 1) * 100 : null };
+}
+
+/**
+ * Watchlist-Karte (P0.4): Favorit als Live-Preiskachel — klickbar direkt in den
+ * Chart (mit gemerktem Timeframe), Stern zum Entfernen. Preis/24h aus Live-Tick
+ * (BTC/ETH/SOL) oder ehrlich aus eigenen 1h-Kerzen abgeleitet.
+ */
+function WatchCard({ symbol, closes, stagger, onRemoved }: { symbol: string; closes: number[]; stagger: number; onRemoved: (symbol: string) => void }) {
   const { t } = useTranslation();
   const [tick, setTick] = useState<TickWithDirection | null>(() => getLatest().find((x) => x.symbol === symbol) ?? null);
   const [pulse, setPulse] = useState<'tick-pos' | 'tick-neg' | ''>('');
@@ -136,31 +153,37 @@ function PriceCard({ symbol, closes, stagger, footnote }: { symbol: string; clos
     };
   }, [symbol]);
 
-  const short = symbol.replace('/USDT', '');
+  const short = symbol.replace('/USDT', '').replace('/USDC', '');
+  const derived = deriveFromCloses(closes);
+  const price = tick?.price ?? derived.price;
+  const change = tick?.changePct24h ?? derived.change24h;
+
   return (
-    <div
-      className="glass glass-hover reveal p-6"
+    <a
+      href={buildChartUrl(symbol, loadTf(symbol) ?? '1h')}
+      className="glass glass-hover reveal block p-6"
       style={{ '--stagger': stagger } as React.CSSProperties}
       onMouseEnter={() => setRainHighlight(symbol)}
       onMouseLeave={() => setRainHighlight(null)}
+      title={t('dashboard.openChart', { symbol })}
     >
       <div className="flex items-baseline justify-between">
         <h2 className="text-[15px] font-medium">{short}</h2>
-        <span className="label">{symbol}</span>
+        <span className="flex items-center gap-1">
+          <FavStarSymbol symbol={symbol} initialFavorite onToggled={(fav) => { if (!fav) onRemoved(symbol); }} />
+          <span className="label">{symbol}</span>
+        </span>
       </div>
-      {tick ? (
+      {price != null ? (
         <>
           <p className={`num mt-3 text-[32px] leading-none font-semibold ${pulse}`}>
-            {fmtPrice(tick.price)} <span className="text-base font-normal" style={{ color: 'var(--color-mut)' }}>$</span>
+            {fmtPrice(price)} <span className="text-base font-normal" style={{ color: 'var(--color-mut)' }}>$</span>
           </p>
           <p
             className="num mt-2 text-sm"
-            style={{
-              color:
-                tick.changePct24h == null ? 'var(--color-mut)' : tick.changePct24h >= 0 ? 'var(--color-pos)' : 'var(--color-neg)',
-            }}
+            style={{ color: change == null ? 'var(--color-mut)' : change >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}
           >
-            {tick.changePct24h == null ? '24h —' : `${tick.changePct24h >= 0 ? '▲' : '▼'} ${Math.abs(tick.changePct24h).toFixed(2)} % · 24h`}
+            {change == null ? '24h —' : `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)} % · 24h`}
           </p>
         </>
       ) : (
@@ -170,9 +193,9 @@ function PriceCard({ symbol, closes, stagger, footnote }: { symbol: string; clos
       )}
       <div className="mt-5">
         <Sparkline closes={closes} id={`spark-${short}`} />
-        <p className="label mt-2">{footnote}</p>
+        <p className="label mt-2">{t('dashboard.candles72h')}</p>
       </div>
-    </div>
+    </a>
   );
 }
 
@@ -182,6 +205,7 @@ export function Dashboard() {
   const [account, setAccount] = useState<Account | null>(null);
   const [ingest, setIngest] = useState<IngestRow[] | null>(null);
   const [sparks, setSparks] = useState<Record<string, number[]>>({});
+  const [watch, setWatch] = useState<string[]>(SYMBOLS);
   const [signalRows, setSignalRows] = useState<SignalRow[] | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -211,13 +235,6 @@ export function Dashboard() {
         setAccount(acc);
         setUserName(me.name ?? me.email.split('@')[0] ?? null);
         setError(null);
-        const sparkEntries = await Promise.all(
-          SYMBOLS.map(async (symbol) => {
-            const candles = await trpc.market.ohlcv.query({ symbol, timeframe: '1h', limit: 72 });
-            return [symbol, candles.map((c) => c.close)] as const;
-          }),
-        );
-        if (!cancelled) setSparks(Object.fromEntries(sparkEntries));
       } catch (err) {
         if (isUnauthorized(err)) {
           await refreshSession();
@@ -236,6 +253,46 @@ export function Dashboard() {
       window.clearInterval(sigTimer);
     };
   }, []);
+
+  // Watchlist = Krypto-Favoriten des Users (Fallback: BTC/ETH/SOL), max. 8.
+  const loadWatch = useCallback(async () => {
+    try {
+      const favs = await trpc.product.favorites.query();
+      const pairs = favs.map((f) => feedSymbol(f.tradingPair)).filter((x): x is string => Boolean(x));
+      const uniq = [...new Set(pairs)].slice(0, 8);
+      setWatch(uniq.length > 0 ? uniq : SYMBOLS);
+    } catch {
+      setWatch(SYMBOLS);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadWatch();
+  }, [loadWatch]);
+
+  // Sparklines/Preise der Watchlist aus echten 1h-Kerzen; 60-s-Refresh.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSparks() {
+      const entries = await Promise.all(
+        watch.map(async (symbol) => {
+          try {
+            const candles = await trpc.market.ohlcv.query({ symbol, timeframe: '1h', limit: 72 });
+            return [symbol, candles.map((c) => c.close)] as const;
+          } catch {
+            return [symbol, [] as number[]] as const;
+          }
+        }),
+      );
+      if (!cancelled) setSparks(Object.fromEntries(entries));
+    }
+    void loadSparks();
+    const timer = window.setInterval(() => void loadSparks(), 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [watch]);
 
   const hour = new Date().getHours();
   const greeting = hour < 11 ? t('dashboard.greetingMorning') : hour < 18 ? t('dashboard.greetingDay') : t('dashboard.greetingEvening');
@@ -259,10 +316,14 @@ export function Dashboard() {
 
       {error && <ErrorBox message={error} />}
 
-      {/* Live-Preise — echte Binance-WebSocket-Daten */}
-      <section className="relative grid gap-5 md:grid-cols-3">
-        {SYMBOLS.map((symbol, i) => (
-          <PriceCard key={symbol} symbol={symbol} closes={sparks[symbol] ?? []} stagger={i + 1} footnote={t('dashboard.candles72h')} />
+      {/* Watchlist — Favoriten des Users (Fallback BTC/ETH/SOL), klickbar in den Chart */}
+      <section
+        className={`relative grid gap-5 ${
+          watch.length >= 4 ? 'md:grid-cols-2 xl:grid-cols-4' : watch.length === 3 ? 'md:grid-cols-3' : 'sm:grid-cols-2'
+        }`}
+      >
+        {watch.map((symbol, i) => (
+          <WatchCard key={symbol} symbol={symbol} closes={sparks[symbol] ?? []} stagger={i + 1} onRemoved={() => void loadWatch()} />
         ))}
       </section>
 

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { SignalChart } from './SignalChart.js';
+import { FavStarSymbol } from './FavStar.js';
+import { buildChartUrl } from '../lib/chart-url.js';
 
 export type SignalReview = {
   agent: string;
@@ -198,9 +200,11 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
           >
             {long ? 'LONG' : 'SHORT'}
           </span>
-          <span className="font-medium">
-            {signal.isFavorite && <span style={{ color: 'var(--color-warn)' }}>★ </span>}
-            {signal.symbol.replace('/USDT', '')}
+          <span className="flex items-center gap-1 font-medium">
+            <FavStarSymbol symbol={signal.symbol} initialFavorite={signal.isFavorite} />
+            <a href={buildChartUrl(signal.symbol, signal.timeframe)} className="hover:underline" title={t('chart.title')}>
+              {signal.symbol.replace('/USDT', '')}
+            </a>
           </span>
           <span className="label">{signal.timeframe} · {signal.setupType}</span>
           {signal.status === 'new' && exp && (

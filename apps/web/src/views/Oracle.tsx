@@ -5,6 +5,7 @@ import { Loading, NotConnected, PageHeader, Panel } from '../components/ui.js';
 import { AssetSelect, getSelectedAsset } from '../components/AssetSelect.js';
 import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
 import { AssetChart } from '../components/AssetChart.js';
+import { FavStarSymbol } from '../components/FavStar.js';
 import { Sparkline } from '../components/Sparkline.js';
 
 /**
@@ -57,7 +58,16 @@ export function Oracle() {
 
   return (
     <div>
-      <PageHeader title={t('oracle.title')} subtitle={t('oracle.subtitle')} right={<AssetSelect value={asset} onChange={setAsset} />} />
+      <PageHeader
+        title={t('oracle.title')}
+        subtitle={t('oracle.subtitle')}
+        right={
+          <div className="flex items-center gap-2">
+            <FavStarSymbol symbol={asset} />
+            <AssetSelect value={asset} onChange={setAsset} />
+          </div>
+        }
+      />
 
       {/* Asset-Kontext: Oracle bezieht sich auf GENAU dieses Asset */}
       <Panel label={t('assetCtx.title', { symbol: asset })} stagger={1} className="mb-5">

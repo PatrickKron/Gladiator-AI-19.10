@@ -176,7 +176,13 @@ export const it: Catalog = {
     failed: 'Accesso non riuscito.',
     subtitle: 'Gladiator AI · Centro di comando trading',
   },
+  fav: {
+    add: 'Aggiungi ai preferiti',
+    remove: 'Rimuovi dai preferiti',
+    noAsset: 'Non nel registro asset — non aggiungibile',
+  },
   dashboard: {
+    openChart: 'Apri grafico: {{symbol}}',
     greetingMorning: 'Buongiorno',
     greetingDay: 'Bentornato',
     greetingEvening: 'Buonasera',
