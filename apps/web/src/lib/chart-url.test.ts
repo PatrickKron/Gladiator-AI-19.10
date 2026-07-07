@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildChartUrl, isChartTf, parseChartHash } from './chart-url.js';
+import { buildAssetUrl, buildChartUrl, isChartTf, parseChartHash } from './chart-url.js';
 
 describe('buildChartUrl', () => {
   it('enkodiert den Slash im Symbol und hängt tf an', () => {
@@ -22,6 +22,18 @@ describe('parseChartHash', () => {
   });
   it('Roundtrip build→parse', () => {
     expect(parseChartHash(buildChartUrl('SOL/USDT', '1d'))).toEqual({ symbol: 'SOL/USDT', tf: '1d' });
+  });
+});
+
+describe('buildAssetUrl', () => {
+  it('lässt den Default-Tab (chart) weg', () => {
+    expect(buildAssetUrl('ETH/USDT', 'chart')).toBe('#/charts?symbol=ETH%2FUSDT');
+  });
+  it('hängt Nicht-Default-Tab an', () => {
+    expect(buildAssetUrl('ETH/USDT', 'makro')).toBe('#/charts?symbol=ETH%2FUSDT&tab=makro');
+  });
+  it('kombiniert tf und tab', () => {
+    expect(buildAssetUrl('BTC/USDT', 'risiko', '4h')).toBe('#/charts?symbol=BTC%2FUSDT&tf=4h&tab=risiko');
   });
 });
 

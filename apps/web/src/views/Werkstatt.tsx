@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
+import { buildChartUrl } from '../lib/chart-url.js';
 
 /**
  * Trading-Agenten-Werkstatt (Sub-Agenten): benutzerdefinierte, autonome Trading-
@@ -837,7 +838,14 @@ function AgentCard({ a, onChanged, onEdit }: { a: Agent; onChanged: () => void; 
             {t(`workshop.status_${a.status}`)}
           </span>
           <span className="text-sm font-medium">{a.name}</span>
-          <span className="label">{a.symbols.join(', ')}</span>
+          <span className="label flex flex-wrap gap-1.5">
+            {a.symbols.map((s, i) => (
+              <span key={s}>
+                <a href={buildChartUrl(s)} className="hover:underline" style={{ color: 'var(--color-cyan)' }} onClick={(e) => e.stopPropagation()}>{s}</a>
+                {i < a.symbols.length - 1 ? ',' : ''}
+              </span>
+            ))}
+          </span>
           <span className="label" style={{ color: 'var(--color-cyan)' }}>{t('common.paper')}</span>
           {a.analysisPrompt && (
             <span className="label rounded border px-1.5 py-0.5" style={{ borderColor: 'rgba(139,92,246,0.5)', color: 'var(--color-violet)' }} title={a.analysisPrompt}>

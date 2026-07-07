@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeGrs, deriveGrsFromSeries, type MacroPoint } from './grs.js';
+import { computeGrs, deriveGrsFromSeries, grsHistory, type MacroPoint } from './grs.js';
 
 /**
  * GRS (Global Risk Score, 08_/09_ Aegis): dokumentierte, deterministische
@@ -58,5 +58,42 @@ describe('deriveGrsFromSeries (Zeitreihen → Inputs)', () => {
 
   it('zu wenig Historie (< 21 Punkte) → ehrlich null, kein geratener GRS', () => {
     expect(deriveGrsFromSeries(mk([18, 18]), mk([100, 100]), mk([4, 4]))).toBeNull();
+  });
+});
+
+describe('grsHistory (P2.11 — Score-Verlauf, gleiche Formel je Stichtag)', () => {
+  const mk = (values: number[]): MacroPoint[] =>
+    values.map((v, i) => ({ ts: new Date(Date.UTC(2026, 5, 1) + i * 86_400_000), value: v }));
+
+  it('liefert bis zu `days` Punkte, aufsteigend nach Zeit', () => {
+    const n = 30;
+    const vix = mk(Array.from({ length: n }, () => 18));
+    const dxy = mk(Array.from({ length: n }, (_, i) => 100 + i * 0.05));
+    const us10y = mk(Array.from({ length: n }, (_, i) => 4 + i * 0.005));
+    const hist = grsHistory(vix, dxy, us10y, 5);
+    expect(hist.length).toBe(5);
+    // aufsteigend nach Zeit
+    for (let i = 1; i < hist.length; i++) {
+      expect(hist[i]!.ts.getTime()).toBeGreaterThan(hist[i - 1]!.ts.getTime());
+    }
+    // jeder Score ist der deterministische GRS as-of diesem Tag (0..100)
+    for (const h of hist) {
+      expect(h.score).toBeGreaterThanOrEqual(0);
+      expect(h.score).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('der letzte History-Punkt entspricht dem aktuellen GRS', () => {
+    const n = 25;
+    const vix = mk(Array.from({ length: n }, () => 20));
+    const dxy = mk(Array.from({ length: n }, (_, i) => 100 + i * 0.1));
+    const us10y = mk(Array.from({ length: n }, (_, i) => 4 + i * 0.01));
+    const hist = grsHistory(vix, dxy, us10y, 3);
+    const current = deriveGrsFromSeries(vix, dxy, us10y)!;
+    expect(hist[hist.length - 1]!.score).toBeCloseTo(current.score, 6);
+  });
+
+  it('zu wenig Historie → leeres Ergebnis (kein geratener Verlauf)', () => {
+    expect(grsHistory(mk([18, 18]), mk([100, 100]), mk([4, 4]), 30)).toEqual([]);
   });
 });

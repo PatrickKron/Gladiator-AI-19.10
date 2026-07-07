@@ -6,6 +6,8 @@ import {
   fredConfigured,
   getDerivativesSnapshot,
   getMacroSnapshot,
+  getMacroSeries,
+  grsHistory,
   getStockQuotes,
   latestNews,
   upcomingEvents,
@@ -121,6 +123,20 @@ export const marketRouter = router({
         us10y: snap.series.us10y.slice(-90),
       },
     };
+  }),
+
+  /**
+   * GRS-Verlauf der letzten 30 Handelstage (P2.11) — je Stichtag mit derselben
+   * dokumentierten Formel aus echten VIX/DXY/US10Y-Serien berechnet. Zu wenig
+   * Historie ⇒ leeres Ergebnis (kein geratener Verlauf).
+   */
+  grsHistory: protectedProcedure.query(async ({ ctx }) => {
+    const [vix, dxy, us10y] = await Promise.all([
+      getMacroSeries(ctx.db, 'VIX', 60),
+      getMacroSeries(ctx.db, 'DXY', 60),
+      getMacroSeries(ctx.db, 'US10Y', 60),
+    ]);
+    return grsHistory(vix, dxy, us10y, 30).map((p) => ({ ts: p.ts.toISOString(), score: Math.round(p.score * 10) / 10 }));
   }),
 
   /**

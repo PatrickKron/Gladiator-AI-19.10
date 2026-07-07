@@ -25,28 +25,26 @@ export const NAV_GROUPS: NavGroup[] = [
     key: 'nav.groupCommand',
     items: [
       { hash: '#/', key: 'nav.dashboard', icon: ico('M3 12l9-8 9 8M5 10v10h5v-6h4v6h5V10') },
+      { hash: '#/charts', key: 'nav.assets', icon: ico('M4 19V5m0 14h16M8 14l3-3 2 2 4-5') },
       { hash: '#/signals', key: 'nav.signals', icon: ico('M3 12h4l3-8 4 16 3-8h4') },
       { hash: '#/trading', key: 'nav.trading', icon: ico('M4 19V5m0 14h16M8 15l3-4 3 2 5-7') },
-      { hash: '#/charts', key: 'nav.charts', icon: ico('M4 19V5m0 14h16M8 14l3-3 2 2 4-5') },
-      { hash: '#/aegis', key: 'nav.aegis', icon: ico('M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z') },
     ],
   },
   {
     key: 'nav.groupIntel',
     items: [
-      { hash: '#/agenten', key: 'nav.agents', icon: ico('M12 8a4 4 0 100-8 4 4 0 000 8zm-7 13a7 7 0 0114 0M2 21h20') },
-      { hash: '#/werkstatt', key: 'nav.workshop', icon: ico('M14.7 6.3a4 4 0 00-5.4 5.3L3 18v3h3l6.9-6.9a4 4 0 005.3-5.4l-2.6 2.6-2.3-.6-.6-2.3z') },
-      { hash: '#/oracle', key: 'nav.oracle', icon: ico('M12 21a9 9 0 100-18 9 9 0 000 18zm0-4a5 5 0 100-10 5 5 0 000 10zm0-3a2 2 0 100-4') },
       { hash: '#/labor', key: 'nav.lab', icon: ico('M9 3v6l-5 9a2 2 0 002 3h12a2 2 0 002-3l-5-9V3M7 3h10') },
       { hash: '#/strategien', key: 'nav.builder', icon: ico('M4 6h16M4 12h10M4 18h7m5-3l4 4m0-4l-4 4') },
+      { hash: '#/werkstatt', key: 'nav.workshop', icon: ico('M14.7 6.3a4 4 0 00-5.4 5.3L3 18v3h3l6.9-6.9a4 4 0 005.3-5.4l-2.6 2.6-2.3-.6-.6-2.3z') },
+      { hash: '#/agenten', key: 'nav.agents', icon: ico('M12 8a4 4 0 100-8 4 4 0 000 8zm-7 13a7 7 0 0114 0M2 21h20') },
     ],
   },
   {
     key: 'nav.groupOps',
     items: [
-      { hash: '#/pakete', key: 'nav.packages', icon: ico('M21 8l-9-5-9 5 9 5 9-5zm-18 0v8l9 5 9-5V8M12 13v8') },
       { hash: '#/kalender', key: 'nav.calendar', icon: ico('M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2zm3-3v4m8-4v4M3 10h18') },
       { hash: '#/magazine', key: 'nav.magazine', icon: ico('M4 4h11a3 3 0 013 3v13H7a3 3 0 01-3-3V4zm14 4h2v12a2 2 0 01-2 2M8 8h6M8 12h6') },
+      { hash: '#/pakete', key: 'nav.packages', icon: ico('M21 8l-9-5-9 5 9 5 9-5zm-18 0v8l9 5 9-5V8M12 13v8') },
     ],
   },
   {

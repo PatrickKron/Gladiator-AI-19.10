@@ -5,6 +5,7 @@ import { Empty, ErrorBox, Loading, PageHeader, Panel, StatusDot } from '../compo
 import { SizingCalc } from '../components/SizingCalc.js';
 import { Sparkline } from '../components/Sparkline.js';
 import { buildTabHash, parseTab } from '../lib/tab-hash.js';
+import { buildChartUrl } from '../lib/chart-url.js';
 
 /** Tabs der Trading-Seite (P1.8). */
 const TABS = ['positionen', 'historie', 'risiko', 'alerts', 'performance'] as const;
@@ -591,7 +592,9 @@ export function Trading() {
               <tbody className="num">
                 {positions.map((p) => (
                   <tr key={p.id} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
-                    <td className="py-1.5 pr-3">{p.symbol}</td>
+                    <td className="py-1.5 pr-3">
+                      <a href={buildChartUrl(p.symbol)} className="hover:underline" style={{ color: 'var(--color-cyan)' }}>{p.symbol}</a>
+                    </td>
                     <td className="py-1.5 pr-3" style={{ color: p.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>
                       {p.direction.toUpperCase()}
                     </td>
@@ -677,7 +680,9 @@ export function Trading() {
                     <td className="py-1.5 pr-3">
                       {tr.exitTs ? new Date(tr.exitTs).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                     </td>
-                    <td className="py-1.5 pr-3">{tr.symbol}</td>
+                    <td className="py-1.5 pr-3">
+                      <a href={buildChartUrl(tr.symbol)} className="hover:underline" style={{ color: 'var(--color-cyan)' }}>{tr.symbol}</a>
+                    </td>
                     <td className="py-1.5 pr-3" style={{ color: tr.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>
                       {tr.direction.toUpperCase()}
                     </td>

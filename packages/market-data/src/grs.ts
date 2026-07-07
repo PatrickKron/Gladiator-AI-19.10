@@ -97,3 +97,19 @@ export function deriveGrsFromSeries(vix: MacroPoint[], dxy: MacroPoint[], us10y:
 
   return computeGrs({ vix: last(vix), dxyChangePct20d, us10yChangeBp20d });
 }
+
+/**
+ * GRS-Verlauf der letzten `days` Handelstage (P2.11): rechnet den Score je Tag
+ * mit derselben Ableitung wie aktuell — kein Fake, gleiche Formel, nur „as of"
+ * je Stichtag. Aufsteigend nach Zeit; Tage ohne ausreichende Historie entfallen.
+ */
+export function grsHistory(vix: MacroPoint[], dxy: MacroPoint[], us10y: MacroPoint[], days = 30): { ts: Date; score: number }[] {
+  const out: { ts: Date; score: number }[] = [];
+  const maxK = Math.min(vix.length, dxy.length, us10y.length);
+  for (let k = 0; k < Math.min(days, maxK); k++) {
+    const endVix = vix.length - k;
+    const g = deriveGrsFromSeries(vix.slice(0, endVix), dxy.slice(0, dxy.length - k), us10y.slice(0, us10y.length - k));
+    if (g) out.push({ ts: vix[endVix - 1]!.ts, score: g.score });
+  }
+  return out.reverse();
+}

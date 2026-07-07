@@ -11,11 +11,24 @@ export function isChartTf(v: string | null | undefined): v is ChartTf {
   return v != null && (CHART_TFS as readonly string[]).includes(v);
 }
 
+/** Tabs der zusammengeführten Asset-Detailseite (Charts+Oracle+Aegis, P2.9). */
+export const ASSET_TABS = ['chart', 'kontext', 'makro', 'risiko'] as const;
+export type AssetTab = (typeof ASSET_TABS)[number];
+
 /** Baut das Chart-Hash-Ziel; Symbol wird URL-enkodiert (Slash → %2F). */
 export function buildChartUrl(symbol: string, tf?: string | null): string {
   const params = new URLSearchParams();
   params.set('symbol', symbol);
   if (tf) params.set('tf', tf);
+  return `#/charts?${params.toString()}`;
+}
+
+/** Wie buildChartUrl, aber mit Tab (chart = Default, wird weggelassen). */
+export function buildAssetUrl(symbol: string, tab?: string | null, tf?: string | null): string {
+  const params = new URLSearchParams();
+  params.set('symbol', symbol);
+  if (tf) params.set('tf', tf);
+  if (tab && tab !== 'chart') params.set('tab', tab);
   return `#/charts?${params.toString()}`;
 }
 
