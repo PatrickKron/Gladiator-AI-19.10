@@ -53,6 +53,49 @@ export const productRouter = router({
       return rows.map((r) => ({ ...r, isFavorite: favSet.has(r.id) }));
     }),
 
+  /**
+   * ALLE Assets (Command-Palette P1.5): einmalig geladen, client-seitig gefiltert.
+   * `isFavorite` (Stern-Zustand) und `hasChart` (echte Binance-Kerzen vorhanden →
+   * Chart öffenbar) je Zeile — Nicht-Krypto/ohne Kerzen wird ehrlich markiert.
+   */
+  allAssets: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await ctx.db
+      .select({
+        id: assets.id,
+        ticker: assets.ticker,
+        name: assets.name,
+        assetType: assets.assetType,
+        tradingPair: assets.tradingPair,
+      })
+      .from(assets)
+      .where(eq(assets.isActive, true))
+      .orderBy(asc(assets.ticker));
+
+    const favs = await ctx.db
+      .select({ assetId: assetFavorites.assetId })
+      .from(assetFavorites)
+      .where(eq(assetFavorites.userId, ctx.user.id));
+    const favSet = new Set(favs.map((f) => f.assetId));
+
+    // Symbole mit echten Krypto-Kerzen (Chart öffenbar über die Charts-Seite).
+    const chartRows = await ctx.db.execute(sql`SELECT DISTINCT symbol FROM ohlcv WHERE venue = 'binance'`);
+    const chartSet = new Set((chartRows.rows as { symbol: string }[]).map((r) => r.symbol.toUpperCase()));
+
+    return rows.map((r) => {
+      const pair = normalizeTradingPair(r.tradingPair);
+      return {
+        id: r.id,
+        ticker: r.ticker,
+        name: r.name,
+        assetType: r.assetType,
+        tradingPair: r.tradingPair,
+        symbol: pair, // normalisiertes Handelspaar ('BTC/USDT') oder null (Nicht-Krypto)
+        isFavorite: favSet.has(r.id),
+        hasChart: pair != null && chartSet.has(pair),
+      };
+    });
+  }),
+
   /** Stern-Favoriten (Patrick-Lücke 5): steuern Scan, Signal-Filter und Dashboard-Briefing. */
   toggleFavorite: protectedProcedure
     .input(z.object({ assetId: z.number().int() }))

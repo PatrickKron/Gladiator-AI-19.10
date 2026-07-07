@@ -3,6 +3,14 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { PageHeader } from '../components/ui.js';
 import { BacktestChart } from '../components/BacktestChart.js';
+import { loadLabConfig, saveLabConfig, type LabConfig } from '../lib/lab-config.js';
+
+/** Schnellstart-Vorlagen (P1.6) — ein Klick füllt die Konfiguration. */
+const QUICK_TEMPLATES: { symbol: string; timeframe: '15m' | '1h' | '4h' | '1d'; setupType: 'scalp' | 'swing' | 'position'; riskPct: number }[] = [
+  { symbol: 'BTC/USDT', timeframe: '1h', setupType: 'swing', riskPct: 1 },
+  { symbol: 'ETH/USDT', timeframe: '15m', setupType: 'scalp', riskPct: 0.5 },
+  { symbol: 'BTC/USDT', timeframe: '4h', setupType: 'position', riskPct: 1 },
+];
 
 /**
  * Strategie-Labor (09_ §3.5/§3.15): Backtests auf ECHTEN Kerzen, alles netto.
@@ -202,6 +210,15 @@ export function Labor() {
 
   const [busy, setBusy] = useState<'bt' | 'wf' | 'save' | 'cal' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lastConfig] = useState<LabConfig | null>(() => loadLabConfig());
+
+  function applyConfig(c: { symbol: string; timeframe: string; setupType: string; riskPct: number }) {
+    setStrategyId('builtin');
+    setSymbol(c.symbol as typeof symbol);
+    setTimeframe(c.timeframe as typeof timeframe);
+    setSetupType(c.setupType as typeof setupType);
+    setRiskPct(c.riskPct);
+  }
   const [run, setRun] = useState<RunResult | null>(null);
   const [runWindow, setRunWindow] = useState<{ from: string; to: string } | null>(null);
   const [selectedTrade, setSelectedTrade] = useState<number | null>(null);
@@ -234,6 +251,7 @@ export function Labor() {
   async function onRun() {
     setBusy('bt');
     setError(null);
+    saveLabConfig({ symbol, timeframe, setupType, riskPct }); // „Letzte Konfiguration" merken
     try {
       const fromIso = new Date(from).toISOString();
       const toIso = new Date(`${to}T23:59:59Z`).toISOString();
@@ -381,6 +399,30 @@ export function Labor() {
       {/* ── Lauf-Konfiguration ── */}
       <section className="glass reveal p-6" style={{ '--stagger': 1 } as React.CSSProperties}>
         <h2 className="label">Backtest · netto nach Gebühren/Slippage/Funding</h2>
+
+        {/* Schnellstart-Vorlagen (P1.6): ein Klick füllt die Konfiguration */}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="label">{t('lab.quickStart')}:</span>
+          {QUICK_TEMPLATES.map((tpl, i) => (
+            <button
+              key={i}
+              onClick={() => applyConfig(tpl)}
+              className="num rounded-[0.625rem] border px-3 py-1.5 text-xs"
+              style={{ borderColor: 'rgba(139,92,246,0.4)', color: 'var(--color-violet)' }}
+            >
+              {tpl.setupType} · {tpl.symbol} · {tpl.timeframe}
+            </button>
+          ))}
+          {lastConfig && (
+            <button
+              onClick={() => applyConfig(lastConfig)}
+              className="rounded-[0.625rem] border px-3 py-1.5 text-xs"
+              style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
+            >
+              ↻ {t('lab.lastConfig')}
+            </button>
+          )}
+        </div>
         {strategyId !== 'builtin' && (
           <p className="mt-2 text-xs" style={{ color: 'var(--color-violet)' }}>{t('lab.dslNote')}</p>
         )}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PageHeader, Panel } from '../components/ui.js';
 import { AssetSelect, getSelectedAsset, setSelectedAsset } from '../components/AssetSelect.js';
@@ -6,6 +6,7 @@ import { AssetChart } from '../components/AssetChart.js';
 import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
 import { FavStarSymbol } from '../components/FavStar.js';
 import { parseChartHash } from '../lib/chart-url.js';
+import { saveTf } from '../lib/chart-tf.js';
 
 /**
  * Charts (Krypto-Charting): interaktiver Voll-Chart mit allen Indikatoren +
@@ -25,6 +26,20 @@ export function Charts() {
     return getSelectedAsset();
   });
   const ctx = useAssetContext(asset);
+
+  // Auf Deep-Link-Wechsel reagieren, auch wenn Charts schon offen ist (Command-Palette).
+  useEffect(() => {
+    const onHash = () => {
+      const p = parseChartHash(window.location.hash);
+      if (p.symbol && p.symbol !== asset) {
+        if (p.tf) saveTf(p.symbol, p.tf);
+        setSelectedAsset(p.symbol);
+        setAsset(p.symbol);
+      }
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, [asset]);
 
   return (
     <div>

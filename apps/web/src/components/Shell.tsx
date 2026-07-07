@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { logout, trpc } from '../api.js';
 import { ensurePriceStream, getFeedState, onFeedState, type FeedState } from '../lib/prices.js';
 import { LANGUAGES, setLanguage, storedLanguage, type LanguageCode } from '../i18n/index.js';
+import { CommandPalette } from './CommandPalette.js';
 
 /**
  * App-Shell (09_ §2): Sidebar-Navigation in Gruppen, Topbar mit Wortmarke,
@@ -103,6 +104,19 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [killSwitch, setKillSwitch] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // Command-Palette (P1.5): global per Cmd/Ctrl+K öffnen.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -232,6 +246,17 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
             )}
           </div>
           <div className="flex items-center gap-4">
+            <button
+              onClick={() => setPaletteOpen(true)}
+              className="flex items-center gap-1.5 rounded-[0.625rem] border px-2.5 py-1.5 text-xs transition-colors"
+              style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
+              title={t('palette.button')}
+              aria-label={t('palette.button')}
+            >
+              {ico('M21 21l-4.3-4.3M11 18a7 7 0 100-14 7 7 0 000 14z')}
+              <span className="hidden sm:inline">{t('palette.button')}</span>
+              <span className="num label hidden md:inline">⌘K</span>
+            </button>
             <FeedBadge />
             <LanguageSwitch />
             <button
@@ -250,6 +275,8 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
           {t('common.disclaimer')}
         </footer>
       </div>
+
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </div>
   );
 }

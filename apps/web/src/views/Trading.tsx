@@ -4,6 +4,10 @@ import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel, StatusDot } from '../components/ui.js';
 import { SizingCalc } from '../components/SizingCalc.js';
 import { Sparkline } from '../components/Sparkline.js';
+import { buildTabHash, parseTab } from '../lib/tab-hash.js';
+
+/** Tabs der Trading-Seite (P1.8). */
+const TABS = ['positionen', 'historie', 'risiko', 'alerts', 'performance'] as const;
 
 /**
  * Trading & Börsen (09_ §3.9): Venues mit Verbindungsstatus, Paper-Konto,
@@ -349,6 +353,12 @@ export function Trading() {
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
+  const [tab, setTab] = useState<string>(() => parseTab(window.location.hash, TABS, 'positionen'));
+
+  function changeTab(tb: string) {
+    setTab(tb);
+    window.history.replaceState(null, '', buildTabHash('#/trading', tb));
+  }
 
   async function saveNote(tradeId: string) {
     try {
@@ -455,7 +465,22 @@ export function Trading() {
         </Panel>
       </section>
 
+      {/* Tab-Leiste (P1.8) — Kill-Switch bleibt oben, immer sichtbar */}
+      <div className="mt-5 flex gap-1 overflow-x-auto border-b" style={{ borderColor: 'var(--color-line)' }}>
+        {TABS.map((tb) => (
+          <button
+            key={tb}
+            onClick={() => changeTab(tb)}
+            className="shrink-0 border-b-2 px-4 py-2 text-sm transition-colors"
+            style={tab === tb ? { borderColor: 'var(--color-cyan)', color: 'var(--color-ink)' } : { borderColor: 'transparent', color: 'var(--color-mut)' }}
+          >
+            {t(`trading.tab_${tb}`)}
+          </button>
+        ))}
+      </div>
+
       {/* Venues + Risk-Cockpit */}
+      {tab === 'risiko' && (
       <section className="mt-5 grid gap-5 lg:grid-cols-2">
         <Panel label={t('trading.venuesTitle')} stagger={5}>
           <ul className="mt-4 space-y-3">
@@ -540,8 +565,10 @@ export function Trading() {
           )}
         </Panel>
       </section>
+      )}
 
       {/* Offene Positionen */}
+      {tab === 'positionen' && (
       <Panel label={t('trading.positionsTitle')} stagger={7} className="mt-5">
         {positions === null ? (
           <Loading />
@@ -585,8 +612,10 @@ export function Trading() {
           </div>
         )}
       </Panel>
+      )}
 
       {/* Schutz-Orders */}
+      {tab === 'positionen' && (
       <Panel label={t('trading.protection')} stagger={8} className="mt-5">
         {prot.length === 0 ? (
           <Empty text={t('common.empty')} />
@@ -621,8 +650,10 @@ export function Trading() {
           </div>
         )}
       </Panel>
+      )}
 
       {/* Historie (netto) */}
+      {tab === 'historie' && (
       <Panel label={t('trading.historyTitle')} stagger={9} className="mt-5">
         {history.length === 0 ? (
           <Empty text={t('trading.noHistory')} />
@@ -679,14 +710,12 @@ export function Trading() {
           </div>
         )}
       </Panel>
+      )}
 
-      <SizingCalc />
-
-      <AlertsPanel />
-
-      <PerformancePanel />
-
-      <LiveApprovals />
+      {tab === 'risiko' && <SizingCalc />}
+      {tab === 'alerts' && <AlertsPanel />}
+      {tab === 'performance' && <PerformancePanel />}
+      {tab === 'risiko' && <LiveApprovals />}
     </div>
   );
 }
