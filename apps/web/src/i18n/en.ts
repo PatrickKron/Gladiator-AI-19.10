@@ -291,6 +291,13 @@ export const en: Catalog = {
     noPrice: 'no live quote',
     favTooltip: 'Favorite (star): feeds scan, signal priority and dashboard briefing',
     favInfo: '★ Favorites drive the system: crypto favorites get real candles backfilled automatically, are picked up by the 5-min scan and watched in the dashboard briefing.',
+    onlyFavorites: 'Favorites only',
+    sortBy: 'Sort:',
+    sortDefault: 'Category (default)',
+    sortName: 'Name',
+    sortAssets: 'Asset count',
+    shownCount: '{{shown}} of {{total}} packages',
+    noneFavorites: 'No packages with favorited assets. Star some assets first.',
   },
   oracle: {
     title: 'Oracle · Macro synapse',
@@ -342,6 +349,8 @@ export const en: Catalog = {
     strategyLabel: 'Strategy',
     builtinSmc: 'SMC Core (built-in)',
     dslNote: 'DSL strategy: symbol/timeframe/setup come from the strategy definition.',
+    exportCsv: 'Export CSV',
+    sortHint: 'Click to sort (ascending/descending)',
     title: 'Strategy lab',
   },
   builder: {

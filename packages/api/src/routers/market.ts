@@ -21,6 +21,8 @@ import {
   TWELVEDATA_VENUE,
   ingestYahooChart,
   YAHOO_VENUE,
+  SUPPORTED_TIMEFRAMES,
+  orderTimeframes,
 } from '@gladiator/market-data';
 import { noTradeWindowFor } from '@gladiator/risk';
 import { scanUniverse } from '@gladiator/jobs';
@@ -35,6 +37,13 @@ import {
   rsi,
 } from '@gladiator/strategy-engine';
 import { protectedProcedure, router } from '../trpc.js';
+
+/**
+ * Alle unterstützten Chart-Timeframes (Feature A) als zod-Enum — für chartData,
+ * chartCandles und ohlcv. Die UI zeigt je Asset nur die, für die echte Kerzen
+ * existieren (siehe availableTimeframes).
+ */
+const timeframeEnum = z.enum(SUPPORTED_TIMEFRAMES);
 
 /** Indikator-Serie (index-basiert) → zeitgestempelte, null-freie Punkte für den Chart. */
 function toTimed(times: number[], values: (number | null)[]): { time: number; value: number }[] {
@@ -91,11 +100,27 @@ export const marketRouter = router({
     .input(
       z.object({
         symbol: z.string().min(1),
-        timeframe: z.enum(['1h', '4h', '1d']),
+        timeframe: timeframeEnum,
         limit: z.number().int().min(2).max(500).default(168),
       }),
     )
     .query(({ ctx, input }) => getOhlcv(ctx.db, input)),
+
+  /**
+   * Verfügbare Timeframes je Asset (Feature A): exakt die unterstützten TFs, für
+   * die ECHTE Kerzen in der DB liegen (venue-spezifisch), in kanonischer
+   * Reihenfolge. Basis für die TF-Buttons — es wird nichts angeboten, wofür
+   * keine Kerzen existieren (eiserne Regel: nichts erfunden).
+   */
+  availableTimeframes: protectedProcedure
+    .input(z.object({ symbol: z.string().min(1), venue: z.string().optional() }))
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db.execute(sql`
+        SELECT DISTINCT timeframe FROM ohlcv
+        WHERE symbol = ${input.symbol.toUpperCase()} AND venue = ${input.venue ?? 'binance'}
+      `);
+      return orderTimeframes((rows.rows as { timeframe: string }[]).map((r) => r.timeframe));
+    }),
 
   /** Ehrliche Übersicht: wie viele echte Kerzen liegen je Symbol/Timeframe in der DB. */
   ingestStatus: protectedProcedure.query(async ({ ctx }) => {
@@ -300,7 +325,7 @@ export const marketRouter = router({
     .input(
       z.object({
         symbol: z.string().min(1),
-        timeframe: z.enum(['15m', '1h', '4h', '1d']),
+        timeframe: timeframeEnum,
         limit: z.number().int().min(50).max(500).default(200),
         venue: z.string().optional(),
       }),
@@ -351,7 +376,7 @@ export const marketRouter = router({
     .input(
       z.object({
         symbol: z.string().min(1),
-        timeframe: z.enum(['15m', '1h', '4h', '1d']),
+        timeframe: timeframeEnum,
         limit: z.number().int().min(60).max(1000).default(400),
         /** Kerzenquelle: 'binance' (Krypto, Default) oder 'yahoo'/'twelvedata' (Aktien/ETF). */
         venue: z.string().optional(),

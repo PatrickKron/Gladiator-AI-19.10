@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { PageHeader } from '../components/ui.js';
 import { BacktestChart } from '../components/BacktestChart.js';
 import { loadLabConfig, saveLabConfig, type LabConfig } from '../lib/lab-config.js';
+import { CHART_TFS, type ChartTf } from '../lib/chart-url.js';
 
 /** Schnellstart-Vorlagen (P1.6) — ein Klick füllt die Konfiguration. */
-const QUICK_TEMPLATES: { symbol: string; timeframe: '15m' | '1h' | '4h' | '1d'; setupType: 'scalp' | 'swing' | 'position'; riskPct: number }[] = [
+const QUICK_TEMPLATES: { symbol: string; timeframe: ChartTf; setupType: 'scalp' | 'swing' | 'position'; riskPct: number }[] = [
   { symbol: 'BTC/USDT', timeframe: '1h', setupType: 'swing', riskPct: 1 },
   { symbol: 'ETH/USDT', timeframe: '15m', setupType: 'scalp', riskPct: 0.5 },
   { symbol: 'BTC/USDT', timeframe: '4h', setupType: 'position', riskPct: 1 },
@@ -30,6 +31,9 @@ type Metrics = {
   sharpe: number | null;
   sortino: number | null;
 };
+/** Sortierbare Trade-Spalten (Feature C). */
+type TradeSortKey = 'r' | 'net' | 'mfe' | 'mae';
+
 type RunResult = Awaited<ReturnType<typeof trpc.lab.runBacktest.mutate>>;
 type WfResult = Awaited<ReturnType<typeof trpc.lab.runWalkForward.mutate>>;
 type RunRow = Awaited<ReturnType<typeof trpc.lab.runs.query>>[number];
@@ -70,7 +74,10 @@ function BucketTable({ title, rows }: { title: string; rows: [string, Bucket][] 
   );
 }
 
-const TIMEFRAMES = ['15m', '1h', '4h', '1d'] as const;
+/** Alle unterstützten Timeframes (Feature A). Der Backtest verlangt ≥250 echte
+ *  Kerzen; fehlen sie (z. B. 1w/1M mit kurzer Historie), meldet das Backend das
+ *  ehrlich als Fehler — es wird nichts geraten. */
+const TIMEFRAMES = CHART_TFS;
 const SETUPS = ['scalp', 'swing', 'position'] as const;
 
 function fmt(n: number | null | undefined, digits = 2): string {
@@ -222,6 +229,8 @@ export function Labor() {
   const [run, setRun] = useState<RunResult | null>(null);
   const [runWindow, setRunWindow] = useState<{ from: string; to: string } | null>(null);
   const [selectedTrade, setSelectedTrade] = useState<number | null>(null);
+  // Trades-Tabelle sortierbar (Feature C) — Default null = chronologisch wie geliefert.
+  const [tradeSort, setTradeSort] = useState<{ key: TradeSortKey; dir: 'asc' | 'desc' } | null>(null);
   const [wf, setWf] = useState<WfResult | null>(null);
   const [runs, setRuns] = useState<RunRow[]>([]);
   const [versions, setVersions] = useState<VersionRow[]>([]);
@@ -288,8 +297,8 @@ export function Labor() {
         setupType,
         from: new Date(from).toISOString(),
         to: new Date(`${to}T23:59:59Z`).toISOString(),
-        isBars: timeframe === '15m' ? 4000 : timeframe === '1h' ? 2000 : 800,
-        oosBars: timeframe === '15m' ? 1000 : timeframe === '1h' ? 500 : 200,
+        isBars: ['5m', '15m'].includes(timeframe) ? 4000 : ['30m', '1h'].includes(timeframe) ? 2000 : 800,
+        oosBars: ['5m', '15m'].includes(timeframe) ? 1000 : ['30m', '1h'].includes(timeframe) ? 500 : 200,
         grid,
         riskPctPerTrade: riskPct,
       });
@@ -391,6 +400,75 @@ export function Labor() {
 
   const m = run?.metrics as Metrics | undefined;
   const compareRows = runs.filter((r) => compare.includes(r.id));
+
+  // ── Feature C: Trades sortierbar (Klick auf Header). Der Original-Index `i`
+  // bleibt erhalten (für Chart-Fokus + Zeilennummer); null = chronologisch.
+  function toggleTradeSort(key: TradeSortKey) {
+    setTradeSort((prev) => (prev?.key === key ? { key, dir: prev.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' }));
+  }
+  const sortArrow = (key: TradeSortKey) => (tradeSort?.key === key ? (tradeSort.dir === 'asc' ? ' ▲' : ' ▼') : '');
+  const tradeRows = useMemo(() => {
+    const base = (run?.trades ?? []).map((t, i) => ({ t, i }));
+    if (!tradeSort) return base;
+    const pick = (x: (typeof base)[number]) =>
+      tradeSort.key === 'r' ? x.t.rMultiple : tradeSort.key === 'net' ? x.t.netPnl : tradeSort.key === 'mfe' ? x.t.mfeR : x.t.maeR;
+    const sign = tradeSort.dir === 'asc' ? 1 : -1;
+    return [...base].sort((a, b) => (pick(a) - pick(b)) * sign);
+  }, [run?.trades, tradeSort]);
+
+  /**
+   * Feature D: Backtest-Trades als CSV herunterladen — rein client-seitig
+   * (Blob + anchor.click), keine Server-Runde. Metriken stehen als
+   * Kommentarzeilen (`#`) oben; Zahlen mit Punkt-Dezimal (maschinenlesbar).
+   * Exportiert wird die aktuell angezeigte (ggf. sortierte) Reihenfolge.
+   */
+  function exportTradesCsv() {
+    if (!run || !m) return;
+    const parts = run.raps.clusterKey.split('|');
+    const csvSymbol = parts[1] ?? symbol;
+    const csvTf = parts[3] ?? timeframe;
+    const esc = (v: string | number): string => {
+      const s = String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const pct = (x: number | null) => (x === null ? '' : (x * 100).toFixed(2));
+    const comments = [
+      `# Gladiator AI · Backtest-Export`,
+      `# Symbol: ${csvSymbol} · Timeframe: ${csvTf} · Zeitraum: ${from} bis ${to}`,
+      `# Netto-PnL $: ${m.netPnl} · Netto-Return %: ${m.netReturnPct} · Max-Drawdown %: ${m.maxDrawdownPct}`,
+      `# WinRate %: ${pct(m.winRate)} · Profit-Factor: ${m.profitFactor ?? ''} · Expectancy R: ${m.expectancy ?? ''}`,
+      `# Sharpe: ${m.sharpe ?? ''} · Sortino: ${m.sortino ?? ''} · Trades: ${m.tradeCount}`,
+    ];
+    const header = ['#', 'Entry-Zeit', 'Direction', 'Symbol', 'TF', 'R', 'Netto $', 'MFE R', 'MAE R', 'Kosten $', 'Exit-Zeit'];
+    const lines = tradeRows.map(({ t, i }) =>
+      [
+        i + 1,
+        new Date(t.entryTs).toISOString(),
+        t.direction,
+        csvSymbol,
+        csvTf,
+        t.rMultiple,
+        t.netPnl,
+        t.mfeR,
+        t.maeR,
+        Math.round((t.fees + t.funding) * 100) / 100,
+        new Date(t.exitTs).toISOString(),
+      ]
+        .map(esc)
+        .join(','),
+    );
+    const csv = [...comments, header.map(esc).join(','), ...lines].join('\n');
+    // UTF-8-BOM voran, damit Excel Umlaute/Sonderzeichen korrekt erkennt.
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `backtest_${csvSymbol.replace('/', '-')}_${csvTf}_${from}_${to}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div>
@@ -661,7 +739,17 @@ export function Labor() {
           </section>
 
           <section className="glass mt-6 p-6">
-            <h2 className="label">Trades ({run.trades.length}) · inkl. MFE/MAE in R · Zeile anklicken → im Chart fokussieren</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="label">Trades ({run.trades.length}) · inkl. MFE/MAE in R · Zeile anklicken → im Chart fokussieren</h2>
+              <button
+                onClick={exportTradesCsv}
+                disabled={run.trades.length === 0}
+                className="rounded-[0.625rem] border px-3 py-1.5 text-xs disabled:opacity-40"
+                style={{ borderColor: 'var(--color-line)', color: 'var(--color-cyan)' }}
+              >
+                ↓ {t('lab.exportCsv')}
+              </button>
+            </div>
             <div className="mt-4 max-h-96 overflow-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -669,16 +757,31 @@ export function Labor() {
                     <th className="py-1.5 pr-3 font-normal">#</th>
                     <th className="py-1.5 pr-3 font-normal">Entry</th>
                     <th className="py-1.5 pr-3 font-normal">Richtung</th>
-                    <th className="py-1.5 pr-3 text-right font-normal">R</th>
-                    <th className="py-1.5 pr-3 text-right font-normal">Netto $</th>
-                    <th className="py-1.5 pr-3 text-right font-normal">MFE R</th>
-                    <th className="py-1.5 pr-3 text-right font-normal">MAE R</th>
+                    {(
+                      [
+                        ['r', 'R'],
+                        ['net', 'Netto $'],
+                        ['mfe', 'MFE R'],
+                        ['mae', 'MAE R'],
+                      ] as [TradeSortKey, string][]
+                    ).map(([key, lbl]) => (
+                      <th
+                        key={key}
+                        onClick={() => toggleTradeSort(key)}
+                        title={t('lab.sortHint')}
+                        className="cursor-pointer select-none py-1.5 pr-3 text-right font-normal"
+                        style={{ color: tradeSort?.key === key ? 'var(--color-cyan)' : undefined }}
+                      >
+                        {lbl}
+                        {sortArrow(key)}
+                      </th>
+                    ))}
                     <th className="py-1.5 pr-3 text-right font-normal">Kosten $</th>
                     <th className="py-1.5 font-normal">Exit</th>
                   </tr>
                 </thead>
                 <tbody className="num">
-                  {run.trades.map((t, i) => (
+                  {tradeRows.map(({ t, i }) => (
                     <tr
                       key={i}
                       onClick={() => setSelectedTrade(i === selectedTrade ? null : i)}

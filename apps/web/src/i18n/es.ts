@@ -291,6 +291,13 @@ export const es: Catalog = {
     noPrice: 'sin cotización en vivo',
     favTooltip: 'Favorito (estrella): alimenta escaneo, prioridad de señales y briefing',
     favInfo: '★ Los favoritos dirigen el sistema: los favoritos cripto reciben velas reales, entran al escaneo de 5 min y al briefing del panel.',
+    onlyFavorites: 'Solo favoritos',
+    sortBy: 'Ordenar:',
+    sortDefault: 'Categoría (predet.)',
+    sortName: 'Nombre',
+    sortAssets: 'Número de activos',
+    shownCount: '{{shown}} de {{total}} paquetes',
+    noneFavorites: 'No hay paquetes con activos favoritos. Marca activos con la estrella.',
   },
   oracle: {
     title: 'Oracle · Sinapsis macro',
@@ -342,6 +349,8 @@ export const es: Catalog = {
     strategyLabel: 'Estrategia',
     builtinSmc: 'SMC Core (integrada)',
     dslNote: 'Estrategia DSL: símbolo/timeframe/setup vienen de la definición.',
+    exportCsv: 'Exportar CSV',
+    sortHint: 'Clic para ordenar (ascendente/descendente)',
     title: 'Laboratorio de estrategias',
   },
   builder: {

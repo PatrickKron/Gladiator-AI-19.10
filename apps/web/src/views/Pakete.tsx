@@ -108,21 +108,42 @@ function PackageCard({ pkg, stagger, prices }: { pkg: Pkg; stagger: number; pric
   );
 }
 
+type SortBy = 'default' | 'name' | 'assets';
+
 export function Pakete() {
   const { t } = useTranslation();
   const [pkgs, setPkgs] = useState<Pkg[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [prices, setPrices] = useState<Map<string, number>>(new Map(getLatest().map((x) => [x.symbol, x.price])));
+  // Feature E: Paketnamen mit mindestens einem favorisierten Asset (Set) + Filter/Sortierung.
+  const [favPackages, setFavPackages] = useState<Set<string>>(new Set());
+  const [onlyFavs, setOnlyFavs] = useState(false);
+  const [sortBy, setSortBy] = useState<SortBy>('default');
 
   useEffect(() => {
     trpc.product.packages
       .query()
       .then(setPkgs)
       .catch((err: unknown) => setError(err instanceof Error ? err.message : t('common.error')));
+    // Favoriten laden → welche Pakete enthalten mindestens einen Stern-Favoriten?
+    void trpc.product.favorites
+      .query()
+      .then((favs) => setFavPackages(new Set(favs.map((f) => f.packageName))))
+      .catch(() => setFavPackages(new Set()));
     return onTick((x) => setPrices((prev) => new Map(prev).set(x.symbol, x.price)));
   }, []);
 
   const totalAssets = useMemo(() => (pkgs ?? []).reduce((a, p) => a + p.assetCount, 0), [pkgs]);
+
+  /** Sichtbare Pakete: optional auf Favoriten-Pakete gefiltert, dann sortiert. */
+  const visiblePkgs = useMemo(() => {
+    let list = pkgs ?? [];
+    if (onlyFavs) list = list.filter((p) => favPackages.has(p.name));
+    const sorted = [...list];
+    if (sortBy === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name));
+    else if (sortBy === 'assets') sorted.sort((a, b) => b.assetCount - a.assetCount);
+    return sorted; // 'default' = Server-Reihenfolge (Kategorie · Name)
+  }, [pkgs, onlyFavs, favPackages, sortBy]);
 
   return (
     <div>
@@ -137,13 +158,48 @@ export function Pakete() {
       <p className="mb-5 text-xs leading-relaxed" style={{ color: 'var(--color-warn)' }}>
         {t('packages.favInfo')}
       </p>
+
+      {/* Feature E: Nur-Favoriten-Filter + Sortierung */}
+      {pkgs !== null && (
+        <div className="mb-5 flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => setOnlyFavs((v) => !v)}
+            className="rounded border px-3 py-1.5 text-xs transition-colors"
+            style={{
+              borderColor: onlyFavs ? 'rgba(232,184,75,0.5)' : 'var(--color-line)',
+              color: onlyFavs ? 'var(--color-warn)' : 'var(--color-mut)',
+              background: onlyFavs ? 'rgba(232,184,75,0.08)' : 'transparent',
+            }}
+          >
+            {onlyFavs ? '★' : '☆'} {t('packages.onlyFavorites')}
+          </button>
+          <label className="flex items-center gap-2 text-xs" style={{ color: 'var(--color-mut)' }}>
+            {t('packages.sortBy')}
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortBy)}
+              className="field px-2 py-1 text-xs"
+            >
+              <option value="default">{t('packages.sortDefault')}</option>
+              <option value="name">{t('packages.sortName')}</option>
+              <option value="assets">{t('packages.sortAssets')}</option>
+            </select>
+          </label>
+          <span className="label">{t('packages.shownCount', { shown: visiblePkgs.length, total: pkgs.length })}</span>
+        </div>
+      )}
+
       {pkgs === null ? (
         <div className="glass p-6">
           <Loading />
         </div>
+      ) : visiblePkgs.length === 0 ? (
+        <div className="glass p-6 text-sm" style={{ color: 'var(--color-mut)' }}>
+          {t('packages.noneFavorites')}
+        </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {pkgs.map((p, i) => (
+          {visiblePkgs.map((p, i) => (
             <PackageCard key={p.id} pkg={p} stagger={i + 1} prices={prices} />
           ))}
         </div>

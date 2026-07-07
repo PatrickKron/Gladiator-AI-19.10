@@ -18,7 +18,8 @@ describe('parseChartHash', () => {
     expect(parseChartHash('#/charts')).toEqual({ symbol: null, tf: null });
   });
   it('ungültiger tf → tf null, symbol bleibt', () => {
-    expect(parseChartHash('#/charts?symbol=BTC%2FUSDT&tf=2h')).toEqual({ symbol: 'BTC/USDT', tf: null });
+    // 3d ist ein Binance-TF, wird von uns aber nicht angeboten → tf null.
+    expect(parseChartHash('#/charts?symbol=BTC%2FUSDT&tf=3d')).toEqual({ symbol: 'BTC/USDT', tf: null });
   });
   it('Roundtrip build→parse', () => {
     expect(parseChartHash(buildChartUrl('SOL/USDT', '1d'))).toEqual({ symbol: 'SOL/USDT', tf: '1d' });
@@ -41,7 +42,10 @@ describe('isChartTf', () => {
   it('akzeptiert nur bekannte Timeframes', () => {
     expect(isChartTf('15m')).toBe(true);
     expect(isChartTf('1h')).toBe(true);
-    expect(isChartTf('2h')).toBe(false);
+    expect(isChartTf('2h')).toBe(true); // Feature A: jetzt unterstützt
+    expect(isChartTf('12h')).toBe(true);
+    expect(isChartTf('1M')).toBe(true);
+    expect(isChartTf('3d')).toBe(false); // nicht angeboten
     expect(isChartTf(null)).toBe(false);
   });
 });

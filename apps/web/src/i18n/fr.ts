@@ -291,6 +291,13 @@ export const fr: Catalog = {
     noPrice: 'pas de cours en direct',
     favTooltip: 'Favori (étoile) : alimente scan, priorité des signaux et briefing',
     favInfo: '★ Les favoris pilotent le système : les favoris crypto reçoivent de vraies bougies, entrent dans le scan de 5 min et dans le briefing du tableau de bord.',
+    onlyFavorites: 'Favoris uniquement',
+    sortBy: 'Trier :',
+    sortDefault: 'Catégorie (défaut)',
+    sortName: 'Nom',
+    sortAssets: 'Nombre d’actifs',
+    shownCount: '{{shown}} sur {{total}} paquets',
+    noneFavorites: 'Aucun paquet avec des actifs favoris. Ajoutez des favoris avec l’étoile.',
   },
   oracle: {
     title: 'Oracle · Synapse macro',
@@ -342,6 +349,8 @@ export const fr: Catalog = {
     strategyLabel: 'Stratégie',
     builtinSmc: 'SMC Core (intégrée)',
     dslNote: 'Stratégie DSL : symbole/timeframe/setup viennent de la définition.',
+    exportCsv: 'Exporter CSV',
+    sortHint: 'Cliquer pour trier (croissant/décroissant)',
     title: 'Laboratoire de stratégies',
   },
   builder: {

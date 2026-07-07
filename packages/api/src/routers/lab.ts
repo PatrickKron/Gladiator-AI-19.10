@@ -3,12 +3,13 @@ import { and, desc, eq, max } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
 import { runLabBacktest, runLabWalkForward } from '@gladiator/backtest';
+import { SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
 import { deriveAdaptiveGates } from '@gladiator/risk';
 import { protectedProcedure, router } from '../trpc.js';
 
 const { strategies, strategyVersions, backtests, auditLog, riskGates } = schema;
 
-const timeframeSchema = z.enum(['15m', '1h', '4h', '1d']);
+const timeframeSchema = z.enum(SUPPORTED_TIMEFRAMES);
 const setupSchema = z.enum(['scalp', 'swing', 'position']);
 
 const paramsSchema = z

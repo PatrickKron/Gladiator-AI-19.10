@@ -1,7 +1,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
-import { getOhlcv } from '@gladiator/market-data';
+import { getOhlcv, BARS_PER_YEAR, type SupportedTimeframe } from '@gladiator/market-data';
 import { detectStructure, evaluateDslAt, evaluateSmcCoreAt, parseInstructionDsl, SMC_CORE_DEFAULTS, type InstructionDsl, type SmcCoreParams } from '@gladiator/strategy-engine';
 import { DEFAULT_COSTS, runBacktest, type BacktestResult, type CostModel } from './engine.js';
 import { runWalkForward, type WalkForwardResult } from './walkforward.js';
@@ -17,18 +17,14 @@ const { backtests, walkforwardRuns, strategies, strategyVersions, studyTrades, s
  * RAPS-Ergebnis als VDB2-Upsert in `study_clusters` (13_).
  */
 
-export const BARS_PER_YEAR: Record<string, number> = {
-  '15m': 35_040,
-  '1h': 8_760,
-  '4h': 2_190,
-  '1d': 365,
-};
+/** Bars/Jahr je Timeframe (Annualisierung) — kanonisch aus @gladiator/market-data. */
+export { BARS_PER_YEAR };
 
 export type LabRunInput = {
   /** Optional: registrierte Strategie (kind 'dsl') statt SMC Core backtesten. */
   strategyId?: string;
   symbol: string;
-  timeframe: '15m' | '1h' | '4h' | '1d';
+  timeframe: SupportedTimeframe;
   setupType: 'scalp' | 'swing' | 'position';
   from: Date;
   to: Date;
@@ -243,7 +239,7 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
 
 export type LabWalkForwardInput = {
   symbol: string;
-  timeframe: '15m' | '1h' | '4h' | '1d';
+  timeframe: SupportedTimeframe;
   setupType: 'scalp' | 'swing' | 'position';
   from: Date;
   to: Date;

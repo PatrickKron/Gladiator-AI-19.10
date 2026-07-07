@@ -12,6 +12,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { loadTf, pickTf, saveTf } from '../lib/chart-tf.js';
+import { CHART_TFS, type ChartTf } from '../lib/chart-url.js';
 
 /**
  * Voll-Chart mit Indikatoren (Krypto-Charting):
@@ -22,9 +23,10 @@ import { loadTf, pickTf, saveTf } from '../lib/chart-tf.js';
  */
 
 type ChartData = Extract<Awaited<ReturnType<typeof trpc.market.chartData.query>>, { available: true }>;
-type Timeframe = '15m' | '1h' | '4h' | '1d';
+type Timeframe = ChartTf;
 
-const TIMEFRAMES: Timeframe[] = ['15m', '1h', '4h', '1d'];
+/** Timeframes, die auch ohne DB-Abfrage sicher vorhanden sind (Fallback vor dem Laden). */
+const BASE_TIMEFRAMES: Timeframe[] = ['15m', '1h', '4h', '1d'];
 
 const C = {
   cyan: '#4fd1ff',
@@ -120,7 +122,12 @@ const baseChartOptions = (timeframe: Timeframe, height: number) => ({
   grid: { vertLines: { color: 'rgba(99,140,255,0.05)' }, horzLines: { color: 'rgba(99,140,255,0.05)' } },
   crosshair: { mode: CrosshairMode.Normal },
   rightPriceScale: { borderColor: 'rgba(99,140,255,0.18)' },
-  timeScale: { borderColor: 'rgba(99,140,255,0.18)', timeVisible: timeframe !== '1d', rightOffset: 4 },
+  timeScale: {
+    borderColor: 'rgba(99,140,255,0.18)',
+    // Uhrzeit nur bei Intraday-TFs; Tages-/Wochen-/Monatskerzen zeigen nur das Datum.
+    timeVisible: !['1d', '1w', '1M'].includes(timeframe),
+    rightOffset: 4,
+  },
 });
 
 export function AssetChart({
@@ -152,6 +159,23 @@ export function AssetChart({
     setTf(next);
     saveTf(symbol, next);
   };
+  // Verfügbare Timeframes je Asset (Feature A): nur die, für die echte Kerzen in
+  // der DB liegen. Vor dem Laden Fallback auf die Basis-TFs; der aktuelle TF wird
+  // immer angeboten (sonst säße man auf einem leeren Chart fest).
+  const [availableTfs, setAvailableTfs] = useState<Timeframe[]>(BASE_TIMEFRAMES);
+  useEffect(() => {
+    let cancelled = false;
+    void trpc.market.availableTimeframes
+      .query({ symbol })
+      .then((tfs) => {
+        if (!cancelled && tfs.length > 0) setAvailableTfs(tfs as Timeframe[]);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol]);
+  const shownTfs = CHART_TFS.filter((f) => availableTfs.includes(f) || f === tf);
   const [toggles, setToggles] = useState<Record<ToggleKey, boolean>>(DEFAULT_TOGGLES);
   const [data, setData] = useState<ChartData | null>(null);
   const [signals, setSignals] = useState<SignalMarker[]>([]);
@@ -455,8 +479,8 @@ export function AssetChart({
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <div className="flex gap-1">
-          {TIMEFRAMES.map((f) => (
+        <div className="flex flex-wrap gap-1">
+          {shownTfs.map((f) => (
             <button
               key={f}
               onClick={() => changeTf(f)}

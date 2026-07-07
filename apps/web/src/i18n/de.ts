@@ -290,6 +290,13 @@ export const de = {
     noPrice: 'kein Live-Kurs',
     favTooltip: 'Favorit (Stern): fließt in Scan, Signal-Priorität und Dashboard-Briefing',
     favInfo: '★ Favoriten steuern das System: Krypto-Favoriten werden automatisch mit echten Kerzen versorgt, vom 5-min-Scan erfasst und im Dashboard-Briefing beobachtet.',
+    onlyFavorites: 'Nur Favoriten',
+    sortBy: 'Sortieren:',
+    sortDefault: 'Kategorie (Standard)',
+    sortName: 'Name',
+    sortAssets: 'Asset-Anzahl',
+    shownCount: '{{shown}} von {{total}} Paketen',
+    noneFavorites: 'Keine Pakete mit favorisierten Assets. Markiere Assets mit dem Stern.',
   },
   oracle: {
     title: 'Oracle · Makro-Synapse',
@@ -341,6 +348,8 @@ export const de = {
     strategyLabel: 'Strategie',
     builtinSmc: 'SMC Core (eingebaut)',
     dslNote: 'DSL-Strategie: Symbol/Timeframe/Setup kommen aus der Strategie-Definition.',
+    exportCsv: 'CSV exportieren',
+    sortHint: 'Klicken zum Sortieren (auf-/absteigend)',
     title: 'Strategie-Labor',
   },
   builder: {

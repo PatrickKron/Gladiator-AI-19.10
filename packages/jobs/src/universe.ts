@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
-import { backfillOhlcv } from '@gladiator/market-data';
+import { backfillOhlcv, TIMEFRAME_MS } from '@gladiator/market-data';
 
 /**
  * Scan-Universum (Patrick-Lücke 1/5): Basis BTC/ETH/SOL + mit Stern markierte
@@ -47,11 +47,24 @@ export async function scanUniverse(db: Db): Promise<string[]> {
   return buildUniverse((rows.rows as { pair: string | null }[]).map((r) => r.pair));
 }
 
+/**
+ * Backfill-Plan je Timeframe (Feature A: alle verfügbaren TFs). sinceDays so
+ * gewählt, dass jeder TF ausreichend Kerzen für EMA200/Scans/Backtests bekommt,
+ * ohne das Rate-Limit unnötig zu strapazieren. Die kleinen TFs (5m/30m) decken
+ * ein kürzeres, dafür engmaschiges Fenster ab; die großen (1w/1M) reichen weit
+ * zurück. Idempotent + inkrementell (ensureCandles lädt nur den Rückstand nach).
+ */
 const BACKFILL_PLAN: { timeframe: string; sinceDays: number }[] = [
+  { timeframe: '5m', sinceDays: 20 }, // ~5.760 Kerzen — engmaschig, kurzes Fenster
   { timeframe: '15m', sinceDays: 60 }, // ~5.700 Kerzen — genug für EMA200 + Scans
+  { timeframe: '30m', sinceDays: 120 }, // ~5.760 Kerzen
   { timeframe: '1h', sinceDays: 400 },
+  { timeframe: '2h', sinceDays: 500 },
   { timeframe: '4h', sinceDays: 500 },
+  { timeframe: '12h', sinceDays: 900 },
   { timeframe: '1d', sinceDays: 730 },
+  { timeframe: '1w', sinceDays: 2555 }, // ~7 Jahre → ~365 Wochen-Kerzen
+  { timeframe: '1M', sinceDays: 3650 }, // ~10 Jahre → soweit die Börse zurückreicht
 ];
 
 /**
@@ -80,5 +93,5 @@ export async function ensureCandles(db: Db, symbol: string): Promise<{ symbol: s
 }
 
 function intervalMs(tf: string): number {
-  return { '15m': 900_000, '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000 }[tf] ?? 3_600_000;
+  return (TIMEFRAME_MS as Record<string, number>)[tf] ?? 3_600_000;
 }
