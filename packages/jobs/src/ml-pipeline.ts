@@ -91,7 +91,8 @@ export async function autoLabelSignals(db: Db): Promise<MlAutoLabelResult> {
       const direction = sig.direction as 'long' | 'short';
       const entryPrice = Number(sig.entry);
       const stopLoss = Number(sig.stop_loss);
-      const tps = sig.take_profits as string[];
+      const rawTps = sig.take_profits;
+      const tps: unknown[] = Array.isArray(rawTps) ? rawTps : typeof rawTps === 'string' ? JSON.parse(rawTps) : [];
       const createdAt = new Date(sig.created_at as string);
 
       // Max holding bars depends on timeframe
