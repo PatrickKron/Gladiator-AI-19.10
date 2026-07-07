@@ -28,3 +28,11 @@ export {
   parseAnalysisDecision,
   type LlmGateOutcome,
 } from './sub-agent-llm.js';
+export {
+  computeAllFeatures,
+  autoLabelSignals,
+  retrainModel,
+  type MlFeatureResult,
+  type MlAutoLabelResult,
+  type MlRetrainResult,
+} from './ml-pipeline.js';

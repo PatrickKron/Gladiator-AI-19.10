@@ -27,7 +27,8 @@
     "@gladiator/risk": "*",
     "@gladiator/exchange": "*",
     "@gladiator/strategy-engine": "*",
-    "@gladiator/agents": "*"
+    "@gladiator/agents": "*",
+    "@gladiator/ml": "*"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

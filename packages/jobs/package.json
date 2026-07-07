@@ -16,6 +16,7 @@
     "bullmq": "^5.34.0",
     "@gladiator/exchange": "*",
     "@gladiator/agents": "*",
-    "@gladiator/risk": "*"
+    "@gladiator/risk": "*",
+    "@gladiator/ml": "*"
   }
 }

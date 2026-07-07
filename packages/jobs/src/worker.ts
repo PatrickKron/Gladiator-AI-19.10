@@ -8,6 +8,7 @@ import { runDslScan } from './dsl-scan.js';
 import { reviewNewSignals } from './review.js';
 import { checkPriceAlerts } from './alerts.js';
 import { runSubAgents } from './sub-agent-runner.js';
+import { computeAllFeatures, autoLabelSignals, retrainModel } from './ml-pipeline.js';
 
 /**
  * BullMQ-Worker (04_ §2: robuste Jobs statt loser Loops — der v1-Fehler).
@@ -24,6 +25,9 @@ const NEWS_JOB = 'news-sync';
 const DERIVATIVES_JOB = 'derivatives-sync';
 const SUB_AGENT_JOB = 'sub-agent-run';
 const NIGHT_JOB = 'night-pipeline';
+const ML_FEATURES_JOB = 'ml-features';
+const ML_LABEL_JOB = 'ml-auto-label';
+const ML_RETRAIN_JOB = 'ml-retrain';
 
 /**
  * Worker-Heartbeat (Phase 7): /health prüft das Alter; der Monitor-Job pingt
@@ -59,10 +63,14 @@ const SCHEDULES: [string, number][] = [
   [NEWS_JOB, 15 * 60_000],
   [DERIVATIVES_JOB, 30 * 60_000],
   [SUB_AGENT_JOB, 5 * 60_000],
+  [ML_FEATURES_JOB, 30 * 60_000],     // Feature-Berechnung alle 30 min
+  [ML_LABEL_JOB, 60 * 60_000],         // Auto-Labeling stündlich
 ];
 
 /** Nacht-Pipeline: täglich 03:30 UTC (08_ §5) — Cron statt Intervall. */
 const NIGHT_CRON = '30 3 * * *';
+/** ML-Retraining: wöchentlich sonntags 04:00 UTC — genug Labels sammeln vor Neutraining. */
+const ML_RETRAIN_CRON = '0 4 * * 0';
 
 function redisConnection() {
   const url = new URL(requireEnv('REDIS_URL'));
@@ -77,6 +85,7 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
     await queue.upsertJobScheduler(name, { every }, { name });
   }
   await queue.upsertJobScheduler(NIGHT_JOB, { pattern: NIGHT_CRON }, { name: NIGHT_JOB });
+  await queue.upsertJobScheduler(ML_RETRAIN_JOB, { pattern: ML_RETRAIN_CRON }, { name: ML_RETRAIN_JOB });
 
   // Absturz-Reconciliation beim Start (06_ §7c): Befunde landen im Audit-Log.
   const rec = await reconcile(db, venue);
@@ -164,6 +173,31 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
                 `geschlossen=${res.positionsClosed} pausiert=${res.paused} Fehler=${res.errors.length}`,
             );
             for (const e of res.errors) console.warn('[sub-agent-run]', e);
+          }
+          return res;
+        }
+        case ML_FEATURES_JOB: {
+          const res = await computeAllFeatures(db);
+          if (res.computed > 0 || res.errors.length > 0) {
+            console.log(`[ml-features] computed=${res.computed} skipped=${res.skipped} Fehler=${res.errors.length}`);
+            for (const e of res.errors) console.warn('[ml-features]', e);
+          }
+          return res;
+        }
+        case ML_LABEL_JOB: {
+          const res = await autoLabelSignals(db);
+          if (res.labeled > 0 || res.errors.length > 0) {
+            console.log(`[ml-auto-label] labeled=${res.labeled} skipped=${res.skipped} Fehler=${res.errors.length}`);
+            for (const e of res.errors) console.warn('[ml-auto-label]', e);
+          }
+          return res;
+        }
+        case ML_RETRAIN_JOB: {
+          const res = await retrainModel(db);
+          if (res.retrained) {
+            console.log(`[ml-retrain] Modell neu trainiert: ${res.sampleCount} Samples, Accuracy=${(res.metrics as Record<string, number>)?.accuracy?.toFixed(3) ?? '?'}`);
+          } else {
+            console.log(`[ml-retrain] Kein Retraining: ${res.reason}`);
           }
           return res;
         }

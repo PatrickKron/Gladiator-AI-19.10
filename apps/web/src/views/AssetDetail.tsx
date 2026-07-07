@@ -4,6 +4,7 @@ import { PageHeader, Panel } from '../components/ui.js';
 import { AssetSelect, getSelectedAsset, setSelectedAsset } from '../components/AssetSelect.js';
 import { AssetChart } from '../components/AssetChart.js';
 import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
+import { MlInsights } from '../components/MlInsights.js';
 import { FavStarSymbol } from '../components/FavStar.js';
 import { MacroPanels } from '../components/MacroPanels.js';
 import { RiskPanels } from '../components/RiskPanels.js';
@@ -111,6 +112,7 @@ export function AssetDetail() {
       {tab === 'kontext' && (
         <Panel label={t('assetCtx.title', { symbol: asset })} stagger={1}>
           <AssetContextBody ctx={ctx} />
+          <MlInsights symbol={asset} />
         </Panel>
       )}
       {tab === 'makro' && <MacroPanels />}

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { SignalChart } from './SignalChart.js';
 import { FavStarSymbol } from './FavStar.js';
+import { MlBadge } from './MlBadge.js';
 import { buildChartUrl } from '../lib/chart-url.js';
 
 export type SignalReview = {
@@ -234,9 +235,12 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
             </span>
           )}
         </div>
-        <div className="num text-lg font-semibold" style={{ color: RISK_COLOR[signal.riskClass] }}>
-          {Number(signal.score).toLocaleString('de-DE', { minimumFractionDigits: 1 })}
-          <span className="text-xs font-normal" style={{ color: 'var(--color-mut)' }}> / 10</span>
+        <div className="flex items-center gap-2">
+          <MlBadge signalId={signal.id} />
+          <span className="num text-lg font-semibold" style={{ color: RISK_COLOR[signal.riskClass] }}>
+            {Number(signal.score).toLocaleString('de-DE', { minimumFractionDigits: 1 })}
+            <span className="text-xs font-normal" style={{ color: 'var(--color-mut)' }}> / 10</span>
+          </span>
         </div>
       </div>
 

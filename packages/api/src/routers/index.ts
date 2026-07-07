@@ -3,6 +3,7 @@ import { agentsRouter } from './agents.js';
 import { authRouter } from './auth.js';
 import { labRouter } from './lab.js';
 import { marketRouter } from './market.js';
+import { mlRouter } from './ml.js';
 import { productRouter } from './product.js';
 import { riskRouter } from './risk.js';
 import { secretsRouter } from './secrets.js';
@@ -18,6 +19,7 @@ export const appRouter = router({
   auth: authRouter,
   lab: labRouter,
   market: marketRouter,
+  ml: mlRouter,
   product: productRouter,
   risk: riskRouter,
   secrets: secretsRouter,
