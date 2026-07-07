@@ -15,6 +15,7 @@ import { Magazine } from './views/Magazine.js';
 import { Kalender } from './views/Kalender.js';
 import { Aegis } from './views/Aegis.js';
 import { Agenten } from './views/Agenten.js';
+import { Werkstatt } from './views/Werkstatt.js';
 import { Strategien } from './views/Strategien.js';
 import { Einstellungen } from './views/Einstellungen.js';
 import { Profil } from './views/Profil.js';
@@ -33,6 +34,7 @@ const ROUTES: Record<string, () => React.JSX.Element> = {
   '#/kalender': Kalender,
   '#/aegis': Aegis,
   '#/agenten': Agenten,
+  '#/werkstatt': Werkstatt,
   '#/strategien': Strategien,
   '#/einstellungen': Einstellungen,
   '#/profil': Profil,

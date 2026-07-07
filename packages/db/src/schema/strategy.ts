@@ -11,6 +11,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { users } from './auth.js';
+import { subAgents } from './sub-agents.js';
 import {
   assetClassEnum,
   directionEnum,
@@ -69,6 +70,8 @@ export const signals = pgTable(
       .notNull()
       .references(() => strategies.id),
     strategyVersionId: uuid('strategy_version_id').references(() => strategyVersions.id),
+    /** Herkunft aus einem Sub-Agenten (Trading-Werkstatt) — für Signal-Historie je Agent. */
+    subAgentId: uuid('sub_agent_id').references(() => subAgents.id, { onDelete: 'set null' }),
     symbol: text('symbol').notNull(),
     /** Timeframe des Scans (Multi-TF: 15m/1h/4h/1d) — Ergänzung zum 04_-Modell. */
     timeframe: text('timeframe').notNull().default('1h'),

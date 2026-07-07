@@ -8,3 +8,15 @@ export { workerHeartbeatAgeSec } from './worker.js';
 export { buildUniverse, ensureCandles, normalizeTradingPair, scanUniverse, BASE_SYMBOLS } from './universe.js';
 export { alertTriggered, checkPriceAlerts } from './alerts.js';
 export { expireStaleSignals, isSignalExpired, signalExpiryCutoff, ttlHoursFor, SIGNAL_TTL_HOURS, DEFAULT_TTL_HOURS } from './signal-expiry.js';
+export {
+  runSubAgents,
+  ensureSubAgentStrategy,
+  reassembleSubAgentSpec,
+  buildSubAgentSnapshot,
+  dailyLossBreached,
+  symbolOnCooldown,
+  minutesToNextHighImpact,
+  newsToItems,
+  dxyChangePct20d,
+  type SubAgentRunSummary,
+} from './sub-agent-runner.js';

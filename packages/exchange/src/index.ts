@@ -5,6 +5,7 @@ export { BinanceTestnetVenue } from './binance-venue.js';
 export { planFills, type OpenProtectionOrder, type PlannedFill } from './lifecycle.js';
 export {
   executeConfirmedSignal,
+  closePositionNow,
   monitorOpenPositions,
   reconcile,
   buildAccountState,

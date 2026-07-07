@@ -12,6 +12,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { users } from './auth.js';
 import { signals } from './strategy.js';
+import { subAgents } from './sub-agents.js';
 import {
   directionEnum,
   orderSideEnum,
@@ -106,6 +107,8 @@ export const executedTrades = pgTable(
       .notNull()
       .references(() => users.id),
     signalId: uuid('signal_id').references(() => signals.id),
+    /** Zuordnung zum Sub-Agenten (Trading-Werkstatt) — echte Performance je Agent. */
+    subAgentId: uuid('sub_agent_id').references(() => subAgents.id, { onDelete: 'set null' }),
     venue: text('venue').notNull(),
     symbol: text('symbol').notNull(),
     direction: directionEnum('direction').notNull(),
@@ -139,6 +142,8 @@ export const positions = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id),
+    /** Zuordnung zum Sub-Agenten (Trading-Werkstatt) — für agenten-verwaltete Exits. */
+    subAgentId: uuid('sub_agent_id').references(() => subAgents.id, { onDelete: 'set null' }),
     venue: text('venue').notNull(),
     symbol: text('symbol').notNull(),
     direction: directionEnum('direction').notNull(),

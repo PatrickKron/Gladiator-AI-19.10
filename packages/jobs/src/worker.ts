@@ -7,6 +7,7 @@ import { runSignalScan } from './signal-scan.js';
 import { runDslScan } from './dsl-scan.js';
 import { reviewNewSignals } from './review.js';
 import { checkPriceAlerts } from './alerts.js';
+import { runSubAgents } from './sub-agent-runner.js';
 
 /**
  * BullMQ-Worker (04_ §2: robuste Jobs statt loser Loops — der v1-Fehler).
@@ -21,6 +22,7 @@ const MACRO_JOB = 'macro-sync';
 const CALENDAR_JOB = 'calendar-sync';
 const NEWS_JOB = 'news-sync';
 const DERIVATIVES_JOB = 'derivatives-sync';
+const SUB_AGENT_JOB = 'sub-agent-run';
 const NIGHT_JOB = 'night-pipeline';
 
 /**
@@ -56,6 +58,7 @@ const SCHEDULES: [string, number][] = [
   [CALENDAR_JOB, 60 * 60_000],
   [NEWS_JOB, 15 * 60_000],
   [DERIVATIVES_JOB, 30 * 60_000],
+  [SUB_AGENT_JOB, 5 * 60_000],
 ];
 
 /** Nacht-Pipeline: täglich 03:30 UTC (08_ §5) — Cron statt Intervall. */
@@ -150,6 +153,18 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           const res = await syncDerivatives(db);
           console.log(`[derivatives-sync] funding=${res.funding} oi=${res.openInterest} Fehler=${res.errors.length}`);
           for (const e of res.errors) console.warn('[derivatives-sync]', e);
+          return res;
+        }
+        case SUB_AGENT_JOB: {
+          // Trading-Agenten-Werkstatt: aktive Sub-Agenten gegen echte Feeds auswerten.
+          const res = await runSubAgents(db, venue);
+          if (res.agentsEvaluated > 0) {
+            console.log(
+              `[sub-agent-run] Agenten=${res.agentsEvaluated} Signale=${res.signalsCreated} ` +
+                `geschlossen=${res.positionsClosed} pausiert=${res.paused} Fehler=${res.errors.length}`,
+            );
+            for (const e of res.errors) console.warn('[sub-agent-run]', e);
+          }
           return res;
         }
         default:

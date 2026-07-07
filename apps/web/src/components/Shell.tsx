@@ -34,6 +34,7 @@ export const NAV_GROUPS: NavGroup[] = [
     key: 'nav.groupIntel',
     items: [
       { hash: '#/agenten', key: 'nav.agents', icon: ico('M12 8a4 4 0 100-8 4 4 0 000 8zm-7 13a7 7 0 0114 0M2 21h20') },
+      { hash: '#/werkstatt', key: 'nav.workshop', icon: ico('M14.7 6.3a4 4 0 00-5.4 5.3L3 18v3h3l6.9-6.9a4 4 0 005.3-5.4l-2.6 2.6-2.3-.6-.6-2.3z') },
       { hash: '#/oracle', key: 'nav.oracle', icon: ico('M12 21a9 9 0 100-18 9 9 0 000 18zm0-4a5 5 0 100-10 5 5 0 000 10zm0-3a2 2 0 100-4') },
       { hash: '#/labor', key: 'nav.lab', icon: ico('M9 3v6l-5 9a2 2 0 002 3h12a2 2 0 002-3l-5-9V3M7 3h10') },
       { hash: '#/strategien', key: 'nav.builder', icon: ico('M4 6h16M4 12h10M4 18h7m5-3l4 4m0-4l-4 4') },

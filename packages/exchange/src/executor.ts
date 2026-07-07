@@ -149,6 +149,13 @@ export async function executeConfirmedSignal(
      * ein zufällig aktives Kalender-Fenster den Lifecycle-Test nicht kippt.
      */
     riskContext?: Awaited<ReturnType<typeof loadRiskContext>>;
+    /**
+     * Optionaler Positionsgröße-Override (Risiko % je Trade) — genutzt von
+     * Sub-Agenten mit eigenem Risk-Budget. Die HARTEN Grenzen (Leverage,
+     * Exposure, Verlustlimits, Kill-Switch) bleiben die globalen Risk-Settings;
+     * nur die Sizing-Größe je Trade wird ersetzt (Gate bleibt maßgeblich).
+     */
+    riskPctOverride?: number;
   },
 ): Promise<ExecutionResult> {
   const [signal] = await db.select().from(signals).where(eq(signals.id, opts.signalId)).limit(1);
@@ -156,6 +163,9 @@ export async function executeConfirmedSignal(
   if (signal.status !== 'confirmed') throw new Error(`Signal ist ${signal.status}, nicht confirmed.`);
 
   const settings = await loadRiskSettings(db, opts.userId);
+  if (opts.riskPctOverride !== undefined && opts.riskPctOverride > 0) {
+    settings.riskPctPerTrade = opts.riskPctOverride;
+  }
 
   const state = await buildAccountState(db, opts.userId);
   const gates = await loadActiveGates(db);
@@ -238,6 +248,8 @@ export async function executeConfirmedSignal(
     .insert(positions)
     .values({
       userId: opts.userId,
+      // Herkunft aus einem Sub-Agenten mitführen (echte Performance je Agent).
+      subAgentId: signal.subAgentId,
       venue: venue.id,
       symbol: signal.symbol,
       direction: signal.direction,
@@ -398,7 +410,7 @@ async function closePaperPosition(
   venue: TradingVenue,
   positionId: string,
   lastPrice: number,
-  reason: 'sl' | 'tp' | 'manual',
+  reason: 'sl' | 'tp' | 'manual' | 'agent',
 ): Promise<void> {
   const [pos] = await db.select().from(positions).where(eq(positions.id, positionId)).limit(1);
   if (!pos) return;
@@ -442,6 +454,7 @@ async function closePaperPosition(
 
   await db.insert(executedTrades).values({
     userId: pos.userId,
+    subAgentId: pos.subAgentId,
     venue: pos.venue,
     symbol: pos.symbol,
     direction: pos.direction,
@@ -481,6 +494,31 @@ async function closePaperPosition(
     entityId: positionId,
     details: { reason, avgExit, grossPnl, fees, funding, netPnl },
   });
+}
+
+/**
+ * Sofort-Schluss einer offenen Paper-Position zum ECHTEN Live-Preis — für
+ * agenten-verwaltete Ausstiege (Zeit-/Event-Exit eines Sub-Agenten), die die
+ * statischen TP/SL-Schutz-Orders nicht abdecken. Nutzt exakt denselben
+ * Netto-Kostenpfad wie ein regulärer Schluss (Gebühren/Funding) — kein Sonderweg.
+ */
+export async function closePositionNow(
+  db: Db,
+  venue: TradingVenue,
+  positionId: string,
+  reason: 'agent' | 'manual' = 'agent',
+): Promise<{ closed: boolean; exitPrice?: number }> {
+  const [pos] = await db.select().from(positions).where(eq(positions.id, positionId)).limit(1);
+  if (!pos) return { closed: false };
+  let price: number;
+  try {
+    price = await venue.markPrice(pos.symbol); // ECHTER Live-Preis
+  } catch (err) {
+    console.warn(`[close-now] Preis für ${pos.symbol} nicht verfügbar: ${String(err)}`);
+    return { closed: false };
+  }
+  await closePaperPosition(db, venue, positionId, price, reason);
+  return { closed: true, exitPrice: price };
 }
 
 /**

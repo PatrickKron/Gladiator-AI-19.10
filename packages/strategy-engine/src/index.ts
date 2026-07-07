@@ -16,3 +16,22 @@ export {
   type DslSetup,
   type InstructionDsl,
 } from './dsl.js';
+export {
+  subAgentSpecSchema,
+  subAgentDataSourceSchema,
+  parseSubAgentSpec,
+  evaluateSubAgentEntry,
+  evaluateSubAgentExit,
+  priceSnapshotFromCandles,
+  type SubAgentSpec,
+  type SubAgentSpecParseResult,
+  type SubAgentDataSource,
+  type SubAgentEntryRules,
+  type SubAgentExitRules,
+  type SubAgentRiskParams,
+  type SubAgentSnapshot,
+  type SubAgentNewsItem,
+  type SubAgentEntryDecision,
+  type SubAgentExitDecision,
+  type SubAgentPositionView,
+} from './sub-agent.js';

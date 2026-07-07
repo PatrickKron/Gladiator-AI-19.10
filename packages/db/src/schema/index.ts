@@ -1,6 +1,7 @@
 export * from './enums.js';
 export * from './auth.js';
 export * from './market.js';
+export * from './sub-agents.js';
 export * from './strategy.js';
 export * from './trading.js';
 export * from './backtest.js';

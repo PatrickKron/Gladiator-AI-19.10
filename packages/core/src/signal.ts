@@ -5,7 +5,7 @@ import { z } from 'zod';
  * Spezifikation: GLADIATOR_V2_BLUEPRINT/04_ZIELARCHITEKTUR.md §5.
  */
 
-export const signalSourceSchema = z.enum(['engine', 'pine', 'instruction', 'manual']);
+export const signalSourceSchema = z.enum(['engine', 'pine', 'instruction', 'manual', 'sub_agent']);
 export const assetClassSchema = z.enum(['crypto', 'stock', 'etf', 'forex', 'commodity', 'index']);
 export const venueTypeSchema = z.enum(['cex', 'dex']);
 export const directionSchema = z.enum(['long', 'short']);

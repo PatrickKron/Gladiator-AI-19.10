@@ -9,6 +9,7 @@ import { secretsRouter } from './secrets.js';
 import { settingsRouter } from './settings.js';
 import { signalsRouter } from './signals.js';
 import { strategiesRouter } from './strategies.js';
+import { subAgentsRouter } from './sub-agents.js';
 import { systemRouter } from './system.js';
 import { tradingRouter } from './trading.js';
 
@@ -23,6 +24,7 @@ export const appRouter = router({
   settings: settingsRouter,
   signals: signalsRouter,
   strategies: strategiesRouter,
+  subAgents: subAgentsRouter,
   system: systemRouter,
   trading: tradingRouter,
 });

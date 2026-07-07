@@ -4,7 +4,7 @@ import { pgEnum } from 'drizzle-orm/pg-core';
 // Ein User-Typ mit vollem Zugriff — user_role- und tier-Enums wurden entfernt.
 
 // Kanonisches Signal (muss @gladiator/core spiegeln)
-export const signalSourceEnum = pgEnum('signal_source', ['engine', 'pine', 'instruction', 'manual']);
+export const signalSourceEnum = pgEnum('signal_source', ['engine', 'pine', 'instruction', 'manual', 'sub_agent']);
 export const assetClassEnum = pgEnum('asset_class', ['crypto', 'stock', 'etf', 'forex', 'commodity', 'index']);
 export const venueTypeEnum = pgEnum('venue_type', ['cex', 'dex']);
 export const directionEnum = pgEnum('direction', ['long', 'short']);
@@ -34,6 +34,9 @@ export const tradeModeEnum = pgEnum('trade_mode', ['paper', 'live']);
 
 // Jobs / Läufe
 export const runStatusEnum = pgEnum('run_status', ['queued', 'running', 'done', 'error']);
+
+// Sub-Agenten (Trading-Agenten-Werkstatt) — Lebenszyklus einer Agent-Definition.
+export const subAgentStatusEnum = pgEnum('sub_agent_status', ['active', 'paused', 'archived']);
 
 // Ausspielung
 export const channelKindEnum = pgEnum('channel_kind', ['telegram', 'push', 'email']);

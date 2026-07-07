@@ -29,7 +29,7 @@ export type SignalFacts = {
   timeframe: string;
   direction: 'long' | 'short';
   setupType: string;
-  source: 'engine' | 'pine' | 'instruction' | 'manual';
+  source: 'engine' | 'pine' | 'instruction' | 'manual' | 'sub_agent';
   entry: number;
   stopLoss: number;
   takeProfits: number[];
