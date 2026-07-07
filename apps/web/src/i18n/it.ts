@@ -150,6 +150,10 @@ export const it: Catalog = {
     draftTest: 'Prova idea (30g)',
     draftResult: 'Risultato test rapido',
     priceOnlyShort: 'testato solo prezzo',
+    aiBadge: 'IA',
+    analysisPrompt: 'Prompt di analisi IA (opzionale)',
+    analysisPromptPlaceholder: 'es.: Valuta le notizie attuali. Giustificano un trade {side} su {symbol}? EXECUTE o SKIP.',
+    analysisPromptHint: 'Opzionale: se impostato, l’IA valuta anche la situazione (EXECUTE/SKIP) quando le regole sono soddisfatte, prima di creare un segnale. I segnaposto {symbol} {side} {vix} {dxy_change} {grs} vengono riempiti con dati live. Senza ANTHROPIC_API_KEY l’agente continua solo su base regole.',
   },
   chart: {
     title: 'Grafici',

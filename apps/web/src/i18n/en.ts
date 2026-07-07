@@ -150,6 +150,10 @@ export const en: Catalog = {
     draftTest: 'Test idea (30d)',
     draftResult: 'Quick-test result',
     priceOnlyShort: 'price-only test',
+    aiBadge: 'AI',
+    analysisPrompt: 'AI analysis prompt (optional)',
+    analysisPromptPlaceholder: 'e.g.: Check the current news. Does it justify a {side} trade in {symbol}? EXECUTE or SKIP.',
+    analysisPromptHint: 'Optional: if set, the AI additionally evaluates the situation (EXECUTE/SKIP) once the rules are met, before a signal is created. Placeholders {symbol} {side} {vix} {dxy_change} {grs} are filled with live data. Without ANTHROPIC_API_KEY the agent keeps running rule-based only.',
   },
   chart: {
     title: 'Charts',

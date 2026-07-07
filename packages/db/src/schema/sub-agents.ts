@@ -25,6 +25,12 @@ export const subAgents = pgTable(
     description: text('description'),
     /** These in natürlicher Sprache (z. B. „Kauft Dips, zahlt bei +10 % aus"). */
     thesis: text('thesis'),
+    /**
+     * Optionaler KI-Analyse-Prompt: ist er gesetzt, prüft das LLM bei erfüllten
+     * Regeln zusätzlich (EXECUTE/SKIP), bevor ein Signal entsteht. Leer/NULL =
+     * rein regelbasiert (funktioniert ohne ANTHROPIC_API_KEY).
+     */
+    analysisPrompt: text('analysis_prompt'),
     /** Welche Feeds der Agent auswertet: ['price','macro','funding','calendar','news']. */
     dataSources: jsonb('data_sources').notNull(),
     /** Strukturierte Einstiegs-Regeln (subAgentSpec.entryRules). */

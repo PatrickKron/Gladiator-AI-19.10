@@ -15,8 +15,17 @@ import {
   type SubAgentSpec,
 } from '@gladiator/strategy-engine';
 import { closePositionNow, executeConfirmedSignal, PAPER_START_EQUITY, type TradingVenue } from '@gladiator/exchange';
+import { CostGuard, envAnthropicProvider } from '@gladiator/agents';
+import { runAnalysisGate } from './sub-agent-llm.js';
 
 const { subAgents, subAgentRuns, signals, positions, executedTrades, strategies, auditLog } = schema;
+
+/**
+ * Kosten-Wächter für den optionalen LLM-Analyse-Layer (In-Memory je Worker-Prozess,
+ * UTC-Tag). Tagesbudget aus LLM_DAILY_BUDGET_USD (Default 5 USD). Erschöpft → der
+ * Analyse-Schritt scheitert kontrolliert und der Trade wird konservativ übersprungen.
+ */
+const llmGuard = new CostGuard({ dailyBudgetUsd: Number(process.env.LLM_DAILY_BUDGET_USD ?? 5) });
 
 /**
  * Agent-Runner (Trading-Agenten-Werkstatt): wertet aktive Sub-Agenten periodisch
@@ -205,6 +214,7 @@ export async function runSubAgents(
         continue;
       }
       const spec = parsed.spec;
+      const llmNotes: string[] = []; // Kurz-Protokoll der LLM-Analyse je Symbol (für sub_agent_runs.note)
 
       // (1) Tagesverlust-Throttle → Selbst-Pause (Sicherheit vor Autonomie).
       const dayStart = dayStartUtc(now);
@@ -269,6 +279,32 @@ export async function runSubAgents(
         const decision = evaluateSubAgentEntry(spec, snap);
         if (!decision) continue;
 
+        // (3a) Optionaler LLM-Analyse-Layer: NUR wenn Prompt gesetzt. Das LLM ist
+        // ein zusätzliches Veto — der regelbasierte Pfad bleibt unangetastet.
+        if (agent.analysisPrompt && agent.analysisPrompt.trim().length > 0) {
+          const outcome = await runAnalysisGate(envAnthropicProvider(), llmGuard, agent.analysisPrompt, snap, symbol, decision);
+          await db.insert(auditLog).values({
+            actor: 'system', userId: agent.userId, action: 'sub_agent.llm_analysis',
+            entityType: 'sub_agent', entityId: agent.id,
+            details: {
+              symbol,
+              evaluated: outcome.evaluated,
+              decision: outcome.evaluated ? outcome.decision : null,
+              reason: outcome.reason,
+              model: outcome.evaluated ? outcome.model : null,
+            },
+          });
+          if (!outcome.evaluated) {
+            llmNotes.push(`${symbol}:übersprungen(kein Key)`);
+            console.warn(`[sub-agent-run] ${agent.name}/${symbol}: ${outcome.reason}`);
+          } else if (outcome.decision === 'skip') {
+            llmNotes.push(`${symbol}:SKIP`);
+            continue; // LLM-Veto → kein Signal, regelbasiert erfüllt aber vom LLM abgelehnt
+          } else {
+            llmNotes.push(`${symbol}:EXECUTE`);
+          }
+        }
+
         // EMA-Regime/Marktphase aus Kerzen für die adaptiven Risk-Gates.
         const regime = snap.recentHigh !== null ? await emaRegimeFor(db, symbol, spec.timeframe, snap.price) : 'above';
         const rr = spec.exitRules.takeProfitPct / spec.exitRules.stopLossPct;
@@ -319,6 +355,7 @@ export async function runSubAgents(
         }
       }
 
+      if (llmNotes.length > 0) runRow.note = `LLM: ${llmNotes.join(' ')}`.slice(0, 500);
       await finishRun(db, agent.id, runRow, null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

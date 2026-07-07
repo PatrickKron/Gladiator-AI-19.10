@@ -22,8 +22,16 @@ const metaInput = z.object({
   name: z.string().min(2).max(80),
   description: z.string().max(500).optional(),
   thesis: z.string().max(2000).optional(),
+  /** Optionaler KI-Analyse-Prompt (leer = rein regelbasiert). */
+  analysisPrompt: z.string().max(4000).optional(),
   symbols: z.array(z.string().min(3).max(20)).min(1).max(20),
 });
+
+/** Leerer/whitespace-Prompt wird als „nicht gesetzt" (NULL) gespeichert. */
+function normalizePrompt(p: string | undefined): string | null {
+  const t = (p ?? '').trim();
+  return t.length > 0 ? t : null;
+}
 
 /** Validiert die Regel-Definition und zerlegt sie in die DB-Spalten. */
 function specColumns(rawSpec: unknown): {
@@ -59,6 +67,7 @@ function toDto(row: typeof subAgents.$inferSelect) {
     name: row.name,
     description: row.description,
     thesis: row.thesis,
+    analysisPrompt: row.analysisPrompt,
     symbols: row.symbols,
     status: row.status,
     mode: row.mode,
@@ -200,6 +209,7 @@ export const subAgentsRouter = router({
           name: input.name,
           description: input.description ?? null,
           thesis: input.thesis ?? null,
+          analysisPrompt: normalizePrompt(input.analysisPrompt),
           symbols: normalizeSymbols(input.symbols),
           status: 'paused', // startet immer pausiert — bewusst scharfschalten
           mode: 'paper', // Paper-Default (Regel 3)
@@ -224,6 +234,7 @@ export const subAgentsRouter = router({
           name: input.name,
           description: input.description ?? null,
           thesis: input.thesis ?? null,
+          analysisPrompt: normalizePrompt(input.analysisPrompt),
           symbols: normalizeSymbols(input.symbols),
           ...cols,
           updatedAt: new Date(),
@@ -413,6 +424,7 @@ export const subAgentsRouter = router({
         name: `${src.name} (Kopie)`.slice(0, 80),
         description: src.description,
         thesis: src.thesis,
+        analysisPrompt: src.analysisPrompt,
         symbols: src.symbols,
         status: 'paused',
         mode: 'paper',

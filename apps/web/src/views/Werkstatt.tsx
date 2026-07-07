@@ -68,6 +68,7 @@ function keywords(v: string): string[] {
 type FormState = {
   name: string;
   thesis: string;
+  analysisPrompt: string;
   symbols: string;
   side: 'long' | 'short';
   timeframe: '15m' | '1h' | '4h' | '1d';
@@ -101,6 +102,7 @@ function emptyForm(): FormState {
   return {
     name: '',
     thesis: '',
+    analysisPrompt: '',
     symbols: 'BTC/USDT',
     side: 'long',
     timeframe: '1h',
@@ -180,6 +182,7 @@ function buildPayload(f: FormState) {
   return {
     name: f.name,
     thesis: f.thesis || undefined,
+    analysisPrompt: f.analysisPrompt.trim() || undefined,
     symbols: keywords(f.symbols),
     spec: {
       side: f.side,
@@ -205,6 +208,7 @@ function formFromAgent(a: Agent): FormState {
   const spec = a.spec as unknown as SpecShape;
   f.name = a.name;
   f.thesis = a.thesis ?? '';
+  f.analysisPrompt = a.analysisPrompt ?? '';
   f.symbols = a.symbols.join(', ');
   f.side = spec.side;
   f.timeframe = spec.timeframe;
@@ -253,6 +257,7 @@ function formFromTemplate(tpl: Template): FormState {
   const spec = tpl.spec as unknown as SpecShape;
   f.name = tpl.name;
   f.thesis = tpl.thesis;
+  f.analysisPrompt = tpl.analysisPrompt ?? '';
   f.symbols = tpl.symbols.join(', ');
   f.side = spec.side;
   f.timeframe = spec.timeframe;
@@ -387,6 +392,17 @@ function AgentForm({
         <label className="flex flex-col gap-1.5 md:col-span-2">
           <span className="label">{t('workshop.thesis')}</span>
           <textarea value={f.thesis} onChange={(e) => set({ thesis: e.target.value })} rows={2} className="field px-3 py-2 text-sm" />
+        </label>
+        <label className="flex flex-col gap-1.5 md:col-span-2">
+          <span className="label">{t('workshop.analysisPrompt')}</span>
+          <textarea
+            value={f.analysisPrompt}
+            onChange={(e) => set({ analysisPrompt: e.target.value })}
+            rows={3}
+            placeholder={t('workshop.analysisPromptPlaceholder')}
+            className="field px-3 py-2 text-sm"
+          />
+          <span className="text-[11px] leading-relaxed" style={{ color: 'var(--color-mut)' }}>{t('workshop.analysisPromptHint')}</span>
         </label>
       </div>
 
@@ -823,6 +839,11 @@ function AgentCard({ a, onChanged, onEdit }: { a: Agent; onChanged: () => void; 
           <span className="text-sm font-medium">{a.name}</span>
           <span className="label">{a.symbols.join(', ')}</span>
           <span className="label" style={{ color: 'var(--color-cyan)' }}>{t('common.paper')}</span>
+          {a.analysisPrompt && (
+            <span className="label rounded border px-1.5 py-0.5" style={{ borderColor: 'rgba(139,92,246,0.5)', color: 'var(--color-violet)' }} title={a.analysisPrompt}>
+              {t('workshop.aiBadge')}
+            </span>
+          )}
         </div>
         <div className="num flex items-center gap-4 text-xs">
           <span title={t('workshop.netPnl')} style={{ color: a.netPnl >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>

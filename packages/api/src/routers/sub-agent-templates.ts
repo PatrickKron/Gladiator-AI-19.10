@@ -8,6 +8,8 @@ export type SubAgentTemplate = {
   name: string;
   description: string;
   thesis: string;
+  /** Optionaler KI-Analyse-Prompt (Platzhalter {symbol}/{side}/{vix}/{dxy_change}/{grs} werden live gefüllt). */
+  analysisPrompt?: string;
   symbols: string[];
   spec: {
     side: 'long' | 'short';
@@ -42,6 +44,8 @@ export const SUB_AGENT_TEMPLATES: SubAgentTemplate[] = [
     name: 'Makro-Agent (Risk-On)',
     description: 'Handelt NUR nach Makro-Lage: niedriger VIX und Risk-On-Regime (GRS aus VIX/DXY/US10Y).',
     thesis: 'Bei ruhigem Makro-Umfeld (VIX < 20, Regime risk-on) sind Long-Trades statistisch günstiger.',
+    analysisPrompt:
+      'VIX ist bei {vix}, DXY-20T hat sich {dxy_change}% verändert, Regime {grs}. Bewerte das Makro-Umfeld für {symbol}: Ist jetzt ein guter {side}-Einstiegszeitpunkt oder deutet etwas auf erhöhtes Risiko hin? Entscheide: EXECUTE oder SKIP.',
     symbols: ['BTC/USDT', 'ETH/USDT'],
     spec: {
       side: 'long',
@@ -58,6 +62,8 @@ export const SUB_AGENT_TEMPLATES: SubAgentTemplate[] = [
     name: 'Event-Trader (News)',
     description: 'Reagiert auf offizielle Nachrichten (Keywords) und steigt bei einem Negativ-Ereignis sofort aus.',
     thesis: 'Positive Katalysatoren (ETF-Freigabe, Listing) treiben kurzfristig; bei Hack/Ban sofort raus.',
+    analysisPrompt:
+      'Analysiere die letzten News-Headlines. Gibt es klare Hinweise, dass ein positiver Katalysator (z. B. ETF-Freigabe, Listing) für {symbol} tatsächlich eingetreten ist — nicht nur Gerücht oder Ankündigung? Bewerte, ob die Nachrichtenlage einen {side}-Trade rechtfertigt. Entscheide: EXECUTE oder SKIP.',
     symbols: ['BTC/USDT'],
     spec: {
       side: 'long',
@@ -83,6 +89,27 @@ export const SUB_AGENT_TEMPLATES: SubAgentTemplate[] = [
       entryRules: { price: { changePct24h: { gt: 5 } }, calendar: { noHighImpactWithinMin: 120 } },
       exitRules: { takeProfitPct: 8, stopLossPct: 4 },
       riskParams: { riskPctPerTrade: 1, maxLeverage: 1, maxConcurrentPositions: 1, maxDailyLossPct: 5, cooldownMinutes: 180 },
+    },
+  },
+  {
+    key: 'political-speculator',
+    name: 'Politischer Spekulant',
+    description: 'Regel-Gate auf Nachrichten-Keywords (geopolitische De-Eskalation), dann KI-Bewertung der Lage.',
+    thesis: 'Offizielle De-Eskalation (Waffenstillstand, aufgehobene Sanktionen) ist ein bullisher Katalysator — die KI prüft, ob die Meldung echt ist.',
+    analysisPrompt:
+      'Basierend auf den aktuellen Nachrichten und Makro-Daten (VIX {vix}, Regime {grs}): Ist die geopolitische Lage bullish oder bearish für {symbol}? Prüfe, ob die offiziellen Meldungen das erwartete Ereignis (De-Eskalation) wirklich bestätigen — nicht nur Spekulation. Begründe und entscheide: EXECUTE oder SKIP.',
+    symbols: ['BTC/USDT'],
+    spec: {
+      side: 'long',
+      setupType: 'position',
+      timeframe: '4h',
+      dataSources: ['news', 'macro'],
+      entryRules: {
+        news: { anyKeyword: ['ceasefire', 'peace deal', 'sanctions lifted', 'de-escalation', 'waffenstillstand'], withinMin: 720 },
+        macro: { vix: { lt: 35 } },
+      },
+      exitRules: { takeProfitPct: 20, stopLossPct: 10, maxHoldHours: 720, exitOnNewsKeyword: ['escalation', 'renewed fighting', 'attack'] },
+      riskParams: { riskPctPerTrade: 0.5, maxLeverage: 1, maxConcurrentPositions: 1, maxDailyLossPct: 3, cooldownMinutes: 720 },
     },
   },
 ];

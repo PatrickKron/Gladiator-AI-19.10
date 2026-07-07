@@ -149,6 +149,10 @@ export const de = {
     draftTest: 'Idee testen (30 T)',
     draftResult: 'Schnelltest-Ergebnis',
     priceOnlyShort: 'nur Preis getestet',
+    aiBadge: 'KI',
+    analysisPrompt: 'KI-Analyse-Prompt (optional)',
+    analysisPromptPlaceholder: 'z. B.: Prüfe die aktuelle Nachrichtenlage. Rechtfertigt sie einen {side}-Trade in {symbol}? EXECUTE oder SKIP.',
+    analysisPromptHint: 'Optional: Wenn gesetzt, bewertet die KI bei erfüllten Regeln zusätzlich die Lage (EXECUTE/SKIP), bevor ein Signal entsteht. Platzhalter {symbol} {side} {vix} {dxy_change} {grs} werden mit Live-Daten gefüllt. Ohne ANTHROPIC_API_KEY läuft der Agent rein regelbasiert weiter.',
   },
   chart: {
     title: 'Charts',

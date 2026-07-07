@@ -20,3 +20,11 @@ export {
   dxyChangePct20d,
   type SubAgentRunSummary,
 } from './sub-agent-runner.js';
+export {
+  runAnalysisGate,
+  buildAnalysisMessages,
+  buildAnalysisContext,
+  fillPromptPlaceholders,
+  parseAnalysisDecision,
+  type LlmGateOutcome,
+} from './sub-agent-llm.js';

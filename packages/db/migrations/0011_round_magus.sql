@@ -1,0 +1,1 @@
+ALTER TABLE "sub_agents" ADD COLUMN "analysis_prompt" text;
