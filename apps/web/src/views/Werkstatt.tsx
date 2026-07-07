@@ -106,8 +106,9 @@ function emptyForm(): FormState {
     timeframe: '1h',
     setupType: 'swing',
     ds: { price: true, macro: false, funding: false, calendar: false, news: false },
-    dipFromHighPct: '',
-    dipLookback: '',
+    // Sinnvolle Defaults: ein sofort gültiger, testbarer Dip-Buyer von Grund auf.
+    dipFromHighPct: '5',
+    dipLookback: '30',
     change24hGt: '',
     change24hLt: '',
     vixGt: '',
@@ -313,8 +314,28 @@ function AgentForm({
   const [f, setF] = useState<FormState>(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Awaited<ReturnType<typeof trpc.subAgents.backtestDraft.mutate>> | null>(null);
+  const [draftBusy, setDraftBusy] = useState(false);
   const set = (patch: Partial<FormState>) => setF((prev) => ({ ...prev, ...patch }));
   const toggleDs = (d: DataSource) => setF((prev) => ({ ...prev, ds: { ...prev.ds, [d]: !prev.ds[d] } }));
+
+  async function testDraft() {
+    setDraftBusy(true);
+    setError(null);
+    setDraft(null);
+    try {
+      const payload = buildPayload(f);
+      if (payload.symbols.length === 0) {
+        setError(t('workshop.needSymbols'));
+        return;
+      }
+      setDraft(await trpc.subAgents.backtestDraft.mutate({ symbols: payload.symbols, spec: payload.spec as never, days: 30 }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setDraftBusy(false);
+    }
+  }
 
   async function submit() {
     setBusy(true);
@@ -355,6 +376,7 @@ function AgentForm({
               </button>
             ))}
           </div>
+          <p className="mt-2 text-[11px] leading-relaxed" style={{ color: 'var(--color-mut)' }}>{t('workshop.fromScratch')}</p>
         </div>
       )}
 
@@ -489,9 +511,24 @@ function AgentForm({
 
       {error && <p className="mt-4 text-sm" style={{ color: 'var(--color-neg)' }}>{error}</p>}
 
+      {/* Sofort-Test des aktuellen Entwurfs (ohne Speichern) */}
+      {(draftBusy || draft) && (
+        <div className="mt-4 rounded-[0.625rem] border border-dashed p-3" style={{ borderColor: 'rgba(79,209,255,0.3)' }}>
+          <p className="label mb-1">{t('workshop.draftResult')}</p>
+          {draftBusy ? (
+            <span className="text-xs" style={{ color: 'var(--color-mut)' }}>{t('workshop.quickTestRunning')}</span>
+          ) : draft ? (
+            <QuickResultLine res={draft} />
+          ) : null}
+        </div>
+      )}
+
       <div className="mt-5 flex flex-wrap gap-3">
         <button onClick={() => void submit()} disabled={busy || f.name.trim().length < 2} className="btn-primary px-5 py-2 text-sm disabled:opacity-50">
           {busy ? t('common.saving') : editingId ? t('common.save') : t('workshop.create')}
+        </button>
+        <button onClick={() => void testDraft()} disabled={draftBusy} className="rounded-[0.625rem] border px-5 py-2 text-sm disabled:opacity-50" style={{ borderColor: 'rgba(79,209,255,0.4)', color: 'var(--color-cyan)' }}>
+          {draftBusy ? t('workshop.quickTestRunning') : t('workshop.draftTest')}
         </button>
         <button onClick={onCancel} className="rounded-[0.625rem] border px-5 py-2 text-sm" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
           {t('common.cancel')}
@@ -691,10 +728,40 @@ function AgentDetail({ agentId }: { agentId: string }) {
   );
 }
 
+/** Kompaktes Ein-Zeilen-Ergebnis eines Schnelltests. */
+function QuickResultLine({ res }: { res: Awaited<ReturnType<typeof trpc.subAgents.backtest.mutate>> }) {
+  const { t } = useTranslation();
+  if ('insufficient' in res && res.insufficient) {
+    return <span className="text-xs" style={{ color: 'var(--color-warn)' }}>{res.detail}</span>;
+  }
+  if (!('metrics' in res)) return null;
+  if (res.notBacktestable) {
+    return <span className="text-xs" style={{ color: 'var(--color-warn)' }}>{t('workshop.notBacktestable')}</span>;
+  }
+  const m = res.metrics;
+  return (
+    <span className="num text-xs">
+      <span style={{ color: 'var(--color-mut)' }}>{res.symbol} · 30T · </span>
+      {res.trades} {t('workshop.trades')} ·{' '}
+      <span style={{ color: m.netReturnPct >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+        {m.netReturnPct >= 0 ? '+' : ''}{m.netReturnPct.toFixed(1)} %
+      </span>{' '}
+      · {t('workshop.winRate')} {m.winRate === null ? '—' : `${(m.winRate * 100).toFixed(0)} %`}
+      {!res.priceOnly && res.skippedConditions.length > 0 && (
+        <span style={{ color: 'var(--color-warn)' }}> · {t('workshop.priceOnlyShort')}</span>
+      )}
+    </span>
+  );
+}
+
 function AgentCard({ a, onChanged, onEdit }: { a: Agent; onChanged: () => void; onEdit: (a: Agent) => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [quick, setQuick] = useState<Awaited<ReturnType<typeof trpc.subAgents.backtest.mutate>> | null>(null);
+  const [quickBusy, setQuickBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   async function setStatus(status: 'active' | 'paused' | 'archived') {
     setBusy(true);
@@ -705,6 +772,46 @@ function AgentCard({ a, onChanged, onEdit }: { a: Agent; onChanged: () => void; 
       setBusy(false);
     }
   }
+
+  async function quickTest() {
+    setQuickBusy(true);
+    setActionError(null);
+    try {
+      setQuick(await trpc.subAgents.backtest.mutate({ id: a.id, days: 30 }));
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setQuickBusy(false);
+    }
+  }
+
+  async function clone() {
+    setBusy(true);
+    setActionError(null);
+    try {
+      await trpc.subAgents.duplicate.mutate({ id: a.id });
+      onChanged();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    setBusy(true);
+    setActionError(null);
+    try {
+      await trpc.subAgents.remove.mutate({ id: a.id });
+      onChanged();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t('common.error'));
+      setBusy(false);
+    }
+  }
+
+  const btn = 'rounded border px-3 py-1.5 text-xs disabled:opacity-50';
+  const btnMut = { borderColor: 'var(--color-line)', color: 'var(--color-mut)' };
 
   return (
     <li className="rounded-[0.625rem] border p-4" style={{ borderColor: 'var(--color-line)' }}>
@@ -728,33 +835,61 @@ function AgentCard({ a, onChanged, onEdit }: { a: Agent; onChanged: () => void; 
       {a.thesis && <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>{a.thesis}</p>}
       {a.lastError && <p className="mt-2 text-[11px]" style={{ color: 'var(--color-neg)' }}>{a.lastError}</p>}
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        {a.status === 'active' ? (
-          <button onClick={() => void setStatus('paused')} disabled={busy} className="rounded border px-3 py-1.5 text-xs" style={{ borderColor: 'rgba(255,196,0,0.4)', color: 'var(--color-warn)' }}>
-            {t('workshop.pause')}
-          </button>
-        ) : a.status === 'paused' ? (
-          <button onClick={() => void setStatus('active')} disabled={busy} className="rounded border px-3 py-1.5 text-xs" style={{ borderColor: 'rgba(61,220,151,0.4)', color: 'var(--color-pos)' }}>
-            {t('workshop.activate')}
-          </button>
-        ) : null}
-        <button onClick={() => setOpen((o) => !o)} className="rounded border px-3 py-1.5 text-xs" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
-          {open ? t('common.close') : t('workshop.details')}
-        </button>
-        {a.status !== 'archived' && (
-          <>
-            <button onClick={() => onEdit(a)} className="rounded border px-3 py-1.5 text-xs" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
-              {t('workshop.edit')}
+      {/* Schnelltest-Ergebnis (30 T) */}
+      {(quickBusy || quick) && (
+        <div className="mt-2 rounded border border-dashed px-3 py-2" style={{ borderColor: 'rgba(79,209,255,0.3)' }}>
+          {quickBusy ? (
+            <span className="text-xs" style={{ color: 'var(--color-mut)' }}>{t('workshop.quickTestRunning')}</span>
+          ) : quick ? (
+            <QuickResultLine res={quick} />
+          ) : null}
+        </div>
+      )}
+      {actionError && <p className="mt-2 text-[11px]" style={{ color: 'var(--color-neg)' }}>{actionError}</p>}
+
+      {confirmDel ? (
+        <div className="mt-3 rounded-[0.625rem] border p-3" style={{ borderColor: 'rgba(255,92,108,0.4)' }}>
+          <p className="text-xs leading-relaxed" style={{ color: 'var(--color-neg)' }}>{t('workshop.confirmDelete')}</p>
+          <div className="mt-2 flex gap-2">
+            <button onClick={() => void remove()} disabled={busy} className={btn} style={{ borderColor: 'rgba(255,92,108,0.5)', color: 'var(--color-neg)' }}>
+              {t('workshop.confirmDeleteYes')}
             </button>
-            <button onClick={() => void setStatus('archived')} disabled={busy} className="rounded border px-3 py-1.5 text-xs" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
-              {t('workshop.archive')}
+            <button onClick={() => setConfirmDel(false)} disabled={busy} className={btn} style={btnMut}>
+              {t('common.cancel')}
             </button>
-          </>
-        )}
-        <span className="label ml-auto self-center">
-          {t('workshop.lastRun')}: {a.lastRunAt ? new Date(a.lastRunAt).toLocaleString() : t('workshop.never')}
-        </span>
-      </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button onClick={() => void quickTest()} disabled={quickBusy} className={btn} style={{ borderColor: 'rgba(79,209,255,0.4)', color: 'var(--color-cyan)' }}>
+            {quickBusy ? t('workshop.quickTestRunning') : t('workshop.quickTest')}
+          </button>
+          {a.status === 'active' ? (
+            <button onClick={() => void setStatus('paused')} disabled={busy} className={btn} style={{ borderColor: 'rgba(255,196,0,0.4)', color: 'var(--color-warn)' }}>
+              {t('workshop.pause')}
+            </button>
+          ) : a.status === 'paused' ? (
+            <button onClick={() => void setStatus('active')} disabled={busy} className={btn} style={{ borderColor: 'rgba(61,220,151,0.4)', color: 'var(--color-pos)' }}>
+              {t('workshop.activate')}
+            </button>
+          ) : null}
+          <button onClick={() => setOpen((o) => !o)} className={btn} style={btnMut}>
+            {open ? t('common.close') : t('workshop.details')}
+          </button>
+          <button onClick={() => onEdit(a)} className={btn} style={btnMut}>
+            {t('workshop.edit')}
+          </button>
+          <button onClick={() => void clone()} disabled={busy} className={btn} style={btnMut}>
+            {t('workshop.clone')}
+          </button>
+          <button onClick={() => setConfirmDel(true)} disabled={busy} className={btn} style={{ borderColor: 'rgba(255,92,108,0.35)', color: 'var(--color-neg)' }}>
+            {t('workshop.delete')}
+          </button>
+          <span className="label ml-auto self-center">
+            {t('workshop.lastRun')}: {a.lastRunAt ? new Date(a.lastRunAt).toLocaleString() : t('workshop.never')}
+          </span>
+        </div>
+      )}
 
       {open && <AgentDetail agentId={a.id} />}
     </li>

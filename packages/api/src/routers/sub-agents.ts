@@ -3,7 +3,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema, type Db } from '@gladiator/db';
 import { getOhlcv } from '@gladiator/market-data';
-import { parseSubAgentSpec, subAgentSpecSchema } from '@gladiator/strategy-engine';
+import { parseSubAgentSpec, subAgentSpecSchema, type SubAgentSpec } from '@gladiator/strategy-engine';
 import { backtestSubAgent } from '@gladiator/backtest';
 import { PAPER_START_EQUITY } from '@gladiator/exchange';
 import { SUB_AGENT_TEMPLATES } from './sub-agent-templates.js';
@@ -86,6 +86,63 @@ async function loadOwned(ctx: { db: Db; user: { id: string } }, id: string) {
     .limit(1);
   if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'Sub-Agent nicht gefunden.' });
   return row;
+}
+
+/** Reassembliert die getrennten DB-Spalten zu einem Spec-Objekt. */
+function specFromRow(row: typeof subAgents.$inferSelect): unknown {
+  const cfg = row.config as { side: string; setupType: string; timeframe: string };
+  return {
+    side: cfg.side,
+    setupType: cfg.setupType,
+    timeframe: cfg.timeframe,
+    dataSources: row.dataSources,
+    entryRules: row.entryRules,
+    exitRules: row.exitRules,
+    riskParams: row.riskParams,
+  };
+}
+
+/** Ergebnis-Shape des Sub-Agent-Backtests (gemeinsam für gespeicherte + Entwurfs-Agenten). */
+type BacktestResponse =
+  | { symbol: string; candleCount: number; insufficient: true; detail: string }
+  | {
+      symbol: string;
+      candleCount: number;
+      insufficient: false;
+      priceOnly: boolean;
+      notBacktestable: boolean;
+      skippedConditions: string[];
+      initialEquity: number;
+      metrics: ReturnType<typeof backtestSubAgent>['metrics'];
+      trades: number;
+      equityCurve: { ts: string; equity: number }[];
+    };
+
+/** Führt den Backtest für einen (bereits validierten) Spec aus — eine Wahrheit für backtest + backtestDraft. */
+async function runSpecBacktest(db: Db, spec: SubAgentSpec, symbol: string, days: number): Promise<BacktestResponse> {
+  const since = new Date(Date.now() - days * 86_400_000);
+  const candles = await getOhlcv(db, { symbol, timeframe: spec.timeframe, since });
+  if (candles.length < 30) {
+    return {
+      symbol,
+      candleCount: candles.length,
+      insufficient: true,
+      detail: `Zu wenig Historie für ${symbol} @ ${spec.timeframe} (${candles.length} Kerzen) — bitte Backfill/anderes Symbol.`,
+    };
+  }
+  const res = backtestSubAgent(candles, spec);
+  return {
+    symbol,
+    candleCount: candles.length,
+    insufficient: false,
+    priceOnly: res.priceOnly,
+    notBacktestable: res.notBacktestable,
+    skippedConditions: res.skippedConditions,
+    initialEquity: PAPER_START_EQUITY,
+    metrics: res.metrics,
+    trades: res.trades.length,
+    equityCurve: res.equityCurve.map((p) => ({ ts: p.ts.toISOString(), equity: Math.round(p.equity * 100) / 100 })),
+  };
 }
 
 export const subAgentsRouter = router({
@@ -320,42 +377,71 @@ export const subAgentsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const row = await loadOwned(ctx, input.id);
-      const parsed = parseSubAgentSpec({
-        side: (row.config as { side: string }).side,
-        setupType: (row.config as { setupType: string }).setupType,
-        timeframe: (row.config as { timeframe: string }).timeframe,
-        dataSources: row.dataSources,
-        entryRules: row.entryRules,
-        exitRules: row.exitRules,
-        riskParams: row.riskParams,
-      });
+      const parsed = parseSubAgentSpec(specFromRow(row));
       if (!parsed.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: `Regel-Definition ungültig: ${parsed.errors.join('; ')}` });
-
       const symbol = (input.symbol ?? row.symbols[0] ?? '').toUpperCase();
       if (!symbol) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Kein Symbol für den Backtest.' });
-
-      const since = new Date(Date.now() - input.days * 86_400_000);
-      const candles = await getOhlcv(ctx.db, { symbol, timeframe: parsed.spec.timeframe, since });
-      if (candles.length < 30) {
-        return {
-          symbol,
-          candleCount: candles.length,
-          insufficient: true as const,
-          detail: `Zu wenig Historie für ${symbol} @ ${parsed.spec.timeframe} (${candles.length} Kerzen) — bitte Backfill/anderes Symbol.`,
-        };
-      }
-      const res = backtestSubAgent(candles, parsed.spec);
-      return {
-        symbol,
-        candleCount: candles.length,
-        insufficient: false as const,
-        priceOnly: res.priceOnly,
-        notBacktestable: res.notBacktestable,
-        skippedConditions: res.skippedConditions,
-        initialEquity: PAPER_START_EQUITY,
-        metrics: res.metrics,
-        trades: res.trades.length,
-        equityCurve: res.equityCurve.map((p) => ({ ts: p.ts.toISOString(), equity: Math.round(p.equity * 100) / 100 })),
-      };
+      return runSpecBacktest(ctx.db, parsed.spec, symbol, input.days);
     }),
+
+  /**
+   * Schnelltest eines NOCH NICHT gespeicherten Entwurfs (Sofort-Feedback im
+   * Formular): validiert die Definition und backtestet sie — ohne zu persistieren.
+   */
+  backtestDraft: protectedProcedure
+    .input(
+      z.object({
+        symbols: z.array(z.string().min(3).max(20)).min(1).max(20),
+        spec: subAgentSpecSchema,
+        symbol: z.string().min(3).max(20).optional(),
+        days: z.number().int().min(7).max(730).default(30),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const symbol = (input.symbol ?? input.symbols[0] ?? '').toUpperCase();
+      if (!symbol) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Kein Symbol für den Backtest.' });
+      return runSpecBacktest(ctx.db, input.spec, symbol, input.days);
+    }),
+
+  /** Bestehenden Agenten klonen (Kopie, pausiert) — schnelle Variation. */
+  duplicate: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+    const src = await loadOwned(ctx, input.id);
+    const [row] = await ctx.db
+      .insert(subAgents)
+      .values({
+        userId: ctx.user.id,
+        name: `${src.name} (Kopie)`.slice(0, 80),
+        description: src.description,
+        thesis: src.thesis,
+        symbols: src.symbols,
+        status: 'paused',
+        mode: 'paper',
+        config: src.config,
+        dataSources: src.dataSources,
+        entryRules: src.entryRules,
+        exitRules: src.exitRules,
+        riskParams: src.riskParams,
+      })
+      .returning();
+    await ctx.db.insert(auditLog).values({
+      actor: 'user', userId: ctx.user.id, action: 'sub_agent.duplicate',
+      entityType: 'sub_agent', entityId: row!.id, details: { from: src.id, name: row!.name }, ip: ctx.ip,
+    });
+    return toDto(row!);
+  }),
+
+  /**
+   * Agent endgültig löschen. sub_agent_runs werden mit-gelöscht (FK cascade);
+   * Signale/Positionen/Trades bleiben als Historie erhalten (sub_agent_id → NULL,
+   * FK set null). Offene Positionen laufen unter ihren Schutz-Orders weiter.
+   */
+  remove: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+    const row = await loadOwned(ctx, input.id);
+    await ctx.db.delete(subAgents).where(and(eq(subAgents.id, input.id), eq(subAgents.userId, ctx.user.id)));
+    await ctx.db.insert(auditLog).values({
+      actor: 'user', userId: ctx.user.id, action: 'sub_agent.delete',
+      entityType: 'sub_agent', entityId: input.id, details: { name: row.name }, ip: ctx.ip,
+    });
+    return { ok: true };
+  }),
 });
