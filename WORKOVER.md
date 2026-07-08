@@ -48,8 +48,8 @@
 
 ## Abschluss
 - [x] Full CI: lint ✓ · typecheck ✓ · Tests 605 passed (598 Bestand + 7 neue regime.test) ✓ · build:web ✓
-- [ ] Commit (NUR eigene Dateien) + push server main
-- [ ] Live: Health-Check, Regime-Badge auf Prod prüfen, Test-Agenten (Workover-E2E-Test, Workover-UI-Test) via neuem Stilllegen-Button retiren
+- [x] Commit e319a45 (nur eigene 19 Dateien; Worker-Trennungs-Dateien unangetastet) + push server main — Server-CI GRUEN, Dienst neu gestartet
+- [x] Live: /health ok (db up, Feeds connected) · Bundle index-cYn4_QxP.js = lokaler Build · modelBlob aus rl.agents-Response verschwunden · beide Test-Agenten via rl.retireAgent stillgelegt (alle 3 Agenten jetzt retired → keine 30-min-Episoden-Last mehr)
 
 ## Befunde (Phase 0)
 1. **P0.1 Wurzelursache:** `ml.regime` liefert Regime-Daten TOP-LEVEL (`{regime:"sideways", confidence:0.898, components:[{name,score,detail}], ts, cached}`). `RegimeBadge.tsx:36` macht aber `setData(r.regime)` → nimmt den STRING → `data.regime`=undefined, `data.confidence`=NaN. Fix: `setData(r)` + null-Guard + Komponenten-Shape (`score`/`detail` statt `value`). i18n-Keys (regime.bull/bear/…) existieren in allen 5 Sprachen.
@@ -60,6 +60,13 @@
 6. RlAgents nutzt `alert()`/`window.confirm()` — bricht Designsprache.
 7. `rl.runEpisode` blockiert lt. Memory den Webserver ~20 s/Episode (Worker-Trennung offen) — UI sollte das ehrlich sagen, Button vorsichtig behandeln.
 
+## Offen für Folge-Sessions
+- Worker-Prozess-Trennung (ROLE=web/worker) fertigstellen+committen — Dateien liegen uncommitted im Tree (fremde Session); mein einziger Eingriff dort: worker.ts IORedis-Import auf `import { Redis }` gefixt (Typfehler blockierte typecheck).
+- `#/rl-agenten` etc. sind redirects; falls je ein Deep-Link mit Query auf Alt-Routen existiert, geht nur der Tab-Teil verloren (unkritisch).
+- Wenn erste Labels/Modelle/Snapshots entstehen: KI-Status-Panel + Hub zeigen sie automatisch — kein weiterer Umbau nötig.
+- Screenshot via preview_screenshot timeoutet (MatrixRain-Canvas?) — Verifikation lief über DOM-Snapshots/evals.
+
 ## Log
 - 2026-07-08: Session 1 gestartet. git fetch ok. Worker-Trennungs-Änderungen unangetastet vorgefunden. Struktur: apps/web (Views: Dashboard, Signals, RlAgents, MlModels, Performance, Labor, Strategien, Werkstatt, Agenten, …), packages/{api,ml,agents,…}.
 - 2026-07-08: Kernfiles gelesen (App, api, Shell, RegimeBadge, MlBadge, SignalCard, Dashboard, RlAgents, MlModels, Performance, FavStar, ui, i18n/de). Live-API inspiziert (Shapes verifiziert). Test-Agent "Workover-E2E-Test" (paper) in Prod-DB angelegt — nach Browser-Verify wieder entfernen falls Delete-Endpoint existiert, sonst behalten (harmlos, paper).
+- 2026-07-08: Session 1 ABGESCHLOSSEN. Alle P0/P1/P2-Punkte umgesetzt+verifiziert. Commit e319a45 deployed, Live-Checks gruen.
