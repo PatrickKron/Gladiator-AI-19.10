@@ -68,7 +68,11 @@ describe.skipIf(!hasDb)('Demo-Engine (echte DB, deterministisches Buch)', () => 
   });
 
   afterAll(async () => {
-    // demo_* hängen per ON DELETE CASCADE am User
+    // audit_log (reset schreibt hinein) hat KEIN cascade — zuerst löschen;
+    // demo_* hängen per ON DELETE CASCADE am User.
+    await db.execute(
+      sql`DELETE FROM audit_log WHERE user_id IN (SELECT id FROM users WHERE email = ${`demo-test-${RUN}@test.invalid`})`,
+    );
     await db.execute(sql`DELETE FROM users WHERE email = ${`demo-test-${RUN}@test.invalid`}`);
     await pool.end();
   });
@@ -269,6 +273,9 @@ describe.skipIf(!hasDb)('Demo-Engine (echte DB, deterministisches Buch)', () => 
   it('SICHERHEIT: demo/engine.ts importiert kein Venue und keinen placeOrder-Pfad', async () => {
     const { readFile } = await import('node:fs/promises');
     const src = await readFile(new URL('./engine.ts', import.meta.url), 'utf8');
-    expect(src).not.toMatch(/TradingVenue|placeOrder\s*\(|paper-venue|binance-venue|hyperliquid/);
+    // Echte Nutzung, nicht Kommentare: Venue-Imports und .placeOrder()-Aufrufe
+    expect(src).not.toMatch(/from '\.\.\/(venue|paper-venue|binance-venue|hyperliquid-venue)\.js'/);
+    expect(src).not.toMatch(/\.placeOrder\(/);
+    expect(src).not.toMatch(/import[^;]*TradingVenue/);
   });
 });

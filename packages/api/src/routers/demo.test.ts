@@ -75,8 +75,8 @@ describe.skipIf(!hasDb)('Demo-Router: Konto, Order, Close, Performance, Reset', 
     const p = await caller.demo.preview({ symbol: 'BTC/USDT', direction: 'long', type: 'market', qty: 0.1 });
     expect(p.ok).toBe(true);
     if (!p.ok) return;
-    expect(p.spread).toBe(100);
-    expect(p.estFillPrice).toBe(50_100);
+    expect(p.spread).toBeCloseTo(100, 6);
+    expect(p.estFillPrice).toBeCloseTo(50_100, 6); // Float: notional/qty kann 1e-11 abweichen
   });
 
   it('placeOrder market → Position; ungültiger Stop → ehrliche 412', async () => {
