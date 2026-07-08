@@ -23,6 +23,7 @@ const Kalender = lazyView(() => import('./views/Kalender.js'), 'Kalender');
 const Agenten = lazyView(() => import('./views/Agenten.js'), 'Agenten');
 const Werkstatt = lazyView(() => import('./views/Werkstatt.js'), 'Werkstatt');
 const Strategien = lazyView(() => import('./views/Strategien.js'), 'Strategien');
+const Workshop = lazyView(() => import('./views/Workshop.js'), 'Workshop');
 const Intelligenz = lazyView(() => import('./views/Intelligenz.js'), 'Intelligenz');
 const Einstellungen = lazyView(() => import('./views/Einstellungen.js'), 'Einstellungen');
 const Profil = lazyView(() => import('./views/Profil.js'), 'Profil');
@@ -51,6 +52,7 @@ const ROUTES: Record<string, ComponentType> = {
   '#/agenten': Agenten,
   '#/werkstatt': Werkstatt,
   '#/strategien': Strategien,
+  '#/strategie-workshop': Workshop,
   '#/intelligenz': Intelligenz,
   // Alt-Routen der drei Einzelseiten → Intelligenz-Hub (Bookmarks bleiben gültig)
   '#/ml': () => <Redirect to="#/intelligenz?tab=ml" />,

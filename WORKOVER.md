@@ -60,13 +60,46 @@
 6. RlAgents nutzt `alert()`/`window.confirm()` — bricht Designsprache.
 7. `rl.runEpisode` blockiert lt. Memory den Webserver ~20 s/Episode (Worker-Trennung offen) — UI sollte das ehrlich sagen, Button vorsichtig behandeln.
 
-## Offen für Folge-Sessions
+## Offen für Folge-Sessions (Session 2)
+- Trailing-Stop: gemeinsam in Engine + PositionMonitor einführen (dann DSL-Exit-Feld ergänzen) — Backtest-only wäre Fake, darum in v1 weggelassen.
+- Labor.tsx: lokale EquityChart/MultiEquityChart/MetricCard-Kopien auf components/EquityChart.tsx umstellen (bewusst nicht in dieser Session — chirurgisch bleiben).
+- Workshop: Chat-Antworten sind ein Turn (kein Streaming — Vanilla-tRPC ohne Subscription-Link); bei Bedarf SSE-Endpoint.
+- dslPreview/Workshop-Analyse teilen sich das Tagesbudget (LLM_DAILY_BUDGET_USD, Default 5 USD/Tag, In-Memory je Prozess).
+
+## Offen für Folge-Sessions (Session 1)
 - Worker-Prozess-Trennung (ROLE=web/worker) fertigstellen+committen — Dateien liegen uncommitted im Tree (fremde Session); mein einziger Eingriff dort: worker.ts IORedis-Import auf `import { Redis }` gefixt (Typfehler blockierte typecheck).
 - `#/rl-agenten` etc. sind redirects; falls je ein Deep-Link mit Query auf Alt-Routen existiert, geht nur der Tab-Teil verloren (unkritisch).
 - Wenn erste Labels/Modelle/Snapshots entstehen: KI-Status-Panel + Hub zeigen sie automatisch — kein weiterer Umbau nötig.
 - Screenshot via preview_screenshot timeoutet (MatrixRain-Canvas?) — Verifikation lief über DOM-Snapshots/evals.
 
+---
+
+# SESSION 2 — Strategie-Workshop (Pine → KI-Dialog → Agent → Backtest → Version → Paper-Deploy)
+
+**Start:** 2026-07-08 · **Session 2:** Fable-5 · Worker-Trennungs-Dateien weiterhin unangetastet (gezieltes git add!).
+
+## Auftrag
+Interaktiver Strategie-Workshop: (1) Pine-Script-Eingabe + KI-Analyse (Indikatoren/Entry/Exit/Typ/Parameter), (2) Chat-Dialog zur Umsetzungsplanung, (3) eigene Agent-Konfiguration (Asset/TF/Regeln/Risk, alles editierbar), (4) Backtest-Integration inkl. Parameter-Set-Vergleich, (5) Versionierung + Paper-Deploy.
+
+## Architektur-Entscheidungen (nach Bestandsaufnahme)
+1. **Strategie-Repräsentation = InstructionDsl, additiv erweitert** — gleiche Engine, gleiche Wahrheit wie Strategien/Labor/dsl-scan. Neu: Bedingungen `maCross` (EMA/SMA golden/death), `priceVs` (EMA/SMA above/below), `macd` (cross/histogram), `bollinger` (close vs. Band), `stochastic` (K-Level + Cross), `adx` (gt/lt), `supertrend` (direction), RSI bekommt optionales `period`. Timeframe-Enum 4→10 (= SUPPORTED_TIMEFRAMES). Alles Superset — bestehende gespeicherte DSLs bleiben gültig; dsl-scan läuft unverändert (nutzt dsl.timeframe).
+2. **Kein Trailing-Stop in v1 (bewusst, kein Fake):** Live-Ausführung (PositionMonitor) kann nur statische SL/TP + Break-Even — ein nur im Backtest simuliertes Trailing wäre eine unehrliche Backtest↔Paper-Divergenz. UI sagt das ehrlich. → Folge-Session: Trailing in PositionMonitor UND Engine gemeinsam.
+3. **LLM-Wiederverwendung:** `envAnthropicProvider()` + `guardedComplete()` + `CostGuard` (Key kommt AES-256-GCM-entschlüsselt aus app_secrets → process.env, Modell claude-opus-4-8). Pine-Analyse liefert Zod-validiertes Struktur-JSON; Chat-Turns liefern Text + optionalen DSL-Vorschlag (```json-Fence → parseInstructionDsl). Ohne Key: PRECONDITION_FAILED mit Klartext. LLM schaltet NIE scharf.
+4. **DB additiv (Migration 0015):** `workshop_sessions` (pine_source, analysis, draft_dsl, instructions, strategy_id-Link), `workshop_messages` (Dialog), `workshop_backtests` (Draft-Läufe: dsl+metrics+equity+trades für Parameter-Vergleich). Bestehende Tabellen unangetastet.
+5. **Backtest zweistufig:** Draft-Backtests laufen inline (getOhlcv → runBacktest mit evaluateDslAt) → workshop_backtests (VDB-Studientabellen bleiben sauber). Nach „Als Version speichern" (strategies kind=dsl + strategy_versions status=draft) läuft der offizielle Labor-Backtest (runLabBacktest → backtests) → **Deploy = bestehendes strategies.promote-Gate** (Validitäts-Gate, Mensch im Loop) → paper → dsl-scan erzeugt Signale.
+6. **Frontend:** neue View `Workshop` (#/strategie-workshop, Sidebar groupIntel), Chat-Komponente neu (.glass/.field), Config-Editor mit ALLEN DSL-Feldern editierbar, EquityChart/MultiEquityChart-Muster aus Labor für Kurve + Vergleich. i18n-Namespace `sw.*` (workshop.* ist von Werkstatt belegt!), `{{n}}`-Konvention.
+7. **DSL_SYSTEM_PROMPT in strategies.ts** wird auf die erweiterte DSL nachgezogen (eine Schema-Doku-Konstante, geteilt).
+
+## Arbeitsreihenfolge
+- [x] 1. strategy-engine: DSL-Erweiterung — 7 neue Bedingungstypen (maCross/priceVs/macd/bollinger/stochastic/adx/supertrend), RSI-period, TF 4→10, when.all max 10, `crossedWithin`-Helfer, `dsl-doc.ts` (DSL_SCHEMA_DOC/DSL_LIMITS_DOC als eine Prompt-Wahrheit). 31 dsl-Tests (13 Bestand + 18 neu). RSI-period bewusst `.optional()` statt `.default()` (Ausgabetyp-Kompatibilität für Bestands-Literale).
+- [x] 2. db: schema/workshop.ts (workshop_sessions/-messages/-backtests) + Migration 0015. ⚠ drizzle-generate emittierte auch die 0014-Tabellen erneut (0014 ist hand-geschrieben ohne Snapshot) → 0015-SQL hand-bereinigt auf NUR Workshop-Tabellen, alles idempotent (IF NOT EXISTS + DO-$$-Guards); 0015-Snapshot behält die 0014-Tabellen, damit künftige generates sauber sind.
+- [x] 3. api: workshop/llm.ts (Analyse+Chat: pure Prompt/Parse-Helfer, 15 Tests mit Fake-Provider) + routers/workshop.ts (list/get/create/update/remove/analyze/chat/applyProposal/updateDraft/runBacktest/backtests/backtestTrades/saveVersion/versions/restoreVersion) + workshop.test.ts (DB-Integration, läuft auf Server-CI). strategies.ts DSL_SYSTEM_PROMPT auf DSL_SCHEMA_DOC umgestellt (dslPreview kennt die neuen Bedingungen). Deploy-Weg bewusst über BESTEHENDE Pfade: saveVersion→draft, lab.runBacktest(strategyId)→backtests, strategies.promote→Gate→paper→dsl-scan.
+- [x] 4. web: views/Workshop.tsx (#/strategie-workshop, Sidebar groupIntel `nav.strategyWorkshop` — nav.workshop war Werkstatt!) — Pine-Textarea+Analyse-Ansicht, Chat (neu, kein Bestand), Config-Editor ALLE Felder (Form+JSON-Modus), Backtest mit Symbol/TF-Override + Parameter-Set-Vergleich (MultiEquityChart), Versionen+Gate-Deploy. components/EquityChart.tsx als geteilter Baustein (Labor-Kopien bewusst NICHT angefasst — additiv; Zusammenführung siehe Offen).
+- [x] 5. i18n ×5: Namespace `sw.*` (~100 Keys) + nav.strategyWorkshop in DE/EN/IT/ES/FR, {{n}}-Konvention, catalog-Paritätstest grün.
+- [x] 6. Full CI lokal grün (lint ✓ typecheck ✓ 638 Tests ✓ build:web ✓) — zusätzlich mit weggestashten fremden Worker-Dateien verifiziert (committeter Stand = grün). Browser-Verify erfolgt NACH dem Push (workshop-Router existiert erst nach Deploy auf der Live-API).
+
 ## Log
+- 2026-07-08: Session 2 (Strategie-Workshop) — Bestandsaufnahme via 2 Explore-Agenten + eigene Kernfile-Reads, Plan fixiert, DSL-Erweiterung + Schema 0015 + workshop-Router + LLM-Schicht + View + i18n gebaut. Full CI grün (auch auf committetem Stand ohne fremde Worker-Dateien). Commit + push → Server-CI deployt (Migration läuft dort), danach Browser-Live-Verifikation.
 - 2026-07-08: Session 1 gestartet. git fetch ok. Worker-Trennungs-Änderungen unangetastet vorgefunden. Struktur: apps/web (Views: Dashboard, Signals, RlAgents, MlModels, Performance, Labor, Strategien, Werkstatt, Agenten, …), packages/{api,ml,agents,…}.
 - 2026-07-08: Kernfiles gelesen (App, api, Shell, RegimeBadge, MlBadge, SignalCard, Dashboard, RlAgents, MlModels, Performance, FavStar, ui, i18n/de). Live-API inspiziert (Shapes verifiziert). Test-Agent "Workover-E2E-Test" (paper) in Prod-DB angelegt — nach Browser-Verify wieder entfernen falls Delete-Endpoint existiert, sonst behalten (harmlos, paper).
 - 2026-07-08: Session 1 ABGESCHLOSSEN. Alle P0/P1/P2-Punkte umgesetzt+verifiziert. Commit e319a45 deployed, Live-Checks gruen.

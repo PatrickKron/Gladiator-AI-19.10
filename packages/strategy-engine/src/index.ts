@@ -11,11 +11,14 @@ export {
   evaluateDslAt,
   instructionDslSchema,
   parseInstructionDsl,
+  DSL_TIMEFRAMES,
   type DslCondition,
   type DslParseResult,
   type DslSetup,
+  type DslTimeframe,
   type InstructionDsl,
 } from './dsl.js';
+export { DSL_SCHEMA_DOC, DSL_LIMITS_DOC } from './dsl-doc.js';
 export {
   subAgentSpecSchema,
   subAgentDataSourceSchema,

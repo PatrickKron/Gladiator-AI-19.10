@@ -3,7 +3,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
-import { parseInstructionDsl, type InstructionDsl } from '@gladiator/strategy-engine';
+import { DSL_SCHEMA_DOC, parseInstructionDsl, type InstructionDsl } from '@gladiator/strategy-engine';
 import { evaluateBacktestValidity, DEFAULT_VALIDITY_THRESHOLDS, type ValidityVerdict } from '@gladiator/backtest';
 import { CostGuard, envAnthropicProvider, guardedComplete } from '@gladiator/agents';
 import { protectedProcedure, router } from '../trpc.js';
@@ -82,19 +82,7 @@ const llmGuard = new CostGuard({ dailyBudgetUsd: Number(process.env.LLM_DAILY_BU
 
 const DSL_SYSTEM_PROMPT = `Du übersetzt natürlichsprachige Trading-Anweisungen in die Gladiator-Strategie-DSL (JSON).
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt nach diesem Schema:
-{
-  "id": "kebab-case-slug",
-  "symbol": "BTC/USDT",
-  "timeframe": "15m"|"1h"|"4h"|"1d",
-  "venueType": "cex"|"dex",
-  "direction": "long"|"short",
-  "setupType": "scalp"|"swing"|"position",
-  "when": { "session": "asia"|"london"|"overlap"|"newyork"|"off" (optional), "all": [ {"signal":"BOS"|"CHoCH"} | {"indicator":"RSI","lt":n,"gt":n} | {"trend":"EMA200_up"|"EMA200_down"} ] },
-  "entry": "market" | "retest@EMA<n>",
-  "stopLoss": {"type":"ATR","mult":n} | {"type":"pct","pct":n},
-  "takeProfits": [{"rr":n}, ...],
-  "risk": {"maxLeveragePerTrade":n,"riskPctPerTrade":n}
-}
+${DSL_SCHEMA_DOC}
 Nutze NUR Felder aus dem Schema. Wenn die Anweisung etwas verlangt, das die DSL nicht ausdrücken kann,
 lass es weg — erfinde keine neuen Felder.`;
 

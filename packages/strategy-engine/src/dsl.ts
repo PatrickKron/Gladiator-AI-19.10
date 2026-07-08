@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { atr, ema, rsi } from './indicators.js';
+import { atr, bollinger, ema, macd, rsi, sma } from './indicators.js';
+import { adx, stochastic, supertrend } from './indicators-extra.js';
 import { detectStructure } from './structure.js';
 import { riskClassOf, type RiskClass, type TradingSession } from './scoring.js';
 import { sessionOf } from './session.js';
@@ -20,15 +21,115 @@ const conditionSchema = z.union([
       indicator: z.literal('RSI'),
       lt: z.number().min(0).max(100).optional(),
       gt: z.number().min(0).max(100).optional(),
+      /** RSI-Periode (optional, Auswertung nutzt sonst 14). */
+      period: z.number().int().min(2).max(100).optional(),
     })
     .strict()
     .refine((c) => c.lt !== undefined || c.gt !== undefined, {
       message: 'RSI-Bedingung braucht lt und/oder gt.',
     }),
   z.object({ trend: z.enum(['EMA200_up', 'EMA200_down']) }).strict(),
+  // ── Workshop-Erweiterung: Indikator-Bedingungen (alle look-ahead-frei am Bar i) ──
+  z
+    .object({
+      maCross: z
+        .object({
+          kind: z.enum(['EMA', 'SMA']).default('EMA'),
+          fast: z.number().int().min(2).max(400),
+          slow: z.number().int().min(3).max(500),
+          cross: z.enum(['bullish', 'bearish']),
+          /** Cross gilt, wenn es innerhalb der letzten N Bars passiert ist (Default 1 = genau jetzt). */
+          withinBars: z.number().int().min(1).max(20).default(1),
+        })
+        .strict()
+        .refine((c) => c.fast < c.slow, { message: 'maCross: fast muss kleiner als slow sein.' }),
+    })
+    .strict(),
+  z
+    .object({
+      priceVs: z
+        .object({
+          kind: z.enum(['EMA', 'SMA']),
+          period: z.number().int().min(2).max(500),
+          is: z.enum(['above', 'below']),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      macd: z
+        .object({
+          fast: z.number().int().min(2).max(100).default(12),
+          slow: z.number().int().min(3).max(200).default(26),
+          signal: z.number().int().min(2).max(100).default(9),
+          event: z.enum(['bullish_cross', 'bearish_cross', 'histogram_positive', 'histogram_negative']),
+          withinBars: z.number().int().min(1).max(20).default(1),
+        })
+        .strict()
+        .refine((c) => c.fast < c.slow, { message: 'macd: fast muss kleiner als slow sein.' }),
+    })
+    .strict(),
+  z
+    .object({
+      bollinger: z
+        .object({
+          period: z.number().int().min(5).max(200).default(20),
+          mult: z.number().min(0.5).max(5).default(2),
+          event: z.enum(['close_below_lower', 'close_above_upper', 'close_above_middle', 'close_below_middle']),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      stochastic: z
+        .object({
+          kPeriod: z.number().int().min(2).max(100).default(14),
+          dPeriod: z.number().int().min(1).max(50).default(3),
+          smoothK: z.number().int().min(1).max(10).default(1),
+          kLt: z.number().min(0).max(100).optional(),
+          kGt: z.number().min(0).max(100).optional(),
+          /** K kreuzt D (bullish = von unten nach oben). */
+          cross: z.enum(['bullish', 'bearish']).optional(),
+          withinBars: z.number().int().min(1).max(20).default(1),
+        })
+        .strict()
+        .refine((c) => c.kLt !== undefined || c.kGt !== undefined || c.cross !== undefined, {
+          message: 'stochastic: kLt, kGt oder cross nötig.',
+        }),
+    })
+    .strict(),
+  z
+    .object({
+      adx: z
+        .object({
+          period: z.number().int().min(2).max(100).default(14),
+          gt: z.number().min(0).max(100).optional(),
+          lt: z.number().min(0).max(100).optional(),
+        })
+        .strict()
+        .refine((c) => c.gt !== undefined || c.lt !== undefined, { message: 'adx: gt und/oder lt nötig.' }),
+    })
+    .strict(),
+  z
+    .object({
+      supertrend: z
+        .object({
+          period: z.number().int().min(2).max(100).default(10),
+          mult: z.number().min(0.5).max(10).default(3),
+          direction: z.enum(['up', 'down']),
+        })
+        .strict(),
+    })
+    .strict(),
 ]);
 
 export type DslCondition = z.infer<typeof conditionSchema>;
+
+/** Alle im System unterstützten Timeframes (deckungsgleich mit market-data SUPPORTED_TIMEFRAMES). */
+export const DSL_TIMEFRAMES = ['5m', '15m', '30m', '1h', '2h', '4h', '12h', '1d', '1w', '1M'] as const;
+export type DslTimeframe = (typeof DSL_TIMEFRAMES)[number];
 
 export const instructionDslSchema = z
   .object({
@@ -38,14 +139,14 @@ export const instructionDslSchema = z
       .max(64)
       .regex(/^[a-z0-9][a-z0-9-]*$/, 'id: nur Kleinbuchstaben, Ziffern, Bindestriche'),
     symbol: z.string().min(3),
-    timeframe: z.enum(['15m', '1h', '4h', '1d']).default('1h'),
+    timeframe: z.enum(DSL_TIMEFRAMES).default('1h'),
     venueType: z.enum(['cex', 'dex']).default('cex'),
     direction: z.enum(['long', 'short']),
     setupType: z.enum(['scalp', 'swing', 'position']).default('swing'),
     when: z
       .object({
         session: z.enum(['asia', 'london', 'overlap', 'newyork', 'off']).optional(),
-        all: z.array(conditionSchema).min(1).max(8),
+        all: z.array(conditionSchema).min(1).max(10),
       })
       .strict(),
     entry: z
@@ -102,6 +203,30 @@ const STRUCTURE_WINDOW_BARS = 12;
 const RETEST_PROXIMITY_PCT = 2;
 
 /**
+ * Cross-Erkennung zweier Serien am/vor Bar `i`: bullish = a kreuzt b von unten
+ * nach oben. Zählt, wenn der Cross innerhalb der letzten `withinBars` Bars lag.
+ * Undefinierte Werte (Warmup) zählen ehrlich als „kein Cross".
+ */
+function crossedWithin(
+  a: (number | null)[],
+  b: (number | null)[],
+  i: number,
+  withinBars: number,
+  direction: 'bullish' | 'bearish',
+): boolean {
+  for (let j = Math.max(1, i - withinBars + 1); j <= i; j++) {
+    const aNow = a[j];
+    const bNow = b[j];
+    const aPrev = a[j - 1];
+    const bPrev = b[j - 1];
+    if (aNow == null || bNow == null || aPrev == null || bPrev == null) continue;
+    if (direction === 'bullish' && aPrev <= bPrev && aNow > bNow) return true;
+    if (direction === 'bearish' && aPrev >= bPrev && aNow < bNow) return true;
+  }
+  return false;
+}
+
+/**
  * Wertet die DSL GENAU am Bar `i` aus — nur Daten bis i (look-ahead-frei).
  * Nicht erfüllte Bedingungen oder undefinierte Indikatoren ⇒ ehrlich null.
  */
@@ -131,11 +256,72 @@ export function evaluateDslAt(allCandles: Candle[], i: number, dsl: InstructionD
       if (!hit) return null;
       matched.push(`dsl:${cond.signal}`);
     } else if ('indicator' in cond) {
-      const value = rsi(closes)[i];
+      const value = rsi(closes, cond.period)[i];
       if (value == null) return null;
       if (cond.lt !== undefined && !(value < cond.lt)) return null;
       if (cond.gt !== undefined && !(value > cond.gt)) return null;
       matched.push(`dsl:RSI${cond.lt !== undefined ? `<${cond.lt}` : ''}${cond.gt !== undefined ? `>${cond.gt}` : ''}`);
+    } else if ('maCross' in cond) {
+      const c = cond.maCross;
+      const maFn = c.kind === 'EMA' ? ema : sma;
+      const fast = maFn(closes, c.fast);
+      const slow = maFn(closes, c.slow);
+      if (!crossedWithin(fast, slow, i, c.withinBars, c.cross)) return null;
+      matched.push(`dsl:maCross:${c.kind}${c.fast}/${c.slow}:${c.cross}`);
+    } else if ('priceVs' in cond) {
+      const c = cond.priceVs;
+      const value = (c.kind === 'EMA' ? ema : sma)(closes, c.period)[i];
+      if (value == null) return null;
+      if (c.is === 'above' && !(bar.close > value)) return null;
+      if (c.is === 'below' && !(bar.close < value)) return null;
+      matched.push(`dsl:priceVs:${c.kind}${c.period}:${c.is}`);
+    } else if ('macd' in cond) {
+      const c = cond.macd;
+      const m = macd(closes, c.fast, c.slow, c.signal);
+      if (c.event === 'histogram_positive' || c.event === 'histogram_negative') {
+        const h = m.histogram[i];
+        if (h == null) return null;
+        if (c.event === 'histogram_positive' && !(h > 0)) return null;
+        if (c.event === 'histogram_negative' && !(h < 0)) return null;
+      } else {
+        const dir = c.event === 'bullish_cross' ? 'bullish' : 'bearish';
+        if (!crossedWithin(m.macd, m.signal, i, c.withinBars, dir)) return null;
+      }
+      matched.push(`dsl:macd:${c.event}`);
+    } else if ('bollinger' in cond) {
+      const c = cond.bollinger;
+      const b = bollinger(closes, c.period, c.mult);
+      const upper = b.upper[i];
+      const middle = b.middle[i];
+      const lower = b.lower[i];
+      if (upper == null || middle == null || lower == null) return null;
+      if (c.event === 'close_below_lower' && !(bar.close < lower)) return null;
+      if (c.event === 'close_above_upper' && !(bar.close > upper)) return null;
+      if (c.event === 'close_above_middle' && !(bar.close > middle)) return null;
+      if (c.event === 'close_below_middle' && !(bar.close < middle)) return null;
+      matched.push(`dsl:bollinger:${c.event}`);
+    } else if ('stochastic' in cond) {
+      const c = cond.stochastic;
+      const s = stochastic(candles, c.kPeriod, c.dPeriod, c.smoothK);
+      const k = s.k[i];
+      if (k == null) return null;
+      if (c.kLt !== undefined && !(k < c.kLt)) return null;
+      if (c.kGt !== undefined && !(k > c.kGt)) return null;
+      if (c.cross !== undefined && !crossedWithin(s.k, s.d, i, c.withinBars, c.cross)) return null;
+      matched.push(`dsl:stochastic${c.cross ? `:${c.cross}` : ''}`);
+    } else if ('adx' in cond) {
+      const c = cond.adx;
+      const value = adx(candles, c.period).adx[i];
+      if (value == null) return null;
+      if (c.gt !== undefined && !(value > c.gt)) return null;
+      if (c.lt !== undefined && !(value < c.lt)) return null;
+      matched.push(`dsl:adx${c.gt !== undefined ? `>${c.gt}` : ''}${c.lt !== undefined ? `<${c.lt}` : ''}`);
+    } else if ('supertrend' in cond) {
+      const c = cond.supertrend;
+      const point = supertrend(candles, c.period, c.mult)[i];
+      if (point == null) return null;
+      if (point.direction !== c.direction) return null;
+      matched.push(`dsl:supertrend:${c.direction}`);
     } else {
       const up = bar.close >= ema200;
       if (cond.trend === 'EMA200_up' && !up) return null;
