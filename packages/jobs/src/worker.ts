@@ -1,7 +1,7 @@
 import { Queue, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { requireEnv, type Db } from '@gladiator/db';
-import { monitorOpenPositions, reconcile, type TradingVenue } from '@gladiator/exchange';
+import { binanceBookSource, monitorDemoTick, monitorOpenPositions, reconcile, type TradingVenue } from '@gladiator/exchange';
 import { fredConfigured, syncDerivatives, syncEconomicCalendar, syncFredSeries, syncMacroSeries, syncNews } from '@gladiator/market-data';
 import { runNightPipeline } from './briefing.js';
 import { runSignalScan } from './signal-scan.js';
@@ -196,6 +196,16 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           const alerts = await checkPriceAlerts(db, venue);
           if (alerts.triggered > 0) console.log(`[price-alerts] ausgelöst=${alerts.triggered}`);
           for (const e of alerts.errors) console.warn('[price-alerts]', e);
+          // Demo-Modus (Session 5): ruhende Limit-Orders + SL/TP gegen echte
+          // Orderbücher — fehlerisoliert, darf Monitor/Heartbeat nie blockieren.
+          try {
+            const demo = await monitorDemoTick(db, binanceBookSource());
+            if (demo.orderFills > 0 || demo.triggeredCloses > 0) {
+              console.log(`[demo-monitor] Fills=${demo.orderFills} SL/TP-Closes=${demo.triggeredCloses}`);
+            }
+          } catch (err) {
+            console.warn('[demo-monitor] Tick fehlgeschlagen:', String(err));
+          }
           lastHeartbeat = new Date();
           // Heartbeat auch nach Redis — sichtbar für den getrennten Web-Prozess (/health).
           try {

@@ -15,3 +15,4 @@ export * from './rl.js';
 export * from './regime.js';
 export * from './workshop.js';
 export * from './intelligence.js';
+export * from './demo.js';

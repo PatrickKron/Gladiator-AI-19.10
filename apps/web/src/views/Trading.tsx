@@ -6,6 +6,8 @@ import { SizingCalc } from '../components/SizingCalc.js';
 import { Sparkline } from '../components/Sparkline.js';
 import { buildTabHash, parseTab } from '../lib/tab-hash.js';
 import { buildChartUrl } from '../lib/chart-url.js';
+import { isDemoMode, setDemoMode } from '../lib/demo-mode.js';
+import { DemoTrading } from './DemoTrading.js';
 
 /** Tabs der Trading-Seite (P1.8). */
 const TABS = ['positionen', 'historie', 'risiko', 'alerts', 'performance'] as const;
@@ -342,8 +344,42 @@ function LiveApprovals() {
   );
 }
 
+/**
+ * Offensichtlicher Modus-Schalter (Session 5): Agenten-Konto (Paper) vs.
+ * Demo-Konto (manuell üben). Der Schalter wechselt NUR die Ansicht — die
+ * Trennung selbst ist serverseitig (eigener demo-Router, eigene Tabellen).
+ */
+function ModeSwitch({ demo, onChange }: { demo: boolean; onChange: (on: boolean) => void }) {
+  const { t } = useTranslation();
+  return (
+    <div
+      className="flex rounded-[0.625rem] border p-1"
+      style={{ borderColor: demo ? 'rgba(225,78,207,0.5)' : 'var(--color-line)' }}
+      role="group"
+      aria-label={t('demo.switchLabel')}
+    >
+      <button
+        onClick={() => onChange(false)}
+        className="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+        style={!demo ? { background: 'rgba(79,209,255,0.14)', color: 'var(--color-cyan)' } : { color: 'var(--color-mut)' }}
+      >
+        {t('demo.switchAgents')}
+      </button>
+      <button
+        onClick={() => onChange(true)}
+        className="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+        style={demo ? { background: 'rgba(225,78,207,0.16)', color: 'var(--color-magenta)' } : { color: 'var(--color-mut)' }}
+      >
+        {demo ? '✓ ' : ''}
+        {t('demo.switchDemo')}
+      </button>
+    </div>
+  );
+}
+
 export function Trading() {
   const { t } = useTranslation();
+  const [demo, setDemo] = useState<boolean>(() => isDemoMode());
   const [account, setAccount] = useState<Account | null>(null);
   const [venues, setVenues] = useState<Venue[]>([]);
   const [positions, setPositions] = useState<Position[] | null>(null);
@@ -412,9 +448,31 @@ export function Trading() {
     }
   }
 
+  function switchMode(on: boolean) {
+    setDemo(on);
+    setDemoMode(on); // informiert Topbar-Badge + andere Tabs
+  }
+
+  if (demo) {
+    return (
+      <div>
+        <PageHeader
+          title={t('demo.title')}
+          subtitle={t('demo.subtitle')}
+          right={<ModeSwitch demo onChange={switchMode} />}
+        />
+        <DemoTrading />
+      </div>
+    );
+  }
+
   return (
     <div>
-      <PageHeader title={t('trading.title')} subtitle={t('trading.subtitle')} />
+      <PageHeader
+        title={t('trading.title')}
+        subtitle={t('trading.subtitle')}
+        right={<ModeSwitch demo={false} onChange={switchMode} />}
+      />
       {error && <ErrorBox message={error} />}
 
       {/* Konto-Kacheln */}

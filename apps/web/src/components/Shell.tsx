@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { logout, trpc } from '../api.js';
 import { ensurePriceStream, getFeedState, onFeedState, type FeedState } from '../lib/prices.js';
 import { LANGUAGES, setLanguage, storedLanguage, type LanguageCode } from '../i18n/index.js';
+import { isDemoMode, onDemoModeChange } from '../lib/demo-mode.js';
 import { CommandPalette } from './CommandPalette.js';
 
 /**
@@ -105,6 +106,9 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
   const [menuOpen, setMenuOpen] = useState(false);
   const [killSwitch, setKillSwitch] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [demoMode, setDemoModeState] = useState(() => isDemoMode());
+
+  useEffect(() => onDemoModeChange(setDemoModeState), []);
 
   // Command-Palette (P1.5): global per Cmd/Ctrl+K öffnen.
   useEffect(() => {
@@ -235,6 +239,16 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
             >
               {t('common.paper')}
             </span>
+            {demoMode && (
+              <a
+                href="#/trading"
+                className="label rounded border px-1.5 py-0.5"
+                style={{ borderColor: 'rgba(225,78,207,0.55)', color: 'var(--color-magenta)', boxShadow: '0 0 14px rgba(225,78,207,0.2)' }}
+                title={t('demo.badgeHint')}
+              >
+                {t('demo.badge')}
+              </a>
+            )}
             {killSwitch && (
               <a
                 href="#/trading"

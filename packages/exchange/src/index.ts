@@ -18,6 +18,28 @@ export {
 } from './executor.js';
 export { HyperliquidTestnetVenue } from './hyperliquid-venue.js';
 export {
+  DEMO_MAKER_FEE,
+  DEMO_TAKER_FEE,
+  DEMO_START_BALANCE,
+  midPrice,
+  type OrderBookSnapshot,
+  type FillResult,
+} from './demo/fill-engine.js';
+export { binanceBookSource, BinanceBookSource, type DemoBookSource } from './demo/book-source.js';
+export {
+  getOrCreateDemoAccount,
+  demoAccountOverview,
+  previewDemoOrder,
+  placeDemoOrder,
+  cancelDemoOrder,
+  setDemoProtection,
+  closeDemoPositionNow,
+  resetDemoAccount,
+  monitorDemoTick,
+  type PlaceDemoOrderInput,
+  type PlaceDemoOrderResult,
+} from './demo/engine.js';
+export {
   SECRET_KEYS,
   captureBootEnv,
   deleteSecret,

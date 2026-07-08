@@ -1,0 +1,722 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { trpc } from '../api.js';
+import { AssetSelect } from '../components/AssetSelect.js';
+import { EquityChart, MetricCard, fmt } from '../components/EquityChart.js';
+import { Empty, ErrorBox, Loading, Panel } from '../components/ui.js';
+
+/**
+ * Demo-Trading (Session 5): manuelles Üben mit virtuellem Guthaben (100k),
+ * simulierte Ausführung gegen ECHTE Binance-Orderbücher (Spread/Slippage/
+ * Fees echt ausgewiesen). Alles hier spricht NUR den demo-Router an —
+ * das Agenten-Paper-Konto bleibt unberührt.
+ */
+
+type Account = Awaited<ReturnType<typeof trpc.demo.account.query>>;
+type Position = Awaited<ReturnType<typeof trpc.demo.positions.query>>[number];
+type OpenOrder = Awaited<ReturnType<typeof trpc.demo.openOrders.query>>[number];
+type Trade = Awaited<ReturnType<typeof trpc.demo.history.query>>[number];
+type Perf = Awaited<ReturnType<typeof trpc.demo.performance.query>>;
+type Preview = Awaited<ReturnType<typeof trpc.demo.preview.mutate>>;
+
+const TABS = ['positions', 'orders', 'history', 'performance'] as const;
+type Tab = (typeof TABS)[number];
+
+function num(v: string): number {
+  return Number(v.replace(',', '.'));
+}
+
+/** demo:<reason>-Fehler des Routers in übersetzte Meldungen mappen. */
+function reasonText(t: (k: string) => string, err: unknown): string {
+  const msg = err instanceof Error ? err.message : '';
+  if (msg.startsWith('demo:')) {
+    const key = `demo.err_${msg.slice(5)}`;
+    const translated = t(key);
+    return translated === key ? msg : translated;
+  }
+  return msg || t('common.error');
+}
+
+const inputCls = 'field num w-full px-2.5 py-1.5 text-sm';
+
+export function DemoTrading() {
+  const { t } = useTranslation();
+  const [account, setAccount] = useState<Account | null>(null);
+  const [positions, setPositions] = useState<Position[] | null>(null);
+  const [orders, setOrders] = useState<OpenOrder[]>([]);
+  const [history, setHistory] = useState<Trade[]>([]);
+  const [perf, setPerf] = useState<Perf | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>('positions');
+  const [resetArmed, setResetArmed] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const [a, p, o, h, pf] = await Promise.all([
+        trpc.demo.account.query(),
+        trpc.demo.positions.query(),
+        trpc.demo.openOrders.query(),
+        trpc.demo.history.query({ limit: 50 }),
+        trpc.demo.performance.query(),
+      ]);
+      setAccount(a);
+      setPositions(p);
+      setOrders(o);
+      setHistory(h);
+      setPerf(pf);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'));
+    }
+  }, [t]);
+
+  useEffect(() => {
+    void load();
+    const timer = window.setInterval(() => void load(), 15_000);
+    return () => window.clearInterval(timer);
+  }, [load]);
+
+  async function doReset() {
+    setResetBusy(true);
+    try {
+      await trpc.demo.reset.mutate();
+      setResetArmed(false);
+      await load();
+    } catch (err) {
+      setError(reasonText(t, err));
+    } finally {
+      setResetBusy(false);
+    }
+  }
+
+  const pnlColor = (v: number | null | undefined) =>
+    v == null ? undefined : { color: v >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' };
+
+  return (
+    <div>
+      {/* Banner: unmissverständlich Demo — echte Kurse, simulierte Ausführung */}
+      <div
+        className="reveal mb-5 flex flex-wrap items-center justify-between gap-3 rounded-[0.625rem] border p-4"
+        style={{ borderColor: 'rgba(225,78,207,0.5)', background: 'rgba(225,78,207,0.07)' }}
+      >
+        <div className="min-w-0">
+          <p className="text-sm font-semibold" style={{ color: 'var(--color-magenta)' }}>
+            {t('demo.bannerTitle')}
+          </p>
+          <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+            {t('demo.bannerText')}
+          </p>
+        </div>
+        <span className="flex shrink-0 items-center gap-2">
+          {resetArmed ? (
+            <>
+              <button
+                onClick={() => void doReset()}
+                disabled={resetBusy}
+                className="rounded-[0.625rem] border px-3 py-1.5 text-xs disabled:opacity-50"
+                style={{ borderColor: 'rgba(255,92,108,0.6)', color: 'var(--color-neg)' }}
+              >
+                {t('demo.resetConfirm')}
+              </button>
+              <button
+                onClick={() => setResetArmed(false)}
+                className="rounded-[0.625rem] border px-3 py-1.5 text-xs"
+                style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
+              >
+                {t('common.cancel')}
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setResetArmed(true)}
+              className="rounded-[0.625rem] border px-3 py-1.5 text-xs"
+              style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}
+            >
+              {t('demo.reset')}
+            </button>
+          )}
+        </span>
+      </div>
+
+      {error && <ErrorBox message={error} />}
+
+      {/* Konto-Kacheln */}
+      <section className="grid gap-3 md:grid-cols-4">
+        <Panel stagger={1} className="!p-4">
+          <p className="label">{t('demo.balance')}</p>
+          <p className="num mt-1.5 text-2xl font-semibold">{fmt(account?.balance)} $</p>
+          <p className="label mt-1">
+            {t('demo.startBalance')} {fmt(account?.startBalance, 0)} $
+            {account && account.resetCount > 0 ? ` · ${t('demo.resets', { n: account.resetCount })}` : ''}
+          </p>
+        </Panel>
+        <Panel stagger={2} className="!p-4">
+          <p className="label">{t('demo.equity')}</p>
+          <p className="num mt-1.5 text-2xl font-semibold">{fmt(account?.equity)} $</p>
+          <p className="label mt-1" style={pnlColor(account?.unrealizedPnl)}>
+            uPnL {fmt(account?.unrealizedPnl)} $
+            {account?.markIncomplete ? ` · ${t('demo.markIncomplete')}` : ''}
+          </p>
+        </Panel>
+        <Panel stagger={3} className="!p-4">
+          <p className="label">{t('demo.available')}</p>
+          <p className="num mt-1.5 text-2xl font-semibold">{fmt(account?.available)} $</p>
+          <p className="label mt-1">
+            {t('demo.openPositionsN', { n: account?.openPositions ?? 0 })} · {t('demo.openOrdersN', { n: account?.openOrders ?? 0 })}
+          </p>
+        </Panel>
+        <Panel stagger={4} className="!p-4">
+          <p className="label">{t('demo.fees')}</p>
+          <p className="num mt-1.5 text-2xl font-semibold">
+            {account ? `${(account.feeRates.maker * 100).toFixed(2)} / ${(account.feeRates.taker * 100).toFixed(2)} %` : '—'}
+          </p>
+          <p className="label mt-1">{t('demo.feesHint')}</p>
+        </Panel>
+      </section>
+
+      <OrderTicket onPlaced={() => void load()} />
+
+      {/* Tabs */}
+      <div className="mt-5 flex gap-1 overflow-x-auto border-b" style={{ borderColor: 'var(--color-line)' }}>
+        {TABS.map((tb) => (
+          <button
+            key={tb}
+            onClick={() => setTab(tb)}
+            className="shrink-0 border-b-2 px-4 py-2 text-sm transition-colors"
+            style={tab === tb ? { borderColor: 'var(--color-magenta)', color: 'var(--color-ink)' } : { borderColor: 'transparent', color: 'var(--color-mut)' }}
+          >
+            {t(`demo.tab_${tb}`)}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'positions' && <PositionsPanel positions={positions} onChanged={() => void load()} />}
+      {tab === 'orders' && <OrdersPanel orders={orders} onChanged={() => void load()} />}
+      {tab === 'history' && <HistoryPanel history={history} />}
+      {tab === 'performance' && <PerformancePanel perf={perf} />}
+    </div>
+  );
+}
+
+/** Order-Ticket mit LIVE-Kosten-Vorschau aus dem echten Orderbuch. */
+function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
+  const { t } = useTranslation();
+  const [symbol, setSymbol] = useState('BTC/USDT');
+  const [direction, setDirection] = useState<'long' | 'short'>('long');
+  const [type, setType] = useState<'market' | 'limit'>('market');
+  const [qty, setQty] = useState('');
+  const [limitPrice, setLimitPrice] = useState('');
+  const [stopLoss, setStopLoss] = useState('');
+  const [takeProfit, setTakeProfit] = useState('');
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const debounce = useRef<number | null>(null);
+
+  const valid = num(qty) > 0 && (type === 'market' || num(limitPrice) > 0);
+
+  function buildInput() {
+    return {
+      symbol,
+      direction,
+      type,
+      qty: num(qty),
+      limitPrice: type === 'limit' ? num(limitPrice) : undefined,
+      stopLoss: num(stopLoss) > 0 ? num(stopLoss) : undefined,
+      takeProfit: num(takeProfit) > 0 ? num(takeProfit) : undefined,
+    };
+  }
+
+  // Live-Vorschau (debounced): jede Eingabe-Änderung rechnet gegen das echte Buch
+  useEffect(() => {
+    setPreview(null);
+    setSuccess(null);
+    if (!valid) return;
+    if (debounce.current !== null) window.clearTimeout(debounce.current);
+    debounce.current = window.setTimeout(() => {
+      setPreviewing(true);
+      trpc.demo.preview
+        .mutate(buildInput())
+        .then((p) => setPreview(p))
+        .catch(() => setPreview(null))
+        .finally(() => setPreviewing(false));
+    }, 600);
+    return () => {
+      if (debounce.current !== null) window.clearTimeout(debounce.current);
+    };
+    // buildInput/valid sind aus denselben Feldern abgeleitet — Felder sind die Wahrheit
+  }, [symbol, direction, type, qty, limitPrice, stopLoss, takeProfit]);
+
+  async function place() {
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const r = await trpc.demo.placeOrder.mutate(buildInput());
+      if (r.placed) {
+        setSuccess(
+          r.status === 'filled'
+            ? t('demo.orderFilled', { qty: fmt(r.filledQty, 6), price: fmt(r.avgFillPrice) })
+            : r.status === 'partially_filled'
+              ? t('demo.orderPartial', { qty: fmt(r.filledQty, 6), rest: fmt(r.restingQty, 6) })
+              : t('demo.orderResting'),
+        );
+        setQty('');
+        onPlaced();
+      }
+    } catch (err) {
+      setError(reasonText(t, err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const seg = (active: boolean, tone: 'pos' | 'neg' | 'std' = 'std') => ({
+    borderColor: active
+      ? tone === 'pos'
+        ? 'rgba(61,220,151,0.6)'
+        : tone === 'neg'
+          ? 'rgba(255,92,108,0.6)'
+          : 'rgba(79,209,255,0.6)'
+      : 'var(--color-line)',
+    color: active
+      ? tone === 'pos'
+        ? 'var(--color-pos)'
+        : tone === 'neg'
+          ? 'var(--color-neg)'
+          : 'var(--color-cyan)'
+      : 'var(--color-mut)',
+  });
+
+  return (
+    <Panel label={t('demo.ticketTitle')} stagger={5} className="mt-5">
+      <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_20rem]">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1">
+            <span className="label">{t('dashboard.symbol')}</span>
+            <AssetSelect value={symbol} onChange={setSymbol} />
+          </label>
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <span className="label">{t('demo.direction')}</span>
+              <div className="mt-1 flex gap-1">
+                <button onClick={() => setDirection('long')} className="flex-1 rounded-[0.625rem] border px-3 py-1.5 text-sm" style={seg(direction === 'long', 'pos')}>
+                  {t('demo.long')}
+                </button>
+                <button onClick={() => setDirection('short')} className="flex-1 rounded-[0.625rem] border px-3 py-1.5 text-sm" style={seg(direction === 'short', 'neg')}>
+                  {t('demo.short')}
+                </button>
+              </div>
+            </div>
+            <div className="flex-1">
+              <span className="label">{t('demo.orderType')}</span>
+              <div className="mt-1 flex gap-1">
+                <button onClick={() => setType('market')} className="flex-1 rounded-[0.625rem] border px-3 py-1.5 text-sm" style={seg(type === 'market')}>
+                  Market
+                </button>
+                <button onClick={() => setType('limit')} className="flex-1 rounded-[0.625rem] border px-3 py-1.5 text-sm" style={seg(type === 'limit')}>
+                  Limit
+                </button>
+              </div>
+            </div>
+          </div>
+          <label className="flex flex-col gap-1">
+            <span className="label">{t('demo.qty')}</span>
+            <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal" placeholder="0.01" className={inputCls} />
+          </label>
+          {type === 'limit' && (
+            <label className="flex flex-col gap-1">
+              <span className="label">{t('demo.limitPrice')}</span>
+              <input value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} inputMode="decimal" className={inputCls} />
+            </label>
+          )}
+          <label className="flex flex-col gap-1">
+            <span className="label">{t('demo.stopLossOpt')}</span>
+            <input value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} inputMode="decimal" className={inputCls} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="label">{t('demo.takeProfitOpt')}</span>
+            <input value={takeProfit} onChange={(e) => setTakeProfit(e.target.value)} inputMode="decimal" className={inputCls} />
+          </label>
+        </div>
+
+        {/* Kosten-Vorschau aus dem ECHTEN Buch */}
+        <div className="rounded-[0.625rem] border p-4 text-sm" style={{ borderColor: 'var(--color-line)' }}>
+          <p className="label">{t('demo.previewTitle')}</p>
+          {!valid ? (
+            <p className="mt-3 text-xs" style={{ color: 'var(--color-mut)' }}>
+              {t('demo.previewHint')}
+            </p>
+          ) : previewing && !preview ? (
+            <Loading />
+          ) : preview === null ? (
+            <p className="mt-3 text-xs" style={{ color: 'var(--color-mut)' }}>
+              {t('demo.previewUnavailable')}
+            </p>
+          ) : !preview.ok ? (
+            <p className="mt-3 text-xs" style={{ color: 'var(--color-warn)' }}>
+              {t(`demo.err_${preview.reason}`)}
+            </p>
+          ) : (
+            <ul className="num mt-3 space-y-1.5">
+              <li className="flex justify-between gap-3">
+                <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewFill')}</span>
+                <span>{preview.estFillPrice !== null ? fmt(preview.estFillPrice) : '—'}</span>
+              </li>
+              <li className="flex justify-between gap-3">
+                <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewSpread')}</span>
+                <span>{preview.spread !== null ? fmt(preview.spread, 4) : '—'}</span>
+              </li>
+              <li className="flex justify-between gap-3">
+                <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewSlippage')}</span>
+                <span>{fmt(preview.estSlippage)} $</span>
+              </li>
+              <li className="flex justify-between gap-3">
+                <span style={{ color: 'var(--color-mut)' }}>
+                  {t('demo.previewFee')} ({preview.estFeeRole})
+                </span>
+                <span>{fmt(preview.estFee)} $</span>
+              </li>
+              <li className="flex justify-between gap-3">
+                <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewNotional')}</span>
+                <span>{fmt(preview.estNotional)} $</span>
+              </li>
+              {preview.estRestingQty > 0 && (
+                <li className="flex justify-between gap-3">
+                  <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewResting')}</span>
+                  <span>{fmt(preview.estRestingQty, 6)}</span>
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <p className="mt-3 text-xs" style={{ color: 'var(--color-neg)' }}>
+          {error}
+        </p>
+      )}
+      {success && (
+        <p className="mt-3 text-xs" style={{ color: 'var(--color-pos)' }}>
+          {success}
+        </p>
+      )}
+      <button onClick={() => void place()} disabled={busy || !valid} className="btn-primary mt-4 px-5 py-2 text-sm disabled:opacity-50">
+        {busy ? t('common.loading') : t('demo.placeOrder')}
+      </button>
+    </Panel>
+  );
+}
+
+function PositionsPanel({ positions, onChanged }: { positions: Position[] | null; onChanged: () => void }) {
+  const { t } = useTranslation();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [protDrafts, setProtDrafts] = useState<Record<string, { sl: string; tp: string }>>({});
+
+  async function close(p: Position) {
+    setBusy(p.id);
+    setError(null);
+    try {
+      await trpc.demo.closePosition.mutate({ positionId: p.id });
+      onChanged();
+    } catch (err) {
+      setError(reasonText(t, err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveProtection(p: Position) {
+    const draft = protDrafts[p.id];
+    if (!draft) return;
+    setBusy(p.id);
+    setError(null);
+    try {
+      await trpc.demo.setProtection.mutate({
+        positionId: p.id,
+        stopLoss: draft.sl.trim() === '' ? null : num(draft.sl),
+        takeProfit: draft.tp.trim() === '' ? null : num(draft.tp),
+      });
+      setProtDrafts((d) => {
+        const next = { ...d };
+        delete next[p.id];
+        return next;
+      });
+      onChanged();
+    } catch (err) {
+      setError(reasonText(t, err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Panel label={t('demo.positionsTitle')} stagger={6} className="mt-5">
+      {error && (
+        <p className="mt-2 text-xs" style={{ color: 'var(--color-neg)' }}>
+          {error}
+        </p>
+      )}
+      {positions === null ? (
+        <Loading />
+      ) : positions.length === 0 ? (
+        <Empty text={t('demo.noPositions')} />
+      ) : (
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="label text-left">
+                <th className="py-1.5 pr-3 font-normal">{t('dashboard.symbol')}</th>
+                <th className="py-1.5 pr-3 font-normal" />
+                <th className="py-1.5 pr-3 text-right font-normal">{t('demo.qty')}</th>
+                <th className="py-1.5 pr-3 text-right font-normal">Entry</th>
+                <th className="py-1.5 pr-3 text-right font-normal">Mark</th>
+                <th className="py-1.5 pr-3 text-right font-normal">uPnL $</th>
+                <th className="py-1.5 pr-3 font-normal">SL / TP</th>
+                <th className="py-1.5 font-normal" />
+              </tr>
+            </thead>
+            <tbody className="num">
+              {positions.map((p) => {
+                const draft = protDrafts[p.id] ?? { sl: p.stopLoss?.toString() ?? '', tp: p.takeProfit?.toString() ?? '' };
+                const dirty = protDrafts[p.id] !== undefined;
+                return (
+                  <tr key={p.id} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                    <td className="py-1.5 pr-3">{p.symbol}</td>
+                    <td className="py-1.5 pr-3" style={{ color: p.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+                      {p.direction.toUpperCase()}
+                    </td>
+                    <td className="py-1.5 pr-3 text-right">{fmt(p.qty, 6)}</td>
+                    <td className="py-1.5 pr-3 text-right">{fmt(p.entryPrice)}</td>
+                    <td className="py-1.5 pr-3 text-right">{fmt(p.markPrice)}</td>
+                    <td className="py-1.5 pr-3 text-right" style={{ color: (p.unrealizedPnl ?? 0) >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+                      {fmt(p.unrealizedPnl)}
+                    </td>
+                    <td className="py-1.5 pr-3">
+                      <span className="flex items-center gap-1">
+                        <input
+                          value={draft.sl}
+                          onChange={(e) => setProtDrafts((d) => ({ ...d, [p.id]: { ...draft, sl: e.target.value } }))}
+                          placeholder="SL"
+                          className="field num w-20 px-1.5 py-1 text-xs"
+                        />
+                        <input
+                          value={draft.tp}
+                          onChange={(e) => setProtDrafts((d) => ({ ...d, [p.id]: { ...draft, tp: e.target.value } }))}
+                          placeholder="TP"
+                          className="field num w-20 px-1.5 py-1 text-xs"
+                        />
+                        {dirty && (
+                          <button onClick={() => void saveProtection(p)} disabled={busy !== null} className="text-xs" style={{ color: 'var(--color-cyan)' }}>
+                            {t('common.save')}
+                          </button>
+                        )}
+                      </span>
+                    </td>
+                    <td className="py-1.5 text-right">
+                      <button
+                        onClick={() => void close(p)}
+                        disabled={busy !== null}
+                        className="rounded border px-2 py-0.5 text-xs disabled:opacity-50"
+                        style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}
+                      >
+                        {busy === p.id ? '…' : t('demo.close')}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function OrdersPanel({ orders, onChanged }: { orders: OpenOrder[]; onChanged: () => void }) {
+  const { t } = useTranslation();
+  const [error, setError] = useState<string | null>(null);
+
+  async function cancel(id: string) {
+    setError(null);
+    try {
+      await trpc.demo.cancelOrder.mutate({ orderId: id });
+      onChanged();
+    } catch (err) {
+      setError(reasonText(t, err));
+    }
+  }
+
+  return (
+    <Panel label={t('demo.ordersTitle')} stagger={6} className="mt-5">
+      {error && (
+        <p className="mt-2 text-xs" style={{ color: 'var(--color-neg)' }}>
+          {error}
+        </p>
+      )}
+      {orders.length === 0 ? (
+        <Empty text={t('demo.noOrders')} />
+      ) : (
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="label text-left">
+                <th className="py-1.5 pr-3 font-normal">{t('dashboard.symbol')}</th>
+                <th className="py-1.5 pr-3 font-normal">Typ</th>
+                <th className="py-1.5 pr-3 font-normal" />
+                <th className="py-1.5 pr-3 text-right font-normal">Limit</th>
+                <th className="py-1.5 pr-3 text-right font-normal">{t('demo.filledOf')}</th>
+                <th className="py-1.5 pr-3 font-normal">Status</th>
+                <th className="py-1.5 font-normal" />
+              </tr>
+            </thead>
+            <tbody className="num">
+              {orders.map((o) => (
+                <tr key={o.id} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                  <td className="py-1.5 pr-3">{o.symbol}</td>
+                  <td className="py-1.5 pr-3">{o.type}</td>
+                  <td className="py-1.5 pr-3" style={{ color: o.side === 'buy' ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+                    {o.side === 'buy' ? t('demo.long') : t('demo.short')}
+                  </td>
+                  <td className="py-1.5 pr-3 text-right">{o.limitPrice !== null ? fmt(o.limitPrice) : '—'}</td>
+                  <td className="py-1.5 pr-3 text-right">
+                    {fmt(o.filledQty, 6)} / {fmt(o.qty, 6)}
+                  </td>
+                  <td className="py-1.5 pr-3">
+                    <span
+                      className="label rounded border px-1.5 py-0.5"
+                      style={
+                        o.status === 'partially_filled'
+                          ? { borderColor: 'rgba(232,184,75,0.5)', color: 'var(--color-warn)' }
+                          : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
+                      }
+                    >
+                      {t(`demo.status_${o.status}`)}
+                    </span>
+                  </td>
+                  <td className="py-1.5 text-right">
+                    <button
+                      onClick={() => void cancel(o.id)}
+                      className="rounded border px-2 py-0.5 text-xs"
+                      style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}
+                    >
+                      {t('demo.cancel')}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function HistoryPanel({ history }: { history: Trade[] }) {
+  const { t } = useTranslation();
+  return (
+    <Panel label={t('demo.historyTitle')} stagger={6} className="mt-5">
+      {history.length === 0 ? (
+        <Empty text={t('demo.noHistory')} />
+      ) : (
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="label text-left">
+                <th className="py-1.5 pr-3 font-normal">Exit</th>
+                <th className="py-1.5 pr-3 font-normal">{t('dashboard.symbol')}</th>
+                <th className="py-1.5 pr-3 font-normal" />
+                <th className="py-1.5 pr-3 text-right font-normal">Entry → Exit</th>
+                <th className="py-1.5 pr-3 text-right font-normal">{t('demo.qty')}</th>
+                <th className="py-1.5 pr-3 text-right font-normal">{t('demo.feesCol')}</th>
+                <th className="py-1.5 pr-3 text-right font-normal">{t('demo.slippageCol')}</th>
+                <th className="py-1.5 pr-3 text-right font-normal">{t('demo.netCol')} $</th>
+                <th className="py-1.5 pr-3 text-right font-normal">R</th>
+                <th className="py-1.5 font-normal">{t('demo.reasonCol')}</th>
+              </tr>
+            </thead>
+            <tbody className="num">
+              {history.map((tr) => (
+                <tr key={tr.id} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                  <td className="py-1.5 pr-3">{new Date(tr.exitTs).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</td>
+                  <td className="py-1.5 pr-3">{tr.symbol}</td>
+                  <td className="py-1.5 pr-3" style={{ color: tr.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+                    {tr.direction.toUpperCase()}
+                  </td>
+                  <td className="py-1.5 pr-3 text-right">
+                    {fmt(tr.entryPrice)} → {fmt(tr.exitPrice)}
+                  </td>
+                  <td className="py-1.5 pr-3 text-right">{fmt(tr.qty, 6)}</td>
+                  <td className="py-1.5 pr-3 text-right">{fmt(tr.fees)}</td>
+                  <td className="py-1.5 pr-3 text-right">{fmt(tr.slippage)}</td>
+                  <td className="py-1.5 pr-3 text-right" style={{ color: tr.netPnl >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+                    {fmt(tr.netPnl)}
+                  </td>
+                  <td className="py-1.5 pr-3 text-right">{tr.rMultiple !== null ? fmt(tr.rMultiple) : '—'}</td>
+                  <td className="py-1.5">
+                    <span className="label">{t(`demo.reason_${tr.reason}`)}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function PerformancePanel({ perf }: { perf: Perf | null }) {
+  const { t } = useTranslation();
+  return (
+    <Panel label={t('demo.perfTitle')} stagger={6} className="mt-5">
+      {perf === null ? (
+        <Loading />
+      ) : !('netPnl' in perf) ? (
+        <Empty text={t('demo.noHistory')} />
+      ) : (
+        <>
+          <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+            <MetricCard label={t('demo.perfTrades')} value={String(perf.trades)} />
+            <MetricCard label={t('demo.perfNet')} value={`${fmt(perf.netPnl)} $`} tone={perf.netPnl >= 0 ? 'pos' : 'neg'} />
+            <MetricCard label={t('demo.perfWinRate')} value={perf.winRate !== null ? `${(perf.winRate * 100).toFixed(0)} %` : '—'} />
+            <MetricCard label={t('demo.perfPF')} value={perf.profitFactor !== null ? fmt(perf.profitFactor) : '—'} />
+            <MetricCard label="Sharpe" value={perf.sharpe !== null ? fmt(perf.sharpe) : '—'} />
+            <MetricCard label="Sortino" value={perf.sortino !== null ? fmt(perf.sortino) : '—'} />
+            <MetricCard label="Max DD" value={`${fmt(perf.maxDrawdownPct)} %`} tone={perf.maxDrawdownPct > 0 ? 'neg' : undefined} />
+            <MetricCard label={t('demo.perfExpectancy')} value={perf.expectancyR !== null ? `${fmt(perf.expectancyR)} R` : '—'} />
+          </div>
+          <div className="mt-5">
+            <EquityChart points={perf.equityCurve} emptyText={t('demo.noHistory')} />
+          </div>
+          <p className="label mt-4">
+            {t('demo.perfCosts', {
+              fees: fmt(perf.totalFees),
+              slippage: fmt(perf.totalSlippage),
+              funding: fmt(perf.totalFunding),
+            })}
+          </p>
+          {perf.bySymbol.length > 0 && (
+            <ul className="num mt-3 space-y-1 text-sm">
+              {perf.bySymbol.map((r) => (
+                <li key={r.symbol} className="flex justify-between gap-3">
+                  <span style={{ color: 'var(--color-mut)' }}>
+                    {r.symbol} ({r.trades})
+                  </span>
+                  <span style={{ color: r.netPnl >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>{fmt(r.netPnl)} $</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </Panel>
+  );
+}
