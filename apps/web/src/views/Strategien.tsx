@@ -258,6 +258,261 @@ function PineTab({ onRegistered }: { onRegistered: () => void }) {
   );
 }
 
+type PineAnalyzeResult = Awaited<ReturnType<typeof trpc.strategies.pineAnalyze.mutate>>;
+type PineImproveResult = Awaited<ReturnType<typeof trpc.strategies.pineImprove.mutate>>;
+
+/**
+ * Pine-Script einfügen → Struktur-Analyse (immer, regelbasiert) + KI-Erklärung/
+ * Verbesserung (nur mit hinterlegtem Anthropic-Key — ehrlich beschriftet).
+ * Es wird nichts registriert oder ausgeführt: Ergebnis ist ein Entwurf zum
+ * Kopieren nach TradingView (Mensch im Loop).
+ */
+function PineAnalyzePanel() {
+  const { t } = useTranslation();
+  const [code, setCode] = useState('');
+  const [goal, setGoal] = useState('');
+  const [busy, setBusy] = useState<'analyze' | 'improve' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<PineAnalyzeResult | null>(null);
+  const [improved, setImproved] = useState<PineImproveResult | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  async function doAnalyze() {
+    setBusy('analyze');
+    setError(null);
+    setImproved(null);
+    try {
+      setAnalysis(await trpc.strategies.pineAnalyze.mutate({ code }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'));
+      setAnalysis(null);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function doImprove() {
+    setBusy('improve');
+    setError(null);
+    try {
+      setImproved(await trpc.strategies.pineImprove.mutate({ code, goal: goal.trim() || undefined }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'));
+      setImproved(null);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function copyImproved() {
+    if (!improved) return;
+    try {
+      await navigator.clipboard.writeText(improved.improved);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard verweigert (Browser-Rechte) — kein Drama, Text bleibt markierbar.
+    }
+  }
+
+  const s = analysis?.structural ?? null;
+
+  return (
+    <Panel label={t('builder.pineAnalyzeTitle')} stagger={3} className="mt-5">
+      <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+        {t('builder.pineAnalyzeIntro')}
+      </p>
+      <label className="mt-4 flex flex-col gap-1.5">
+        <span className="label">{t('builder.pineCodeLabel')}</span>
+        <textarea
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          rows={10}
+          spellCheck={false}
+          placeholder={'//@version=5\nstrategy("Meine Strategie", overlay=true)\n...'}
+          className="field num px-3 py-2 text-xs leading-relaxed"
+        />
+      </label>
+      <label className="mt-3 flex flex-col gap-1.5">
+        <span className="label">{t('builder.pineGoalLabel')}</span>
+        <input
+          value={goal}
+          onChange={(e) => setGoal(e.target.value)}
+          placeholder={t('builder.pineGoalPlaceholder')}
+          className="field px-3 py-2 text-sm"
+        />
+      </label>
+      <div className="mt-4 flex flex-wrap gap-2.5">
+        <button
+          onClick={() => void doAnalyze()}
+          disabled={busy !== null || code.trim().length < 20}
+          className="btn-primary px-5 py-2 text-sm disabled:opacity-50"
+        >
+          {busy === 'analyze' ? t('builder.pineAnalyzing') : t('builder.pineAnalyzeBtn')}
+        </button>
+        <button
+          onClick={() => void doImprove()}
+          disabled={busy !== null || code.trim().length < 20}
+          className="rounded-[0.625rem] border px-5 py-2 text-sm transition-colors disabled:opacity-50"
+          style={{ borderColor: 'rgba(139,92,246,0.5)', color: 'var(--color-violet, #8b5cf6)' }}
+        >
+          {busy === 'improve' ? t('builder.pineImproving') : t('builder.pineImproveBtn')}
+        </button>
+      </div>
+
+      {error && (
+        <p className="mt-3 text-xs" style={{ color: 'var(--color-neg)' }}>
+          {error}
+        </p>
+      )}
+
+      {s && (
+        <div className="mt-5 rounded-[0.625rem] border p-4" style={{ borderColor: 'var(--color-line)' }}>
+          <p className="label">{t('builder.pineStructTitle')}</p>
+          <div className="num mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs md:grid-cols-4">
+            <div>
+              <p className="label">{t('builder.pineFactVersion')}</p>
+              <p className="mt-0.5">{s.version ?? '—'}</p>
+            </div>
+            <div>
+              <p className="label">{t('builder.pineFactType')}</p>
+              <p className="mt-0.5">{s.scriptType}</p>
+            </div>
+            <div>
+              <p className="label">{t('builder.pineFactTitle')}</p>
+              <p className="mt-0.5 truncate" title={s.title ?? ''}>{s.title ?? '—'}</p>
+            </div>
+            <div>
+              <p className="label">{t('builder.pineFactLines')}</p>
+              <p className="mt-0.5">{s.lineCount}</p>
+            </div>
+            <div>
+              <p className="label">{t('builder.pineFactSl')}</p>
+              <p className="mt-0.5" style={{ color: s.hasStopLoss ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+                {s.hasStopLoss ? '✓' : '✗'}
+              </p>
+            </div>
+            <div>
+              <p className="label">{t('builder.pineFactTp')}</p>
+              <p className="mt-0.5" style={{ color: s.hasTakeProfit ? 'var(--color-pos)' : 'var(--color-warn)' }}>
+                {s.hasTakeProfit ? '✓' : '—'}
+              </p>
+            </div>
+            <div>
+              <p className="label">{t('builder.pineFactAlerts')}</p>
+              <p className="mt-0.5">{s.alertCount}</p>
+            </div>
+            <div>
+              <p className="label">{t('builder.pineFactHtf')}</p>
+              <p className="mt-0.5">{s.securityTimeframes.length > 0 ? s.securityTimeframes.join(', ') : '—'}</p>
+            </div>
+          </div>
+
+          {s.indicators.length > 0 && (
+            <div className="mt-3">
+              <p className="label">{t('builder.pineFactIndicators')}</p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {s.indicators.map((ind) => (
+                  <span key={ind} className="num rounded border px-1.5 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-cyan)' }}>
+                    ta.{ind}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {s.inputs.length > 0 && (
+            <div className="mt-3">
+              <p className="label">{t('builder.pineFactInputs')}</p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {s.inputs.map((inp) => (
+                  <span key={inp.name} className="num rounded border px-1.5 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+                    {inp.name}
+                    {inp.defval ? ` = ${inp.defval}` : ''}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(s.entryCalls.length > 0 || s.exitCalls.length > 0) && (
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div>
+                <p className="label">{t('builder.pineFactEntries')} ({s.entryCalls.length})</p>
+                <ul className="num mt-1.5 space-y-1 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+                  {s.entryCalls.map((c, i) => (
+                    <li key={i} className="truncate" title={c}>{c}</li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <p className="label">{t('builder.pineFactExits')} ({s.exitCalls.length})</p>
+                <ul className="num mt-1.5 space-y-1 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+                  {s.exitCalls.map((c, i) => (
+                    <li key={i} className="truncate" title={c}>{c}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {s.warnings.length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs font-medium" style={{ color: 'var(--color-warn)' }}>
+                {t('builder.pineWarnings')}
+              </p>
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-xs" style={{ color: 'var(--color-warn)' }}>
+                {s.warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {analysis && (
+        <div className="mt-4 rounded-[0.625rem] border p-4" style={{ borderColor: analysis.llm.used ? 'rgba(139,92,246,0.4)' : 'var(--color-line)' }}>
+          <p className="label">{t('builder.pineLlmTitle')}</p>
+          {analysis.llm.used ? (
+            <p className="mt-3 text-xs leading-relaxed whitespace-pre-wrap">{analysis.llm.analysis}</p>
+          ) : (
+            <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--color-warn)' }}>
+              {analysis.llm.hint}
+            </p>
+          )}
+        </div>
+      )}
+
+      {improved && (
+        <div className="mt-4 rounded-[0.625rem] border p-4" style={{ borderColor: 'rgba(61,220,151,0.4)' }}>
+          <div className="flex items-center justify-between gap-3">
+            <p className="label">{t('builder.pineImprovedTitle')}</p>
+            <button
+              onClick={() => void copyImproved()}
+              className="rounded border px-2 py-1 text-xs"
+              style={{ borderColor: 'var(--color-line)', color: copied ? 'var(--color-pos)' : 'var(--color-cyan)' }}
+            >
+              {copied ? t('builder.pineCopied') : t('builder.pineCopy')}
+            </button>
+          </div>
+          <pre className="num mt-3 max-h-96 overflow-auto rounded p-3 text-xs leading-relaxed select-all" style={{ background: 'rgba(4,6,20,0.7)' }}>
+            {improved.improved}
+          </pre>
+          {improved.notes && (
+            <>
+              <p className="label mt-4">{t('builder.pineImproveNotes')}</p>
+              <p className="mt-2 text-xs leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--color-mut)' }}>
+                {improved.notes}
+              </p>
+            </>
+          )}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 function DslTab({ onRegistered }: { onRegistered: () => void }) {
   const { t } = useTranslation();
   const [text, setText] = useState('');
@@ -446,7 +701,12 @@ export function Strategien() {
       />
       {error && <ErrorBox message={error} />}
 
-      {tab === 'pine' && <PineTab onRegistered={() => void load()} />}
+      {tab === 'pine' && (
+        <>
+          <PineTab onRegistered={() => void load()} />
+          <PineAnalyzePanel />
+        </>
+      )}
       {tab === 'dsl' && <DslTab onRegistered={() => void load()} />}
       {tab === 'builtin' && (
         <Panel stagger={2}>

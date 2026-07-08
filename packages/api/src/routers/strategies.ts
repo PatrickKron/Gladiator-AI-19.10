@@ -3,7 +3,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
-import { DSL_SCHEMA_DOC, parseInstructionDsl, type InstructionDsl } from '@gladiator/strategy-engine';
+import { DSL_SCHEMA_DOC, analyzePineScript, parseInstructionDsl, type InstructionDsl } from '@gladiator/strategy-engine';
 import { evaluateBacktestValidity, DEFAULT_VALIDITY_THRESHOLDS, type ValidityVerdict } from '@gladiator/backtest';
 import { CostGuard, envAnthropicProvider, guardedComplete } from '@gladiator/agents';
 import { protectedProcedure, router } from '../trpc.js';
@@ -231,6 +231,122 @@ export const strategiesRouter = router({
         webhookPath: '/api/webhook/pine',
         hint: 'strategyId in das Alert-JSON aufnehmen; Secret via PINE_WEBHOOK_SECRET (Body-Feld "secret" oder Header x-gladiator-signature).',
       };
+    }),
+
+  /**
+   * Pine-Script-Analyse (07_ §5): Patrick fügt sein Pine-Script ein und bekommt
+   * IMMER die regelbasierte Struktur-Analyse (Fakten aus dem Quelltext, kein
+   * Raten). Ist ein Anthropic-Key hinterlegt, erklärt das LLM zusätzlich die
+   * Logik, benennt Schwächen und schlägt Verbesserungen vor — sonst steht
+   * ehrlich dabei, dass der KI-Teil einen Key braucht (kein Fehler, kein Fake).
+   */
+  pineAnalyze: protectedProcedure
+    .input(z.object({ code: z.string().min(20).max(50_000) }))
+    .mutation(async ({ ctx, input }) => {
+      const structural = analyzePineScript(input.code);
+
+      const llmProvider = envAnthropicProvider();
+      if (!llmProvider.configured) {
+        return {
+          structural,
+          llm: {
+            used: false as const,
+            analysis: null,
+            hint: 'Kein ANTHROPIC_API_KEY hinterlegt — Struktur-Analyse läuft ohne KI. Key in Einstellungen → API-Schlüssel eintragen, dann erklärt und bewertet die KI dein Script zusätzlich.',
+          },
+        };
+      }
+
+      const completion = await guardedComplete(llmProvider, llmGuard, {
+        system:
+          'Du bist ein erfahrener Trading-Systems-Engineer und Pine-Script-Reviewer. Antworte auf Deutsch, präzise und ehrlich — keine erfundenen Kennzahlen, keine Performance-Versprechen.',
+        prompt: `Analysiere dieses TradingView-Pine-Script:
+
+\`\`\`pine
+${input.code}
+\`\`\`
+
+Gliedere die Antwort exakt so:
+1. **Logik in einfachen Worten** — was macht die Strategie, wann kauft/verkauft sie?
+2. **Stärken** — was ist solide gelöst?
+3. **Schwächen & Risiken** — Repainting, fehlendes Risk-Management, Overfitting-Gefahr, Session-/Regime-Blindheit. Nur belegbare Punkte aus dem Code.
+4. **Konkrete Verbesserungen** — priorisiert, jeweils mit kurzer Begründung.
+5. **Abbildbarkeit in Gladiator** — welcher Kern der Logik ließe sich in die Anweisungs-DSL übersetzen (verfügbar: BOS/CHoCH-Signal, RSI-Schwellen, EMA200-Trendfilter, Session-Fenster, Entry market/retest@EMA, ATR- oder %-Stop, RR-basierte Take-Profits)? Was geht verloren?`,
+        maxTokens: 3000,
+      });
+
+      await ctx.db.insert(auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: 'strategy.pine.analyzed',
+        entityType: 'strategy',
+        details: { title: structural.title, lineCount: structural.lineCount, costUsd: completion.costUsd },
+        ip: ctx.ip,
+      });
+
+      return {
+        structural,
+        llm: { used: true as const, analysis: completion.text, hint: null },
+      };
+    }),
+
+  /**
+   * Pine-Script-Verbesserung (07_ §5): KI schlägt eine überarbeitete Fassung
+   * vor — als ENTWURF zum Kopieren nach TradingView. Es wird nichts registriert
+   * oder ausgeführt; Mensch im Loop bleibt Pflicht. Ohne Key: ehrliche Absage.
+   */
+  pineImprove: protectedProcedure
+    .input(
+      z.object({
+        code: z.string().min(20).max(50_000),
+        goal: z.string().max(500).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const llmProvider = envAnthropicProvider();
+      if (!llmProvider.configured) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message:
+            'Kein ANTHROPIC_API_KEY hinterlegt — die KI-Verbesserung braucht ihn. In Einstellungen → API-Schlüssel eintragen; die Struktur-Analyse funktioniert auch ohne.',
+        });
+      }
+
+      const completion = await guardedComplete(llmProvider, llmGuard, {
+        system:
+          'Du bist ein erfahrener Pine-Script-Entwickler (v5/v6). Antworte auf Deutsch. Du verbesserst Scripts konservativ: Risk-Management zuerst, keine Zauber-Parameter, keine erfundenen Kennzahlen. Repainting-Quellen werden entfernt oder explizit dokumentiert.',
+        prompt: `Verbessere dieses Pine-Script${input.goal ? ` mit folgendem Ziel: ${input.goal}` : ''}:
+
+\`\`\`pine
+${input.code}
+\`\`\`
+
+Antworte exakt in dieser Form:
+1. Zuerst das vollständige verbesserte Script in EINEM \`\`\`pine-Codeblock (lauffähig, v5 oder höher).
+2. Danach unter der Überschrift "Änderungen" eine nummerierte Liste: was geändert wurde und warum (kurz, ehrlich — auch was du bewusst NICHT geändert hast).`,
+        maxTokens: 4000,
+      });
+
+      const codeMatch = completion.text.match(/```(?:pine(?:script)?)?\s*\n([\s\S]*?)```/);
+      const improved = codeMatch?.[1]?.trim() ?? null;
+      if (!improved) {
+        throw new TRPCError({
+          code: 'UNPROCESSABLE_CONTENT',
+          message: 'KI-Antwort enthielt keinen Pine-Codeblock — bitte erneut versuchen oder Ziel präzisieren.',
+        });
+      }
+      const notes = completion.text.slice((codeMatch!.index ?? 0) + codeMatch![0]!.length).trim();
+
+      await ctx.db.insert(auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: 'strategy.pine.improved',
+        entityType: 'strategy',
+        details: { goal: input.goal ?? null, inputLines: input.code.split('\n').length, costUsd: completion.costUsd },
+        ip: ctx.ip,
+      });
+
+      return { improved, notes, costUsd: completion.costUsd };
     }),
 
   /**

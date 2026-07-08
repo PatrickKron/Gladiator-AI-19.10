@@ -88,6 +88,14 @@ const SOURCE_KEY: Record<SignalRow['source'], string> = {
   manual: 'signals.sourceManual',
 };
 
+/** Herkunft erklären statt nur etikettieren — Tooltip je Quelle (UX: "Woher kommt das Signal?"). */
+const SOURCE_HINT: Record<SignalRow['source'], string> = {
+  engine: 'signals.sourceEngineHint',
+  pine: 'signals.sourcePineHint',
+  instruction: 'signals.sourceInstructionHint',
+  manual: 'signals.sourceManualHint',
+};
+
 /** Schwarm-Urteile (Phase 5): transparent, aufklappbar — keine Blackbox. */
 function SwarmReviews({ reviews }: { reviews: SignalReview[] }) {
   const { t } = useTranslation();
@@ -363,14 +371,14 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
               {t('signals.statusExpired')}
             </span>
           )}
-          {signal.source !== 'engine' && (
-            <span
-              className="rounded border px-1.5 py-0.5 text-[10px] tracking-wider"
-              style={{ borderColor: 'var(--color-acc2, var(--color-line))', color: 'var(--color-mut)' }}
-            >
-              {t(SOURCE_KEY[signal.source])}
-            </span>
-          )}
+          {/* Herkunft IMMER zeigen (auch Engine) — mit erklärendem Tooltip statt nacktem Etikett */}
+          <span
+            className="cursor-help rounded border px-1.5 py-0.5 text-[10px] tracking-wider"
+            style={{ borderColor: 'var(--color-acc2, var(--color-line))', color: 'var(--color-mut)' }}
+            title={t(SOURCE_HINT[signal.source])}
+          >
+            {t(SOURCE_KEY[signal.source])}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <RegimeBadge symbol={signal.symbol} timeframe={signal.timeframe} />
