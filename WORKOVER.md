@@ -130,6 +130,13 @@ Eine zweite Session implementiert GLEICHZEITIG am selben Tree (Dateien entstehen
 ## ⚠ Patrick-Action
 - KEINE! Live-Test ergab: fredgraph.csv (bestehender key-loser FRED-Weg) liefert auch CPIAUCSL/CPILFESL/GDP/NCBEILQ027S mit aktuellen Daten (Buffett-Ratio ≈ 229 % verifiziert ≈ GuruFocus 231 %). CFTC/Socrata braucht ebenfalls keinen Key. Der komplette Layer läuft ohne neuen API-Key. (`FRED_API_KEY` bleibt optional für die bestehende DFF-Zusatzserie.)
 
+## Abschluss Session 3
+- [x] Commit 64b2485 (36 Dateien, +10.482 Zeilen; Worker-Trennungs-Set weiterhin ausgeklammert: app.ts/start.ts/jobs-index/worker.ts/jobs-package.json/package-lock/gladiator-worker.service) + push server main — **Server-CI GRUEN**, Migration 0016 auf Live-DB, Dienst neu gestartet.
+- [x] Live-Boot-Sync verifiziert: `[macro-sync] … CPI:333.979 COT:— BUFFETT:2.181 Fehler=0` — Live-DB: **6 COT-Märkte × 60 Wochen (Stand 30.06.2026), CPI 26 Monatspunkte, Buffett 79 Quartalspunkte (2006→Q1/2026)**.
+- [x] Browser-Live-Verifikation (Vite :5199 → Live-API, frischer Logout→Login als admin@): Tab „Entscheidung" zeigt ECHTE Daten — CPI-Phase „Vor dem Event" (echtes Event 09.07. 03:30!), Inflation 4,2 % YoY, Buffett „Extrem"/Perzentil 96, COT-Tabelle (Gold 52,5 % Netto/OI crowded long, BTC-CME Perzentil 100, EUR Perzentil 3) ✓ · Sync-Button idempotent („CPI: 26 Punkte · COT: 0 neue · Buffett aktualisiert") ✓ · SignalCard-Intelligence ehrlich „noch keine Anreicherung" (Signal war pre-deploy; neue Signale reichert der Review-Job an, signal_intelligence-Upsert idempotent) ✓ · Mobile 375px kein Overflow ✓ · Konsole sauber ✓ · /health ok.
+- Hinweis fürs COT-Design (bewusst so belassen, Parallel-Session-Entscheid): Status ist PERZENTIL-relativ zur eigenen Historie, nicht vorzeichenbasiert — E-mini S&P kann mit netto −37k „crowded long" sein, wenn −1,9 % Netto/OI im 98. Perzentil der eigenen 60-Wochen-Historie liegt.
+- Offen für Folge-Sessions: MacroPanels-Footprint-Slot („COT folgt") auf getCotSnapshot umstellen; CommandPalette kennt nur Assets (kein Eintrag für den Hub-Tab); Post-Trade-Learning-UI (Router-Endpoint postTradeReviews existiert, keine View); optionale LLM-Freitext-Erklärung im Signalobjekt (explanationForUser wird bislang deterministisch/leer befüllt).
+
 ---
 
 # SESSION 2 — Strategie-Workshop (Pine → KI-Dialog → Agent → Backtest → Version → Paper-Deploy)
