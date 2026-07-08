@@ -10,6 +10,7 @@
 - Uncommittete lokale Änderungen aus früherer Session = begonnene Worker-Prozess-Trennung (ROLE=web/worker):
   `packages/api/src/{app,start}.ts`, `packages/jobs/src/{index,worker}.ts`, `packages/jobs/package.json`, `package-lock.json`, neu `deploy/gladiator-worker.service`.
   → Bleiben unangetastet, werden NICHT mitcommittet (gezieltes `git add` nur eigener Dateien!).
+  → **ERLEDIGT in Session 4 (2026-07-08):** kritisch geprüft, fertiggestellt, committet (3057a23) und live installiert — siehe Session-4-Abschnitt unten.
 
 ## Phase 0 — Bestandsaufnahme
 - [x] git fetch/status — Branch synchron mit server/main, Commit 4130338
@@ -168,3 +169,37 @@ Interaktiver Strategie-Workshop: (1) Pine-Script-Eingabe + KI-Analyse (Indikator
 - 2026-07-08: Session 1 gestartet. git fetch ok. Worker-Trennungs-Änderungen unangetastet vorgefunden. Struktur: apps/web (Views: Dashboard, Signals, RlAgents, MlModels, Performance, Labor, Strategien, Werkstatt, Agenten, …), packages/{api,ml,agents,…}.
 - 2026-07-08: Kernfiles gelesen (App, api, Shell, RegimeBadge, MlBadge, SignalCard, Dashboard, RlAgents, MlModels, Performance, FavStar, ui, i18n/de). Live-API inspiziert (Shapes verifiziert). Test-Agent "Workover-E2E-Test" (paper) in Prod-DB angelegt — nach Browser-Verify wieder entfernen falls Delete-Endpoint existiert, sonst behalten (harmlos, paper).
 - 2026-07-08: Session 1 ABGESCHLOSSEN. Alle P0/P1/P2-Punkte umgesetzt+verifiziert. Commit e319a45 deployed, Live-Checks gruen.
+
+---
+
+# SESSION 4 — Offene-Punkte-Abschluss (Audit local_a5101309 → „alles fertig, nur noch API-Key")
+
+**Start:** 2026-07-08 · **Session 4:** Fable-5 · Commit 3057a23 + Doku. Auftrag: alle 7 offenen Audit-Punkte fixen, danach ist Patricks EINZIGE offene Aktion der ANTHROPIC_API_KEY.
+
+## Umgesetzt (alle 7 Punkte)
+1. **🐛 P0 Stack-Trace-Leak:** `sanitizeErrorShape` als errorFormatter in `api/src/trpc.ts` — Stacks + rohe INTERNAL-Messages nur noch in explizitem development/test (fail-safe: fehlendes NODE_ENV = Produktion, unabhängig von Server-Env). `data.code` bleibt (Frontend-Auth-Retry!). Volle Traces gehen stattdessen via `onError` in journald. 5 Tests (pure + HTTP-401-E2E ohne DB). Live verifiziert: 401/400-Antworten enthalten weder `stack` noch `/opt/`-Pfade. Zusätzlich `NODE_ENV=production` als systemd-Drop-in auf beiden Diensten gesetzt.
+2. **⚙ Worker-Trennung (ROLE=web/worker) FERTIG:** fremde uncommittete Dateien kritisch geprüft (sauber: Redis-Heartbeat prozessübergreifend für /health, Rollen-Gates in start.ts, ioredis nur lesend in der Web-Rolle) und committet. **Wurzelfix obendrauf:** `rl.runEpisode` legte nur eine VERWAISTE rl_episodes-Zeile an, die NIE ausgeführt wurde (Fake-Button!) → jetzt `enqueueRlEpisodeRun(agentId)` (lazy BullMQ-Queue aus der API) + `runRlEpisodes(db,{agentId})`-Filter + Worker-Case liest job.data; NOT_FOUND/412 statt Schein-Erfolg; episodeHint-Texte ×5 ehrlich („rechnet im Hintergrund-Worker"). **Server-Installation:** gladiator-worker.service installiert+enabled, `role.conf` (ROLE=web) für gladiator.service, post-receive-Hook restartet jetzt BEIDE Dienste. Live: Web-Log zeigt „[ROLE=web — Jobs im gladiator-worker-Dienst]", Worker-Log zeigt Scan/Macro/News-Jobs, /health `workerAgeSec` kommt über Redis (=3s ✓). E2E: Test-Agent → runEpisode → `{enqueued:true}` → Job lief im Worker → Agent stillgelegt.
+3. **📊 MacroPanels-COT:** „COT folgt"-Platzhalter ersetzt durch echtes COT-Panel (intelligence.cotSnapshot: Markt, Netto/OI, Perzentil, Status-Pill, Report-Datum; Farben/Keys identisch mit Tab „Entscheidung"). footprintLive-Text ×5 bereinigt. Browser-verifiziert mit ECHTEN Livedaten (Gold +52,5 % crowded long, BTC-CME P100, Report 30.06.2026). ⚠ Gefundener+gefixter Mobile-Bug: nowrap-Tabelle weitete als Grid-Item ALLE Panels auf 412px → `min-w-0` aufs Panel, 375px wieder overflow-frei.
+4. **⌘K CommandPalette:** Views + Hub-Tabs navigierbar (20 Einträge: alle Sidebar-Routen + Entscheidung/ML/RL/Performance/Post-Trade als Deep-Links `#/intelligenz?tab=…`). `rankAssets` wiederverwendet (Label=ticker=name) — keine zweite Such-Logik. Badge „Ansicht" ×5, Placeholder ×5 aktualisiert. Browser-verifiziert: „entscheid" → Eintrag → navigiert korrekt in den Hub-Tab.
+5. **🧠 Post-Trade-Learning-View:** NEU `views/PostTrade.tsx` als 5. Hub-Tab `posttrade` (HUB_TABS+SUBTITLE+embedded-Muster). Aggregat-Kacheln (Reviews/Win-Rate/Verlierer/Ø R/Ø Score-Validität), Top-Fehlerquellen-Chips, Review-Tabelle (Trade mit Symbol/Richtung/Modus via NEU leftJoin executed_trades im postTradeReviews-Endpoint, Trefferqualitäts-Pill, Validität, R, PnL, übersetzte Fehlerquellen-/Lehren-Chips, Datum), „Analyse starten"→runPostTradeLearning. i18n `posttrade.*` (~45 Keys) ×5 inkl. aller stabilen Backend-Schlüssel (err_*/lesson_*). Live-E2E: Button → „0 Trades geprüft · 0 neue Reviews" (ehrlich — noch keine geschlossenen Trades).
+6. **💬 explanationForUser LLM-Anbindung:** NEU `jobs/src/explanation.ts` — `explainForUser(provider,guard,facts,locale)`: MIT Key LLM-Kurzfassung (guardedComplete, 400 Tokens, Sprache aus `users.locale`, DE-Fallback) VOR den deterministischen Reason-Codes; ohne Key/Budget/bei API-Fehlern still deterministisch (nie ein Fehler, §14: LLM erklärt nur). review.ts nutzt es beim signal_intelligence-Upsert. 9 Tests mit Fake-Provider (inkl. Budget-erschöpft, leere Antwort, exaktes Alt-Format als Regression-Guard). Greift automatisch, sobald Patrick den Key einträgt.
+7. **📈 Labor.tsx-Konsolidierung:** lokale Kopien (fmt/MetricCard/COMPARE_COLORS/EquityChart/MultiEquityChart, ~110 Zeilen) entfernt → geteilte `components/EquityChart.tsx` (emptyText als Prop). StrategyRun bleibt strukturell kompatibel zu ComparableRun.
+
+## CI + Deploy
+- Lokal: lint ✓ · typecheck ✓ · **736 Tests** (722 Bestand + 14 neu) ✓ · build:web ✓ · Browser-Verify gegen Live-API (Vite :5199, launch.json `gladiator-web`): Palette, Post-Trade-Tab, COT-Panel, Mobile 375px, Konsole sauber.
+- Commit 3057a23 → push server main → **Server-CI GRUEN (798/798 Tests, inkl. DB)**, beide Dienste laufen.
+- preview_screenshot timeoutet weiterhin (MatrixRain, bekannt) — Verifikation via DOM-Snapshots/evals.
+
+## Serverseitige Änderungen (außerhalb des Repos, dokumentiert)
+- `/etc/systemd/system/gladiator-worker.service` (aus deploy/), enabled.
+- `/etc/systemd/system/gladiator.service.d/role.conf`: `ROLE=web` + `NODE_ENV=production`.
+- `/etc/systemd/system/gladiator-worker.service.d/env.conf`: `NODE_ENV=production`.
+- post-receive-Hook: restartet nach grüner CI jetzt auch `gladiator-worker.service`.
+
+## ⚠ Patrick-Action (die EINZIGE)
+- **ANTHROPIC_API_KEY eintragen** (Profil → API-Keys): schaltet Pine-Analyse, Workshop-Dialog, LLM-Agenten (Makro/Shadow) und die neue mehrsprachige Signal-Erklärung frei. Alles andere läuft bereits ohne Key.
+
+## Notizen für Folge-Sessions
+- Test-Agent „Worker-E2E-Test" wurde nach der E2E-Verifikation stillgelegt (retired, harmlos in der DB).
+- Post-Trade-Reviews entstehen erst mit geschlossenen Trades — UI/Aggregate zeigen sie dann automatisch; der 30-min-RL-Takt + Review-Job laufen jetzt im Worker-Prozess (Web friert nicht mehr ein).
+- Rest-Idee aus Session 2 weiterhin offen (bewusst): Trailing-Stop gemeinsam in Engine+PositionMonitor; Workshop-Streaming (SSE).
