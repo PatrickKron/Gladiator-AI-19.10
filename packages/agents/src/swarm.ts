@@ -1,5 +1,6 @@
 import type { RiskVerdict } from '@gladiator/risk';
 import { reviewDevil, type DevilEvidence } from './devil.js';
+import { decideHedge, reviewHedge, reviewInstitutional, type IntelligenceContext } from './intelligence.js';
 import { reviewLlmAgent } from './llm-agents.js';
 import { aggregateVerdicts } from './portfolio.js';
 import type { CostGuard, LlmProvider } from './provider.js';
@@ -30,6 +31,12 @@ export type SwarmInput = {
     macroContext?: Record<string, unknown>;
     onchainContext?: Record<string, unknown>;
   };
+  /**
+   * KI-Intelligence-Kontext (CPI/COT/Buffett/Regime/Shadow) — deterministisch,
+   * vom Aufrufer aus echten market-data-Quellen befüllt. Fehlt er, werden der
+   * Institutional- und der Hedge-Agent ehrlich als deaktiviert markiert.
+   */
+  intelligence?: IntelligenceContext;
 };
 
 export type SwarmResult = {
@@ -45,6 +52,16 @@ export async function runSwarm(input: SwarmInput): Promise<SwarmResult> {
   verdicts.push(reviewTechnik(input.facts));
   verdicts.push(reviewRisk(input.riskVerdict));
   verdicts.push(reviewDevil(input.facts, input.devilEvidence));
+
+  // Institutional & Valuation (COT + Buffett) + Hedge — deterministisch, nur
+  // mit echtem Intelligence-Kontext; sonst ehrlich deaktiviert (kein Fake).
+  if (input.intelligence) {
+    verdicts.push(reviewInstitutional(input.intelligence));
+    verdicts.push(reviewHedge(decideHedge(input.intelligence)));
+  } else {
+    disabled.push({ agent: 'institutional', reason: 'COT-/Bewertungs-Daten nicht verbunden' });
+    disabled.push({ agent: 'hedge', reason: 'Intelligence-Kontext (CPI/COT/Buffett/Regime) nicht verbunden' });
+  }
 
   // LLM-Agenten — nur mit Provider UND verbundenen Datenquellen (08_ §2).
   const { provider, guard } = input.llm;

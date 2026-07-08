@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { signalIntelligenceSchema } from './intelligence.js';
 
 /**
  * Kanonisches Signal-Datenmodell — die EINE Wahrheit für alle Signal-Quellen.
@@ -59,6 +60,12 @@ export const signalSchema = z
     reentry: reentrySchema.optional(),
     leverageUpgrade: leverageUpgradeSchema.optional(),
     agentReview: z.array(agentVerdictSchema).optional(),
+    /**
+     * Additive KI-Trading-Intelligence-Schicht (CPI/COT/Buffett/Hedge/…).
+     * Optional — ohne verbundene Datenquellen bleibt sie undefiniert.
+     * Siehe intelligence.ts / „/goal Ergänzung zu Gladiator AI" §11.
+     */
+    intelligence: signalIntelligenceSchema.optional(),
     status: signalStatusSchema,
   })
   .superRefine((s, ctx) => {

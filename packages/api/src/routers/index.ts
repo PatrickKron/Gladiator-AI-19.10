@@ -1,6 +1,7 @@
 import { router } from '../trpc.js';
 import { agentsRouter } from './agents.js';
 import { authRouter } from './auth.js';
+import { intelligenceRouter } from './intelligence.js';
 import { labRouter } from './lab.js';
 import { marketRouter } from './market.js';
 import { mlRouter } from './ml.js';
@@ -19,6 +20,7 @@ import { workshopRouter } from './workshop.js';
 export const appRouter = router({
   agents: agentsRouter,
   auth: authRouter,
+  intelligence: intelligenceRouter,
   lab: labRouter,
   market: marketRouter,
   ml: mlRouter,

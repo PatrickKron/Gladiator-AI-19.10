@@ -5,6 +5,7 @@ import { parseTab, buildTabHash } from '../lib/tab-hash.js';
 import { MlModels } from './MlModels.js';
 import { RlAgents } from './RlAgents.js';
 import { Performance } from './Performance.js';
+import { Entscheidung } from './Entscheidung.js';
 
 /**
  * Intelligenz-Hub (P0-Workover): führt ML-Modelle, RL-Agenten und Performance
@@ -13,7 +14,7 @@ import { Performance } from './Performance.js';
  * `#/rl-agenten`, `#/performance` leiten hierher um (App.tsx).
  */
 
-export const HUB_TABS = ['ml', 'rl', 'performance'] as const;
+export const HUB_TABS = ['ml', 'rl', 'performance', 'intel'] as const;
 export type HubTab = (typeof HUB_TABS)[number];
 
 const BASE = '#/intelligenz';
@@ -38,6 +39,7 @@ export function Intelligenz() {
     ml: t('ml.subtitle'),
     rl: t('rl.subtitle'),
     performance: t('perf.subtitle'),
+    intel: t('intel.subtitle'),
   };
 
   return (
@@ -61,6 +63,7 @@ export function Intelligenz() {
       {tab === 'ml' && <MlModels embedded />}
       {tab === 'rl' && <RlAgents embedded />}
       {tab === 'performance' && <Performance embedded />}
+      {tab === 'intel' && <Entscheidung embedded />}
     </div>
   );
 }

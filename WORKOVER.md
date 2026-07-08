@@ -81,6 +81,57 @@
 
 ---
 
+# SESSION 3 — KI-Trading-Intelligence-Layer (Goal-Ergänzungs-PDF: CPI/FRED + COT/CFTC + Buffett + Signalobjekt)
+
+**Start:** 2026-07-08 · **Session 3:** Fable-5 · Quelle: `Goal_Ergaenzung_zu_Gladiator_AI.pdf` (finales One-Source-of-Truth-Dokument) · Worker-Trennungs-Dateien weiterhin unangetastet (gezieltes git add!).
+
+## Auftrag (aus dem PDF)
+Ergänzende KI-Trading-Intelligence-Layer: technische Marktstruktur + Makro (CPI als Event-Regime, §5) + COT-Positionierung (CFTC, §6) + Bewertungsfilter (Warren-Buffett-Indikator, §7) + Risk-First (§9) + Hedging-/No-Trade-Logik als sichtbare Entscheidungskategorie (§10) + standardisiertes Signalobjekt (§11). BTC/USDT nur Beispielmarkt (markiert!), Logik multi-asset-übertragbar. No-Trade ist gültiges Ergebnis. LLM darf erklären, harte Regeln deterministisch (§14).
+
+## Bestandsaufnahme — was das PDF fordert vs. was existiert
+| PDF-Baustein | Status im Code |
+|---|---|
+| Multi-Agenten-System (§4) | ✅ existiert: `agents/src/swarm.ts` (technik/risk/devil deterministisch + makro/shadow LLM, data-gated) → `signal_reviews` → SignalCard |
+| Market Regime Agent | ✅ `ml/src/regime.ts` (bull/bear/sideways/high_vol/crisis) + 15-min-Cache + Job |
+| CPI-Kalender + No-Trade-Fenster | ✅ ForexFactory-Feed → `economic_events` (echte Termine+Forecast), `event-impact.ts` (cat cpi), `risk/no-trade.ts` (±30min) |
+| CPI-Event-Statusmaschine (§5: pre_event/release_window/post_event/confirmed_reaction) | ❌ NEU |
+| CPI-Ist-Werte (actual vs. forecast) | ❌ NEU → FRED CPIAUCSL/CPILFESL (`economic_events.actual` war immer leer) |
+| COT/CFTC (§6) | ❌ NEU (0 Code-Treffer; UI-Slot „COT folgt" in MacroPanels existiert) |
+| Buffett-Indikator (§7) | ❌ NEU (⚠ Wilshire wurde Juni 2024 aus FRED entfernt → Fed-Z.1 `NCBEILQ027S`/`GDP`, beide leben) |
+| Risk Engine hart (§9/§14) | ✅ `packages/risk` (Sizing, Gates, Kill-Switch) — bleibt unangetastet, KI schaltet NIE scharf |
+| Hedge-Mode-Klassifikation (§10) | ❌ NEU (nur Empfehlung/Anzeige; Ausführung erst nach Paper-Phase lt. §13.9) |
+| Standardisiertes Signalobjekt (§11) | ❌ NEU als `intelligence_assessments` (score_components, risk_class, hedge_mode, final_decision, …) |
+| Post-Trade-Learning (§13.8) | ✅ weitgehend: self-improve-Pipeline, truth-core, ml-auto-label, perf-snapshots |
+
+## Architektur-Entscheidungen
+1. **Datenadapter in `packages/market-data`**: NEU `cftc.ts` (Socrata publicreporting.cftc.gov, Dataset 6dca-aqww Legacy Futures Only, KEIN Key nötig — live verifiziert, letzter Report 2026-06-30). Markt-Mapping verifiziert: BTC=133741, ETH=146021, Gold=088691, Silber=084691, WTI=067651, E-mini S&P=13874A, Nasdaq Mini=209742, EUR FX=099741. FRED-Erweiterung in `macro.ts`: `syncFredSeries` zusätzlich CPIAUCSL, CPILFESL, GDP, NCBEILQ027S (Key-gated wie bisher; Key aus app_secrets-Vault ODER env — `FRED_API_KEY` ist bereits whitelisted; live ist KEIN Key gesetzt → ehrliche NotConnected-Zustände, Patrick-Action unten).
+2. **DB additiv (Migration 0016)**: NEU `cot_reports` (unique market_code+report_date) + `intelligence_assessments` (Signalobjekt §11 + inputs-Audit-JSONB). FRED-Beobachtungen gehen in BESTEHENDE `macro_series`. Drizzle-generate diffed gegen 0015-Snapshot (kennt 0014-Tabellen) → sauber; alles IF NOT EXISTS.
+3. **Deterministische Engine, LLM nur Erklärung (§14)**: pure, TDD-getestete Module — `market-data/src/cot-metrics.ts` (Netto-Positionierung Non-Commercials, Perzentil über Historie → neutral/crowded_long/crowded_short/contrarian_alert), `market-data/src/buffett.ts` (Ratio + z-Score über Gesamthistorie → neutral/elevated/extreme), `agents/src/cpi-status.ts` (Phasenmaschine aus echten `economic_events`-Terminen + FRED-Actuals), `agents/src/intelligence.ts` (Aggregator → Signalobjekt: score_components, risk_class, position_size_mode, hedge_mode, final_decision; no_trade ist gültig). **explanation = strukturierte Reason-Codes**, Frontend übersetzt (i18n ×5 sauber statt LLM-Deutsch); optionale LLM-Freitext-Erklärung via guardedComplete (412 ohne Key, Tagesbudget geteilt).
+4. **Swarm additiv erweitert**: neuer deterministischer Agent `institutional` (COT+Buffett, data-gated wie makro/shadow) in `swarm.ts` → erscheint automatisch in SwarmReviews auf SignalCards (AGENT_KEY + i18n ergänzen).
+5. **Jobs**: `cot-sync` (12h, upsert; COT erscheint freitags 21:30 MEZ für Dienstag) in bestehende SCHEDULES; `macro-sync` (30min) deckt FRED-Serien mit ab. Kein neuer Assessment-Job — on-demand mit 15-min-DB-Cache (Muster ml.regime).
+6. **tRPC NEU `intel`-Router**: `cotOverview`, `cpiStatus`, `buffett`, `assess({symbol})`, `history`. Ehrliche PRECONDITION_FAILED/NotConnected ohne Key/Daten.
+7. **Frontend**: Intelligenz-Hub 4. Tab „Entscheidung" (`#/intelligenz?tab=intel`): CPI-Event-Status-Karte (Phase, Countdown, actual vs. forecast), Buffett-Gauge (SVG-Ring wie GRS), COT-Tabelle (Netto, WoW, Perzentil, Status-Pill), Assessment-Karte je Asset (BTC default, sichtbar als „Beispielmarkt" markiert, §12) mit Score-Komponenten-Balken, risk_class, hedge_mode, final_decision, Devil's-Advocate/Reasons. MacroPanels-Footprint: COT-Zeile echt befüllen (Slot „COT folgt"). i18n-Namespace `intel.*` ×5, {{n}}-Konvention.
+
+## ⚠⚠ PARALLELE SESSION AKTIV (14:46+, live beobachtet)
+Eine zweite Session implementiert GLEICHZEITIG am selben Tree (Dateien entstehen minütlich): `packages/core/src/intelligence.ts(+test)` (Zod-Signalobjekt §11), `packages/market-data/src/{cot,cpi,buffett}.ts(+tests)`, Änderungen an `core/{index,signal}.ts`. **Arbeitsteilung dieser Session (Claude Code), um Kollisionen zu vermeiden:**
+- **Parallel-Session gehört (Hände weg):** packages/core, packages/market-data (cot/cpi/buffett), packages/db-Schema für `cot_reports` (ihr cot.ts referenziert es bereits), Jobs-Wiring.
+- **Diese Session übernimmt:** apps/web (Hub-Tab „Entscheidung", MacroPanels-COT, SignalCard institutional) + i18n `intel.*` ×5 — gebaut gegen den Typ-Vertrag aus `core/intelligence.ts`. tRPC-Router `intel` NUR falls bei Reconcile-Zeitpunkt noch keiner existiert.
+- Vor Full CI: Reconcile mit dem dann aktuellen Tree (git status, mtimes), NUR eigene Dateien committen.
+- **🐛 BEFUND für Parallel-Session (live verifiziert 15:0x):** `buffett.ts` nutzt `WILL5000INDFC` als Zähler — Wilshire-Serien wurden Juni 2024 KOMPLETT aus FRED entfernt; fredgraph.csv liefert dafür nur noch eine HTML-Fehlerseite → parseFredCsv=[] → syncBuffett skipped → Indikator dauerhaft „nicht verbunden". Lebende, verifizierte Alternative: `NCBEILQ027S` (Corporate Equities, Mio. USD, quartalsweise bis Q1/2026) bzw. `BOGZ1LM893064105Q`; Ratio vs. GDP (Mrd.) → Faktor 1000 beachten (NCBEILQ027S/1000/GDP ≈ 2,29 ≈ GuruFocus 2,31 ✓). Perzentil-Klassifikation bleibt unverändert gültig. Wird beim Reconcile gefixt, falls bis dahin nicht geschehen.
+
+## Arbeitsreihenfolge (angepasst an Parallel-Session)
+- [x] 1.–4. Backend-Adapter → Parallel-Session lieferte: `market-data/{cot,cpi,buffett}.ts(+Tests)`, `core/intelligence.ts` (Zod §11) + `signals.intelligence`-Feld, `db/schema/intelligence.ts` (cot_reports, valuation_indicators, signal_intelligence, post_trade_reviews) + Migration 0016 (idempotent geprüft), `agents/{intelligence,post-trade}.ts` (institutional+hedge-Agent, decideHedge, finalDecision, Post-Trade-Learning), swarm-Integration, review.ts-Anreicherung (onConflictDoUpdate=idempotent geprüft), `api/routers/intelligence.ts` (cpiStatus/cotSnapshot/buffettStatus/signalIntelligence/postTradeReviews/sync*/runPostTradeLearning)
+- [x] 5. web (diese Session): Hub-Tab „Entscheidung" (#/intelligenz?tab=intel, `views/Entscheidung.tsx`): CPI-Phasen-Karte, Buffett-Perzentil-Gauge, COT-Tabelle (6 Märkte), Hedge-Modi-Legende + No-Trade-Grundsatz, „Jetzt synchronisieren" (3 Quellen einzeln, ehrliche Teilfehler); i18n `intel.*` (~80 Keys) ×5, Paritätstest grün
+- [x] 6. web (diese Session): SignalCard AGENT_KEY `institutional`+`hedge` + i18n ×5; NEU `IntelligenceSection` auf jeder SignalCard (lazy §11-Objekt: final_decision/hedge_mode/CPI/COT/Buffett-Pills, Score-Komponenten-Balken, Shadow-Warnung, Devil's Advocate, Erklärung; „noch nicht angereichert" ehrlich)
+- [x] 7. api (diese Session): `intelligenceRouter` in routers/index.ts registriert (eigener intel.ts-Wrapper zugunsten des vollständigeren Parallel-Routers GELÖSCHT — Konvergenz statt Kollision)
+- [x] **Reconcile-Fixes (diese Session):** (a) buffett.ts Zähler WILL5000INDFC→NCBEILQ027S + Faktor 1000 (Wilshire seit Juni 2024 tot — live verifiziert, Ratio ≈ 2,29 ✓); (b) syncBuffett schrieb nur 1 Punkt/Lauf → jetzt volle 20-Jahres-Quartalshistorie (deriveBuffettStatus braucht ≥8 Punkte fürs Perzentil, sonst 2 Jahre not_applicable); (c) Scheduler-Wiring fehlte komplett → `syncIntelligenceSources()` huckepack in `syncMacroSeries` (30-min-Job, 6-h-Drossel, je Quelle ehrlich isolierte Fehler) — bewusst OHNE worker.ts anzufassen (gehört der Worker-Trennung)
+- [x] 8. Full CI lokal: lint ✓ · typecheck ✓ · **722 Tests passed** (62 DB-Tests → Server-CI) ✓ · build:web ✓ · Browser-Verify pre-deploy (Vite :5199): Tab rendert, Fehler-States ehrlich („No procedure found" gegen alte Live-API), SignalCard-Toggle ok, Konsole sauber
+
+## ⚠ Patrick-Action
+- KEINE! Live-Test ergab: fredgraph.csv (bestehender key-loser FRED-Weg) liefert auch CPIAUCSL/CPILFESL/GDP/NCBEILQ027S mit aktuellen Daten (Buffett-Ratio ≈ 229 % verifiziert ≈ GuruFocus 231 %). CFTC/Socrata braucht ebenfalls keinen Key. Der komplette Layer läuft ohne neuen API-Key. (`FRED_API_KEY` bleibt optional für die bestehende DFF-Zusatzserie.)
+
+---
+
 # SESSION 2 — Strategie-Workshop (Pine → KI-Dialog → Agent → Backtest → Version → Paper-Deploy)
 
 **Start:** 2026-07-08 · **Session 2:** Fable-5 · Worker-Trennungs-Dateien weiterhin unangetastet (gezieltes git add!).

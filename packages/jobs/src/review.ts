@@ -8,18 +8,50 @@ import {
   loadRiskSettings,
   type TradingVenue,
 } from '@gladiator/exchange';
-import { derivativesFresh, getDerivativesSnapshot, getMacroSnapshot, upcomingEvents } from '@gladiator/market-data';
+import {
+  buffettScore,
+  cotMarketForSymbol,
+  cotScore,
+  cpiScore,
+  derivativesFresh,
+  getBuffettSnapshot,
+  getCotSnapshot,
+  getCpiSnapshot,
+  getDerivativesSnapshot,
+  getMacroSnapshot,
+  upcomingEvents,
+} from '@gladiator/market-data';
 import { evaluateRisk } from '@gladiator/risk';
 import {
   CostGuard,
+  decideHedge,
   envAnthropicProvider,
+  escalateRiskClass,
+  finalDecisionFor,
+  positionSizeModeFor,
   runSwarm,
+  type BuffettStatus,
   type DevilEvidence,
+  type IntelligenceContext,
+  type MarketRegimeName,
   type SignalFacts,
 } from '@gladiator/agents';
 import { formatSignalAlert, sendTelegram } from './telegram.js';
 
-const { signals, signalReviews, studyTrades, users, auditLog } = schema;
+const { signals, signalReviews, studyTrades, users, auditLog, marketRegimes, signalIntelligence } = schema;
+
+/** Deterministische ShadowGPT-Warnung aus echten Derivate-Daten (kein LLM nötig). */
+function deriveShadowWarning(d: { fundingRate: number | null; oiChangePct24h: number | null } | undefined): string {
+  if (!d) return '';
+  const parts: string[] = [];
+  if (d.fundingRate !== null && Math.abs(d.fundingRate) >= 0.0005) {
+    parts.push(`Funding extrem (${(d.fundingRate * 100).toFixed(3)} %) — überhitzte Positionierung.`);
+  }
+  if (d.oiChangePct24h !== null && Math.abs(d.oiChangePct24h) >= 15) {
+    parts.push(`Open Interest ${d.oiChangePct24h > 0 ? '+' : ''}${d.oiChangePct24h.toFixed(0)} % in 24 h — Squeeze-/Liquidationsrisiko.`);
+  }
+  return parts.join(' ');
+}
 
 /**
  * Schwarm-Review (08_ §1): jedes neue Signal wird VOR der Bestätigung von den
@@ -133,6 +165,11 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue): Promise<Rev
   const onchainDataConnected = await derivativesFresh(db);
   const derivatives = onchainDataConnected ? await getDerivativesSnapshot(db) : [];
 
+  // ── KI-Intelligence-Kontext (CPI/COT/Buffett) — einmal je Lauf ──
+  // Reine, deterministische Snapshots aus echten Quellen; nicht verbunden ⇒ neutral.
+  const cpi = await getCpiSnapshot(db).catch(() => null);
+  const buffett = await getBuffettSnapshot(db).catch(() => null);
+
   for (const s of pending) {
     try {
       const facts: SignalFacts = {
@@ -174,10 +211,45 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue): Promise<Rev
       const devilEvidence = await buildDevilEvidence(db, facts);
       const symbolDerivatives = derivatives.find((d) => d.symbol === s.symbol);
 
+      // ── Intelligence-Kontext dieses Signals (deterministisch, echte Daten) ──
+      // Regime aus dem ml-Cache (marketRegimes), sonst aus der EMA-Marktphase.
+      const [regimeRow] = await db
+        .select({ regime: marketRegimes.regime })
+        .from(marketRegimes)
+        .where(and(eq(marketRegimes.symbol, s.symbol), eq(marketRegimes.timeframe, s.timeframe)))
+        .orderBy(desc(marketRegimes.ts))
+        .limit(1);
+      const regime: MarketRegimeName | null =
+        (regimeRow?.regime as MarketRegimeName | undefined) ?? (facts.marketPhase === 'bull' ? 'bull' : 'bear');
+
+      // COT nur, wenn ein passender Futures-Report existiert (sonst not_applicable).
+      const cotEntry = cotMarketForSymbol(s.symbol) ? (await getCotSnapshot(db, s.symbol).catch(() => []))[0] : undefined;
+      const cotStatus = cotEntry?.positioning.status ?? 'not_applicable';
+      const cotNetRatio = cotEntry?.positioning.netRatio ?? 0;
+
+      // Buffett-Bewertung nur für Aktien/ETFs/Indizes relevant (PDF §7).
+      const buffettStatus: BuffettStatus =
+        ['stock', 'etf', 'index'].includes(s.assetClass) && buffett ? buffett.status : 'not_applicable';
+
+      const shadowWarning = deriveShadowWarning(symbolDerivatives);
+
+      const intelligence: IntelligenceContext = {
+        direction: s.direction,
+        baseRiskClass: s.riskClass,
+        regime,
+        cpiStatus: cpi?.phase ?? 'none',
+        cotStatus,
+        cotNetRatio,
+        buffettStatus,
+        shadowWarning,
+        noTradeActive: Boolean(noTrade),
+      };
+
       const { verdicts, disabled } = await runSwarm({
         facts,
         riskVerdict,
         devilEvidence,
+        intelligence,
         llm: {
           provider: envAnthropicProvider(),
           guard: llmGuard,
@@ -208,6 +280,70 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue): Promise<Rev
       }
 
       const portfolio = verdicts[verdicts.length - 1]!;
+
+      // ── Erweitertes Signalobjekt (PDF §11) additiv persistieren ──
+      const hedge = decideHedge(intelligence);
+      const riskClass = escalateRiskClass(s.riskClass, intelligence);
+      const positionSizeMode = positionSizeModeFor(hedge.mode, riskClass);
+      const finalDecision = finalDecisionFor(hedge.mode, portfolio.vote);
+      const technikVerdict = verdicts.find((v) => v.agent === 'technik');
+      const devilVerdict = verdicts.find((v) => v.agent === 'devil');
+      const makroVerdict = verdicts.find((v) => v.agent === 'makro');
+      const rr1 = Number((technikVerdict?.refs as { rr1?: number } | undefined)?.rr1 ?? 0);
+      const scoreComponents = {
+        technical: technikVerdict ? technikVerdict.confidence : Math.min(1, facts.score / 10),
+        macroCpi: cpiScore(intelligence.cpiStatus, cpi?.surprise ?? null, s.direction),
+        liquidityShadow: shadowWarning ? 0.3 : onchainDataConnected ? 0.6 : 0.5,
+        cotPositioning: cotEntry ? cotScore(cotEntry.positioning, s.direction) : 0.5,
+        valuationBuffett: buffettScore(buffettStatus, s.direction),
+        riskReward: riskVerdict.allowed ? Math.min(1, rr1 / 2) : 0.1,
+      };
+      const oracleMacroSummary =
+        makroVerdict?.reason ??
+        (macroContext ? `GRS ${macroContext.grs ? (macroContext.grs as { label?: string }).label ?? '—' : '—'}, VIX ${macroContext.vix ?? '—'}` : '');
+      const explanationParts = [`Entscheidung: ${finalDecision}.`, `Hedge: ${hedge.reason}`];
+      if (intelligence.cpiStatus !== 'none') explanationParts.push(`CPI-Phase: ${intelligence.cpiStatus}.`);
+      if (cotStatus !== 'not_applicable' && cotStatus !== 'neutral') explanationParts.push(`COT: ${cotStatus}.`);
+      if (buffettStatus !== 'not_applicable' && buffettStatus !== 'neutral') explanationParts.push(`Bewertung: ${buffettStatus}.`);
+
+      await db
+        .insert(signalIntelligence)
+        .values({
+          signalId: s.id,
+          assetIsExample: s.symbol === 'BTC/USDT',
+          marketRegime: regime,
+          scoreComponents,
+          riskClass,
+          positionSizeMode,
+          hedgeMode: hedge.mode,
+          cpiStatus: intelligence.cpiStatus,
+          cotStatus,
+          buffettStatus,
+          shadowWarning,
+          oracleMacroSummary,
+          devilsAdvocate: devilVerdict?.reason ?? '',
+          finalDecision,
+          explanationForUser: explanationParts.join(' '),
+          postTradeReviewRequired: true,
+        })
+        .onConflictDoUpdate({
+          target: signalIntelligence.signalId,
+          set: {
+            marketRegime: regime,
+            scoreComponents,
+            riskClass,
+            positionSizeMode,
+            hedgeMode: hedge.mode,
+            cpiStatus: intelligence.cpiStatus,
+            cotStatus,
+            buffettStatus,
+            shadowWarning,
+            oracleMacroSummary,
+            devilsAdvocate: devilVerdict?.reason ?? '',
+            finalDecision,
+            explanationForUser: explanationParts.join(' '),
+          },
+        });
 
       // Telegram-Alert (Phase 7): echtes Signal + Schwarm-Urteil; Fehler crashen nie den Review.
       await sendTelegram(

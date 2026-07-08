@@ -1,6 +1,9 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
+import { syncBuffett } from './buffett.js';
+import { syncCot } from './cot.js';
+import { syncCpiSeries } from './cpi.js';
 import { deriveGrsFromSeries, type Grs, type MacroPoint } from './grs.js';
 import { FRED_PUBLIC_SERIES, fetchFredPublicSeries } from './fred-public.js';
 import { fetchYahooChart, MACRO_SYMBOLS, type MacroSeriesId } from './yahoo.js';
@@ -58,6 +61,50 @@ export async function syncMacroSeries(db: Db): Promise<MacroSyncResult> {
     } catch (err) {
       result.errors.push(`${seriesId} (yahoo): ${String(err)}`);
     }
+  }
+
+  // ── KI-Intelligence-Quellen (CPI/COT/Buffett) huckepack im Makro-Sync ──
+  // Bewusst KEIN eigener Worker-Job (worker.ts gehört der laufenden
+  // Worker-Prozess-Trennung). Quellen sind wöchentlich (COT) bzw.
+  // monatlich/quartalsweise (CPI/Buffett) → 6-h-Drossel reicht dicke.
+  if (Date.now() - lastIntelSyncMs >= INTEL_SYNC_MIN_INTERVAL_MS) {
+    lastIntelSyncMs = Date.now();
+    const intel = await syncIntelligenceSources(db);
+    result.series.push(...intel.series);
+    result.errors.push(...intel.errors);
+  }
+  return result;
+}
+
+/** Drossel für den huckepack laufenden Intelligence-Sync (je Prozess). */
+export const INTEL_SYNC_MIN_INTERVAL_MS = 6 * 3_600_000;
+let lastIntelSyncMs = 0;
+
+/**
+ * Synchronisiert die Intelligence-Quellen (CPI-Serie, COT-Reports,
+ * Buffett-Indikator). Jede Quelle fällt einzeln ehrlich in `errors` —
+ * eine tote Quelle blockiert die anderen nicht.
+ */
+export async function syncIntelligenceSources(db: Db): Promise<MacroSyncResult> {
+  const result: MacroSyncResult = { series: [], errors: [] };
+  try {
+    const cpi = await syncCpiSeries(db);
+    result.series.push({ seriesId: 'CPI', points: cpi.points, latest: cpi.latest, source: 'fred-public' });
+  } catch (err) {
+    result.errors.push(`CPI (fred-public): ${String(err)}`);
+  }
+  try {
+    const cot = await syncCot(db);
+    result.series.push({ seriesId: 'COT', points: cot.rows, latest: null, source: 'cftc' });
+    result.errors.push(...cot.errors.map((e) => `COT (cftc): ${e}`));
+  } catch (err) {
+    result.errors.push(`COT (cftc): ${String(err)}`);
+  }
+  try {
+    const buffett = await syncBuffett(db);
+    result.series.push({ seriesId: 'BUFFETT', points: buffett.skipped ? 0 : 1, latest: buffett.ratio, source: 'fred-public' });
+  } catch (err) {
+    result.errors.push(`BUFFETT (fred-public): ${String(err)}`);
   }
   return result;
 }

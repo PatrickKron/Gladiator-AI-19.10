@@ -76,6 +76,8 @@ const AGENT_KEY: Record<string, string> = {
   devil: 'signals.agentDevil',
   makro: 'signals.agentMakro',
   shadow: 'signals.agentShadow',
+  institutional: 'signals.agentInstitutional',
+  hedge: 'signals.agentHedge',
   portfolio: 'signals.agentPortfolio',
 };
 
@@ -146,6 +148,140 @@ function SwarmReviews({ reviews }: { reviews: SignalReview[] }) {
             <li key={d.agent}>⊘ {t(AGENT_KEY[d.agent] ?? d.agent)}: {t('common.disabled')} — {d.reason}</li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+type SignalIntel = {
+  assetIsExample: boolean;
+  marketRegime: string | null;
+  scoreComponents: Record<string, number> | null;
+  riskClass: string | null;
+  positionSizeMode: string | null;
+  hedgeMode: string | null;
+  cpiStatus: string;
+  cotStatus: string;
+  buffettStatus: string;
+  shadowWarning: string;
+  oracleMacroSummary: string;
+  devilsAdvocate: string;
+  finalDecision: string | null;
+  explanationForUser: string;
+};
+
+const DECISION_COLOR: Record<string, string> = {
+  signal: 'var(--color-pos)',
+  wait: 'var(--color-warn)',
+  hedge: 'var(--color-warn)',
+  no_trade: 'var(--color-neg)',
+};
+
+const INTEL_COMPONENTS = ['technical', 'macroCpi', 'liquidityShadow', 'cotPositioning', 'valuationBuffett', 'riskReward'] as const;
+
+/**
+ * KI-Intelligence-Schicht des Signals (PDF §11): CPI-/COT-/Bewertungs-Status,
+ * Score-Komponenten, Hedge-Modus und finale Entscheidung — lazy geladen beim
+ * Aufklappen. Ohne Anreicherung: ehrlicher Hinweis statt Fake.
+ */
+function IntelligenceSection({ signalId }: { signalId: string }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [intel, setIntel] = useState<SignalIntel | null | 'loading' | 'error'>(null);
+
+  async function toggle() {
+    const next = !open;
+    setOpen(next);
+    if (next && (intel === null || intel === 'error')) {
+      setIntel('loading');
+      try {
+        const row = (await trpc.intelligence.signalIntelligence.query({ signalId })) as SignalIntel | null;
+        setIntel(row);
+      } catch {
+        setIntel('error');
+      }
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <button onClick={() => void toggle()} className="text-xs" style={{ color: 'var(--color-violet)' }}>
+        {open ? `− ${t('intel.signalHide')}` : `+ ${t('intel.signalShow')}`}
+      </button>
+      {open && intel === 'loading' && (
+        <p className="mt-2 animate-pulse text-[11px]" style={{ color: 'var(--color-mut)' }}>{t('common.loading')}</p>
+      )}
+      {open && intel === 'error' && (
+        <p className="mt-2 text-[11px]" style={{ color: 'var(--color-neg)' }}>{t('intel.loadError')}</p>
+      )}
+      {open && intel === null && (
+        <p className="mt-2 text-[11px]" style={{ color: 'var(--color-mut)' }}>{t('intel.signalNone')}</p>
+      )}
+      {open && intel !== null && intel !== 'loading' && intel !== 'error' && (
+        <div className="mt-2 rounded border p-2.5" style={{ borderColor: 'var(--color-line)' }}>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {intel.finalDecision && (
+              <span
+                className="rounded px-1.5 py-0.5 text-[11px] font-semibold tracking-wider"
+                style={{ color: DECISION_COLOR[intel.finalDecision] ?? 'var(--color-mut)', border: `1px solid ${DECISION_COLOR[intel.finalDecision] ?? 'var(--color-line)'}` }}
+              >
+                {t(`intel.decision_${intel.finalDecision}`)}
+              </span>
+            )}
+            {intel.hedgeMode && (
+              <span className="rounded border px-1.5 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+                {t(`intel.hedge_${intel.hedgeMode}`)}
+              </span>
+            )}
+            {intel.cpiStatus !== 'none' && (
+              <span className="rounded border px-1.5 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+                CPI: {t(`intel.cpiPhase_${intel.cpiStatus}`)}
+              </span>
+            )}
+            {intel.cotStatus !== 'not_applicable' && (
+              <span className="rounded border px-1.5 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+                COT: {t(`intel.cotStatus_${intel.cotStatus}`)}
+              </span>
+            )}
+            {intel.buffettStatus !== 'not_applicable' && (
+              <span className="rounded border px-1.5 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+                Buffett: {t(`intel.buffettStatus_${intel.buffettStatus}`)}
+              </span>
+            )}
+          </div>
+          {intel.scoreComponents && (
+            <div className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
+              {INTEL_COMPONENTS.filter((c) => typeof intel.scoreComponents?.[c] === 'number').map((c) => {
+                const v = intel.scoreComponents![c]!;
+                return (
+                  <div key={c}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px]" style={{ color: 'var(--color-mut)' }}>{t(`intel.comp_${c}`)}</span>
+                      <span className="num text-[10px]" style={{ color: 'var(--color-mut)' }}>{(v * 100).toFixed(0)}</span>
+                    </div>
+                    <div className="mt-0.5 h-1 w-full overflow-hidden rounded" style={{ background: 'rgba(255,255,255,0.06)' }}>
+                      <div
+                        className="h-full rounded"
+                        style={{ width: `${Math.round(v * 100)}%`, background: v >= 0.55 ? 'var(--color-pos)' : v >= 0.4 ? 'var(--color-warn)' : 'var(--color-neg)' }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {intel.shadowWarning && (
+            <p className="mt-2 text-[11px]" style={{ color: 'var(--color-warn)' }}>⚠ {intel.shadowWarning}</p>
+          )}
+          {intel.devilsAdvocate && (
+            <p className="mt-1.5 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+              <span style={{ color: 'var(--color-neg)' }}>{t('intel.devilsAdvocate')}:</span> {intel.devilsAdvocate}
+            </p>
+          )}
+          {intel.explanationForUser && (
+            <p className="mt-1.5 text-[11px] leading-relaxed" style={{ color: 'var(--color-mut)' }}>{intel.explanationForUser}</p>
+          )}
+        </div>
       )}
     </div>
   );
@@ -288,6 +424,8 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
       )}
 
       <SwarmReviews reviews={signal.reviews} />
+
+      <IntelligenceSection signalId={signal.id} />
 
       {error && <p className="mt-3 text-xs" style={{ color: 'var(--color-neg)' }}>{error}</p>}
       {success && (

@@ -14,3 +14,32 @@ export {
 } from './provider.js';
 export { buildAgentPrompt, parseLlmVerdict, reviewLlmAgent } from './llm-agents.js';
 export { runSwarm, type SwarmInput, type SwarmResult } from './swarm.js';
+export {
+  reviewInstitutional,
+  decideHedge,
+  reviewHedge,
+  positionSizeModeFor,
+  finalDecisionFor,
+  escalateRiskClass,
+  type IntelligenceContext,
+  type HedgeDecision,
+  type HedgeMode,
+  type PositionSizeMode,
+  type RiskClassExtended,
+  type FinalDecision,
+  type MarketRegimeName,
+  type CpiStatus,
+  type CotStatus,
+  type BuffettStatus,
+} from './intelligence.js';
+export {
+  classifyHitQuality,
+  scoreValidity,
+  evaluateTrade,
+  aggregatePostTrade,
+  type HitQuality,
+  type ClosedTrade,
+  type TradeContext,
+  type PostTradeReview,
+  type PostTradeAggregate,
+} from './post-trade.js';

@@ -38,7 +38,7 @@ function input(overrides?: Partial<SwarmInput>): SwarmInput {
 }
 
 describe('Agenten-Schwarm (runSwarm)', () => {
-  it('ohne LLM-Provider: Makro & Shadow DEAKTIVIERT + sichtbar markiert, Rest läuft', async () => {
+  it('ohne LLM-Provider/Intelligence-Kontext: Makro/Shadow/Institutional/Hedge DEAKTIVIERT + sichtbar markiert, Rest läuft', async () => {
     const { verdicts, disabled } = await runSwarm(input());
     const agents = verdicts.map((v) => v.agent);
     expect(agents).toContain('technik');
@@ -47,8 +47,32 @@ describe('Agenten-Schwarm (runSwarm)', () => {
     expect(agents).toContain('portfolio');
     expect(agents).not.toContain('makro');
     expect(agents).not.toContain('shadow');
-    expect(disabled.map((d) => d.agent).sort()).toEqual(['makro', 'shadow']);
+    // Ohne Intelligence-Kontext sind Institutional & Hedge ehrlich deaktiviert.
+    expect(agents).not.toContain('institutional');
+    expect(agents).not.toContain('hedge');
+    expect(disabled.map((d) => d.agent).sort()).toEqual(['hedge', 'institutional', 'makro', 'shadow']);
     expect(disabled.every((d) => /Provider|verbunden/i.test(d.reason))).toBe(true);
+  });
+
+  it('mit Intelligence-Kontext: Institutional & Hedge laufen mit', async () => {
+    const { verdicts } = await runSwarm(
+      input({
+        intelligence: {
+          direction: 'long',
+          baseRiskClass: 'medium',
+          regime: 'bull',
+          cpiStatus: 'none',
+          cotStatus: 'neutral',
+          cotNetRatio: 0,
+          buffettStatus: 'not_applicable',
+          shadowWarning: '',
+          noTradeActive: false,
+        },
+      }),
+    );
+    const agents = verdicts.map((v) => v.agent);
+    expect(agents).toContain('institutional');
+    expect(agents).toContain('hedge');
   });
 
   it('mit Provider, aber ohne Makro-/On-Chain-Daten: weiterhin deaktiviert (Datenquelle ehrlich benannt)', async () => {
