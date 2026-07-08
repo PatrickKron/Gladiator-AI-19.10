@@ -231,7 +231,20 @@ Interaktiver Strategie-Workshop: (1) Pine-Script-Eingabe + KI-Analyse (Indikator
 
 ## CI + Verifikation
 - Lokal: lint ✓ · typecheck ✓ · **784 Tests passed** (765 Bestand + 19 neue) ✓ · build:web ✓ · Browser pre-deploy (Vite :5199 → Live-API): Sidebar „Demo-Trading" ✓ · #/demo → Demo-Konto ✓ · Agenten-Seite zeigt echten RL-Agenten + CTAs ✓ · Werkstatt-Hinweise ✓ · Pakete ehrlich „kein Live-Kurs" (Endpoint live erst nach Deploy) ✓ · Konsole sauber ✓.
-- Deploy + Live-E2E: siehe Abschluss unten.
+
+## Abschluss Session 6 (Deploy + Live-E2E, alles gegen die echte Live-API)
+- Commits dafa76c + ad8ab06 → push server main — **Server-CI 2× GRUEN**, beide Dienste laufen. (Zwischendurch kam 0e0edcc einer Parallel-Session — Historie linear, nichts verloren.)
+- **Live-Feed: 28 Symbole** (Boot-Log „[feed] Live-Preis-Feed für 28 Symbole gestartet", /health listet alle; AKT/USDT ehrlich disconnected — nicht auf Binance, Kurs kommt via TV-Fallback).
+- **Pakete LIVE, alle Klassen echt verifiziert:** Dividenden-Aktien (ABBV 253 $, CVX, KO, …) ✓ · Edelmetalle (Gold 4.070 $, Silber, Platin, Palladium) ✓ · Agrar-Futures korrekt in USX/US-Cent (Weizen 610,5, Kaffee, Kakao +4,9 %) ✓ · Macro Sentinel komplett (DXY, MOVE 70,25, VIX 16,76, **VVIX 91,5 via CBOE**, US10Y/US02Y/TNX als reine Zahl ohne falsches $) ✓ · VIX-ETFs (SVXY/UVXY via CBOE:) ✓ · Krypto-Paket inkl. **AKT 0,58 $ über TV-CRYPTO-Fallback** ✓.
+- **Dashboard:** Nicht-Krypto-Favorit E2E (ABBV gesternt → Quote-Kachel 252,8 $ ▼0,73 % mit Quellen-Label → entsternt → Kachel weg) ✓.
+- **Agenten-Seite:** „Meine Agenten" mit CTAs + echtem RL-Agenten (BTC-Momentum-Alpha) ✓.
+- **Werkstatt E2E:** Vorlage Dip-Buyer → „Session6-UI-Test" erstellt → ✓-Hinweis „startet pausiert …" erschien → 2-stufig gelöscht (DB sauber) ✓.
+- **Entscheidung-Tab:** „⟳ Synchronisiert automatisch alle 6 h · COT: Stand 2026-06-29 · CPI: Stand 2026-05-01 · Buffett: Stand 2026-01-01" ✓.
+- **ml-auto-label-Fix E2E:** einmaliger Live-Lauf auf dem Server: **labeled: 19 · skipped: 0 · errors: 0** (vorher 18 SyntaxErrors, 0 Labels je Lauf) — Label-Fortschritt 19/30, ML-Retrain rückt in Reichweite.
+- Worker-Log neu: „[macro-sync] … COT:0 neu BUFFETT:2.18 Fehler=0" ✓ · Kalender-404-Spam weg (Feed entfernt) ✓.
+- Alle übrigen Seiten durchgeklickt (Signale, Kalender inkl. No-Trade-Fenster FOMC, Trading/Demo, Magazin, Labor, Strategien, Charts): rendern mit echten Daten, Konsole sauber ✓ · Mobile 375px: 5 geänderte Seiten ohne Overflow ✓ · /health ok (28 Feeds, workerAgeSec 55) ✓.
+- **Patrick-Action: KEINE.** (Weiterhin optional: ANTHROPIC_API_KEY für LLM-Erklärungen/Workshop-Dialog.)
+- Bewusste Grenzen (ehrlich): Charts/Kerzen weiterhin nur für Krypto (Binance-OHLCV) — Nicht-Krypto hat jetzt überall QUOTES, aber keine Chart-Historie (Yahoo-Kerzen-Ingest von der Server-IP geblockt; TwelveData bräuchte Key). VVIX/GVZ 15-min-delayed (CBOE). USX = US-Cent wird als Währungscode gezeigt.
 
 ---
 
