@@ -60,6 +60,13 @@
 6. RlAgents nutzt `alert()`/`window.confirm()` — bricht Designsprache.
 7. `rl.runEpisode` blockiert lt. Memory den Webserver ~20 s/Episode (Worker-Trennung offen) — UI sollte das ehrlich sagen, Button vorsichtig behandeln.
 
+## Abschluss Session 2
+- [x] Commit 313db8e (25 eigene Dateien; Worker-Trennung unangetastet) + push server main — Server-CI GRUEN: Migration 0015 auf Live-DB angewendet, workshop.test.ts (9 DB-Integrationstests) + llm.test.ts (15) auf dem Server grün, Dienst neu gestartet.
+- [x] Live-Browser-Verifikation (Vite :5199 → Live-API, frischer Logout→Login als admin@): Sidebar+Route ✓ · Sitzung angelegt ✓ · Pine eingefügt+gespeichert ✓ · **Analyse ohne Key → ehrliche 412-Meldung inline** („ANTHROPIC_API_KEY fehlt — Profil → API-Keys") ✓ · Entwurf-Editor speichern+Validierung ✓ · Bedingungs-Typwechsel auf ADX (NEUE DSL-Bedingung live ausgewertet) ✓ · **2 echte Backtests** (BTC/USDT@1h, 180 T: 78 Trades/−13,5 % vs. mit ADX-Filter 69 Trades/−11,9 % — echte Netto-Zahlen) ✓ · Vergleichstabelle + 2-Kurven-Overlay ✓ · Version 1 (draft) gespeichert ✓ · Gate ehrlich: „kein offizieller Backtest" + „→ Paper" disabled ✓ · Mobile 375px kein Overflow ✓ · Konsole sauber ✓ · /health ok.
+- ⚠ **Patrick-Action: ANTHROPIC_API_KEY fehlt auf dem Gladiator-Server** (Profil → API-Keys einfügen) — erst dann laufen Pine-Analyse + Workshop-Dialog live (Logik per Fake-Provider-Tests abgedeckt; Key-Test-Endpoint existiert in secrets.test).
+- Demo-Artefakte bewusst belassen: Workshop-Sitzung „RSI-Dip Workshop-Verifikation" (2 Backtests, Version 1) + Strategie `workshop-strategie` (Status draft, inert — dsl-scan scannt nur paper).
+- preview_screenshot timeoutet weiterhin (MatrixRain, bekannt) — Verifikation via DOM-Snapshots.
+
 ## Offen für Folge-Sessions (Session 2)
 - Trailing-Stop: gemeinsam in Engine + PositionMonitor einführen (dann DSL-Exit-Feld ergänzen) — Backtest-only wäre Fake, darum in v1 weggelassen.
 - Labor.tsx: lokale EquityChart/MultiEquityChart/MetricCard-Kopien auf components/EquityChart.tsx umstellen (bewusst nicht in dieser Session — chirurgisch bleiben).
