@@ -1,4 +1,5 @@
 import { Queue, Worker } from 'bullmq';
+import { Redis } from 'ioredis';
 import { requireEnv, type Db } from '@gladiator/db';
 import { monitorOpenPositions, reconcile, type TradingVenue } from '@gladiator/exchange';
 import { fredConfigured, syncDerivatives, syncEconomicCalendar, syncFredSeries, syncMacroSeries, syncNews } from '@gladiator/market-data';
@@ -47,6 +48,45 @@ let lastHeartbeat: Date | null = null;
 export function workerHeartbeatAgeSec(): number | null {
   return lastHeartbeat ? Math.floor((Date.now() - lastHeartbeat.getTime()) / 1000) : null;
 }
+
+/**
+ * Prozessübergreifender Heartbeat (ROLE-Trennung): Der Worker schreibt seinen
+ * Takt zusätzlich nach Redis, damit der Web-Prozess (/health) ihn sehen kann,
+ * wenn Worker und HTTP-Server in getrennten Prozessen laufen. Im selben
+ * Prozess (ROLE unbesetzt) greift weiterhin der lokale Wert — kein Redis nötig.
+ */
+const HEARTBEAT_KEY = 'gladiator:worker-heartbeat';
+let heartbeatReader: Redis | null = null;
+export async function workerHeartbeatAgeSecAsync(): Promise<number | null> {
+  const local = workerHeartbeatAgeSec();
+  if (local !== null) return local;
+  // Nur die reine Web-Rolle schaut in Redis — im Ein-Prozess-Betrieb (Tests,
+  // Entwicklung) ist der lokale Wert die Wahrheit und Redis bleibt unberührt
+  // (keine offene Verbindung, die z. B. Test-Runner am Beenden hindert).
+  if (process.env.ROLE !== 'web') return null;
+  try {
+    if (!heartbeatReader) {
+      const { host, port } = redisConnection();
+      heartbeatReader = new Redis({ host, port, maxRetriesPerRequest: 1, enableOfflineQueue: false });
+    }
+    const v = await heartbeatReader.get(HEARTBEAT_KEY);
+    return v ? Math.max(0, Math.floor((Date.now() - Number(v)) / 1000)) : null;
+  } catch {
+    // Redis nicht erreichbar → ehrlich "unbekannt" statt erfundener Frische.
+    return null;
+  }
+}
+/**
+ * On-demand-Enqueue aus dem Web-Prozess (ROLE=web): Die API stößt damit einen
+ * RL-Episoden-Lauf im getrennten Worker an, statt selbst zu rechnen. Lazy
+ * Queue-Singleton — verbindet erst beim ersten Aufruf mit Redis.
+ */
+let enqueueQueue: Queue | null = null;
+export async function enqueueRlEpisodeRun(agentId?: string): Promise<void> {
+  if (!enqueueQueue) enqueueQueue = new Queue(QUEUE_NAME, { connection: redisConnection() });
+  await enqueueQueue.add(RL_EPISODE_JOB, agentId ? { agentId } : {});
+}
+
 let healthchecksWarned = false;
 async function pingDeadMansSwitch(): Promise<void> {
   const url = process.env.HEALTHCHECKS_URL;
@@ -157,6 +197,12 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           if (alerts.triggered > 0) console.log(`[price-alerts] ausgelöst=${alerts.triggered}`);
           for (const e of alerts.errors) console.warn('[price-alerts]', e);
           lastHeartbeat = new Date();
+          // Heartbeat auch nach Redis — sichtbar für den getrennten Web-Prozess (/health).
+          try {
+            await (await queue.client).set(HEARTBEAT_KEY, String(Date.now()));
+          } catch {
+            // Redis-Schluckauf ist kein Job-Fehler; /health meldet dann ehrlich null/degraded.
+          }
           await pingDeadMansSwitch();
           return res;
         }
@@ -234,7 +280,9 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           return res;
         }
         case RL_EPISODE_JOB: {
-          const res = await runRlEpisodes(db);
+          // job.data.agentId: manuell über die UI angestoßener Lauf für EINEN Agenten.
+          const agentId = (job.data as { agentId?: string } | undefined)?.agentId;
+          const res = await runRlEpisodes(db, agentId ? { agentId } : undefined);
           if (res.episodesRun > 0 || res.errors.length > 0) {
             console.log(`[rl-episodes] Episoden=${res.episodesRun} übersprungen=${res.skipped} Fehler=${res.errors.length}`);
             for (const e of res.errors) console.warn('[rl-episodes]', e);

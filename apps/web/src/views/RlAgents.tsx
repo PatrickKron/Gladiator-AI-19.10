@@ -150,7 +150,7 @@ export function RlAgents({ embedded = false }: { embedded?: boolean }) {
     setEpisodeBusy(agentId);
     setNote(null);
     try {
-      await trpc.rl.runEpisode.mutate({ agentId, symbol: 'BTCUSDT', timeframe: '1h' });
+      await trpc.rl.runEpisode.mutate({ agentId });
       setNote({ agentId, kind: 'ok', text: `${t('rl.episodeStarted')} — ${t('rl.episodeHint')}` });
       loadData();
     } catch (err) {

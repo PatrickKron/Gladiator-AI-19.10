@@ -6,13 +6,24 @@ import { Sparkline } from './Sparkline.js';
 
 /**
  * Makro-Panels (P2.9): GRS-Ring, Pulse (VIX/DXY), Gravity (US10Y), Footprint
- * (Funding/OI), DNA (On-Chain, ehrlich nicht verbunden) + GRS-Verlauf (P2.11).
+ * (Funding/OI), COT (CFTC, echt), DNA (On-Chain, ehrlich nicht verbunden)
+ * + GRS-Verlauf (P2.11).
  * Aus Oracle.tsx herausgelöst, damit die Asset-Detailseite dieselbe Ansicht zeigt.
  */
 
 type Macro = Awaited<ReturnType<typeof trpc.market.macro.query>>;
 type Derivatives = Awaited<ReturnType<typeof trpc.market.derivatives.query>>;
 type GrsHist = Awaited<ReturnType<typeof trpc.market.grsHistory.query>>;
+type Cot = Awaited<ReturnType<typeof trpc.intelligence.cotSnapshot.query>>;
+
+/** Farben je COT-Status — gleiche Semantik wie im Tab „Entscheidung". */
+const COT_COLOR: Record<Cot[number]['positioning']['status'], string> = {
+  not_applicable: 'var(--color-mut)',
+  neutral: 'var(--color-mut)',
+  crowded_long: 'var(--color-warn)',
+  crowded_short: 'var(--color-warn)',
+  contrarian_alert: 'var(--color-neg)',
+};
 
 const GRS_COLOR = (label: string) =>
   label === 'risk-off' ? 'var(--color-neg)' : label === 'risk-on' ? 'var(--color-pos)' : 'var(--color-warn)';
@@ -34,12 +45,16 @@ export function MacroPanels() {
   const [macro, setMacro] = useState<Macro | null>(null);
   const [deriv, setDeriv] = useState<Derivatives>([]);
   const [hist, setHist] = useState<GrsHist>([]);
+  const [cot, setCot] = useState<Cot>([]);
 
   useEffect(() => {
     void trpc.market.macro.query().then(setMacro).catch(() => setMacro(null));
     void trpc.market.derivatives.query().then(setDeriv).catch(() => setDeriv([]));
     void trpc.market.grsHistory.query().then(setHist).catch(() => setHist([]));
+    void trpc.intelligence.cotSnapshot.query({}).then(setCot).catch(() => setCot([]));
   }, []);
+
+  const cotRows = cot.filter((c) => c.weeks > 0);
 
   const grs = macro?.grs ?? null;
   const pct = (n: number | null | undefined, d = 2) => (n == null ? '—' : `${n >= 0 ? '+' : ''}${n.toFixed(d)}`);
@@ -178,8 +193,54 @@ export function MacroPanels() {
           )}
         </Panel>
 
+        {/* COT: Large-Speculator-Positionierung (CFTC, echt) — füllt den früheren „COT folgt"-Slot.
+            min-w-0: die nowrap-Tabelle darf das Grid nicht aufweiten (Mobile), sie scrollt intern. */}
+        <Panel label={t('intel.cotTitle')} stagger={5} className="min-w-0">
+          {cotRows.length > 0 ? (
+            <div className="mt-3">
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>{t('oracle.cotLive')}</p>
+              <div className="overflow-x-auto">
+                <table className="num mt-3 w-full text-sm">
+                  <thead>
+                    <tr className="label text-left">
+                      <th className="py-1 pr-3 font-normal">{t('intel.cotMarket')}</th>
+                      <th className="py-1 pr-3 text-right font-normal">{t('intel.cotNetRatio')}</th>
+                      <th className="py-1 pr-3 text-right font-normal">{t('intel.cotPercentile')}</th>
+                      <th className="py-1 font-normal">{t('intel.cotStatus')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cotRows.map((c) => (
+                      <tr key={c.market.code} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                        <td className="py-1.5 pr-3">{t(`intel.cotMarket_${c.market.label}`)}</td>
+                        <td className="py-1.5 pr-3 text-right" style={{ color: c.positioning.netRatio >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+                          {pct(c.positioning.netRatio * 100, 1)} %
+                        </td>
+                        <td className="py-1.5 pr-3 text-right">{Math.round(c.positioning.percentile * 100)}</td>
+                        <td className="py-1.5">
+                          <span
+                            className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium whitespace-nowrap"
+                            style={{ borderColor: COT_COLOR[c.positioning.status], color: COT_COLOR[c.positioning.status] }}
+                          >
+                            {t(`intel.cotStatus_${c.positioning.status}`)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {cotRows[0]?.reportDate && (
+                <p className="label mt-2">{t('intel.cotReportDate')}: {new Date(cotRows[0].reportDate).toLocaleDateString()}</p>
+              )}
+            </div>
+          ) : (
+            <NotConnected detail={t('intel.cotNotConnected')} />
+          )}
+        </Panel>
+
         {/* DNA: On-Chain — ehrlich nicht verbunden */}
-        <Panel label={t('oracle.dna')} stagger={5}>
+        <Panel label={t('oracle.dna')} stagger={6}>
           <NotConnected detail={t('oracle.dnaPlanned')} />
         </Panel>
       </section>

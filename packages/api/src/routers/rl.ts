@@ -1,6 +1,8 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { TRPCError } from '@trpc/server';
 import { schema } from '@gladiator/db';
+import { enqueueRlEpisodeRun } from '@gladiator/jobs';
 import {
   STRATEGY_TYPES,
   evaluatePromotion,
@@ -103,30 +105,32 @@ export const rlRouter = router({
       return { agent, episodes, performance, reason: null };
     }),
 
-  /** Run a paper-trading episode for an agent. Returns episode ID — actual execution is async via jobs. */
+  /**
+   * Paper-Episode für einen Agenten anstoßen: enqueued den echten BullMQ-Job
+   * (läuft im getrennten Worker-Prozess, ROLE=worker) statt selbst zu rechnen.
+   * Früher wurde hier nur eine verwaiste rl_episodes-Zeile angelegt, die nie
+   * ausgeführt wurde — Symbol/Timeframe wählt die Pipeline selbst (Universum).
+   */
   runEpisode: protectedProcedure
     .input(z.object({
       agentId: z.string().uuid(),
-      symbol: z.string(),
-      timeframe: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
       const [agent] = await ctx.db.select().from(rlAgents)
         .where(eq(rlAgents.id, input.agentId))
         .limit(1);
 
-      if (!agent) return { episodeId: null, reason: 'Agent not found' };
-      if (agent.status === 'retired') return { episodeId: null, reason: 'Agent is retired' };
+      if (!agent) throw new TRPCError({ code: 'NOT_FOUND', message: 'Agent nicht gefunden.' });
+      if (agent.status === 'retired') {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Agent ist stillgelegt — Episoden laufen nur für paper/sandbox.' });
+      }
 
-      const [episode] = await ctx.db.insert(rlEpisodes).values({
-        agentId: input.agentId,
-        symbol: input.symbol,
-        timeframe: input.timeframe,
-        startedAt: new Date(),
-        config: { manual: true },
-      }).returning();
-
-      return { episodeId: episode!.id, reason: null };
+      try {
+        await enqueueRlEpisodeRun(input.agentId);
+      } catch {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Job-Queue (Redis) nicht erreichbar — Episode konnte nicht angestoßen werden.' });
+      }
+      return { enqueued: true as const };
     }),
 
   /** Get current HRP portfolio weights across all active agents. */

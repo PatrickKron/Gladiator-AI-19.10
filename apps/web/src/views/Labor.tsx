@@ -5,6 +5,7 @@ import { PageHeader } from '../components/ui.js';
 import { BacktestChart } from '../components/BacktestChart.js';
 import { loadLabConfig, saveLabConfig, type LabConfig } from '../lib/lab-config.js';
 import { CHART_TFS, type ChartTf } from '../lib/chart-url.js';
+import { COMPARE_COLORS, EquityChart, MetricCard, MultiEquityChart, fmt } from '../components/EquityChart.js';
 
 /** Schnellstart-Vorlagen (P1.6) — ein Klick füllt die Konfiguration. */
 const QUICK_TEMPLATES: { symbol: string; timeframe: ChartTf; setupType: 'scalp' | 'swing' | 'position'; riskPct: number }[] = [
@@ -80,27 +81,7 @@ function BucketTable({ title, rows }: { title: string; rows: [string, Bucket][] 
 const TIMEFRAMES = CHART_TFS;
 const SETUPS = ['scalp', 'swing', 'position'] as const;
 
-function fmt(n: number | null | undefined, digits = 2): string {
-  if (n === null || n === undefined || Number.isNaN(n)) return '—';
-  return n.toLocaleString('de-DE', { maximumFractionDigits: digits, minimumFractionDigits: 0 });
-}
-
-function MetricCard({ label, value, tone }: { label: string; value: string; tone?: 'pos' | 'neg' }) {
-  return (
-    <div className="glass p-4">
-      <p className="label">{label}</p>
-      <p
-        className="num mt-1.5 text-xl font-semibold"
-        style={{ color: tone === 'pos' ? 'var(--color-pos)' : tone === 'neg' ? 'var(--color-neg)' : 'var(--color-ink)' }}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
-
-const COMPARE_COLORS = ['#4fd1ff', '#3ddc97', '#f5b642', '#8b5cf6', '#e14ecf', '#ff5c6c'];
-
+/** Vergleichslauf im Labor: geteilte ComparableRun-Felder + Kennzahlen fürs Gitter. */
 type StrategyRun = {
   key: string;
   label: string;
@@ -108,88 +89,6 @@ type StrategyRun = {
   metrics: Metrics;
   equityCurve: { ts: string; equity: number }[];
 };
-
-/** Overlay mehrerer Equity-Kurven, jede auf %-Return ab Start normiert (Feature 3). */
-function MultiEquityChart({ runs }: { runs: StrategyRun[] }) {
-  const withCurve = runs.filter((r) => r.equityCurve.length >= 2);
-  if (withCurve.length === 0) return <p className="label">Zu wenig Punkte.</p>;
-  const W = 860;
-  const H = 240;
-  const series = withCurve.map((r) => {
-    const start = r.equityCurve[0]!.equity || 1;
-    return { ...r, pct: r.equityCurve.map((p) => (p.equity / start - 1) * 100) };
-  });
-  const allPct = series.flatMap((s) => s.pct);
-  const min = Math.min(0, ...allPct);
-  const max = Math.max(0, ...allPct);
-  const span = max - min || 1;
-  const y = (v: number) => H - 8 - ((v - min) / span) * (H - 16);
-  const x = (i: number, n: number) => (n <= 1 ? 0 : (i / (n - 1)) * W);
-  return (
-    <div className="overflow-x-auto">
-      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="max-w-full">
-        {/* Nulllinie */}
-        <line x1="0" y1={y(0)} x2={W} y2={y(0)} stroke="rgba(139,148,184,0.3)" strokeWidth="1" strokeDasharray="4 4" />
-        {series.map((s) => (
-          <polyline
-            key={s.key}
-            points={s.pct.map((v, i) => `${x(i, s.pct.length).toFixed(1)},${y(v).toFixed(1)}`).join(' ')}
-            fill="none"
-            stroke={s.color}
-            strokeWidth="1.8"
-            strokeLinejoin="round"
-          />
-        ))}
-        <text x="4" y="14" className="num" fill="var(--color-mut)" fontSize="11">{fmt(max, 1)} %</text>
-        <text x="4" y={H - 4} className="num" fill="var(--color-mut)" fontSize="11">{fmt(min, 1)} %</text>
-      </svg>
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-        {series.map((s) => (
-          <span key={s.key} className="flex items-center gap-1.5">
-            <span className="inline-block h-2 w-4 rounded" style={{ background: s.color }} />
-            <span style={{ color: 'var(--color-mut)' }}>{s.label}</span>
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function EquityChart({ points }: { points: { ts: string; equity: number }[] }) {
-  if (points.length < 2) return <p className="label">Zu wenig Punkte.</p>;
-  const W = 860;
-  const H = 220;
-  const eq = points.map((p) => p.equity);
-  const min = Math.min(...eq);
-  const max = Math.max(...eq);
-  const span = max - min || 1;
-  const pts = eq.map((v, i) => [
-    (i / (eq.length - 1)) * W,
-    H - 8 - ((v - min) / span) * (H - 16),
-  ] as const);
-  const line = pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
-  const up = eq[eq.length - 1]! >= eq[0]!;
-  const color = up ? 'var(--color-pos)' : 'var(--color-neg)';
-  return (
-    <div className="overflow-x-auto">
-      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="max-w-full">
-        <defs>
-          <linearGradient id="eqfill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.18" />
-            <stop offset="100%" stopColor={color} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <polygon points={`0,${H} ${line} ${W},${H}`} fill="url(#eqfill)" />
-        <polyline points={line} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" />
-        <text x="4" y="14" className="num" fill="var(--color-mut)" fontSize="11">{fmt(max, 0)} $</text>
-        <text x="4" y={H - 4} className="num" fill="var(--color-mut)" fontSize="11">{fmt(min, 0)} $</text>
-      </svg>
-      <p className="label mt-1">
-        {new Date(points[0]!.ts).toLocaleDateString('de-DE')} – {new Date(points[points.length - 1]!.ts).toLocaleDateString('de-DE')}
-      </p>
-    </div>
-  );
-}
 
 export function Labor() {
   const { t } = useTranslation();
@@ -610,7 +509,7 @@ export function Labor() {
 
           <section className="glass mt-6 p-6">
             <h2 className="label">Equity-Kurve · Start 10.000 $ · netto</h2>
-            <div className="mt-4"><EquityChart points={run.equityCurve} /></div>
+            <div className="mt-4"><EquityChart points={run.equityCurve} emptyText="Zu wenig Punkte." /></div>
           </section>
 
           {runWindow && run.trades.length > 0 && (() => {
@@ -920,7 +819,7 @@ export function Labor() {
             </div>
             <div className="mt-6">
               <h3 className="label">Equity-Overlay · %-Return ab Start · netto</h3>
-              <div className="mt-3"><MultiEquityChart runs={strategyRuns} /></div>
+              <div className="mt-3"><MultiEquityChart runs={strategyRuns} emptyText="Zu wenig Punkte." /></div>
             </div>
           </>
         )}

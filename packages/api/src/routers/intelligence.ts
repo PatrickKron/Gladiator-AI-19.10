@@ -49,17 +49,30 @@ export const intelligenceRouter = router({
       return row ?? null;
     }),
 
-  /** Post-Trade-Reviews (neueste zuerst) + aggregierte Lern-Kennzahlen (PDF §4). */
+  /**
+   * Post-Trade-Reviews (neueste zuerst) + aggregierte Lern-Kennzahlen (PDF §4).
+   * Join auf executed_trades, damit die UI den Trade lesbar zeigen kann
+   * (Symbol/Richtung/Modus statt UUID).
+   */
   postTradeReviews: protectedProcedure
     .input(z.object({ limit: z.number().int().min(1).max(200).default(50) }).optional())
     .query(async ({ ctx, input }) => {
       const rows = await ctx.db
-        .select()
+        .select({
+          review: postTradeReviews,
+          trade: {
+            symbol: executedTrades.symbol,
+            direction: executedTrades.direction,
+            mode: executedTrades.mode,
+            exitTs: executedTrades.exitTs,
+          },
+        })
         .from(postTradeReviews)
+        .leftJoin(executedTrades, eq(postTradeReviews.executedTradeId, executedTrades.id))
         .orderBy(desc(postTradeReviews.createdAt))
         .limit(input?.limit ?? 50);
       const aggregate = aggregatePostTrade(
-        rows.map((r) => ({
+        rows.map(({ review: r }) => ({
           review: {
             hitQuality: r.hitQuality as ReturnType<typeof evaluateTrade>['hitQuality'],
             scoreValidity: Number(r.scoreValidity),

@@ -52,11 +52,16 @@ export type RlEpisodeResult = {
  * Run paper-trading episodes for all active RL agents.
  * Each agent runs one episode per call against a random symbol from the universe.
  */
-export async function runRlEpisodes(db: Db): Promise<RlEpisodeResult> {
+export async function runRlEpisodes(db: Db, opts?: { agentId?: string }): Promise<RlEpisodeResult> {
   const result: RlEpisodeResult = { episodesRun: 0, skipped: 0, errors: [] };
 
+  // opts.agentId: manueller UI-Lauf für genau einen Agenten (statt aller aktiven).
   const agents = await db.select().from(rlAgents)
-    .where(sql`${rlAgents.status} IN ('paper', 'sandbox')`);
+    .where(
+      opts?.agentId
+        ? sql`${rlAgents.status} IN ('paper', 'sandbox') AND ${rlAgents.id} = ${opts.agentId}`
+        : sql`${rlAgents.status} IN ('paper', 'sandbox')`,
+    );
 
   if (agents.length === 0) return result;
 

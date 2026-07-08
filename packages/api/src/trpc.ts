@@ -44,7 +44,33 @@ export async function buildContext(opts: {
   };
 }
 
-const t = initTRPC.context<Context>().create();
+/**
+ * Fehlerformat-Härtung: tRPCs Default hängt Stack-Traces an, sobald NODE_ENV
+ * nicht exakt 'production' ist — auf dem Live-Server leakten so volle
+ * /opt/…-Pfade an unauthentifizierte Clients. Fail-safe-Regel: Traces gibt es
+ * NUR in explizitem development/test; alles andere (auch fehlendes NODE_ENV)
+ * wird wie Produktion behandelt. `data.code` bleibt immer erhalten — der
+ * Frontend-Auth-Retry (api.ts) und die 412-Behandlung hängen daran.
+ * INTERNAL_SERVER_ERROR-Messages werden zusätzlich maskiert: dahinter stecken
+ * ungeplante Fehler, deren rohe Message ebenfalls Pfade enthalten kann.
+ * Bewusst geworfene TRPCErrors (401/412/…) behalten ihre ehrliche Message.
+ */
+export function sanitizeErrorShape<T extends { message: string; data: Record<string, unknown> }>(
+  shape: T,
+  nodeEnv: string | undefined,
+): T {
+  if (nodeEnv === 'development' || nodeEnv === 'test') return shape;
+  const data = { ...shape.data };
+  delete data.stack;
+  const message = data.code === 'INTERNAL_SERVER_ERROR' ? 'Interner Serverfehler.' : shape.message;
+  return { ...shape, message, data };
+}
+
+const t = initTRPC.context<Context>().create({
+  errorFormatter({ shape }) {
+    return sanitizeErrorShape(shape, process.env.NODE_ENV);
+  },
+});
 
 export const router = t.router;
 export const createCallerFactory = t.createCallerFactory;

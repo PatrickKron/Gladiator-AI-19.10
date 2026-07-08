@@ -1,0 +1,27 @@
+# Gladiator v2 — getrennter Job-Worker (BullMQ). Läuft neben gladiator.service
+# (ROLE=web) gegen dieselbe DB/Redis. Grund: CPU-schwere Jobs (RL-Training,
+# ML-Retrain) dürfen den Webserver nie einfrieren.
+#
+# Installation (einmalig, als root):
+#   cp deploy/gladiator-worker.service /etc/systemd/system/
+#   mkdir -p /etc/systemd/system/gladiator.service.d
+#   printf '[Service]\nEnvironment=ROLE=web\n' > /etc/systemd/system/gladiator.service.d/role.conf
+#   systemctl daemon-reload
+#   systemctl enable --now gladiator-worker
+#   systemctl restart gladiator
+[Unit]
+Description=Gladiator v2 Worker (Jobs: Scan, Monitor, ML, RL)
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+WorkingDirectory=/opt/gladiator-v2/app
+EnvironmentFile=/opt/gladiator-v2/app/.env
+Environment=ROLE=worker
+ExecStart=/opt/gladiator-v2/app/node_modules/.bin/tsx packages/api/src/start.ts
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

@@ -10,7 +10,7 @@ import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import type { Db } from '@gladiator/db';
 import type { LivePriceFeed, Ticker } from '@gladiator/market-data';
 import type { TradingVenue } from '@gladiator/exchange';
-import { workerHeartbeatAgeSec } from '@gladiator/jobs';
+import { workerHeartbeatAgeSecAsync } from '@gladiator/jobs';
 import { appRouter } from './routers/index.js';
 import { buildContext } from './trpc.js';
 import { pineWebhookHandler } from './webhook/pine.js';
@@ -97,7 +97,8 @@ export function createApp(db: Db, opts: AppOptions = {}): express.Express {
     } catch {
       dbUp = false;
     }
-    const workerAgeSec = workerHeartbeatAgeSec();
+    // Prozessübergreifend: bei getrenntem Worker (ROLE=web) kommt der Takt aus Redis.
+    const workerAgeSec = await workerHeartbeatAgeSecAsync();
     const degraded = workerAgeSec !== null && workerAgeSec > 300;
     const feed = opts.prices ? opts.prices.snapshot().status : null;
     res.status(dbUp ? 200 : 503).json({
@@ -161,6 +162,13 @@ export function createApp(db: Db, opts: AppOptions = {}): express.Express {
     '/api/trpc',
     createExpressMiddleware({
       router: appRouter,
+      // Clients bekommen in Produktion keine Stacks mehr (sanitizeErrorShape) —
+      // ungeplante Fehler landen dafür vollständig im Server-Log (journald).
+      onError({ error, path }) {
+        if (error.code === 'INTERNAL_SERVER_ERROR') {
+          console.error(`[trpc] ${path ?? '<unbekannt>'}:`, error.cause ?? error);
+        }
+      },
       createContext: ({ req }) =>
         buildContext({
           db,

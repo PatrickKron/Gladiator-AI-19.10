@@ -1,8 +1,7 @@
 /**
- * Geteilte Equity-Kurven-Bausteine (Inline-SVG, Muster aus dem Labor) —
- * kanonischer Ort für NEUE Views (Strategie-Workshop). Labor behält seine
- * lokalen Kopien bewusst unangetastet (additiv, nie destruktiv); Zusammenführung
- * ist als Folge-Aufgabe in WORKOVER.md notiert.
+ * Geteilte Equity-Kurven-Bausteine (Inline-SVG) — die EINE Wahrheit für alle
+ * Views (Labor, Strategie-Workshop, …). `emptyText` kommt vom Aufrufer,
+ * damit jede View ihre eigene (übersetzte) Leermeldung zeigen kann.
  */
 
 export function fmt(n: number | null | undefined, digits = 2): string {

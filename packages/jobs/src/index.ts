@@ -4,7 +4,8 @@ export { reviewNewSignals, buildDevilEvidence, type ReviewResult } from './revie
 export { runDslScan, type DslScanResult } from './dsl-scan.js';
 export { escapeHtml, formatKillSwitchAlert, formatSignalAlert, sendTelegram, telegramConfigured, type SignalAlertData } from './telegram.js';
 export { buildBriefing, latestBriefing, renderBriefing, runNightPipeline, type BriefingData, type NightPipelineResult } from './briefing.js';
-export { workerHeartbeatAgeSec } from './worker.js';
+export { enqueueRlEpisodeRun, workerHeartbeatAgeSec, workerHeartbeatAgeSecAsync } from './worker.js';
+export { explainForUser, deterministicExplanation, buildExplanationMessages, sanitizeExplanation, type ExplanationFacts } from './explanation.js';
 export { buildUniverse, ensureCandles, normalizeTradingPair, scanUniverse, BASE_SYMBOLS } from './universe.js';
 export { alertTriggered, checkPriceAlerts } from './alerts.js';
 export { expireStaleSignals, isSignalExpired, signalExpiryCutoff, ttlHoursFor, SIGNAL_TTL_HOURS, DEFAULT_TTL_HOURS } from './signal-expiry.js';

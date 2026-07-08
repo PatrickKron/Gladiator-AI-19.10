@@ -6,6 +6,7 @@ import { MlModels } from './MlModels.js';
 import { RlAgents } from './RlAgents.js';
 import { Performance } from './Performance.js';
 import { Entscheidung } from './Entscheidung.js';
+import { PostTrade } from './PostTrade.js';
 
 /**
  * Intelligenz-Hub (P0-Workover): führt ML-Modelle, RL-Agenten und Performance
@@ -14,7 +15,7 @@ import { Entscheidung } from './Entscheidung.js';
  * `#/rl-agenten`, `#/performance` leiten hierher um (App.tsx).
  */
 
-export const HUB_TABS = ['ml', 'rl', 'performance', 'intel'] as const;
+export const HUB_TABS = ['ml', 'rl', 'performance', 'intel', 'posttrade'] as const;
 export type HubTab = (typeof HUB_TABS)[number];
 
 const BASE = '#/intelligenz';
@@ -40,6 +41,7 @@ export function Intelligenz() {
     rl: t('rl.subtitle'),
     performance: t('perf.subtitle'),
     intel: t('intel.subtitle'),
+    posttrade: t('posttrade.subtitle'),
   };
 
   return (
@@ -64,6 +66,7 @@ export function Intelligenz() {
       {tab === 'rl' && <RlAgents embedded />}
       {tab === 'performance' && <Performance embedded />}
       {tab === 'intel' && <Entscheidung embedded />}
+      {tab === 'posttrade' && <PostTrade embedded />}
     </div>
   );
 }

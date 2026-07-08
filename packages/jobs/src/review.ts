@@ -37,6 +37,7 @@ import {
   type SignalFacts,
 } from '@gladiator/agents';
 import { formatSignalAlert, sendTelegram } from './telegram.js';
+import { explainForUser } from './explanation.js';
 
 const { signals, signalReviews, studyTrades, users, auditLog, marketRegimes, signalIntelligence } = schema;
 
@@ -301,10 +302,28 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue): Promise<Rev
       const oracleMacroSummary =
         makroVerdict?.reason ??
         (macroContext ? `GRS ${macroContext.grs ? (macroContext.grs as { label?: string }).label ?? '—' : '—'}, VIX ${macroContext.vix ?? '—'}` : '');
-      const explanationParts = [`Entscheidung: ${finalDecision}.`, `Hedge: ${hedge.reason}`];
-      if (intelligence.cpiStatus !== 'none') explanationParts.push(`CPI-Phase: ${intelligence.cpiStatus}.`);
-      if (cotStatus !== 'not_applicable' && cotStatus !== 'neutral') explanationParts.push(`COT: ${cotStatus}.`);
-      if (buffettStatus !== 'not_applicable' && buffettStatus !== 'neutral') explanationParts.push(`Bewertung: ${buffettStatus}.`);
+      // Erklärung: deterministische Reason-Codes; MIT Key zusätzlich LLM-Kurzfassung
+      // in der Sprache des Nutzers (users.locale) — fällt still auf die Codes zurück.
+      const explanationForUser = await explainForUser(
+        envAnthropicProvider(),
+        llmGuard,
+        {
+          symbol: s.symbol,
+          timeframe: s.timeframe,
+          direction: s.direction,
+          finalDecision,
+          hedgeMode: hedge.mode,
+          hedgeReason: hedge.reason,
+          riskClass,
+          regime,
+          cpiStatus: intelligence.cpiStatus,
+          cotStatus,
+          buffettStatus,
+          shadowWarning,
+          devilsAdvocate: devilVerdict?.reason ?? '',
+        },
+        user.locale,
+      );
 
       await db
         .insert(signalIntelligence)
@@ -323,7 +342,7 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue): Promise<Rev
           oracleMacroSummary,
           devilsAdvocate: devilVerdict?.reason ?? '',
           finalDecision,
-          explanationForUser: explanationParts.join(' '),
+          explanationForUser,
           postTradeReviewRequired: true,
         })
         .onConflictDoUpdate({
@@ -341,7 +360,7 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue): Promise<Rev
             oracleMacroSummary,
             devilsAdvocate: devilVerdict?.reason ?? '',
             finalDecision,
-            explanationForUser: explanationParts.join(' '),
+            explanationForUser,
           },
         });
 

@@ -7,10 +7,11 @@ import { buildChartUrl } from '../lib/chart-url.js';
 import { loadTf } from '../lib/chart-tf.js';
 
 /**
- * Command-Palette (P1.5): globale Asset-Suche über ALLE Assets (Cmd/Ctrl+K).
- * Typeahead über Ticker/Name, Stern zum Favorisieren, Klick/Enter → Chart des
- * Assets (mit gemerktem Timeframe). Nicht-Krypto/ohne Kerzen wird ehrlich als
- * „kein Chart" markiert und ist nicht anklickbar. Assets werden einmalig geladen.
+ * Command-Palette (P1.5): globale Suche über ALLE Assets UND alle Ansichten
+ * (Cmd/Ctrl+K). Typeahead über Ticker/Name bzw. View-Namen; Klick/Enter →
+ * Chart des Assets (mit gemerktem Timeframe) oder direkte Navigation zur View
+ * (inkl. Hub-Tabs wie Entscheidung/ML/RL/Performance/Post-Trade). Nicht-Krypto/
+ * ohne Kerzen wird ehrlich als „kein Chart" markiert und ist nicht anklickbar.
  */
 
 type PaletteAsset = Awaited<ReturnType<typeof trpc.product.allAssets.query>>[number];
@@ -20,6 +21,37 @@ const TYPE_COLOR: Record<string, string> = {
   stock: 'var(--color-violet)',
   etf: 'var(--color-warn)',
 };
+
+/**
+ * Navigierbare Ansichten: Sidebar-Routen + Intelligenz-Hub-Tabs (Deep-Links).
+ * Labels kommen aus den bestehenden nav-/hub-Katalogen — keine Duplikate.
+ */
+const VIEWS: { key: string; hash: string }[] = [
+  { key: 'nav.dashboard', hash: '#/' },
+  { key: 'nav.assets', hash: '#/charts' },
+  { key: 'nav.signals', hash: '#/signals' },
+  { key: 'nav.trading', hash: '#/trading' },
+  { key: 'nav.lab', hash: '#/labor' },
+  { key: 'nav.builder', hash: '#/strategien' },
+  { key: 'nav.strategyWorkshop', hash: '#/strategie-workshop' },
+  { key: 'nav.workshop', hash: '#/werkstatt' },
+  { key: 'nav.agents', hash: '#/agenten' },
+  { key: 'nav.intelligence', hash: '#/intelligenz' },
+  { key: 'hub.tab_intel', hash: '#/intelligenz?tab=intel' },
+  { key: 'hub.tab_ml', hash: '#/intelligenz?tab=ml' },
+  { key: 'hub.tab_rl', hash: '#/intelligenz?tab=rl' },
+  { key: 'hub.tab_performance', hash: '#/intelligenz?tab=performance' },
+  { key: 'hub.tab_posttrade', hash: '#/intelligenz?tab=posttrade' },
+  { key: 'nav.calendar', hash: '#/kalender' },
+  { key: 'nav.magazine', hash: '#/magazine' },
+  { key: 'nav.packages', hash: '#/pakete' },
+  { key: 'nav.settings', hash: '#/einstellungen' },
+  { key: 'nav.profile', hash: '#/profil' },
+];
+
+type PaletteEntry =
+  | { kind: 'view'; key: string; label: string; hash: string }
+  | { kind: 'asset'; asset: PaletteAsset };
 
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation();
@@ -44,7 +76,18 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     }
   }, [open]);
 
-  const results = useMemo(() => rankAssets(assets ?? [], query, 50), [assets, query]);
+  // Views + Assets in EINER Trefferliste: Views matchen über ihren (übersetzten)
+  // Namen — rankAssets wird wiederverwendet (ticker=name=Label), keine 2. Logik.
+  const results = useMemo<PaletteEntry[]>(() => {
+    const viewEntries = VIEWS.map((v) => ({ kind: 'view' as const, key: v.key, label: t(v.key), hash: v.hash }));
+    const rankedViews = rankAssets(
+      viewEntries.map((v) => ({ ...v, ticker: v.label, name: v.label })),
+      query,
+      query.trim() === '' ? 6 : 8,
+    );
+    const rankedAssets = rankAssets(assets ?? [], query, 50);
+    return [...rankedViews.map(({ ticker: _t, name: _n, ...v }) => v), ...rankedAssets.map((asset) => ({ kind: 'asset' as const, asset }))];
+  }, [assets, query, t]);
 
   useEffect(() => {
     setSelected(0);
@@ -52,7 +95,13 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
   if (!open) return null;
 
-  const openAsset = (a: PaletteAsset) => {
+  const openEntry = (entry: PaletteEntry) => {
+    if (entry.kind === 'view') {
+      window.location.hash = entry.hash;
+      onClose();
+      return;
+    }
+    const a = entry.asset;
     if (!a.hasChart || !a.symbol) return;
     window.location.hash = buildChartUrl(a.symbol, loadTf(a.symbol) ?? '1h');
     onClose();
@@ -68,8 +117,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       e.preventDefault();
       setSelected((s) => Math.max(s - 1, 0));
     } else if (e.key === 'Enter') {
-      const a = results[selected];
-      if (a) openAsset(a);
+      const entry = results[selected];
+      if (entry) openEntry(entry);
     }
   };
 
@@ -107,32 +156,50 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
             <p className="px-4 py-6 text-sm" style={{ color: 'var(--color-mut)' }}>{t('palette.empty')}</p>
           ) : (
             <ul>
-              {results.map((a, i) => (
-                <li
-                  key={a.id}
-                  onMouseEnter={() => setSelected(i)}
-                  className="flex items-center gap-2 px-3 py-2"
-                  style={{ background: i === selected ? 'rgba(46,124,246,0.12)' : 'transparent', cursor: a.hasChart ? 'pointer' : 'default' }}
-                  onClick={() => openAsset(a)}
-                >
-                  {a.symbol ? (
-                    <FavStarSymbol symbol={a.symbol} initialFavorite={a.isFavorite} />
-                  ) : (
-                    <span className="w-5 shrink-0" />
-                  )}
-                  <span className="num w-16 shrink-0 font-medium">{a.ticker}</span>
-                  <span className="min-w-0 flex-1 truncate text-sm" style={{ color: 'var(--color-mut)' }}>{a.name}</span>
-                  <span
-                    className="label shrink-0 rounded border px-1.5 py-0.5"
-                    style={{ borderColor: 'var(--color-line)', color: TYPE_COLOR[a.assetType] ?? 'var(--color-mut)' }}
+              {results.map((entry, i) =>
+                entry.kind === 'view' ? (
+                  <li
+                    key={`view:${entry.hash}`}
+                    onMouseEnter={() => setSelected(i)}
+                    className="flex items-center gap-2 px-3 py-2"
+                    style={{ background: i === selected ? 'rgba(46,124,246,0.12)' : 'transparent', cursor: 'pointer' }}
+                    onClick={() => openEntry(entry)}
                   >
-                    {a.assetType}
-                  </span>
-                  {!a.hasChart && (
-                    <span className="label shrink-0" style={{ color: 'var(--color-mut)' }}>{t('palette.noChart')}</span>
-                  )}
-                </li>
-              ))}
+                    <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="var(--color-cyan)" strokeWidth="1.7" strokeLinecap="round">
+                      <path d="M5 12h14M13 6l6 6-6 6" />
+                    </svg>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium" style={{ color: 'var(--color-ink)' }}>{entry.label}</span>
+                    <span className="label shrink-0 rounded border px-1.5 py-0.5" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+                      {t('palette.viewBadge')}
+                    </span>
+                  </li>
+                ) : (
+                  <li
+                    key={entry.asset.id}
+                    onMouseEnter={() => setSelected(i)}
+                    className="flex items-center gap-2 px-3 py-2"
+                    style={{ background: i === selected ? 'rgba(46,124,246,0.12)' : 'transparent', cursor: entry.asset.hasChart ? 'pointer' : 'default' }}
+                    onClick={() => openEntry(entry)}
+                  >
+                    {entry.asset.symbol ? (
+                      <FavStarSymbol symbol={entry.asset.symbol} initialFavorite={entry.asset.isFavorite} />
+                    ) : (
+                      <span className="w-5 shrink-0" />
+                    )}
+                    <span className="num w-16 shrink-0 font-medium">{entry.asset.ticker}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm" style={{ color: 'var(--color-mut)' }}>{entry.asset.name}</span>
+                    <span
+                      className="label shrink-0 rounded border px-1.5 py-0.5"
+                      style={{ borderColor: 'var(--color-line)', color: TYPE_COLOR[entry.asset.assetType] ?? 'var(--color-mut)' }}
+                    >
+                      {entry.asset.assetType}
+                    </span>
+                    {!entry.asset.hasChart && (
+                      <span className="label shrink-0" style={{ color: 'var(--color-mut)' }}>{t('palette.noChart')}</span>
+                    )}
+                  </li>
+                ),
+              )}
             </ul>
           )}
         </div>
