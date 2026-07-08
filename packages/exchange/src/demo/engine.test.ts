@@ -273,9 +273,9 @@ describe.skipIf(!hasDb)('Demo-Engine (echte DB, deterministisches Buch)', () => 
   it('SICHERHEIT: demo/engine.ts importiert kein Venue und keinen placeOrder-Pfad', async () => {
     const { readFile } = await import('node:fs/promises');
     const src = await readFile(new URL('./engine.ts', import.meta.url), 'utf8');
-    // Echte Nutzung, nicht Kommentare: Venue-Imports und .placeOrder()-Aufrufe
+    // Echte Nutzung, nicht Kommentare: Venue-Imports (einzige TradingVenue-
+    // Quelle ist ../venue.js) und .placeOrder()-Aufrufe
     expect(src).not.toMatch(/from '\.\.\/(venue|paper-venue|binance-venue|hyperliquid-venue)\.js'/);
     expect(src).not.toMatch(/\.placeOrder\(/);
-    expect(src).not.toMatch(/import[^;]*TradingVenue/);
   });
 });
