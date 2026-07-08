@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState, type ComponentType } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getAccessToken, onAuthChange, refreshSession } from './api.js';
+import { setDemoMode } from './lib/demo-mode.js';
 import { MatrixRain } from './components/MatrixRain.js';
 import { Shell } from './components/Shell.js';
 import { Login } from './views/Login.js';
@@ -38,11 +39,25 @@ function Redirect({ to }: { to: string }) {
   return null;
 }
 
+/**
+ * Direkteinstieg „Demo-Trading" (Sidebar): schaltet den Demo-Modus ein und
+ * landet auf der Trading-Seite — dort rendert der aktive Demo-Modus das
+ * Demo-Konto. Eigener Sidebar-Eintrag, damit das Feature auffindbar ist.
+ */
+function DemoEntry() {
+  useEffect(() => {
+    setDemoMode(true);
+    window.location.hash = '#/trading';
+  }, []);
+  return null;
+}
+
 const ROUTES: Record<string, ComponentType> = {
   '#/': Dashboard,
   '#/signals': Signals,
   '#/labor': Labor,
   '#/trading': Trading,
+  '#/demo': DemoEntry,
   '#/charts': AssetDetail,
   '#/pakete': Pakete,
   '#/oracle': () => <Redirect to="#/charts?tab=makro" />,

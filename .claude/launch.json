@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "gladiator-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--workspace", "web", "--", "--port", "5199", "--strictPort"],
+      "port": 5199,
+      "env": { "VITE_PROXY_TARGET": "http://100.72.94.1:3010" }
+    }
+  ]
+}

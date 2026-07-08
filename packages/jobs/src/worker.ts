@@ -224,7 +224,8 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
         case MACRO_JOB: {
           const res = await syncMacroSeries(db);
           console.log(
-            `[macro-sync] ${res.series.map((s) => `${s.seriesId}:${s.latest ?? '—'}`).join(' ')} Fehler=${res.errors.length}`,
+            // COT hat keinen Einzelwert (latest=null) → Anzahl neuer Zeilen loggen statt „—".
+            `[macro-sync] ${res.series.map((s) => `${s.seriesId}:${s.latest ?? `${s.points} neu`}`).join(' ')} Fehler=${res.errors.length}`,
           );
           for (const e of res.errors) console.warn('[macro-sync]', e);
           if (fredConfigured()) {

@@ -93,6 +93,7 @@ export function Entscheidung({ embedded = false }: { embedded?: boolean }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
+  const [dataStatus, setDataStatus] = useState<Awaited<ReturnType<typeof trpc.intelligence.dataStatus.query>> | null>(null);
 
   async function load() {
     try {
@@ -107,6 +108,12 @@ export function Entscheidung({ embedded = false }: { embedded?: boolean }) {
       // Fehler ≠ „keine Daten": ehrlich anzeigen statt leerem Zustand.
       setData(null);
       setLoadError(err instanceof Error ? err.message : t('common.error'));
+    }
+    // Datenstand getrennt laden — Fehler hier verstecken die Hauptdaten nicht.
+    try {
+      setDataStatus(await trpc.intelligence.dataStatus.query());
+    } catch {
+      setDataStatus(null);
     }
   }
 
@@ -173,6 +180,17 @@ export function Entscheidung({ embedded = false }: { embedded?: boolean }) {
             <p className="mb-5 text-sm" style={{ color: 'var(--color-mut)' }}>
               {syncMsg}
             </p>
+          )}
+
+          {/* Datenstand: der Sync läuft AUTOMATISCH (macro-sync-Job, 6-h-Takt) — hier sichtbar. */}
+          {dataStatus && (
+            <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-[0.625rem] border px-4 py-2.5 text-xs"
+              style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+              <span style={{ color: 'var(--color-pos)' }}>⟳ {t('intel.autoSyncNote', { n: dataStatus.autoSyncEveryHours })}</span>
+              <span className="num">COT: {dataStatus.cot.latest ? t('intel.dataAsOf', { date: dataStatus.cot.latest.slice(0, 10) }) : t('intel.noDataYet')}</span>
+              <span className="num">CPI: {dataStatus.cpi.latest ? t('intel.dataAsOf', { date: dataStatus.cpi.latest.slice(0, 10) }) : t('intel.noDataYet')}</span>
+              <span className="num">Buffett: {dataStatus.buffett.latest ? t('intel.dataAsOf', { date: dataStatus.buffett.latest.slice(0, 10) }) : t('intel.noDataYet')}</span>
+            </div>
           )}
 
           <div className="grid gap-5 lg:grid-cols-2">

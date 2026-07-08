@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { schema } from '@gladiator/db';
 import {
   fredConfigured,
@@ -13,6 +13,7 @@ import {
   upcomingEvents,
   eventsBetween,
   classifyEvent,
+  getAssetQuotes,
   getOhlcv,
   ingestTwelveData,
   twelveDataConfigured,
@@ -236,6 +237,26 @@ export const marketRouter = router({
   stockQuotes: protectedProcedure
     .input(z.object({ symbols: z.array(z.string().min(1)).min(1).max(30) }))
     .query(({ input }) => getStockQuotes(input.symbols)),
+
+  /**
+   * Live-Quotes für Katalog-Assets ALLER Klassen (Krypto → Binance,
+   * Aktien/ETF/Index/Future/Rohstoff → TradingView-Scanner, VVIX/GVZ → CBOE).
+   * Ehrlich: Assets ohne funktionierende Quelle kommen als null zurück.
+   */
+  assetQuotes: protectedProcedure
+    .input(
+      z
+        .object({ packageId: z.number().int().optional(), assetIds: z.array(z.number().int()).min(1).max(250).optional() })
+        .refine((v) => v.packageId !== undefined || v.assetIds !== undefined, 'packageId oder assetIds nötig'),
+    )
+    .query(async ({ ctx, input }) => {
+      const { assets } = schema;
+      const rows = await ctx.db
+        .select({ ticker: assets.ticker, assetType: assets.assetType, tradingPair: assets.tradingPair })
+        .from(assets)
+        .where(input.packageId !== undefined ? eq(assets.packageId, input.packageId) : inArray(assets.id, input.assetIds!));
+      return getAssetQuotes(rows);
+    }),
 
   /** Funding/OI-Snapshot (Binance-Futures, Basis des Shadow-Agenten). */
   derivatives: protectedProcedure.query(({ ctx }) => getDerivativesSnapshot(ctx.db)),

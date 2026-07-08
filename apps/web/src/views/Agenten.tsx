@@ -4,11 +4,105 @@ import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
 
 /**
- * Agenten-Übersicht (Phase 5/6): aktive vs. ehrlich deaktivierte Agenten,
+ * Agenten-Übersicht (Phase 5/6): EIGENE Agenten des Users (Werkstatt/RL, mit
+ * Erstellen-Einstieg — vorher gab es hier nichts zum Anlegen und die Seite
+ * wirkte „kaputt"), dazu der eingebaute Schwarm (aktiv/deaktiviert),
  * LLM-Provider + Kosten-Wächter, echte Urteils-Statistik aus signal_reviews.
  */
 
 type Status = Awaited<ReturnType<typeof trpc.agents.status.query>>;
+type MyAgent = Awaited<ReturnType<typeof trpc.subAgents.list.query>>[number];
+type RlList = Awaited<ReturnType<typeof trpc.rl.agents.query>>;
+
+const MY_STATUS_COLOR: Record<string, string> = {
+  active: 'var(--color-pos)',
+  paused: 'var(--color-warn)',
+  archived: 'var(--color-mut)',
+};
+
+/**
+ * „Meine Agenten": eigene Werkstatt- und RL-Agenten mit direktem
+ * Erstellen-Einstieg — DIE Antwort auf „wo erstelle ich einen Agenten?".
+ */
+function MyAgentsPanel() {
+  const { t } = useTranslation();
+  const [mine, setMine] = useState<MyAgent[] | null>(null);
+  const [rl, setRl] = useState<RlList['agents'] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([trpc.subAgents.list.query(), trpc.rl.agents.query()])
+      .then(([subs, rlRes]) => {
+        setMine(subs);
+        setRl(rlRes.agents);
+      })
+      .catch((err: unknown) => {
+        setMine([]);
+        setRl([]);
+        setLoadError(err instanceof Error ? err.message : t('common.error'));
+      });
+  }, []);
+
+  const activeRl = (rl ?? []).filter((a) => (a as { status?: string }).status !== 'retired');
+
+  return (
+    <Panel label={t('agents.myTitle')} stagger={1}>
+      <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+        {t('agents.myHint')}
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <a href="#/werkstatt" className="rounded border px-3 py-2 text-xs font-medium transition-colors"
+          style={{ borderColor: 'rgba(79,209,255,0.5)', color: 'var(--color-cyan)', background: 'rgba(79,209,255,0.08)' }}>
+          + {t('agents.createWorkshopCta')}
+        </a>
+        <a href="#/intelligenz?tab=rl" className="rounded border px-3 py-2 text-xs font-medium transition-colors"
+          style={{ borderColor: 'rgba(139,92,246,0.5)', color: 'var(--color-violet)', background: 'rgba(139,92,246,0.08)' }}>
+          + {t('agents.createRlCta')}
+        </a>
+      </div>
+      {loadError && <ErrorBox message={loadError} />}
+      {mine === null ? (
+        <div className="mt-4"><Loading /></div>
+      ) : mine.length === 0 && activeRl.length === 0 ? (
+        <p className="mt-4 text-sm" style={{ color: 'var(--color-mut)' }}>{t('agents.myEmpty')}</p>
+      ) : (
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {mine.map((a) => (
+            <a key={a.id} href="#/werkstatt" className="rounded-[0.625rem] border p-4 transition-colors hover:border-cyan-400/40"
+              style={{ borderColor: 'rgba(79,209,255,0.2)' }}>
+              <p className="flex flex-wrap items-center justify-between gap-2 text-sm font-medium">
+                <span>{a.name}</span>
+                <span className="rounded border px-1.5 py-0.5 text-[11px]"
+                  style={{ borderColor: 'var(--color-line)', color: MY_STATUS_COLOR[a.status] ?? 'var(--color-mut)' }}>
+                  {t(`workshop.status_${a.status}`)}
+                </span>
+              </p>
+              <p className="num mt-2 text-xs" style={{ color: 'var(--color-mut)' }}>
+                {t('agents.myStats', { open: a.openPositions, trades: a.closedTrades })}
+                {a.closedTrades > 0 && (
+                  <span className="ml-2" style={{ color: a.netPnl >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+                    {a.netPnl >= 0 ? '+' : ''}{a.netPnl.toFixed(2)} $
+                  </span>
+                )}
+              </p>
+            </a>
+          ))}
+          {activeRl.map((a) => (
+            <a key={a.id} href="#/intelligenz?tab=rl" className="rounded-[0.625rem] border p-4 transition-colors"
+              style={{ borderColor: 'rgba(139,92,246,0.25)' }}>
+              <p className="flex flex-wrap items-center justify-between gap-2 text-sm font-medium">
+                <span>{a.name}</span>
+                <span className="rounded border px-1.5 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-violet)' }}>
+                  RL · {a.strategyType}
+                </span>
+              </p>
+            </a>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
 
 const AGENT_META: Record<string, { nameKey: string; descKey: string }> = {
   technik: { nameKey: 'signals.agentTechnik', descKey: 'agents.technikDesc' },
@@ -49,14 +143,17 @@ export function Agenten() {
       <PageHeader title={t('agents.title')} subtitle={t('agents.subtitle')} />
       {error && <ErrorBox message={error} />}
 
+      {/* Eigene Agenten zuerst — inkl. Erstellen-Einstieg (Werkstatt/RL) */}
+      <MyAgentsPanel />
+
       {status === null ? (
-        <div className="glass p-6">
+        <div className="glass mt-5 p-6">
           <Loading />
         </div>
       ) : (
         <>
-          {/* Aktive Agenten */}
-          <Panel label={t('agents.activeTitle')} stagger={1}>
+          {/* Aktive Schwarm-Agenten (eingebaut, nicht erstellbar) */}
+          <Panel label={t('agents.activeTitle')} stagger={2} className="mt-5">
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               {status.active.map((a) => {
                 const meta = AGENT_META[a.agent];
@@ -86,7 +183,7 @@ export function Agenten() {
           </Panel>
 
           {/* Deaktivierte Agenten — ehrlich mit Grund */}
-          <Panel label={t('agents.disabledTitle')} stagger={2} className="mt-5">
+          <Panel label={t('agents.disabledTitle')} stagger={3} className="mt-5">
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               {status.disabled.map((d) => {
                 const meta = AGENT_META[d.agent];
@@ -109,7 +206,7 @@ export function Agenten() {
           </Panel>
 
           {/* LLM & Kosten-Wächter */}
-          <Panel label={t('agents.llmTitle')} stagger={3} className="mt-5">
+          <Panel label={t('agents.llmTitle')} stagger={4} className="mt-5">
             <ul className="mt-4 space-y-2.5 text-sm">
               <li className="flex justify-between gap-3">
                 <span style={{ color: 'var(--color-mut)' }}>{t('agents.provider')}</span>
@@ -127,7 +224,7 @@ export function Agenten() {
           </Panel>
 
           {/* Urteils-Statistik */}
-          <Panel label={t('agents.statsTitle', { count: 500 })} stagger={4} className="mt-5">
+          <Panel label={t('agents.statsTitle', { count: 500 })} stagger={5} className="mt-5">
             {status.stats.length === 0 ? (
               <Empty text={t('agents.noStats')} />
             ) : (
@@ -158,7 +255,7 @@ export function Agenten() {
             )}
           </Panel>
 
-          <p className="reveal mt-6 text-center text-xs leading-relaxed" style={{ color: 'var(--color-mut)', '--stagger': 5 } as React.CSSProperties}>
+          <p className="reveal mt-6 text-center text-xs leading-relaxed" style={{ color: 'var(--color-mut)', '--stagger': 6 } as React.CSSProperties}>
             {t('agents.guardrail')}
           </p>
         </>

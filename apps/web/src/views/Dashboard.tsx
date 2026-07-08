@@ -7,7 +7,7 @@ import { PlexusHero } from '../components/PlexusHero.js';
 import { SignalCard, type SignalRow } from '../components/SignalCard.js';
 import { Empty, ErrorBox, Loading, Panel, StatusDot } from '../components/ui.js';
 import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
-import { FavStarSymbol } from '../components/FavStar.js';
+import { FavStar, FavStarSymbol } from '../components/FavStar.js';
 import { getLatest, onTick, type TickWithDirection } from '../lib/prices.js';
 import { buildChartUrl } from '../lib/chart-url.js';
 import { loadTf } from '../lib/chart-tf.js';
@@ -238,6 +238,54 @@ function BriefingPanel() {
 
 const SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
 
+type FavQuote = { price: number; changePct: number | null; currency: string | null } | null;
+type QuoteFav = { assetId: number; ticker: string; name: string };
+
+/** Kurs mit Quell-Währung (Auslandsbörsen liefern EUR/JPY/HKD/…). */
+function fmtFavQuote(price: number, currency: string | null): string {
+  const num = price.toLocaleString(undefined, { maximumFractionDigits: price >= 1000 ? 0 : price >= 1 ? 2 : 6 });
+  const cur = (currency ?? 'USD').toUpperCase();
+  if (cur === 'USD' || cur === 'USDT') return `${num} $`;
+  if (cur === 'EUR') return `${num} €`;
+  if (cur === 'JPY') return `${num} ¥`;
+  return `${num} ${cur}`;
+}
+
+/**
+ * Favoriten-Kachel für Nicht-Krypto (Aktien/ETF/Index/Future/Rohstoff):
+ * echter Börsen-Quote (TradingView/CBOE) statt Live-Tick — ehrlich beschriftet.
+ */
+function QuoteFavCard({ fav, quote, stagger, onRemoved }: { fav: QuoteFav; quote: FavQuote | undefined; stagger: number; onRemoved: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <div className="glass glass-hover reveal p-6" style={{ '--stagger': stagger } as React.CSSProperties}>
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-[15px] font-medium">{fav.ticker}</h2>
+        <span className="flex items-center gap-1">
+          <FavStar assetId={fav.assetId} isFavorite onToggled={(_id, isFav) => { if (!isFav) onRemoved(); }} />
+          <span className="label max-w-[140px] truncate">{fav.name}</span>
+        </span>
+      </div>
+      {quote === undefined ? (
+        <p className="mt-3 animate-pulse text-sm" style={{ color: 'var(--color-mut)' }}>{t('common.loading')}</p>
+      ) : quote === null ? (
+        <p className="mt-3 text-sm" style={{ color: 'var(--color-mut)' }}>{t('packages.noPrice')}</p>
+      ) : (
+        <>
+          <p className="num mt-3 text-[28px] leading-none font-semibold">{fmtFavQuote(quote.price, quote.currency)}</p>
+          <p
+            className="num mt-2 text-sm"
+            style={{ color: quote.changePct == null ? 'var(--color-mut)' : quote.changePct >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}
+          >
+            {quote.changePct == null ? '—' : `${quote.changePct >= 0 ? '▲' : '▼'} ${Math.abs(quote.changePct).toFixed(2)} %`}
+          </p>
+          <p className="label mt-3">{t('dashboard.quoteSource')}</p>
+        </>
+      )}
+    </div>
+  );
+}
+
 function fmtPrice(p: number): string {
   return p >= 1000
     ? p.toLocaleString(undefined, { maximumFractionDigits: 0 })
@@ -340,6 +388,8 @@ export function Dashboard() {
   const [sparks, setSparks] = useState<Record<string, number[]>>({});
   const [watch, setWatch] = useState<string[]>(SYMBOLS);
   const [watchIsFav, setWatchIsFav] = useState(false);
+  const [quoteFavs, setQuoteFavs] = useState<QuoteFav[]>([]);
+  const [favQuotes, setFavQuotes] = useState<Record<string, FavQuote>>({});
   const [signalRows, setSignalRows] = useState<SignalRow[] | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -389,6 +439,7 @@ export function Dashboard() {
   }, []);
 
   // Watchlist = Krypto-Favoriten des Users (Fallback: BTC/ETH/SOL), max. 8.
+  // Nicht-Krypto-Favoriten (Aktien/ETF/Index/…) bekommen eigene Quote-Kacheln.
   const loadWatch = useCallback(async () => {
     try {
       const favs = await trpc.product.favorites.query();
@@ -396,15 +447,41 @@ export function Dashboard() {
       const uniq = [...new Set(pairs)].slice(0, 8);
       setWatch(uniq.length > 0 ? uniq : SYMBOLS);
       setWatchIsFav(uniq.length > 0);
+      const nonCrypto = favs
+        .filter((f) => !feedSymbol(f.tradingPair))
+        .map((f) => ({ assetId: f.assetId, ticker: f.ticker, name: f.name }))
+        .slice(0, 12);
+      setQuoteFavs(nonCrypto);
     } catch {
       setWatch(SYMBOLS);
       setWatchIsFav(false);
+      setQuoteFavs([]);
     }
   }, []);
 
   useEffect(() => {
     void loadWatch();
   }, [loadWatch]);
+
+  // Quotes der Nicht-Krypto-Favoriten (60-s-Refresh, ehrlich null bei toter Quelle).
+  useEffect(() => {
+    if (quoteFavs.length === 0) return;
+    let cancelled = false;
+    async function loadQuotes() {
+      try {
+        const q = await trpc.market.assetQuotes.query({ assetIds: quoteFavs.map((f) => f.assetId) });
+        if (!cancelled) setFavQuotes(q as Record<string, FavQuote>);
+      } catch {
+        if (!cancelled) setFavQuotes({});
+      }
+    }
+    void loadQuotes();
+    const timer = window.setInterval(() => void loadQuotes(), 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [quoteFavs]);
 
   // Sparklines/Preise der Watchlist aus echten 1h-Kerzen; 60-s-Refresh.
   useEffect(() => {
@@ -469,6 +546,18 @@ export function Dashboard() {
           />
         ))}
       </section>
+
+      {/* Nicht-Krypto-Favoriten: echte Börsen-Quotes (TradingView/CBOE) */}
+      {quoteFavs.length > 0 && (
+        <section className="mt-5">
+          <p className="label mb-3">{t('dashboard.quoteFavsTitle')}</p>
+          <div className={`grid gap-5 ${quoteFavs.length >= 4 ? 'md:grid-cols-2 xl:grid-cols-4' : quoteFavs.length === 3 ? 'md:grid-cols-3' : 'sm:grid-cols-2'}`}>
+            {quoteFavs.map((f, i) => (
+              <QuoteFavCard key={f.assetId} fav={f} quote={favQuotes[f.ticker]} stagger={i + 1} onRemoved={() => void loadWatch()} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* KI-Status: Regime + ML-Pipeline + RL-Agenten auf einen Blick */}
       <AiStatusPanel />

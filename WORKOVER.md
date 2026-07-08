@@ -206,6 +206,35 @@ Interaktiver Strategie-Workshop: (1) Pine-Script-Eingabe + KI-Analyse (Indikator
 
 ---
 
+# SESSION 6 — „Alles echt"-Sweep: Preise für ALLE 221 Assets, Demo auffindbar, Agenten-Einstieg, Auto-Sync sichtbar, ML-Label-Bug
+
+**Start:** 2026-07-08 · **Session 6:** Fable-5 · Auftrag Patrick: (1) Demo-Modus unauffindbar, (2) keine Preise für Assets in Paketen, (3) COT/CPI/Buffett „nicht automatisch", (4) Agenten-Erstellung „funktioniert nicht", (5) alles Leere/Fake → echte Daten, APIs reverse-engineeren.
+
+## Wurzelursachen (alle live verifiziert)
+1. **Yahoo Finance blockt die Hetzner-IP HART (HTTP 429 für ALLES, auch ^VIX)** — deshalb zeigten Pakete außer Krypto keine Kurse: `getStockQuotes` lief still in `null`. Stooq + CNBC ebenfalls tot vom Server. **Funktionierende keyless-Quellen gefunden + verifiziert: TradingView-Scanner (Batch-POST, alle Klassen) + CBOE-Delayed-Quotes (VVIX/GVZ) + Binance-REST (Krypto).**
+2. Live-Feed hartkodiert auf BTC/ETH/SOL (`start.ts`) → 25 weitere Krypto ohne Live-Tick.
+3. `#/agenten` war NUR-Lese-Übersicht der 6 Schwarm-Agenten — kein Erstellen-Button (Erstellen lebt in Werkstatt/RL-Tab); Werkstatt-Agenten starten still `paused`.
+4. COT/CPI/Buffett syncen LÄNGST automatisch (macro-sync 30 min, 6-h-Drossel; Logs zeigen CPI+Buffett-Werte) — nur unsichtbar; „COT:—" im Log war Kosmetik (latest=null).
+5. 🐛 `ml-auto-label` warf bei JEDEM Lauf 18× SyntaxError: `take_profits` (numeric[]) kommt aus Raw-SQL als PG-Array-Literal `{…}`, wurde mit JSON.parse geparst → ML-Labels entstanden NIE (0/30, Pipeline stand).
+6. ForexFactory-nextweek-Feed ersatzlos tot (404, alle Varianten getestet) → stündlicher 404-Log.
+
+## Umgesetzt
+1. **Quote-Layer NEU** `market-data/asset-quotes.ts` + `tv-symbol-map.ts`: Mapping für ALLE 221 Assets GENERIERT + gegen die echten APIs verifiziert (Skript von Server-IP; Namensabgleich Katalog↔TV-description; Composite-Key `TYPE:TICKER`, weil ZS = Zscaler UND Sojabohnen!). Quellen je Klasse: 28 Krypto→Binance `/ticker/24hr` (1 Batch-Call), 189→TradingView `scanner.tradingview.com/global/scan` (Batch-POST, Cache 60 s), VVIX/GVZ→`cdn.cboe.com` Delayed-Quotes. Jede Quelle isoliert (Promise.allSettled), ohne Quelle ehrlich null. 14 neue Tests (Parser mit echten Antwort-Fixtures, Quellen-Auflösung, ZS-Kollision).
+2. **tRPC `market.assetQuotes`** ({packageId}|{assetIds}) + **Pakete.tsx**: EIN Call je Paket, alle Klassen, echte Quell-Währung (EUR/JPY/HKD/USX…); Case-Bug `'crypto'`≠`'CRYPTO'` damit obsolet. **Dashboard**: Nicht-Krypto-Favoriten bekommen eigene Quote-Kacheln (60-s-Poll, „Börsen-Quote ggf. 15 min verzögert").
+3. **Live-Feed**: Symbole beim Boot aus dem Katalog (alle CRYPTO mit tradingPair = 28), Fallback Kern-3.
+4. **Demo auffindbar**: Sidebar-Eintrag „Demo-Trading" (`#/demo` → schaltet Demo-Modus ein + landet auf Trading), CommandPalette-Eintrag.
+5. **Agenten-Seite**: NEU Panel „Meine Agenten" ZUERST — CTAs „Trading-Agent erstellen (Werkstatt)" + „RL-Agent erstellen", Liste eigener Werkstatt-Agenten (Status/Trades/PnL) + aktiver RL-Agenten. **Werkstatt**: Nach dem Anlegen deutlicher Hinweis „startet PAUSIERT — in der Liste aktivieren"; stummer Disabled-Button bei fehlendem Namen erklärt sich jetzt.
+6. **Auto-Sync sichtbar**: NEU `intelligence.dataStatus` (Datenstand COT/CPI/Buffett) + Zeile im Entscheidung-Tab „⟳ Synchronisiert automatisch alle 6 h · COT: Stand … · CPI: … · Buffett: …". Worker-Log zeigt für COT jetzt `n neu` statt „—".
+7. **ml-auto-label-Fix**: `parsePgNumericArray` (pure, 5 Tests) statt JSON.parse — Labels können jetzt entstehen, ML-Pipeline läuft an.
+8. **Kalender**: toten nextweek-Feed entfernt (Doku im Code); thisweek (76 Events) bleibt, Folgewoche läuft bei Wochenstart automatisch ein.
+9. i18n: ~15 neue Keys ×5 (nav.demo, dashboard.quote*, agents.my*/create*, workshop.nameRequiredHint/createdPausedNotice, intel.autoSyncNote/dataAsOf/noDataYet) + packages.livePrice-Text aktualisiert; Paritätstest grün.
+
+## CI + Verifikation
+- Lokal: lint ✓ · typecheck ✓ · **784 Tests passed** (765 Bestand + 19 neue) ✓ · build:web ✓ · Browser pre-deploy (Vite :5199 → Live-API): Sidebar „Demo-Trading" ✓ · #/demo → Demo-Konto ✓ · Agenten-Seite zeigt echten RL-Agenten + CTAs ✓ · Werkstatt-Hinweise ✓ · Pakete ehrlich „kein Live-Kurs" (Endpoint live erst nach Deploy) ✓ · Konsole sauber ✓.
+- Deploy + Live-E2E: siehe Abschluss unten.
+
+---
+
 # SESSION 5 — Demo-Währung / manueller Demo-Trading-Modus (Häkchen → 100k virtuell, realistische Ausführung)
 
 **Start:** 2026-07-08 · **Session 5:** Fable-5 · Auftrag Patrick: offensichtlicher Demo-Schalter, virtuelles Startguthaben 100.000 USD, hochrealistische Simulation (Fees, Spread, Slippage, Market/Limit/SL/TP, Partial Fills) gegen ECHTE Live-Kurse, separates Demo-Portfolio (Equity-Kurve, Win-Rate, Sharpe, Historie), Reset-Button. Additiv, TDD, i18n ×5, Demo darf NIE echte Orders auslösen.

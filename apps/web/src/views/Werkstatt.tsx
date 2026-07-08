@@ -313,7 +313,7 @@ function AgentForm({
   initial: FormState;
   templates: Template[];
   editingId: string | null;
-  onSaved: () => void;
+  onSaved: (created: boolean) => void;
   onCancel: () => void;
 }) {
   const { t } = useTranslation();
@@ -355,7 +355,7 @@ function AgentForm({
       // Server validiert via subAgentSpecSchema (Zod) — Client-Payload ist bewusst locker getypt.
       if (editingId) await trpc.subAgents.update.mutate({ id: editingId, ...payload } as never);
       else await trpc.subAgents.create.mutate(payload as never);
-      onSaved();
+      onSaved(!editingId);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.error'));
     } finally {
@@ -544,6 +544,11 @@ function AgentForm({
         <button onClick={() => void submit()} disabled={busy || f.name.trim().length < 2} className="btn-primary px-5 py-2 text-sm disabled:opacity-50">
           {busy ? t('common.saving') : editingId ? t('common.save') : t('workshop.create')}
         </button>
+        {!busy && f.name.trim().length < 2 && (
+          <span className="self-center text-[11px]" style={{ color: 'var(--color-warn)' }}>
+            {t('workshop.nameRequiredHint')}
+          </span>
+        )}
         <button onClick={() => void testDraft()} disabled={draftBusy} className="rounded-[0.625rem] border px-5 py-2 text-sm disabled:opacity-50" style={{ borderColor: 'rgba(79,209,255,0.4)', color: 'var(--color-cyan)' }}>
           {draftBusy ? t('workshop.quickTestRunning') : t('workshop.draftTest')}
         </button>
@@ -931,6 +936,7 @@ export function Werkstatt() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [createdNotice, setCreatedNotice] = useState(false);
   const [editing, setEditing] = useState<Agent | null>(null);
 
   async function load() {
@@ -959,9 +965,12 @@ export function Werkstatt() {
     setFormOpen(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
-  function onSaved() {
+  function onSaved(created: boolean) {
     setFormOpen(false);
     setEditing(null);
+    // Neu angelegte Agenten starten bewusst PAUSIERT (Mensch im Loop) —
+    // ohne diesen Hinweis wirkte „nichts passiert" wie ein Defekt.
+    setCreatedNotice(created);
     void load();
   }
 
@@ -979,6 +988,16 @@ export function Werkstatt() {
         }
       />
       {error && <ErrorBox message={error} />}
+
+      {createdNotice && (
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-[0.625rem] border px-4 py-3 text-sm"
+          style={{ borderColor: 'rgba(232,184,75,0.5)', background: 'rgba(232,184,75,0.08)', color: 'var(--color-warn)' }}>
+          <span>✓ {t('workshop.createdPausedNotice')}</span>
+          <button onClick={() => setCreatedNotice(false)} className="text-xs underline" style={{ color: 'var(--color-mut)' }}>
+            {t('common.close')}
+          </button>
+        </div>
+      )}
 
       {formOpen && (
         <AgentForm

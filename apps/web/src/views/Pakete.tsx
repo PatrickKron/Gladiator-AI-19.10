@@ -8,14 +8,26 @@ import { feedSymbol } from '../lib/pairs.js';
 
 /**
  * Pakete / Trading-Universum (09_ §3.3): echte v1-Bestände (35 Pakete,
- * 221 Assets). Live-Preise nur für Krypto-Paare mit echtem Feed —
- * Aktien/ETF ehrlich ohne Kurs (Phase-1-Rest).
+ * 221 Assets). Live-Kurse für ALLE Klassen: Krypto per Binance-Feed/REST,
+ * Aktien/ETF/Index/Future/Rohstoff per TradingView-Scanner, VVIX/GVZ per
+ * CBOE — Assets ohne funktionierende Quelle ehrlich „kein Kurs".
  */
 
 type Pkg = Awaited<ReturnType<typeof trpc.product.packages.query>>[number];
 type Asset = Awaited<ReturnType<typeof trpc.product.assets.query>>[number];
 
-type Quote = { price: number; previousClose: number | null } | null;
+type Quote = { price: number; changePct: number | null; currency: string | null } | null;
+
+/** Kursanzeige mit echter Quell-Währung (Auslandsbörsen: EUR/JPY/HKD/…, USX = US-Cent). */
+function fmtQuote(price: number, currency: string | null): string {
+  const num = price.toLocaleString(undefined, { maximumFractionDigits: price >= 1000 ? 0 : price >= 1 ? 2 : 6 });
+  const cur = (currency ?? 'USD').toUpperCase();
+  if (cur === 'USD' || cur === 'USDT') return `${num} $`;
+  if (cur === 'EUR') return `${num} €`;
+  if (cur === 'JPY') return `${num} ¥`;
+  if (cur === 'GBP') return `${num} £`;
+  return `${num} ${cur}`;
+}
 
 function PackageCard({ pkg, stagger, prices }: { pkg: Pkg; stagger: number; prices: Map<string, number> }) {
   const { t } = useTranslation();
@@ -30,12 +42,9 @@ function PackageCard({ pkg, stagger, prices }: { pkg: Pkg; stagger: number; pric
       try {
         const loaded = await trpc.product.assets.query({ packageId: pkg.id });
         setAssets(loaded);
-        // Nicht-Krypto: echte Yahoo-Quotes nachladen (5-min-Cache serverseitig)
-        const tickers = loaded.filter((a) => a.assetType !== 'crypto' && a.ticker).map((a) => a.ticker);
-        if (tickers.length > 0) {
-          const q = await trpc.market.stockQuotes.query({ symbols: tickers.slice(0, 30) });
-          setQuotes(q as Record<string, Quote>);
-        }
+        // Quotes für ALLE Assets des Pakets (jede Klasse; Server bündelt die Quellen)
+        const q = await trpc.market.assetQuotes.query({ packageId: pkg.id });
+        setQuotes(q as Record<string, Quote>);
       } catch {
         setAssets((prev) => prev ?? []);
       }
@@ -74,12 +83,13 @@ function PackageCard({ pkg, stagger, prices }: { pkg: Pkg; stagger: number; pric
           ) : (
             <ul className="space-y-1 text-xs">
               {assets.map((a) => {
+                // Krypto: Echtzeit-Tick vom Live-Feed übersteuert den REST-Quote
                 const feedKey = feedSymbol(a.tradingPair);
-                const crypto = feedKey ? prices.get(feedKey) : undefined;
-                const stock = quotes[a.ticker];
-                const price = crypto ?? stock?.price;
-                const changePct =
-                  stock && stock.previousClose ? ((stock.price / stock.previousClose - 1) * 100) : null;
+                const liveTick = feedKey ? prices.get(feedKey) : undefined;
+                const quote = quotes[a.ticker];
+                const price = liveTick ?? quote?.price;
+                const currency = liveTick !== undefined ? 'USD' : (quote?.currency ?? null);
+                const changePct = quote?.changePct ?? null;
                 return (
                   <li key={a.id} className="flex items-center justify-between gap-2 py-0.5">
                     <span className="flex items-center gap-1">
@@ -88,9 +98,7 @@ function PackageCard({ pkg, stagger, prices }: { pkg: Pkg; stagger: number; pric
                       <span style={{ color: 'var(--color-mut)' }}>{a.name}</span>
                     </span>
                     <span className="num shrink-0" style={{ color: price !== undefined ? 'var(--color-cyan)' : 'var(--color-mut)' }}>
-                      {price !== undefined && price !== null
-                        ? `${price.toLocaleString(undefined, { maximumFractionDigits: price >= 1000 ? 0 : 2 })} $`
-                        : t('packages.noPrice')}
+                      {price !== undefined && price !== null ? fmtQuote(price, currency) : t('packages.noPrice')}
                       {changePct !== null && (
                         <span className="ml-1.5 text-[11px]" style={{ color: changePct >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
                           {changePct >= 0 ? '+' : ''}{changePct.toFixed(1)} %

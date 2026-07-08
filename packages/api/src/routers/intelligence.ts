@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { and, desc, eq, isNotNull, notInArray } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, notInArray, sql } from 'drizzle-orm';
 import { schema } from '@gladiator/db';
 import {
   getBuffettSnapshot,
@@ -84,6 +84,32 @@ export const intelligenceRouter = router({
       );
       return { reviews: rows, aggregate };
     }),
+
+  /**
+   * Datenstand je Intelligence-Quelle — macht den AUTOMATISCHEN Sync sichtbar
+   * (macro-sync-Job alle 30 min, Intelligence-Quellen mit 6-h-Drossel; manuell
+   * bleibt möglich). Vorher wirkte der Sync „nur manuell", weil nirgends stand,
+   * wie frisch die Daten sind.
+   */
+  dataStatus: protectedProcedure.query(async ({ ctx }) => {
+    const { cotReports, valuationIndicators } = schema;
+    const [cotRow] = await ctx.db
+      .select({ latest: sql<string | null>`max(${cotReports.reportDate})::text`, n: sql<number>`count(*)::int` })
+      .from(cotReports);
+    const cpiRes = await ctx.db.execute(
+      sql`SELECT max(ts)::text AS latest, count(*)::int AS n FROM macro_series WHERE series_id = 'CPI'`,
+    );
+    const cpiRow = cpiRes.rows[0] as { latest: string | null; n: number } | undefined;
+    const [buffettRow] = await ctx.db
+      .select({ latest: sql<string | null>`max(${valuationIndicators.ts})::text`, n: sql<number>`count(*)::int` })
+      .from(valuationIndicators);
+    return {
+      cot: { latest: cotRow?.latest ?? null, rows: cotRow?.n ?? 0 },
+      cpi: { latest: cpiRow?.latest ?? null, rows: cpiRow?.n ?? 0 },
+      buffett: { latest: buffettRow?.latest ?? null, rows: buffettRow?.n ?? 0 },
+      autoSyncEveryHours: 6,
+    };
+  }),
 
   // ── Manuelle Sync-Trigger (Mensch im Loop) ──
   syncCpi: protectedProcedure.mutation(({ ctx }) => syncCpiSeries(ctx.db)),

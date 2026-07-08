@@ -29,6 +29,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { hash: '#/charts', key: 'nav.assets', icon: ico('M4 19V5m0 14h16M8 14l3-3 2 2 4-5') },
       { hash: '#/signals', key: 'nav.signals', icon: ico('M3 12h4l3-8 4 16 3-8h4') },
       { hash: '#/trading', key: 'nav.trading', icon: ico('M4 19V5m0 14h16M8 15l3-4 3 2 5-7') },
+      { hash: '#/demo', key: 'nav.demo', icon: ico('M12 3a9 9 0 109 9M12 3v9l6.4-6.4M12 3a9 9 0 016.4 2.6') },
     ],
   },
   {

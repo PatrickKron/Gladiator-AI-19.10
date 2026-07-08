@@ -31,6 +31,7 @@ const VIEWS: { key: string; hash: string }[] = [
   { key: 'nav.assets', hash: '#/charts' },
   { key: 'nav.signals', hash: '#/signals' },
   { key: 'nav.trading', hash: '#/trading' },
+  { key: 'nav.demo', hash: '#/demo' },
   { key: 'nav.lab', hash: '#/labor' },
   { key: 'nav.builder', hash: '#/strategien' },
   { key: 'nav.strategyWorkshop', hash: '#/strategie-workshop' },

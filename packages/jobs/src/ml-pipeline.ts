@@ -63,6 +63,19 @@ export type MlAutoLabelResult = {
 };
 
 /**
+ * `db.execute` (Raw-SQL) liefert `numeric[]`-Spalten als Postgres-Array-Literal
+ * (`{61000,62000.5}`), NICHT als JSON — JSON.parse wirft darauf.
+ */
+export function parsePgNumericArray(raw: string): number[] {
+  const inner = raw.trim().replace(/^\{/, '').replace(/\}$/, '').trim();
+  if (!inner) return [];
+  return inner
+    .split(',')
+    .map((s) => Number(s.replace(/^"|"$/g, '').trim()))
+    .filter((n) => Number.isFinite(n));
+}
+
+/**
  * Auto-label old signals based on actual price outcomes.
  * Finds signals that have enough future price data but haven't been labeled yet.
  */
@@ -92,7 +105,7 @@ export async function autoLabelSignals(db: Db): Promise<MlAutoLabelResult> {
       const entryPrice = Number(sig.entry);
       const stopLoss = Number(sig.stop_loss);
       const rawTps = sig.take_profits;
-      const tps: unknown[] = Array.isArray(rawTps) ? rawTps : typeof rawTps === 'string' ? JSON.parse(rawTps) : [];
+      const tps: unknown[] = Array.isArray(rawTps) ? rawTps : typeof rawTps === 'string' ? parsePgNumericArray(rawTps) : [];
       const createdAt = new Date(sig.created_at as string);
 
       // Max holding bars depends on timeframe

@@ -2,6 +2,7 @@
  * Boot des API-Servers (+ Web-UI, wenn gebaut). Pflicht-Secrets werden VOR dem
  * Start geprüft — fehlt eines, bricht der Prozess ab (kein Fallback, Regel 2).
  */
+import { sql } from 'drizzle-orm';
 import { createDb, requireEnv } from '@gladiator/db';
 import { LivePriceFeed } from '@gladiator/market-data';
 import { startJobWorker } from '@gladiator/jobs';
@@ -41,7 +42,27 @@ if (loadedSecrets.length > 0) console.log(`[secrets] ${loadedSecrets.length} Key
 
 // Preis-Feed nur für die Web-Rolle (SSE-Stream + /health-Feed-Status); der
 // Worker holt sich Kerzen/Preise selbst über die Job-Pipelines.
-const prices = role === 'worker' ? null : new LivePriceFeed(['BTC/USDT', 'ETH/USDT', 'SOL/USDT']);
+// Symbole = ALLE Krypto-Paare aus dem Katalog (28) statt hartkodiert 3 —
+// damit Watchlist/Pakete für jedes Krypto-Asset echte Live-Ticks zeigen.
+// Fallback auf die Kern-3, falls der Katalog (noch) leer ist.
+const FALLBACK_FEED = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
+async function feedSymbolsFromCatalog(): Promise<string[]> {
+  try {
+    const rows = await db.execute(
+      // Nur Krypto mit Binance-Handelspaar; DISTINCT, weil Assets in mehreren Paketen vorkommen.
+      sql`SELECT DISTINCT trading_pair FROM assets WHERE asset_type = 'CRYPTO' AND trading_pair IS NOT NULL AND is_active = true`,
+    );
+    const pairs = (rows.rows as { trading_pair: string }[])
+      .map((r) => String(r.trading_pair).toUpperCase().trim())
+      .map((p) => (p.includes('/') ? p : p.endsWith('USDT') ? `${p.slice(0, -4)}/USDT` : null))
+      .filter((p): p is string => p !== null);
+    return pairs.length > 0 ? pairs : FALLBACK_FEED;
+  } catch {
+    return FALLBACK_FEED;
+  }
+}
+const prices = role === 'worker' ? null : new LivePriceFeed(await feedSymbolsFromCatalog());
+if (prices) console.log(`[feed] Live-Preis-Feed für ${prices.symbols.length} Symbole gestartet`);
 prices?.start();
 
 /**

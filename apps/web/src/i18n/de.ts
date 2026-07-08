@@ -36,6 +36,7 @@ export const de = {
     disclaimer: 'Keine Anlageberatung. Paper-Modus: Ausführung simuliert, Preise echt. Handel auf eigenes Risiko.',
   },
   nav: {
+    demo: 'Demo-Trading',
     dashboard: 'Dashboard',
     signals: 'Signale',
     packages: 'Pakete',
@@ -168,6 +169,8 @@ export const de = {
     deployFlowHint: 'Deploy-Weg: Entwurf → Version speichern → offizieller Labor-Backtest (365 Tage, netto) → Validitäts-Gate → Paper. Live gibt es hier bewusst nicht.',
   },
   workshop: {
+    nameRequiredHint: 'Name fehlt (mind. 2 Zeichen) — erst dann lässt sich der Agent speichern.',
+    createdPausedNotice: 'Agent angelegt. Er startet pausiert und handelt erst, wenn du ihn in der Liste unten aktivierst.',
     title: 'Trading-Agenten-Werkstatt',
     subtitle: 'Eigene autonome Trading-Agenten bauen — mit These, Datenquellen, Regeln und Risk-Budget. Paper-Standard.',
     newAgent: 'Neuer Agent',
@@ -308,6 +311,8 @@ export const de = {
     empty: 'Keine Treffer',
   },
   dashboard: {
+    quoteFavsTitle: 'Weitere Favoriten — Aktien · ETF · Indizes · Futures · Rohstoffe',
+    quoteSource: 'Börsen-Quote (TradingView/CBOE), ggf. 15 min verzögert',
     openChart: 'Chart öffnen: {{symbol}}',
     greetingMorning: 'Guten Morgen',
     greetingDay: 'Willkommen zurück',
@@ -408,7 +413,7 @@ export const de = {
     title: 'Trading-Universum',
     subtitle: '{{packages}} Pakete · {{assets}} Instrumente — echte v1-Bestände.',
     assets: 'Assets',
-    livePrice: 'Krypto live (Binance-WebSocket) · Aktien/ETF via Yahoo-Quotes (5-min-Cache) — ohne Kurs steht ehrlich „kein Live-Kurs".',
+    livePrice: 'Live-Kurse für alle Klassen: Krypto in Echtzeit (Binance) · Aktien/ETF/Indizes/Futures/Rohstoffe als Börsen-Quotes (TradingView/CBOE, ggf. 15 min verzögert) — ohne Quelle steht ehrlich „kein Live-Kurs".',
     show: 'Instrumente anzeigen',
     hide: 'Instrumente verbergen',
     noPrice: 'kein Live-Kurs',
@@ -726,6 +731,12 @@ export const de = {
     sizingBlocked: 'Risk-Gate würde blocken:',
   },
   agents: {
+    myTitle: 'Meine Agenten',
+    myHint: 'Hier erstellst du eigene Agenten: Trading-Agenten mit individuellen Regeln, Ereignissen und Risiko in der Werkstatt — lernende RL-Agenten im Intelligenz-Hub.',
+    createWorkshopCta: 'Trading-Agent erstellen (Werkstatt)',
+    createRlCta: 'RL-Agent erstellen',
+    myEmpty: 'Noch keine eigenen Agenten. Erstelle den ersten über die Buttons oben.',
+    myStats: '{{open}} offen · {{trades}} Trades',
     title: 'Agenten-Schwarm',
     subtitle: 'Jedes Signal wird vor deiner Entscheidung geprüft — transparent, keine Blackbox. Diese Prüf-Agenten sind fest eingebaut; eigene Trading-Agenten baust du in der Werkstatt, lernende PPO-Agenten unter RL-Agenten.',
     activeTitle: 'Aktive Agenten (deterministisch, echte Daten)',
@@ -937,6 +948,9 @@ export const de = {
     lesson_marginal_result_review_rr: 'Randergebnis — R/R prüfen',
   },
   intel: {
+    autoSyncNote: 'Synchronisiert automatisch alle {{n}} h',
+    dataAsOf: 'Stand {{date}}',
+    noDataYet: 'noch keine Daten',
     title: 'KI-Trading-Intelligence',
     subtitle: 'CPI-Event-Regime, institutionelle Positionierung (COT) und Bewertungsfilter — sichtbare Entscheidungsgrundlagen. Kein Trade ist ein gültiges Ergebnis.',
     loadError: 'Intelligence-Daten konnten nicht geladen werden',

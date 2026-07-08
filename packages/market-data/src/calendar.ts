@@ -12,14 +12,14 @@ const { economicEvents } = schema;
  */
 
 /**
- * Zwei freie Wochen-Feeds (kein Key): laufende + nächste Woche. So hat die
- * Monats-/Wochenansicht echten Vorlauf, statt nur die aktuelle Woche zu zeigen.
- * Beide upserten in dieselbe Tabelle (Dedupe über source+externalId).
+ * Freier Wochen-Feed (kein Key): laufende Woche. Der frühere nextweek-Feed
+ * wurde von ForexFactory ersatzlos abgeschaltet (dauerhaft HTTP 404, am
+ * 2026-07-08 gegen alle URL-Varianten verifiziert) — er stand hier nur noch
+ * als stündlicher 404-Log. Events der Folgewoche laufen automatisch ein,
+ * sobald die Woche beginnt; bereits importierte Termine bleiben erhalten
+ * (Upsert-Dedupe über source+externalId).
  */
-const FEED_URLS = [
-  'https://nfs.faireconomy.media/ff_calendar_thisweek.json',
-  'https://nfs.faireconomy.media/ff_calendar_nextweek.json',
-];
+const FEED_URLS = ['https://nfs.faireconomy.media/ff_calendar_thisweek.json'];
 
 export type ParsedEvent = {
   externalId: string;

@@ -37,6 +37,7 @@ export const fr: Catalog = {
     disclaimer: 'Pas de conseil en investissement. Mode paper : exécution simulée, prix réels. Tradez à vos risques.',
   },
   nav: {
+    demo: 'Trading démo',
     dashboard: 'Tableau de bord',
     signals: 'Signaux',
     packages: 'Paquets',
@@ -169,6 +170,8 @@ export const fr: Catalog = {
     deployFlowHint: 'Chemin de déploiement : brouillon → enregistrer la version → backtest officiel (365 jours, net) → porte de validité → paper. Le live n\'existe volontairement pas ici.',
   },
   workshop: {
+    nameRequiredHint: "Nom manquant (min. 2 caractères) — requis pour enregistrer l'agent.",
+    createdPausedNotice: "Agent créé. Il démarre en pause et ne trade qu'après activation dans la liste ci-dessous.",
     title: 'Atelier des agents de trading',
     subtitle: 'Créez vos propres agents de trading autonomes — avec thèse, sources de données, règles et budget de risque. Paper par défaut.',
     newAgent: 'Nouvel agent',
@@ -309,6 +312,8 @@ export const fr: Catalog = {
     empty: 'Aucun résultat',
   },
   dashboard: {
+    quoteFavsTitle: 'Autres favoris — actions · ETF · indices · futures · matières premières',
+    quoteSource: "Cotation de bourse (TradingView/CBOE), différée jusqu'à 15 min",
     openChart: 'Ouvrir le graphique : {{symbol}}',
     greetingMorning: 'Bonjour',
     greetingDay: 'Bon retour',
@@ -409,7 +414,7 @@ export const fr: Catalog = {
     title: 'Univers de trading',
     subtitle: '{{packages}} paquets · {{assets}} instruments — patrimoine v1 réel.',
     assets: 'Actifs',
-    livePrice: 'Crypto en direct (WebSocket Binance) · actions/ETF via cotations Yahoo (cache 5 min) — sans cotation, il est honnêtement indiqué « pas de cours en direct ».',
+    livePrice: "Prix en direct pour toutes les classes : crypto en temps réel (Binance) · actions/ETF/indices/futures/matières premières en cotations de bourse (TradingView/CBOE, différé jusqu'à 15 min) — sans source, l'app affiche honnêtement « pas de prix en direct ».",
     show: 'Afficher les instruments',
     hide: 'Masquer les instruments',
     noPrice: 'pas de cours en direct',
@@ -727,6 +732,12 @@ export const fr: Catalog = {
     sizingBlocked: 'Le risk gate bloquerait :',
   },
   agents: {
+    myTitle: 'Mes agents',
+    myHint: "Créez ici vos propres agents : agents de trading avec règles, événements et risque individuels dans l'Atelier — agents RL apprenants dans le Hub Intelligence.",
+    createWorkshopCta: "Créer un agent de trading (Atelier)",
+    createRlCta: 'Créer un agent RL',
+    myEmpty: "Pas encore d'agents personnels. Créez le premier via les boutons ci-dessus.",
+    myStats: '{{open}} ouvertes · {{trades}} trades',
     title: 'Essaim d\'agents',
     subtitle: 'Chaque signal est vérifié avant ta décision — transparent, pas de boîte noire. Ces agents de contrôle sont intégrés ; tes propres agents de trading se créent dans l’Atelier, les agents PPO apprenants sous Agents RL.',
     activeTitle: 'Agents actifs (déterministes, données réelles)',
@@ -938,6 +949,9 @@ export const fr: Catalog = {
     lesson_marginal_result_review_rr: 'Résultat marginal — revoir le R/R',
   },
   intel: {
+    autoSyncNote: 'Synchronisation automatique toutes les {{n}} h',
+    dataAsOf: 'au {{date}}',
+    noDataYet: 'pas encore de données',
     title: 'AI Trading Intelligence',
     subtitle: 'Régime d’événement CPI, positionnement institutionnel (COT) et filtres de valorisation — des bases de décision visibles. Ne pas trader est un résultat valide.',
     loadError: 'Impossible de charger les données d’intelligence',

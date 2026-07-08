@@ -37,6 +37,7 @@ export const en: Catalog = {
     disclaimer: 'Not investment advice. Paper mode: execution simulated, prices real. Trade at your own risk.',
   },
   nav: {
+    demo: 'Demo trading',
     dashboard: 'Dashboard',
     signals: 'Signals',
     packages: 'Packages',
@@ -169,6 +170,8 @@ export const en: Catalog = {
     deployFlowHint: 'Deploy path: draft → save version → official lab backtest (365 days, net) → validity gate → paper. Live is deliberately not available here.',
   },
   workshop: {
+    nameRequiredHint: 'Name missing (min. 2 characters) — required to save the agent.',
+    createdPausedNotice: 'Agent created. It starts paused and only trades once you activate it in the list below.',
     title: 'Trading Agent Workshop',
     subtitle: 'Build your own autonomous trading agents — with thesis, data sources, rules and risk budget. Paper by default.',
     newAgent: 'New Agent',
@@ -309,6 +312,8 @@ export const en: Catalog = {
     empty: 'No matches',
   },
   dashboard: {
+    quoteFavsTitle: 'More favorites — stocks · ETFs · indices · futures · commodities',
+    quoteSource: 'Exchange quote (TradingView/CBOE), may be delayed 15 min',
     openChart: 'Open chart: {{symbol}}',
     greetingMorning: 'Good morning',
     greetingDay: 'Welcome back',
@@ -409,7 +414,7 @@ export const en: Catalog = {
     title: 'Trading universe',
     subtitle: '{{packages}} packages · {{assets}} instruments — real v1 holdings.',
     assets: 'Assets',
-    livePrice: 'Crypto live (Binance WebSocket) · stocks/ETF via Yahoo quotes (5-min cache) — without a quote it honestly reads "no live quote".',
+    livePrice: 'Live prices for all classes: crypto in real time (Binance) · stocks/ETFs/indices/futures/commodities as exchange quotes (TradingView/CBOE, may be delayed 15 min) — assets without a source honestly show "no live price".',
     show: 'Show instruments',
     hide: 'Hide instruments',
     noPrice: 'no live quote',
@@ -727,6 +732,12 @@ export const en: Catalog = {
     sizingBlocked: 'Risk gate would block:',
   },
   agents: {
+    myTitle: 'My agents',
+    myHint: 'Create your own agents here: trading agents with individual rules, events and risk in the Workshop — learning RL agents in the Intelligence Hub.',
+    createWorkshopCta: 'Create trading agent (Workshop)',
+    createRlCta: 'Create RL agent',
+    myEmpty: 'No own agents yet. Create your first one via the buttons above.',
+    myStats: '{{open}} open · {{trades}} trades',
     title: 'Agent swarm',
     subtitle: 'Every signal is checked before your decision — transparent, no black box. These review agents are built in; build your own trading agents in the Workshop, and learning PPO agents under RL Agents.',
     activeTitle: 'Active agents (deterministic, real data)',
@@ -938,6 +949,9 @@ export const en: Catalog = {
     lesson_marginal_result_review_rr: 'Marginal result — review R/R',
   },
   intel: {
+    autoSyncNote: 'Syncs automatically every {{n}} h',
+    dataAsOf: 'as of {{date}}',
+    noDataYet: 'no data yet',
     title: 'AI Trading Intelligence',
     subtitle: 'CPI event regime, institutional positioning (COT) and valuation filters — visible decision inputs. No trade is a valid outcome.',
     loadError: 'Could not load intelligence data',
