@@ -240,5 +240,21 @@ export async function getAssetQuotes(assetList: QuoteAsset[]): Promise<Record<st
   if (binance.status === 'fulfilled') apply('binance', bySource.binance, binance.value);
   if (tv.status === 'fulfilled') apply('tradingview', bySource.tradingview, tv.value);
   if (cboe.status === 'fulfilled') apply('cboe', bySource.cboe, cboe.value);
+
+  // Krypto-Fallback: nicht (mehr) auf Binance gelistete Coins (z. B. AKT) über den
+  // TradingView-CRYPTO-Index (CRYPTO:<TICKER>USD, live verifiziert). Ehrlich: bleibt
+  // auch dieser leer, steht weiter „kein Kurs".
+  const missingCrypto = assetList.filter((a) => a.assetType.toUpperCase() === 'CRYPTO' && out[a.ticker] === null);
+  if (missingCrypto.length > 0) {
+    try {
+      const fallback = await fetchTvQuotes(missingCrypto.map((a) => `CRYPTO:${a.ticker.toUpperCase()}USD`));
+      for (const a of missingCrypto) {
+        const q = fallback.get(`CRYPTO:${a.ticker.toUpperCase()}USD`);
+        if (q) out[a.ticker] = { ticker: a.ticker, price: q.price, changePct: q.changePct, currency: q.currency, source: 'tradingview', ts };
+      }
+    } catch {
+      // Fallback-Quelle tot → ehrlich null lassen
+    }
+  }
   return out;
 }

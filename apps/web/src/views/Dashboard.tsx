@@ -241,10 +241,11 @@ const SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
 type FavQuote = { price: number; changePct: number | null; currency: string | null } | null;
 type QuoteFav = { assetId: number; ticker: string; name: string };
 
-/** Kurs mit Quell-Währung (Auslandsbörsen liefern EUR/JPY/HKD/…). */
+/** Kurs mit Quell-Währung (Auslandsbörsen liefern EUR/JPY/HKD/…); null = ohne Suffix (Renditen/Indizes). */
 function fmtFavQuote(price: number, currency: string | null): string {
   const num = price.toLocaleString(undefined, { maximumFractionDigits: price >= 1000 ? 0 : price >= 1 ? 2 : 6 });
-  const cur = (currency ?? 'USD').toUpperCase();
+  if (currency === null) return num;
+  const cur = currency.toUpperCase();
   if (cur === 'USD' || cur === 'USDT') return `${num} $`;
   if (cur === 'EUR') return `${num} €`;
   if (cur === 'JPY') return `${num} ¥`;

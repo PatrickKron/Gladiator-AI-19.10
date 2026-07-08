@@ -18,10 +18,14 @@ type Asset = Awaited<ReturnType<typeof trpc.product.assets.query>>[number];
 
 type Quote = { price: number; changePct: number | null; currency: string | null } | null;
 
-/** Kursanzeige mit echter Quell-Währung (Auslandsbörsen: EUR/JPY/HKD/…, USX = US-Cent). */
+/**
+ * Kursanzeige mit echter Quell-Währung (Auslandsbörsen: EUR/JPY/HKD/…, USX =
+ * US-Cent). currency=null (Renditen/Indizes ohne Währung) → bewusst ohne Suffix.
+ */
 function fmtQuote(price: number, currency: string | null): string {
   const num = price.toLocaleString(undefined, { maximumFractionDigits: price >= 1000 ? 0 : price >= 1 ? 2 : 6 });
-  const cur = (currency ?? 'USD').toUpperCase();
+  if (currency === null) return num;
+  const cur = currency.toUpperCase();
   if (cur === 'USD' || cur === 'USDT') return `${num} $`;
   if (cur === 'EUR') return `${num} €`;
   if (cur === 'JPY') return `${num} ¥`;
