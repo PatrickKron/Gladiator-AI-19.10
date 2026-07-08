@@ -194,8 +194,8 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
 
   return (
     <div className="glass glass-hover p-5">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           <span
             className="num rounded px-1.5 py-0.5 text-xs font-semibold tracking-wider"
             style={{ color: dirColor, border: `1px solid ${dirColor}`, boxShadow: `0 0 12px ${long ? 'rgba(61,220,151,0.25)' : 'rgba(255,92,108,0.25)'}` }}

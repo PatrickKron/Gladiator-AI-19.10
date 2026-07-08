@@ -12,6 +12,7 @@ import { getLatest, onTick, type TickWithDirection } from '../lib/prices.js';
 import { buildChartUrl } from '../lib/chart-url.js';
 import { loadTf } from '../lib/chart-tf.js';
 import { feedSymbol } from '../lib/pairs.js';
+import { normalizeRegime, REGIME_COLORS, REGIME_ICONS, type RegimeData } from '../lib/regime.js';
 
 /** Dashboard (09_ §3.1): Begrüßung, Live-Markt, offene Setups, Konto, System — alles echt. */
 
@@ -62,7 +63,18 @@ function FavoritesBriefing() {
       {symbols === null ? (
         <Loading />
       ) : symbols.length === 0 ? (
-        <Empty text={t('dashboard.favBriefingEmpty')} />
+        <div className="mt-4 text-sm leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+          <p>{t('dashboard.favBriefingEmpty')}</p>
+          <p className="mt-2">
+            <a href="#/pakete" className="hover:underline" style={{ color: 'var(--color-cyan)' }}>
+              → {t('nav.packages')}
+            </a>
+            <span className="mx-2">·</span>
+            <a href="#/charts" className="hover:underline" style={{ color: 'var(--color-cyan)' }}>
+              → {t('nav.assets')}
+            </a>
+          </p>
+        </div>
       ) : (
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {symbols.map((sym) => (
@@ -70,6 +82,126 @@ function FavoritesBriefing() {
           ))}
         </div>
       )}
+    </Panel>
+  );
+}
+
+/**
+ * KI-Status (Cyborg-Investor, P1.6): Markt-Regime, ML-Pipeline-Stand und
+ * RL-Agenten auf einen Blick — jede Spalte lädt unabhängig und fällt einzeln
+ * graceful zurück (ein Fehler reißt nicht das Panel um). Alles echte Daten.
+ */
+function AiStatusPanel() {
+  const { t } = useTranslation();
+  const [regime, setRegime] = useState<RegimeData | null | undefined>(undefined);
+  const [mlState, setMlState] = useState<{ activeModel: { name: string; accuracy: number | null } | null; labels: number } | null | undefined>(undefined);
+  const [rlState, setRlState] = useState<{ total: number; live: number; bestSharpe: number | null } | null | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Regime des Leitmarkts BTC (1h) als Markt-Proxy.
+    trpc.ml.regime
+      .query({ symbol: 'BTC/USDT', timeframe: '1h' })
+      .then((r) => { if (!cancelled) setRegime(normalizeRegime(r)); })
+      .catch(() => { if (!cancelled) setRegime(null); });
+    Promise.all([trpc.ml.modelMetrics.query(), trpc.ml.labelStats.query({})])
+      .then(([m, s]) => {
+        if (cancelled) return;
+        const active = (m.models as { name: string; isActive: boolean; metrics: Record<string, number> | null }[]).find((x) => x.isActive) ?? null;
+        setMlState({
+          activeModel: active ? { name: active.name, accuracy: active.metrics?.accuracy ?? null } : null,
+          labels: s.total,
+        });
+      })
+      .catch(() => { if (!cancelled) setMlState(null); });
+    trpc.rl.agents
+      .query()
+      .then((a) => {
+        if (cancelled) return;
+        const rows = a.agents as { status: string; latestPerformance: { sharpeRatio: string | null } | null }[];
+        const sharpes = rows
+          .map((x) => (x.latestPerformance?.sharpeRatio != null ? parseFloat(x.latestPerformance.sharpeRatio) : NaN))
+          .filter((n) => !Number.isNaN(n));
+        setRlState({
+          total: rows.length,
+          live: rows.filter((x) => x.status === 'live').length,
+          bestSharpe: sharpes.length > 0 ? Math.max(...sharpes) : null,
+        });
+      })
+      .catch(() => { if (!cancelled) setRlState(null); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const mut = { color: 'var(--color-mut)' } as const;
+
+  return (
+    <Panel label={t('dashboard.aiTitle')} stagger={4} className="mt-8">
+      <div className="mt-4 grid gap-5 sm:grid-cols-3">
+        {/* Markt-Regime */}
+        <div>
+          <p className="label">{t('dashboard.aiRegime')}</p>
+          {regime === undefined ? (
+            <p className="mt-2 animate-pulse text-sm" style={mut}>{t('common.loading')}</p>
+          ) : regime === null ? (
+            <p className="mt-2 text-sm leading-relaxed" style={mut}>{t('dashboard.aiRegimeNone')}</p>
+          ) : (
+            <>
+              <p className="num mt-2 text-lg font-semibold" style={{ color: REGIME_COLORS[regime.regime] }}>
+                {REGIME_ICONS[regime.regime]} {t(`regime.${regime.regime}` as const)}
+              </p>
+              <p className="num mt-1 text-xs" style={mut}>
+                BTC · 1h · {(regime.confidence * 100).toFixed(0)}% {t('regime.confidence')}
+              </p>
+            </>
+          )}
+        </div>
+        {/* ML-Pipeline */}
+        <div>
+          <p className="label">{t('dashboard.aiMl')}</p>
+          {mlState === undefined ? (
+            <p className="mt-2 animate-pulse text-sm" style={mut}>{t('common.loading')}</p>
+          ) : mlState === null ? (
+            <p className="mt-2 text-sm leading-relaxed" style={mut}>{t('common.error')}</p>
+          ) : mlState.activeModel ? (
+            <>
+              <p className="num mt-2 text-lg font-semibold">{mlState.activeModel.name}</p>
+              <p className="num mt-1 text-xs" style={mut}>
+                {mlState.activeModel.accuracy != null
+                  ? `Accuracy ${(mlState.activeModel.accuracy * 100).toFixed(1)}%`
+                  : t('ml.active')}
+                {' · '}{mlState.labels} Labels
+              </p>
+            </>
+          ) : (
+            <p className="mt-2 text-sm leading-relaxed" style={mut}>
+              {t('dashboard.aiMlNone', { n: mlState.labels })}
+            </p>
+          )}
+        </div>
+        {/* RL-Agenten */}
+        <div>
+          <p className="label">{t('dashboard.aiAgents')}</p>
+          {rlState === undefined ? (
+            <p className="mt-2 animate-pulse text-sm" style={mut}>{t('common.loading')}</p>
+          ) : rlState === null ? (
+            <p className="mt-2 text-sm leading-relaxed" style={mut}>{t('common.error')}</p>
+          ) : rlState.total === 0 ? (
+            <p className="mt-2 text-sm leading-relaxed" style={mut}>{t('dashboard.aiAgentsNone')}</p>
+          ) : (
+            <>
+              <p className="num mt-2 text-lg font-semibold">
+                {rlState.total} <span className="text-xs font-normal" style={mut}>{t('rl.title')}</span>
+              </p>
+              <p className="num mt-1 text-xs" style={mut}>
+                {rlState.live} {t('rl.live')} · {t('rl.sharpe')} {rlState.bestSharpe != null ? rlState.bestSharpe.toFixed(2) : '—'}
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+      <a href="#/intelligenz" className="mt-4 inline-block text-xs" style={{ color: 'var(--color-cyan)' }}>
+        → {t('hub.title')}
+      </a>
     </Panel>
   );
 }
@@ -131,7 +263,7 @@ function deriveFromCloses(closes: number[]): { price: number | null; change24h: 
  * Chart (mit gemerktem Timeframe), Stern zum Entfernen. Preis/24h aus Live-Tick
  * (BTC/ETH/SOL) oder ehrlich aus eigenen 1h-Kerzen abgeleitet.
  */
-function WatchCard({ symbol, closes, stagger, onRemoved }: { symbol: string; closes: number[]; stagger: number; onRemoved: (symbol: string) => void }) {
+function WatchCard({ symbol, isFavorite, closes, stagger, onRemoved }: { symbol: string; isFavorite: boolean; closes: number[]; stagger: number; onRemoved: (symbol: string) => void }) {
   const { t } = useTranslation();
   const [tick, setTick] = useState<TickWithDirection | null>(() => getLatest().find((x) => x.symbol === symbol) ?? null);
   const [pulse, setPulse] = useState<'tick-pos' | 'tick-neg' | ''>('');
@@ -170,7 +302,8 @@ function WatchCard({ symbol, closes, stagger, onRemoved }: { symbol: string; clo
       <div className="flex items-baseline justify-between">
         <h2 className="text-[15px] font-medium">{short}</h2>
         <span className="flex items-center gap-1">
-          <FavStarSymbol symbol={symbol} initialFavorite onToggled={(fav) => { if (!fav) onRemoved(symbol); }} />
+          {/* Fallback-Symbole (BTC/ETH/SOL) sind KEINE Favoriten — Stern darf dort nicht gefüllt lügen. */}
+          <FavStarSymbol symbol={symbol} initialFavorite={isFavorite || undefined} onToggled={(fav) => { if (!fav) onRemoved(symbol); }} />
           <span className="label">{symbol}</span>
         </span>
       </div>
@@ -206,6 +339,7 @@ export function Dashboard() {
   const [ingest, setIngest] = useState<IngestRow[] | null>(null);
   const [sparks, setSparks] = useState<Record<string, number[]>>({});
   const [watch, setWatch] = useState<string[]>(SYMBOLS);
+  const [watchIsFav, setWatchIsFav] = useState(false);
   const [signalRows, setSignalRows] = useState<SignalRow[] | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -261,8 +395,10 @@ export function Dashboard() {
       const pairs = favs.map((f) => feedSymbol(f.tradingPair)).filter((x): x is string => Boolean(x));
       const uniq = [...new Set(pairs)].slice(0, 8);
       setWatch(uniq.length > 0 ? uniq : SYMBOLS);
+      setWatchIsFav(uniq.length > 0);
     } catch {
       setWatch(SYMBOLS);
+      setWatchIsFav(false);
     }
   }, []);
 
@@ -323,9 +459,19 @@ export function Dashboard() {
         }`}
       >
         {watch.map((symbol, i) => (
-          <WatchCard key={symbol} symbol={symbol} closes={sparks[symbol] ?? []} stagger={i + 1} onRemoved={() => void loadWatch()} />
+          <WatchCard
+            key={symbol}
+            symbol={symbol}
+            isFavorite={watchIsFav}
+            closes={sparks[symbol] ?? []}
+            stagger={i + 1}
+            onRemoved={() => void loadWatch()}
+          />
         ))}
       </section>
+
+      {/* KI-Status: Regime + ML-Pipeline + RL-Agenten auf einen Blick */}
+      <AiStatusPanel />
 
       {/* Signal-Vorschau */}
       <section className="reveal mt-8" style={{ '--stagger': 4 } as React.CSSProperties}>

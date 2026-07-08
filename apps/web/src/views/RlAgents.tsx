@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
-import { Loading, PageHeader, Panel } from '../components/ui.js';
+import { ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
 
 type AgentRow = {
   id: string;
@@ -56,16 +56,23 @@ const STATUS_COLORS: Record<string, string> = {
   retired: 'rgba(255,255,255,0.15)',
 };
 
-export function RlAgents() {
+/** Kurzlebige Inline-Meldung pro Agent (statt alert()). */
+type AgentNote = { agentId: string; kind: 'ok' | 'err'; text: string };
+
+export function RlAgents({ embedded = false }: { embedded?: boolean }) {
   const { t } = useTranslation();
   const [agents, setAgents] = useState<AgentRow[] | null>(null);
   const [weights, setWeights] = useState<WeightRow[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [createName, setCreateName] = useState('');
   const [createStrategy, setCreateStrategy] = useState<string>(STRATEGY_TYPES[0]);
   const [createBudget, setCreateBudget] = useState('0.1');
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [note, setNote] = useState<AgentNote | null>(null);
+  const [episodeBusy, setEpisodeBusy] = useState<string | null>(null);
 
   const loadData = () => {
     Promise.all([
@@ -74,9 +81,12 @@ export function RlAgents() {
     ]).then(([a, w]) => {
       setAgents(a.agents as AgentRow[]);
       setWeights(w.weights as WeightRow[]);
-    }).catch(() => {
-      setAgents([]);
-      setWeights([]);
+      setLoadError(null);
+    }).catch((err) => {
+      // Fehler ≠ „keine Agenten": ehrlich anzeigen statt leerem Zustand.
+      setLoadError(err instanceof Error ? err.message : t('common.error'));
+      setAgents((prev) => prev ?? []);
+      setWeights((prev) => prev ?? []);
     });
   };
 
@@ -89,6 +99,7 @@ export function RlAgents() {
   const handleCreate = async () => {
     if (!createName.trim()) return;
     setCreating(true);
+    setCreateError(null);
     try {
       await trpc.rl.createAgent.mutate({
         name: createName.trim(),
@@ -98,8 +109,8 @@ export function RlAgents() {
       setCreateName('');
       setShowCreate(false);
       loadData();
-    } catch {
-      // error handling
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : t('common.error'));
     } finally {
       setCreating(false);
     }
@@ -109,41 +120,69 @@ export function RlAgents() {
     if (!window.confirm(t('rl.promoteConfirm'))) return;
     try {
       const res = await trpc.rl.promoteAgent.mutate({ agentId, confirm: true });
-      if (res.promoted) loadData();
-      else alert(res.reason);
-    } catch {
-      // error handling
+      if (res.promoted) {
+        setNote({ agentId, kind: 'ok', text: t('rl.promoted') });
+        loadData();
+      } else {
+        setNote({ agentId, kind: 'err', text: res.reason ?? t('rl.notEligible') });
+      }
+    } catch (err) {
+      setNote({ agentId, kind: 'err', text: err instanceof Error ? err.message : t('common.error') });
+    }
+  };
+
+  const handleRetire = async (agentId: string) => {
+    if (!window.confirm(t('rl.retireConfirm'))) return;
+    try {
+      const res = await trpc.rl.retireAgent.mutate({ agentId, confirm: true });
+      if (res.retired) {
+        setNote({ agentId, kind: 'ok', text: t('rl.retiredNote') });
+        loadData();
+      } else {
+        setNote({ agentId, kind: 'err', text: res.reason ?? t('common.error') });
+      }
+    } catch (err) {
+      setNote({ agentId, kind: 'err', text: err instanceof Error ? err.message : t('common.error') });
     }
   };
 
   const handleRunEpisode = async (agentId: string) => {
+    setEpisodeBusy(agentId);
+    setNote(null);
     try {
       await trpc.rl.runEpisode.mutate({ agentId, symbol: 'BTCUSDT', timeframe: '1h' });
-      alert(t('rl.episodeStarted'));
-    } catch {
-      // error handling
+      setNote({ agentId, kind: 'ok', text: `${t('rl.episodeStarted')} — ${t('rl.episodeHint')}` });
+      loadData();
+    } catch (err) {
+      setNote({ agentId, kind: 'err', text: err instanceof Error ? err.message : t('common.error') });
+    } finally {
+      setEpisodeBusy(null);
     }
   };
 
+  const createButton = (
+    <button
+      onClick={() => setShowCreate(!showCreate)}
+      className="rounded border px-3 py-1.5 text-sm transition-colors"
+      style={{ borderColor: 'rgba(46,124,246,0.5)', color: cyan }}
+    >
+      + {t('rl.createAgent')}
+    </button>
+  );
+
   return (
     <div>
-      <PageHeader
-        title={t('rl.title')}
-        subtitle={t('rl.subtitle')}
-        right={
-          <button
-            onClick={() => setShowCreate(!showCreate)}
-            className="rounded border px-3 py-1.5 text-sm transition-colors"
-            style={{ borderColor: 'rgba(46,124,246,0.5)', color: cyan }}
-          >
-            + {t('rl.createAgent')}
-          </button>
-        }
-      />
+      {embedded ? (
+        <div className="mb-4 flex justify-end">{createButton}</div>
+      ) : (
+        <PageHeader title={t('rl.title')} subtitle={t('rl.subtitle')} right={createButton} />
+      )}
+
+      {loadError && <ErrorBox message={`${t('rl.loadError')}: ${loadError}`} />}
 
       {/* Create Agent Form */}
       {showCreate && (
-        <Panel label={t('rl.createTitle')} stagger={0}>
+        <Panel label={t('rl.createTitle')} stagger={0} className="mb-5">
           <p className="mb-4 text-xs" style={{ color: 'var(--color-mut)' }}>{t('rl.createHint')}</p>
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
@@ -180,6 +219,9 @@ export function RlAgents() {
               />
             </div>
           </div>
+          {createError && (
+            <p className="mt-3 text-xs" style={{ color: neg }}>{t('rl.createError')}: {createError}</p>
+          )}
           <div className="mt-4">
             <button
               onClick={handleCreate}
@@ -192,7 +234,7 @@ export function RlAgents() {
                 opacity: creating || !createName.trim() ? 0.5 : 1,
               }}
             >
-              {t('rl.createAgent')}
+              {creating ? t('rl.creating') : t('rl.createAgent')}
             </button>
           </div>
         </Panel>
@@ -200,7 +242,7 @@ export function RlAgents() {
 
       {/* HRP Portfolio Allocation */}
       {weights && weights.length > 0 && (
-        <Panel label={t('rl.portfolioTitle')} stagger={1}>
+        <Panel label={t('rl.portfolioTitle')} stagger={1} className="mb-5">
           <p className="mb-3 text-xs" style={{ color: 'var(--color-mut)' }}>{t('rl.portfolioHint')}</p>
           <div className="space-y-2">
             {weights.map(w => (
@@ -231,7 +273,10 @@ export function RlAgents() {
         {agents === null ? (
           <Loading />
         ) : agents.length === 0 ? (
-          <p className="text-sm" style={{ color: 'var(--color-mut)' }}>{t('rl.noAgents')}</p>
+          <div className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+            <p>{t('rl.noAgents')}</p>
+            <p className="mt-2">{t('rl.noAgentsHint')}</p>
+          </div>
         ) : (
           <div className="space-y-3">
             {agents.map(agent => {
@@ -247,9 +292,9 @@ export function RlAgents() {
                 >
                   <button
                     onClick={() => setExpanded(isExpanded ? null : agent.id)}
-                    className="flex w-full items-center justify-between gap-3 text-left"
+                    className="flex w-full flex-wrap items-center justify-between gap-3 text-left"
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="num font-medium">{agent.name}</span>
                       <span
                         className="rounded border px-1.5 py-0.5 text-[10px] uppercase"
@@ -271,6 +316,11 @@ export function RlAgents() {
 
                   {isExpanded && (
                     <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--color-line)' }}>
+                      {perf === null && agent.episodeCount === 0 && (
+                        <p className="mb-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+                          {t('rl.noPerformance')} {t('rl.noPerformanceHint')}
+                        </p>
+                      )}
                       <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
                         <div>
                           <p className="label">{t('rl.return')}</p>
@@ -304,13 +354,27 @@ export function RlAgents() {
                         {new Date(agent.createdAt).toLocaleDateString()}
                       </div>
 
-                      <div className="mt-3 flex gap-2">
+                      {note?.agentId === agent.id && (
+                        <p
+                          className="mt-3 rounded border p-2 text-xs"
+                          style={
+                            note.kind === 'ok'
+                              ? { borderColor: 'rgba(61,220,151,0.4)', color: pos }
+                              : { borderColor: 'rgba(255,92,108,0.4)', color: neg }
+                          }
+                        >
+                          {note.text}
+                        </p>
+                      )}
+
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
                         <button
                           onClick={() => handleRunEpisode(agent.id)}
-                          className="rounded border px-3 py-1 text-xs transition-colors"
+                          disabled={episodeBusy !== null}
+                          className="rounded border px-3 py-1 text-xs transition-colors disabled:opacity-50"
                           style={{ borderColor: 'rgba(46,124,246,0.4)', color: cyan }}
                         >
-                          {t('rl.runEpisode')}
+                          {episodeBusy === agent.id ? t('rl.episodeRunning') : t('rl.runEpisode')}
                         </button>
                         {(agent.status === 'paper' || agent.status === 'sandbox') && (
                           <button
@@ -321,6 +385,18 @@ export function RlAgents() {
                             {t('rl.promote')}
                           </button>
                         )}
+                        {agent.status !== 'retired' && (
+                          <button
+                            onClick={() => handleRetire(agent.id)}
+                            className="rounded border px-3 py-1 text-xs transition-colors"
+                            style={{ borderColor: 'rgba(255,92,108,0.35)', color: neg }}
+                          >
+                            {t('rl.retire')}
+                          </button>
+                        )}
+                        <span className="text-[11px]" style={{ color: 'var(--color-mut)' }}>
+                          {t('rl.episodeHint')}
+                        </span>
                       </div>
                     </div>
                   )}

@@ -42,8 +42,12 @@ export const rlRouter = router({
           .from(rlEpisodes)
           .where(eq(rlEpisodes.agentId, agent.id));
 
+        // model_blob (komplette PPO-Gewichte, mehrere hundert KB) gehört nicht
+        // in die Listen-Antwort — kein Client nutzt es.
+        const { modelBlob, ...agentPublic } = agent;
+        void modelBlob;
         result.push({
-          ...agent,
+          ...agentPublic,
           latestPerformance: latestPerf ?? null,
           episodeCount: stats?.episodeCount ?? 0,
           totalTrades: stats?.totalTrades ?? 0,
@@ -292,6 +296,33 @@ export const rlRouter = router({
         reason: `Promoted from ${agent.status} to ${promotion.targetStatus}`,
         evaluation: promotion,
       };
+    }),
+
+  /**
+   * Retire an agent (P0-Workover): stoppt die geplanten 30-min-Episoden
+   * (runRlEpisodes nimmt nur paper/sandbox) — ohne diesen Endpoint erzeugt
+   * jeder einmal angelegte Agent für immer Server-Last. Idempotent.
+   */
+  retireAgent: protectedProcedure
+    .input(z.object({
+      agentId: z.string().uuid(),
+      confirm: z.boolean(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!input.confirm) return { retired: false, reason: 'Human approval required' };
+
+      const [agent] = await ctx.db.select().from(rlAgents)
+        .where(eq(rlAgents.id, input.agentId))
+        .limit(1);
+
+      if (!agent) return { retired: false, reason: 'Agent not found' };
+      if (agent.status === 'retired') return { retired: true, reason: null };
+
+      await ctx.db.update(rlAgents)
+        .set({ status: 'retired', updatedAt: new Date() })
+        .where(eq(rlAgents.id, input.agentId));
+
+      return { retired: true, reason: null };
     }),
 
   /** Performance dashboard: aggregated metrics across all or one agent. */

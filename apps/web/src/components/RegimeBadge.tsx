@@ -1,29 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
+import { normalizeRegime, REGIME_COLORS, REGIME_ICONS, type RegimeData } from '../lib/regime.js';
 
-type RegimeData = {
-  regime: string;
-  confidence: number;
-  components: { name: string; value: number }[];
-};
-
-const REGIME_COLORS: Record<string, string> = {
-  bull: 'var(--color-pos)',
-  bear: 'var(--color-neg)',
-  sideways: 'var(--color-warn)',
-  high_vol: 'var(--color-violet)',
-  crisis: 'var(--color-neg)',
-};
-
-const REGIME_ICONS: Record<string, string> = {
-  bull: '▲',
-  bear: '▼',
-  sideways: '◆',
-  high_vol: '⚡',
-  crisis: '⚠',
-};
-
+/**
+ * Markt-Regime-Badge am Signal: nutzt `normalizeRegime` (lib/regime.ts), weil
+ * `ml.regime` das Ergebnis TOP-LEVEL liefert und im Leer-Fall `{regime: null}`
+ * zurückgibt — bei allem Unklaren versteckt sich das Badge, statt
+ * „regime.undefined (NaN %)" anzuzeigen.
+ */
 export function RegimeBadge({ symbol, timeframe }: { symbol: string; timeframe: string }) {
   const { t } = useTranslation();
   const [data, setData] = useState<RegimeData | null | undefined>(undefined);
@@ -33,7 +18,7 @@ export function RegimeBadge({ symbol, timeframe }: { symbol: string; timeframe: 
     trpc.ml.regime
       .query({ symbol, timeframe })
       .then((r) => {
-        if (!cancelled) setData(r.regime as RegimeData | null);
+        if (!cancelled) setData(normalizeRegime(r));
       })
       .catch(() => {
         if (!cancelled) setData(null);
@@ -43,8 +28,8 @@ export function RegimeBadge({ symbol, timeframe }: { symbol: string; timeframe: 
 
   if (data === undefined || data === null) return null;
 
-  const color = REGIME_COLORS[data.regime] ?? 'var(--color-mut)';
-  const icon = REGIME_ICONS[data.regime] ?? '?';
+  const color = REGIME_COLORS[data.regime];
+  const icon = REGIME_ICONS[data.regime];
 
   return (
     <span

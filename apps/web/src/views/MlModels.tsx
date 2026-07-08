@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
-import { Loading, PageHeader, Panel } from '../components/ui.js';
+import { ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
 
 type ModelRow = {
   id: number;
@@ -30,10 +30,11 @@ type LabelStats = {
 const pct = (n: number | undefined) => n != null ? `${(n * 100).toFixed(1)}%` : '—';
 const num3 = (n: number | undefined) => n != null ? n.toFixed(3) : '—';
 
-export function MlModels() {
+export function MlModels({ embedded = false }: { embedded?: boolean }) {
   const { t } = useTranslation();
   const [models, setModels] = useState<ModelRow[] | null>(null);
   const [stats, setStats] = useState<LabelStats | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
 
   useEffect(() => {
@@ -45,11 +46,14 @@ export function MlModels() {
       if (!cancelled) {
         setModels(m.models as ModelRow[]);
         setStats(s);
+        setLoadError(null);
       }
-    }).catch(() => {
+    }).catch((err) => {
+      // Fehler ≠ „keine Modelle": ehrlich anzeigen statt leerem Zustand.
       if (!cancelled) {
         setModels([]);
         setStats(null);
+        setLoadError(err instanceof Error ? err.message : t('common.error'));
       }
     });
     return () => { cancelled = true; };
@@ -60,11 +64,32 @@ export function MlModels() {
 
   return (
     <div>
-      <PageHeader title={t('ml.title')} subtitle={t('ml.subtitle')} />
+      {!embedded && <PageHeader title={t('ml.title')} subtitle={t('ml.subtitle')} />}
+
+      {loadError && <ErrorBox message={`${t('ml.loadError')}: ${loadError}`} />}
+
+      {/* Label-Fortschritt, solange noch kein Training möglich ist (ehrliche Pipeline-Sicht) */}
+      {stats && stats.total < 30 && (
+        <Panel label={t('ml.labelProgressTitle')} stagger={1} className="mb-5">
+          <p className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+            {t('ml.labelProgress', { n: stats.total })}
+          </p>
+          <div className="mt-3 h-2 w-full max-w-sm overflow-hidden rounded" style={{ background: 'rgba(255,255,255,0.06)' }}>
+            <div
+              className="h-full rounded"
+              style={{
+                width: `${Math.min(100, (stats.total / 30) * 100)}%`,
+                background: 'linear-gradient(90deg, rgba(46,124,246,0.7), rgba(139,92,246,0.5))',
+              }}
+            />
+          </div>
+          <p className="label mt-2">{stats.total} / 30</p>
+        </Panel>
+      )}
 
       {/* Label Statistics */}
       {stats && stats.total > 0 && (
-        <Panel label={t('ml.labelStats')} stagger={1}>
+        <Panel label={t('ml.labelStats')} className="mb-5" stagger={1}>
           <div className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
             <div>
               <p className="label">{t('ml.total')}</p>

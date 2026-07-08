@@ -23,9 +23,7 @@ const Kalender = lazyView(() => import('./views/Kalender.js'), 'Kalender');
 const Agenten = lazyView(() => import('./views/Agenten.js'), 'Agenten');
 const Werkstatt = lazyView(() => import('./views/Werkstatt.js'), 'Werkstatt');
 const Strategien = lazyView(() => import('./views/Strategien.js'), 'Strategien');
-const MlModels = lazyView(() => import('./views/MlModels.js'), 'MlModels');
-const RlAgents = lazyView(() => import('./views/RlAgents.js'), 'RlAgents');
-const Performance = lazyView(() => import('./views/Performance.js'), 'Performance');
+const Intelligenz = lazyView(() => import('./views/Intelligenz.js'), 'Intelligenz');
 const Einstellungen = lazyView(() => import('./views/Einstellungen.js'), 'Einstellungen');
 const Profil = lazyView(() => import('./views/Profil.js'), 'Profil');
 
@@ -53,9 +51,11 @@ const ROUTES: Record<string, ComponentType> = {
   '#/agenten': Agenten,
   '#/werkstatt': Werkstatt,
   '#/strategien': Strategien,
-  '#/ml': MlModels,
-  '#/rl-agenten': RlAgents,
-  '#/performance': Performance,
+  '#/intelligenz': Intelligenz,
+  // Alt-Routen der drei Einzelseiten → Intelligenz-Hub (Bookmarks bleiben gültig)
+  '#/ml': () => <Redirect to="#/intelligenz?tab=ml" />,
+  '#/rl-agenten': () => <Redirect to="#/intelligenz?tab=rl" />,
+  '#/performance': () => <Redirect to="#/intelligenz?tab=performance" />,
   '#/einstellungen': Einstellungen,
   '#/profil': Profil,
 };

@@ -37,9 +37,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { hash: '#/strategien', key: 'nav.builder', icon: ico('M4 6h16M4 12h10M4 18h7m5-3l4 4m0-4l-4 4') },
       { hash: '#/werkstatt', key: 'nav.workshop', icon: ico('M14.7 6.3a4 4 0 00-5.4 5.3L3 18v3h3l6.9-6.9a4 4 0 005.3-5.4l-2.6 2.6-2.3-.6-.6-2.3z') },
       { hash: '#/agenten', key: 'nav.agents', icon: ico('M12 8a4 4 0 100-8 4 4 0 000 8zm-7 13a7 7 0 0114 0M2 21h20') },
-      { hash: '#/ml', key: 'nav.mlModels', icon: ico('M4 20V10l4-6h8l4 6v10M9 20v-6h6v6M2 10h20M12 4v6') },
-      { hash: '#/rl-agenten', key: 'nav.rlAgents', icon: ico('M12 2a4 4 0 014 4v1h3l1 4-4 2v3l3 4H5l3-4v-3L4 11l1-4h3V6a4 4 0 014-4z') },
-      { hash: '#/performance', key: 'nav.performance', icon: ico('M3 3v18h18M7 16l4-4 3 2 6-8') },
+      { hash: '#/intelligenz', key: 'nav.intelligence', icon: ico('M4 20V10l4-6h8l4 6v10M9 20v-6h6v6M2 10h20M12 4v6') },
     ],
   },
   {
@@ -215,7 +213,7 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
       <div className="min-w-0 flex-1">
         {/* Topbar */}
         <header
-          className="sticky top-0 z-30 flex items-center justify-between gap-4 border-b px-5 py-3"
+          className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b px-5 py-3"
           style={{ borderColor: 'var(--color-line)', background: 'rgba(5,7,22,0.6)', backdropFilter: 'blur(18px)' }}
         >
           <div className="flex items-center gap-3">

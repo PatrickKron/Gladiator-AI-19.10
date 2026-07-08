@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
-import { Loading, PageHeader, Panel } from '../components/ui.js';
+import { ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
 
 const pct = (v: number | null | undefined) => {
   if (v == null) return '—';
@@ -68,7 +68,7 @@ type ModelVersion = {
   createdAt: string;
 };
 
-export function Performance() {
+export function Performance({ embedded = false }: { embedded?: boolean }) {
   const { t } = useTranslation();
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [equity, setEquity] = useState<EquityPoint[] | null>(null);
@@ -76,6 +76,7 @@ export function Performance() {
   const [versions, setVersions] = useState<ModelVersion[] | null>(null);
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,10 +93,13 @@ export function Performance() {
       setRisk((r as { metrics: RiskMetrics | null }).metrics);
       setVersions((v as { versions: ModelVersion[] }).versions);
       setLoading(false);
-    }).catch(() => {
+      setLoadError(null);
+    }).catch((err) => {
+      // Fehler ≠ „keine Daten": ehrlich anzeigen statt leerem Zustand.
       if (!cancelled) {
         setDashboard(null);
         setLoading(false);
+        setLoadError(err instanceof Error ? err.message : t('common.error'));
       }
     });
     return () => { cancelled = true; };
@@ -105,38 +109,43 @@ export function Performance() {
   const neg = 'var(--color-neg)';
   const cyan = 'var(--color-cyan)';
 
+  const periodSwitch = (
+    <div className="flex gap-1">
+      {(['daily', 'weekly', 'monthly'] as const).map(p => (
+        <button
+          key={p}
+          onClick={() => setPeriod(p)}
+          className="rounded border px-3 py-1 text-xs transition-colors"
+          style={{
+            borderColor: p === period ? 'rgba(46,124,246,0.5)' : 'var(--color-line)',
+            color: p === period ? cyan : 'var(--color-mut)',
+          }}
+        >
+          {t(`perf.${p}` as const)}
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <div>
-      <PageHeader
-        title={t('perf.title')}
-        subtitle={t('perf.subtitle')}
-        right={
-          <div className="flex gap-1">
-            {(['daily', 'weekly', 'monthly'] as const).map(p => (
-              <button
-                key={p}
-                onClick={() => setPeriod(p)}
-                className="rounded border px-3 py-1 text-xs transition-colors"
-                style={{
-                  borderColor: p === period ? 'rgba(46,124,246,0.5)' : 'var(--color-line)',
-                  color: p === period ? cyan : 'var(--color-mut)',
-                }}
-              >
-                {t(`perf.${p}` as const)}
-              </button>
-            ))}
-          </div>
-        }
-      />
+      {embedded ? (
+        <div className="mb-4 flex justify-end">{periodSwitch}</div>
+      ) : (
+        <PageHeader title={t('perf.title')} subtitle={t('perf.subtitle')} right={periodSwitch} />
+      )}
+
+      {loadError && <ErrorBox message={`${t('perf.loadError')}: ${loadError}`} />}
 
       {loading ? <Loading /> : !dashboard?.metrics ? (
         <Panel label="" stagger={1}>
-          <p className="text-sm" style={{ color: 'var(--color-mut)' }}>{t('perf.noData')}</p>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--color-mut)' }}>{t('perf.noData')}</p>
+          <p className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--color-mut)' }}>{t('perf.noDataHint')}</p>
         </Panel>
       ) : (
         <>
           {/* Key Metrics Grid */}
-          <Panel label={t('perf.metricsTitle')} stagger={1}>
+          <Panel label={t('perf.metricsTitle')} className="mb-5" stagger={1}>
             <div className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3 lg:grid-cols-5">
               <div>
                 <p className="label">{t('perf.totalReturn')}</p>
@@ -191,7 +200,7 @@ export function Performance() {
 
           {/* Equity Curve (text-based sparkline) */}
           {equity && equity.length > 0 && (
-            <Panel label={t('perf.equityTitle')} stagger={2}>
+            <Panel label={t('perf.equityTitle')} className="mb-5" stagger={2}>
               <div className="overflow-x-auto">
                 <div className="flex items-end gap-px" style={{ height: 80, minWidth: equity.length * 6 }}>
                   {(() => {
@@ -226,7 +235,7 @@ export function Performance() {
 
           {/* Risk Metrics */}
           {risk && (
-            <Panel label={t('perf.riskTitle')} stagger={3}>
+            <Panel label={t('perf.riskTitle')} className="mb-5" stagger={3}>
               <div className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
                 <div>
                   <p className="label">{t('perf.var95')}</p>
@@ -264,7 +273,7 @@ export function Performance() {
 
           {/* Monthly Returns Heatmap */}
           {dashboard.timeSeries && dashboard.timeSeries.length > 0 && (
-            <Panel label={t('perf.returnsTitle')} stagger={4}>
+            <Panel label={t('perf.returnsTitle')} className="mb-5" stagger={4}>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
