@@ -206,6 +206,12 @@ Interaktiver Strategie-Workshop: (1) Pine-Script-Eingabe + KI-Analyse (Indikator
 
 ---
 
+# NACHTRAG Session 6 (gleicher Abend) — Auto-Login: nie mehr Login-Formular
+
+Patrick war erneut ausgeloggt. **Wurzelursache:** Reuse-Detection der Token-Rotation revoked bei jedem verdächtigen Refresh ALLE Sessions des Users (schlafender Tab, zweiter Browser oder eine Test-Session reicht). **Fix (Commit 5c72e20):** `auth.autoLogin` (nur aktiv mit `AUTO_LOGIN_EMAIL` in `.env` — gesetzt auf admin@gladiator-ai.com; App ist nur im privaten Tailnet erreichbar, Abwägung dokumentiert im Code) + Frontend fällt bei totem Refresh still auf Auto-Login zurück; explizites „Abmelden" setzt ein Flag und wird respektiert. Token-Mechanik (Rotation/Reuse-Detection/Audit) UNVERÄNDERT. **Passwort auf Patricks Wunsch auf `123` gesetzt** (direktes bcrypt-Update in der DB; Login-Zod erlaubt ≥1 Zeichen, nur register verlangt 10+). E2E im echten Chrome: localStorage geleert → Reload → OHNE Formular drin ✓ · Abmelden → Formular bleibt ✓ · Login mit `123` ✓. Serverseitige Änderung: `AUTO_LOGIN_EMAIL` in `/opt/gladiator-v2/app/.env`.
+
+---
+
 # SESSION 6 — „Alles echt"-Sweep: Preise für ALLE 221 Assets, Demo auffindbar, Agenten-Einstieg, Auto-Sync sichtbar, ML-Label-Bug
 
 **Start:** 2026-07-08 · **Session 6:** Fable-5 · Auftrag Patrick: (1) Demo-Modus unauffindbar, (2) keine Preise für Assets in Paketen, (3) COT/CPI/Buffett „nicht automatisch", (4) Agenten-Erstellung „funktioniert nicht", (5) alles Leere/Fake → echte Daten, APIs reverse-engineeren.
