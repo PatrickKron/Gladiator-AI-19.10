@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { publicProcedure, protectedProcedure, router } from '../trpc.js';
-import { AuthError, login, logout, refresh, register } from '../auth/service.js';
+import { AuthError, autoLogin, login, logout, refresh, register } from '../auth/service.js';
 
 function mapAuthError(err: unknown): never {
   if (err instanceof AuthError) {
@@ -41,6 +41,22 @@ export const authRouter = router({
         mapAuthError(err);
       }
     }),
+
+  /**
+   * Auto-Login (Einzelnutzer im privaten Tailnet): aktiv NUR wenn
+   * AUTO_LOGIN_EMAIL gesetzt ist — sonst 412 und das normale Formular gilt.
+   */
+  autoLogin: publicProcedure.mutation(async ({ ctx }) => {
+    const email = process.env.AUTO_LOGIN_EMAIL?.trim();
+    if (!email) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Auto-Login ist nicht konfiguriert (AUTO_LOGIN_EMAIL).' });
+    }
+    try {
+      return await autoLogin(ctx.db, email, { userAgent: ctx.userAgent, ip: ctx.ip });
+    } catch (err) {
+      mapAuthError(err);
+    }
+  }),
 
   refresh: publicProcedure
     .input(z.object({ refreshToken: z.string().min(1) }))

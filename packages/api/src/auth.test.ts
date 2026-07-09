@@ -116,6 +116,43 @@ describe.skipIf(!hasDb)('Auth (JWT + Refresh, ein User-Typ)', () => {
     await expect(caller.auth.refresh({ refreshToken })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
   });
 
+  it('autoLogin: ohne AUTO_LOGIN_EMAIL → PRECONDITION_FAILED (Endpoint tot)', async () => {
+    const saved = process.env.AUTO_LOGIN_EMAIL;
+    delete process.env.AUTO_LOGIN_EMAIL;
+    try {
+      await expect((await callerFor()).auth.autoLogin()).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+    } finally {
+      if (saved !== undefined) process.env.AUTO_LOGIN_EMAIL = saved;
+    }
+  });
+
+  it('autoLogin: mit AUTO_LOGIN_EMAIL → volle Session ohne Passwort, auditiert; unbekannte E-Mail → UNAUTHORIZED', async () => {
+    const saved = process.env.AUTO_LOGIN_EMAIL;
+    const caller = await callerFor();
+    await caller.auth.register({ email: email('auto'), password: PASSWORD });
+    try {
+      process.env.AUTO_LOGIN_EMAIL = email('auto');
+      const res = await caller.auth.autoLogin();
+      expect(res.user.email).toBe(email('auto'));
+      expect(res.accessToken).toBeTruthy();
+      // Session ist eine GANZ NORMALE Session: me + refresh funktionieren
+      const me = await (await callerFor(`Bearer ${res.accessToken}`)).auth.me();
+      expect(me.email).toBe(email('auto'));
+      const rotated = await caller.auth.refresh({ refreshToken: res.refreshToken });
+      expect(rotated.refreshToken).not.toBe(res.refreshToken);
+      const audit = await db.execute(
+        sql`SELECT action FROM audit_log WHERE user_id = ${res.user.id} ORDER BY id`,
+      );
+      expect(audit.rows.map((r) => r.action)).toContain('auth.autologin');
+
+      process.env.AUTO_LOGIN_EMAIL = email('auto-gibtsnicht');
+      await expect(caller.auth.autoLogin()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    } finally {
+      if (saved !== undefined) process.env.AUTO_LOGIN_EMAIL = saved;
+      else delete process.env.AUTO_LOGIN_EMAIL;
+    }
+  });
+
   it('v1-Kompatibilität: bestehender bcrypt-Hash (bcryptjs) funktioniert beim Login', async () => {
     // Simuliert einen aus v1 portierten User: Hash direkt in DB, Login über v2-Service.
     const legacyHash = bcrypt.hashSync('mein-altes-v1-passwort', 10);

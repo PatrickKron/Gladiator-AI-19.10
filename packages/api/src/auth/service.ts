@@ -139,6 +139,27 @@ export async function refresh(db: Db, refreshToken: string, meta: RequestMeta = 
   return createSession(db, user.id, user.email, meta);
 }
 
+/**
+ * Auto-Login für den Einzelnutzer-Betrieb (AUTO_LOGIN_EMAIL): gibt eine ganz
+ * normale Session für den konfigurierten User aus — OHNE Passwortabfrage.
+ *
+ * Sicherheits-Abwägung (Patrick, 2026-07-08): Die App ist ausschließlich über
+ * das private Tailnet erreichbar (Bind auf 127.0.0.1 + Tailscale-IP); wer im
+ * Tailnet ist, IST Patrick. Die Token-Mechanik (Rotation, Reuse-Detection,
+ * Audit) bleibt vollständig aktiv — nur die Passwort-Hürde entfällt. Ohne
+ * gesetzte Env bleibt der Endpoint tot (412 im Router).
+ */
+export async function autoLogin(db: Db, email: string, meta: RequestMeta = {}): Promise<{ user: PublicUser } & TokenPair> {
+  const normalized = email.trim().toLowerCase();
+  const [user] = await db.select().from(users).where(eq(users.email, normalized)).limit(1);
+  if (!user) throw new AuthError('INVALID_CREDENTIALS', 'Auto-Login-User existiert nicht.');
+
+  await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, user.id));
+  await audit(db, 'auth.autologin', user.id, meta);
+  const tokens = await createSession(db, user.id, user.email, meta);
+  return { user: toPublicUser(user), ...tokens };
+}
+
 export async function logout(db: Db, refreshToken: string, meta: RequestMeta = {}): Promise<void> {
   const tokenHash = hashRefreshToken(refreshToken);
   const [session] = await db

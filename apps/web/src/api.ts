@@ -4,6 +4,8 @@ import type { AppRouter } from '@gladiator/api';
 import { refreshWithConflictResolution, webLock, type RefreshOutcome } from './lib/session-refresh.js';
 
 const REFRESH_KEY = 'gladiator.refreshToken';
+/** Gesetzt nach EXPLIZITEM Abmelden — unterdrückt den Auto-Login bis zum nächsten manuellen Login. */
+const LOGGED_OUT_KEY = 'gladiator.loggedOut';
 
 let accessToken: string | null = null;
 let refreshTimer: number | null = null;
@@ -78,7 +80,24 @@ function setSession(tokens: { accessToken: string; refreshToken: string } | null
 
 export async function login(email: string, password: string): Promise<void> {
   const res = await trpc.auth.login.mutate({ email, password });
+  localStorage.removeItem(LOGGED_OUT_KEY);
   setSession({ accessToken: res.accessToken, refreshToken: res.refreshToken });
+}
+
+/**
+ * Auto-Login (Einzelnutzer im Tailnet): serverseitig nur aktiv, wenn
+ * AUTO_LOGIN_EMAIL gesetzt ist. Nach explizitem Abmelden unterdrückt,
+ * bis wieder manuell eingeloggt wurde.
+ */
+export async function tryAutoLogin(): Promise<boolean> {
+  if (localStorage.getItem(LOGGED_OUT_KEY) === '1') return false;
+  try {
+    const res = await trpc.auth.autoLogin.mutate();
+    setSession({ accessToken: res.accessToken, refreshToken: res.refreshToken });
+    return true;
+  } catch {
+    return false; // nicht konfiguriert oder Server nicht erreichbar → Formular
+  }
 }
 
 const refreshLock = webLock('gladiator.session-refresh');
@@ -91,6 +110,9 @@ export async function refreshSession(): Promise<RefreshOutcome> {
     isAuthError: isUnauthorized,
     lock: refreshLock,
   });
+  // Refresh endgültig tot (kein Token gespeichert ODER Reuse-Detection hat
+  // alle Sessions revoked) → Auto-Login fängt es ab, statt zum Formular zu werfen.
+  if (outcome === 'dead' && (await tryAutoLogin())) return 'ok';
   // Bei transienten Fehlern läuft der Timer weiter und versucht es erneut;
   // die bestehende Session (Access-Token bis zu 15 min gültig) bleibt nutzbar.
   return outcome;
@@ -105,6 +127,7 @@ export async function logout(): Promise<void> {
       // Logout ist idempotent — lokale Session wird in jedem Fall entsorgt.
     }
   }
+  localStorage.setItem(LOGGED_OUT_KEY, '1'); // explizit abgemeldet → kein Auto-Login
   setSession(null);
 }
 
