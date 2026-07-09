@@ -7,8 +7,11 @@ import { PlexusHero } from '../components/PlexusHero.js';
 import { SignalCard, type SignalRow } from '../components/SignalCard.js';
 import { Empty, ErrorBox, Loading, Panel, StatusDot } from '../components/ui.js';
 import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
+import { AddMarketPicker } from '../components/AddMarketPicker.js';
 import { FavStar, FavStarSymbol } from '../components/FavStar.js';
 import { getLatest, onTick, type TickWithDirection } from '../lib/prices.js';
+import { setDemoMode } from '../lib/demo-mode.js';
+import { setPendingTradeSymbol } from '../lib/trade-symbol.js';
 import { buildChartUrl } from '../lib/chart-url.js';
 import { loadTf } from '../lib/chart-tf.js';
 import { feedSymbol } from '../lib/pairs.js';
@@ -352,6 +355,23 @@ function QuoteFavCard({ fav, quote, stagger, onRemoved }: { fav: QuoteFav; quote
           <p className="label mt-3">{t('dashboard.quoteSource')}</p>
         </>
       )}
+      {/* Ehrlich deaktiviert: Demo-Fills laufen gegen ECHTE Binance-Orderbücher — die gibt
+          es nur für Krypto. Tooltip auf dem Wrapper, weil deaktivierte Buttons nicht überall
+          hovern; die sichtbare Kurzzeile deckt Mobile ab (dort gibt es keine Tooltips). */}
+      <span className="mt-4 block cursor-not-allowed" title={t('dashboard.tradeCryptoOnly')}>
+        <button
+          disabled
+          aria-disabled="true"
+          title={t('dashboard.tradeCryptoOnly')}
+          className="w-full rounded-[0.625rem] border px-3 py-2 text-sm opacity-50"
+          style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
+        >
+          {t('dashboard.trade')}
+        </button>
+        <span className="mt-1.5 block text-center text-xs" style={{ color: 'var(--color-mut)' }}>
+          {t('dashboard.tradeCryptoOnlyShort')}
+        </span>
+      </span>
     </div>
   );
 }
@@ -446,6 +466,23 @@ function WatchCard({ symbol, isFavorite, closes, stagger, onRemoved }: { symbol:
         <Sparkline closes={closes} id={`spark-${short}`} />
         <p className="label mt-2">{t('dashboard.candles72h')}</p>
       </div>
+      {/* „Traden“ (Patrick: Favoriten sollen direkt tradebar sein): Die Karte bleibt
+          Chart-Link — der Button fängt den Klick ab (stopPropagation + preventDefault,
+          sonst navigiert das umschließende <a> zum Chart), schaltet den Demo-Modus ein
+          und übergibt das Symbol ans Demo-Ticket (echtes Binance-Orderbuch, 100k virtuell). */}
+      <button
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setPendingTradeSymbol(symbol);
+          setDemoMode(true);
+          window.location.hash = '#/trading';
+        }}
+        className="btn-primary mt-4 w-full px-3 py-2 text-sm"
+        title={t('dashboard.tradeTooltip', { symbol })}
+      >
+        {t('dashboard.trade')}
+      </button>
     </a>
   );
 }
@@ -460,6 +497,7 @@ export function Dashboard() {
   const [watchIsFav, setWatchIsFav] = useState(false);
   const [quoteFavs, setQuoteFavs] = useState<QuoteFav[]>([]);
   const [favQuotes, setFavQuotes] = useState<Record<string, FavQuote>>({});
+  const [addOpen, setAddOpen] = useState(false); // Inline-Picker „+ Markt hinzufügen"
   const [uiMode, setUiModeState] = useState<UiMode>(() => getUiMode());
 
   useEffect(() => onUiModeChange(() => setUiModeState(getUiMode())), []);
@@ -605,8 +643,24 @@ export function Dashboard() {
       {/* Heute-Hero: Gesamtvermögen (Demo + Paper) — die EINE große Zahl */}
       <HeroWealth account={account} />
 
-      {/* Watchlist — „Meine Märkte": Favoriten des Users (Fallback BTC/ETH/SOL), klickbar in den Chart */}
-      <p className="label mb-3">{t('dashboard.myMarketsTitle')}</p>
+      {/* Watchlist — „Meine Märkte": Favoriten des Users (Fallback BTC/ETH/SOL), klickbar in den Chart.
+          „+ Markt hinzufügen" (Patrick: „krieg ich nicht rein"): öffnet den Inline-Picker über alle Assets. */}
+      <div className="relative mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="label">{t('dashboard.myMarketsTitle')}</p>
+        <button
+          onClick={() => setAddOpen((o) => !o)}
+          aria-expanded={addOpen}
+          className="rounded-[0.625rem] border px-3 py-1.5 text-xs transition-colors"
+          style={{ borderColor: 'rgba(79,209,255,0.45)', color: 'var(--color-cyan)' }}
+        >
+          + {t('dashboard.addMarket')}
+        </button>
+      </div>
+      {addOpen && (
+        <div className="relative">
+          <AddMarketPicker onClose={() => setAddOpen(false)} onChanged={() => void loadWatch()} />
+        </div>
+      )}
       <section
         className={`relative grid gap-5 ${
           watch.length >= 4 ? 'md:grid-cols-2 xl:grid-cols-4' : watch.length === 3 ? 'md:grid-cols-3' : 'sm:grid-cols-2'

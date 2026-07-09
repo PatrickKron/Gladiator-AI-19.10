@@ -27,6 +27,7 @@ import {
 } from '@gladiator/market-data';
 import { noTradeWindowFor } from '@gladiator/risk';
 import { scanUniverse } from '@gladiator/jobs';
+import { CostGuard, envAnthropicProvider, guardedComplete } from '@gladiator/agents';
 import {
   atr,
   bollinger,
@@ -45,6 +46,23 @@ import { protectedProcedure, router } from '../trpc.js';
  * existieren (siehe availableTimeframes).
  */
 const timeframeEnum = z.enum(SUPPORTED_TIMEFRAMES);
+
+/**
+ * Kosten-Wächter für die News-Zusammenfassung — gleiche Budget-Logik wie im
+ * Workshop (LLM_DAILY_BUDGET_USD, Default 5 USD/Tag). WARUM eigener Guard:
+ * jede Router-Datei hält ihren eigenen In-Memory-Wächter (siehe strategies.ts),
+ * das Budget gilt pro Prozess und Tag als weiche Obergrenze.
+ */
+const newsLlmGuard = new CostGuard({ dailyBudgetUsd: Number(process.env.LLM_DAILY_BUDGET_USD ?? 5) });
+
+/** Anzeigenamen für die Antwortsprache der News-Zusammenfassung (B6-Sprachen). */
+const SUMMARY_LANGUAGES: Record<string, string> = {
+  de: 'Deutsch',
+  en: 'English',
+  it: 'Italiano',
+  es: 'Español',
+  fr: 'Français',
+};
 
 /** Indikator-Serie (index-basiert) → zeitgestempelte, null-freie Punkte für den Chart. */
 function toTimed(times: number[], values: (number | null)[]): { time: number; value: number }[] {
@@ -232,6 +250,76 @@ export const marketRouter = router({
   news: protectedProcedure
     .input(z.object({ limit: z.number().int().min(1).max(100).default(30) }))
     .query(({ ctx, input }) => latestNews(ctx.db, input.limit)),
+
+  /**
+   * KI-Kurzzusammenfassung der Favoriten-News (Magazin „Für meine Märkte").
+   * Der Client schickt die ECHTEN, bereits den Favoriten zugeordneten
+   * RSS-Schlagzeilen — das LLM kennt nur diese Titel und darf nichts erfinden
+   * (keine Kurse, keine Fakten außerhalb der Schlagzeilen). Ohne
+   * ANTHROPIC_API_KEY gibt es einen ehrlichen PRECONDITION_FAILED statt eines
+   * Fake-Summaries; der Budget-Wächter deckelt die Tageskosten.
+   */
+  newsSummarize: protectedProcedure
+    .input(
+      z.object({
+        items: z
+          .array(
+            z.object({
+              title: z.string().min(3).max(400),
+              source: z.string().min(1).max(60),
+              publishedAt: z.string().datetime(),
+              /** Ticker der Favoriten, die diese Schlagzeile getroffen hat (Wortabgleich im Client). */
+              favorites: z.array(z.string().min(1).max(20)).min(1).max(10),
+            }),
+          )
+          .min(1)
+          .max(24),
+        language: z.string().min(2).max(5).default('de'),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const provider = envAnthropicProvider();
+      if (!provider.configured) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message:
+            'Kein ANTHROPIC_API_KEY hinterlegt — die KI-Zusammenfassung braucht ihn. In Einstellungen → API-Schlüssel eintragen; die Favoriten-Zuordnung der News funktioniert auch ohne.',
+        });
+      }
+
+      const language = SUMMARY_LANGUAGES[input.language] ?? 'Deutsch';
+      const lines = input.items.map(
+        (i) => `- [${i.favorites.join(', ')}] (${i.source}, ${i.publishedAt.slice(0, 16)}) ${i.title}`,
+      );
+      const completion = await guardedComplete(provider, newsLlmGuard, {
+        system: [
+          'Du fasst für einen Trader die wichtigsten News zu seinen Favoriten-Märkten zusammen.',
+          'Du kennst AUSSCHLIESSLICH die gelieferten RSS-Schlagzeilen — NICHT die Artikel dahinter.',
+          'Erfinde nichts: keine Kurse, keine Zahlen, keine Fakten, die nicht wörtlich in den Schlagzeilen stehen.',
+          'Wenn die Schlagzeilen für eine Aussage nicht reichen, sag das ehrlich, statt zu spekulieren.',
+          'Gliedere nach den Tickern in eckigen Klammern (wichtigster Markt zuerst), je Markt 1-3 kurze Sätze.',
+          'Keine Anlageberatung, keine Kauf-/Verkaufsempfehlung. Maximal ~150 Wörter, reiner Fließtext ohne Markdown-Tabellen.',
+          `Antworte auf ${language}.`,
+        ].join('\n'),
+        prompt: `Aktuelle Schlagzeilen zu den Favoriten (Format: [Ticker] (Quelle, Zeit) Titel):\n\n${lines.join('\n')}`,
+        maxTokens: 1200,
+      });
+
+      await ctx.db.insert(schema.auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: 'market.news.summarized',
+        entityType: 'news',
+        details: {
+          items: input.items.length,
+          favorites: [...new Set(input.items.flatMap((i) => i.favorites))],
+          costUsd: completion.costUsd,
+        },
+        ip: ctx.ip,
+      });
+
+      return { summary: completion.text.trim(), costUsd: completion.costUsd };
+    }),
 
   /** Aktien-/ETF-Quotes (Yahoo, 5-min-Cache). Unbekannt ⇒ null (ehrlich kein Kurs). */
   stockQuotes: protectedProcedure

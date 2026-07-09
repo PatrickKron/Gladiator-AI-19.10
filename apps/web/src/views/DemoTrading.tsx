@@ -4,6 +4,7 @@ import { trpc } from '../api.js';
 import { AssetSelect } from '../components/AssetSelect.js';
 import { EquityChart, MetricCard, fmt } from '../components/EquityChart.js';
 import { Empty, ErrorBox, Loading, Panel } from '../components/ui.js';
+import { clearPendingTradeSymbol, peekPendingTradeSymbol } from '../lib/trade-symbol.js';
 
 /**
  * Demo-Trading (Session 5): manuelles Üben mit virtuellem Guthaben (100k),
@@ -202,7 +203,13 @@ export function DemoTrading() {
 /** Order-Ticket mit LIVE-Kosten-Vorschau aus dem echten Orderbuch. */
 function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
   const { t } = useTranslation();
-  const [symbol, setSymbol] = useState('BTC/USDT');
+  // Vorbelegung vom Dashboard-„Traden"-Button: peek (pur) im Initialisierer,
+  // clear erst im Effect — StrictMode ruft Initialisierer doppelt auf, ein
+  // „lesen+löschen" in einem Schritt würde die Übergabe im Dev-Modus verlieren.
+  const [symbol, setSymbol] = useState(() => peekPendingTradeSymbol() ?? 'BTC/USDT');
+  useEffect(() => {
+    clearPendingTradeSymbol();
+  }, []);
   const [direction, setDirection] = useState<'long' | 'short'>('long');
   const [type, setType] = useState<'market' | 'limit'>('market');
   const [qty, setQty] = useState('');

@@ -13,6 +13,19 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { loadTf, pickTf, saveTf } from '../lib/chart-tf.js';
 import { CHART_TFS, type ChartTf } from '../lib/chart-url.js';
+import {
+  bollinger as calcBollinger,
+  ema as calcEma,
+  macd as calcMacd,
+  rsi as calcRsi,
+  sma as calcSma,
+  loadIndicatorConfig,
+  MA_COLORS,
+  saveIndicatorConfig,
+  toTimedSeries,
+  type IndicatorConfig,
+} from '../lib/indicators.js';
+import { ChartIndicatorPanel, type PineStrategy } from './ChartIndicatorPanel.js';
 
 /**
  * Voll-Chart mit Indikatoren (Krypto-Charting):
@@ -56,7 +69,12 @@ type SignalMarker = {
   direction: 'long' | 'short';
   setupType: string;
   status: 'new' | 'confirmed' | 'rejected' | 'expired' | 'filled' | 'closed';
+  /** Slug der erzeugenden Strategie — Grundlage für die Strategie-Marker (Pine/DSL). */
+  strategySlug: string;
 };
+
+/** Zeitgestempelte Chart-Serie (Form der Server-Serien aus market.chartData). */
+type TimedSeries = { time: number; value: number }[];
 
 /** Farbe je Signal-Status (Feature 2): offen/bestätigt/gefüllt/geschlossen/abgelehnt. */
 const SIGNAL_STATUS_COLOR: Record<SignalMarker['status'], string> = {
@@ -181,10 +199,53 @@ export function AssetChart({
   const [signals, setSignals] = useState<SignalMarker[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'empty'>('loading');
 
+  // Eigene Indikatoren (Patrick): Konfiguration pro Symbol in localStorage
+  // ('gladiator.chartIndicators.<symbol>'), Panel auf-/zuklappbar.
+  const [indCfg, setIndCfg] = useState<IndicatorConfig>(() => loadIndicatorConfig(symbol));
+  const [showIndPanel, setShowIndPanel] = useState(false);
+  const firstCfgRender = useRef(true);
+  useEffect(() => {
+    // Beim Mount hat der useState-Initializer schon geladen — nur bei echtem
+    // Symbolwechsel neu laden (sonst unnötiger Chart-Neubau direkt nach Start).
+    if (firstCfgRender.current) {
+      firstCfgRender.current = false;
+      return;
+    }
+    setIndCfg(loadIndicatorConfig(symbol));
+  }, [symbol]);
+  const updateIndCfg = (next: IndicatorConfig) => {
+    setIndCfg(next);
+    saveIndicatorConfig(symbol, next);
+  };
+
+  // Pine-/DSL-Strategien für die Strategie-Marker (einmal laden; 'error' = ehrlich).
+  const [pineStrategies, setPineStrategies] = useState<PineStrategy[] | 'error' | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void trpc.strategies.list
+      .query()
+      .then((rows) => {
+        if (cancelled) return;
+        setPineStrategies(
+          rows
+            .filter((r) => r.kind === 'pine' || r.kind === 'dsl')
+            .map((r) => ({ slug: r.slug, name: r.name, kind: r.kind as 'pine' | 'dsl' })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setPineStrategies('error');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const priceRef = useRef<HTMLDivElement>(null);
   const rsiRef = useRef<HTMLDivElement>(null);
   const macdRef = useRef<HTMLDivElement>(null);
   const atrRef = useRef<HTMLDivElement>(null);
+  const custRsiRef = useRef<HTMLDivElement>(null);
+  const custMacdRef = useRef<HTMLDivElement>(null);
   const legendRef = useRef<HTMLDivElement>(null);
 
   // Daten laden (Symbol/TF) — echte Kerzen + alle Indikatorserien
@@ -224,6 +285,7 @@ export function AssetChart({
               direction: r.direction,
               setupType: r.setupType,
               status: r.status,
+              strategySlug: r.strategySlug,
             })),
           );
         }
@@ -237,6 +299,102 @@ export function AssetChart({
   }, [symbol]);
 
   const activeZones = useMemo(() => (data?.zones ?? []).filter((z) => z.active).slice(0, 6), [data]);
+
+  /**
+   * Eigene Indikator-Serien aus der Panel-Konfiguration. WARUM so: wo die
+   * Periode den Server-Defaults entspricht (EMA 20/50/200, RSI 14, MACD 12/26/9,
+   * Bollinger 20/2), wird die Server-Serie WIEDERVERWENDET (eine Wahrheit, exakt
+   * die Zahlen der Signal-Engine); alle anderen Perioden rechnet der Browser mit
+   * identischer Mathematik (lib/indicators.ts) auf denselben Kerzen.
+   */
+  const customSeries = useMemo(() => {
+    if (!data) return null;
+    const times = data.candles.map((c) => c.time);
+    const closes = data.candles.map((c) => c.close);
+
+    const mas = indCfg.mas.map((m, i) => {
+      const server =
+        m.kind === 'ema'
+          ? m.period === 20
+            ? data.ema.e20
+            : m.period === 50
+              ? data.ema.e50
+              : m.period === 200
+                ? data.ema.e200
+                : null
+          : null;
+      return {
+        label: `${m.kind.toUpperCase()} ${m.period}`,
+        color: MA_COLORS[i % MA_COLORS.length]!,
+        points: server ?? toTimedSeries(times, (m.kind === 'ema' ? calcEma : calcSma)(closes, m.period)),
+      };
+    });
+
+    const rsiSeries: TimedSeries | null = indCfg.rsi.on
+      ? indCfg.rsi.period === 14
+        ? data.rsi
+        : toTimedSeries(times, calcRsi(closes, indCfg.rsi.period))
+      : null;
+
+    let macdSeries: { line: TimedSeries; signal: TimedSeries; histogram: { time: number; value: number; color: string }[] } | null = null;
+    if (indCfg.macd.on) {
+      const { fast, slow, signal } = indCfg.macd;
+      if (fast === 12 && slow === 26 && signal === 9) {
+        macdSeries = data.macd;
+      } else {
+        const m = calcMacd(closes, fast, slow, signal);
+        macdSeries = {
+          line: toTimedSeries(times, m.macd),
+          signal: toTimedSeries(times, m.signal),
+          // Histogramm-Färbung wie die Server-Serie (grün ≥ 0, rot < 0)
+          histogram: m.histogram
+            .map((v, i) => (v != null && Number.isFinite(v) ? { time: times[i]!, value: v, color: v >= 0 ? '#3ddc97' : '#ff5c6c' } : null))
+            .filter((x): x is { time: number; value: number; color: string } => x !== null),
+        };
+      }
+    }
+
+    let bollSeries: { upper: TimedSeries; middle: TimedSeries; lower: TimedSeries } | null = null;
+    if (indCfg.bollinger.on) {
+      if (indCfg.bollinger.period === 20 && indCfg.bollinger.mult === 2) {
+        bollSeries = data.bollinger;
+      } else {
+        const b = calcBollinger(closes, indCfg.bollinger.period, indCfg.bollinger.mult);
+        bollSeries = {
+          upper: toTimedSeries(times, b.upper),
+          middle: toTimedSeries(times, b.middle),
+          lower: toTimedSeries(times, b.lower),
+        };
+      }
+    }
+
+    return { mas, rsi: rsiSeries, macd: macdSeries, bollinger: bollSeries };
+  }, [data, indCfg]);
+
+  /** Signale der im Panel gewählten Pine-/DSL-Strategien (für Entry-Marker). */
+  const strategySignals = useMemo(
+    () => (indCfg.strategySlugs.length === 0 ? [] : signals.filter((s) => indCfg.strategySlugs.includes(s.strategySlug))),
+    [signals, indCfg.strategySlugs],
+  );
+
+  /** Anzahl aktiver eigener Elemente — für die Zahl am Panel-Knopf. */
+  const activeCustomCount =
+    indCfg.mas.length +
+    (indCfg.rsi.on ? 1 : 0) +
+    (indCfg.macd.on ? 1 : 0) +
+    (indCfg.bollinger.on ? 1 : 0) +
+    indCfg.strategySlugs.length;
+
+  /** Ehrlicher Hinweis: aktive eigene Serien, die (noch) keine Werte haben (Periode > geladene Kerzen). */
+  const emptyCustomLabels = useMemo(() => {
+    if (!customSeries) return [] as string[];
+    const out: string[] = [];
+    for (const m of customSeries.mas) if (m.points.length === 0) out.push(m.label);
+    if (customSeries.rsi && customSeries.rsi.length === 0) out.push(`RSI ${indCfg.rsi.period}`);
+    if (customSeries.macd && customSeries.macd.signal.length === 0) out.push(`MACD ${indCfg.macd.fast}/${indCfg.macd.slow}/${indCfg.macd.signal}`);
+    if (customSeries.bollinger && customSeries.bollinger.middle.length === 0) out.push(`Bollinger ${indCfg.bollinger.period}`);
+    return out;
+  }, [customSeries, indCfg]);
 
   /**
    * Indikator-Warmup (Patrick: „ab welcher Kerze läuft ein Indikator wirklich"):
@@ -258,8 +416,15 @@ export function AssetChart({
     add(toggles.rsi, 'RSI', data.rsi);
     add(toggles.macd, 'MACD', data.macd.signal);
     add(toggles.atr, 'ATR', data.atr);
+    // Eigene Indikatoren aus dem Panel — auch für sie gilt der ehrliche Warmup.
+    if (customSeries) {
+      for (const m of customSeries.mas) add(true, m.label, m.points);
+      add(customSeries.rsi != null, `RSI ${indCfg.rsi.period}`, customSeries.rsi ?? []);
+      add(customSeries.macd != null, `MACD ${indCfg.macd.fast}/${indCfg.macd.slow}/${indCfg.macd.signal}`, customSeries.macd?.signal ?? []);
+      add(customSeries.bollinger != null, `BB ${indCfg.bollinger.period}`, customSeries.bollinger?.middle ?? []);
+    }
     return items.sort((a, b) => a.bar - b.bar);
-  }, [data, toggles]);
+  }, [data, toggles, customSeries, indCfg]);
 
   // Charts (neu)bauen bei Daten- oder Toggle-Änderung
   useEffect(() => {
@@ -313,6 +478,41 @@ export function AssetChart({
       addBand(data.bollinger.lower, LineStyle.Dotted);
     }
 
+    // ── Eigene Indikatoren (Panel): frei gewählte EMA/SMA + eigenes Bollinger ──
+    // Eigene Linien bewusst kräftiger (lineWidth 2) und mit Achsen-Label,
+    // damit Patrick SEINE Linien sofort von den Standard-EMAs unterscheidet.
+    if (customSeries) {
+      for (const m of customSeries.mas) {
+        if (m.points.length === 0) continue;
+        const s = price.addLineSeries({
+          color: m.color,
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: true,
+          crosshairMarkerVisible: false,
+          title: m.label,
+        });
+        s.setData(m.points as never);
+      }
+      if (customSeries.bollinger) {
+        const addCustomBand = (pts: { time: number; value: number }[], style: LineStyle) => {
+          if (pts.length === 0) return;
+          const s = price.addLineSeries({
+            color: 'rgba(139,92,246,0.5)', // violett — unterscheidbar vom grauen Standard-Bollinger
+            lineWidth: 1,
+            lineStyle: style,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false,
+          });
+          s.setData(pts as never);
+        };
+        addCustomBand(customSeries.bollinger.upper, LineStyle.Dotted);
+        addCustomBand(customSeries.bollinger.middle, LineStyle.Dashed);
+        addCustomBand(customSeries.bollinger.lower, LineStyle.Dotted);
+      }
+    }
+
     // Marker: Smart-Money-Struktur (BOS/CHoCH) + Signale (Feature 2) auf EINER
     // Serie zusammengeführt (setMarkers ersetzt sonst die jeweils anderen).
     const markers: SeriesMarker<Time>[] = [];
@@ -327,10 +527,14 @@ export function AssetChart({
         });
       }
     }
+    const selectedSlugs = new Set(indCfg.strategySlugs);
     if (toggles.signals && signals.length > 0 && data.candles.length > 0) {
       const first = data.candles[0]!.time as number;
       const last = data.candles[data.candles.length - 1]!.time as number;
       for (const s of signals) {
+        // Signale gewählter Strategien bekommen unten einen eigenen, aussage-
+        // kräftigeren Strategie-Marker — Doppel-Marker auf derselben Kerze vermeiden.
+        if (selectedSlugs.has(s.strategySlug)) continue;
         const sec = Math.floor(new Date(s.createdAt).getTime() / 1000);
         if (sec < first || sec > last) continue; // außerhalb des Fensters → kein Marker
         const long = s.direction === 'long';
@@ -340,6 +544,25 @@ export function AssetChart({
           color: SIGNAL_STATUS_COLOR[s.status],
           shape: long ? 'arrowUp' : 'arrowDown',
           text: `${long ? 'L' : 'S'}·${s.setupType.slice(0, 4)}·${SIGNAL_STATUS_LABEL[s.status]}`,
+        });
+      }
+    }
+    // Strategie-Marker (Patrick: „eigene Pine Scripts anzeigen"): Entry-Marker
+    // der gewählten Pine-/DSL-Strategien. EHRLICH: kein Pine-Rendering — die
+    // Signale stammen aus Strategien → Import (TradingView-Alert bzw. DSL-Engine).
+    if (strategySignals.length > 0 && data.candles.length > 0) {
+      const first = data.candles[0]!.time as number;
+      const last = data.candles[data.candles.length - 1]!.time as number;
+      for (const s of strategySignals) {
+        const sec = Math.floor(new Date(s.createdAt).getTime() / 1000);
+        if (sec < first || sec > last) continue;
+        const long = s.direction === 'long';
+        markers.push({
+          time: sec as UTCTimestamp,
+          position: long ? 'belowBar' : 'aboveBar',
+          color: '#e14ecf', // magenta — im Marker-Farbschema sonst ungenutzt
+          shape: 'square',
+          text: `▣ ${s.strategySlug.slice(0, 12)}·${long ? 'L' : 'S'}·${SIGNAL_STATUS_LABEL[s.status]}`,
         });
       }
     }
@@ -434,6 +657,28 @@ export function AssetChart({
       });
     }
 
+    // ── Eigene Oszillator-Panels (Panel-Konfiguration, freie Perioden) ──
+    const custRsi = customSeries?.rsi ?? null;
+    if (custRsi && custRsi.length > 0 && custRsiRef.current) {
+      buildPane(custRsiRef.current, (c) => {
+        const s = c.addLineSeries({ color: '#e14ecf', lineWidth: 1, priceLineVisible: false, lastValueVisible: true });
+        s.setData(custRsi as never);
+        s.createPriceLine({ price: 70, color: 'rgba(255,92,108,0.4)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '70' });
+        s.createPriceLine({ price: 30, color: 'rgba(61,220,151,0.4)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '30' });
+      });
+    }
+    const custMacd = customSeries?.macd ?? null;
+    if (custMacd && custMacd.line.length > 0 && custMacdRef.current) {
+      buildPane(custMacdRef.current, (c) => {
+        const h = c.addHistogramSeries({ priceLineVisible: false, lastValueVisible: false });
+        h.setData(custMacd.histogram as never);
+        const line = c.addLineSeries({ color: C.cyan, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+        line.setData(custMacd.line as never);
+        const sig = c.addLineSeries({ color: C.amber, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+        sig.setData(custMacd.signal as never);
+      });
+    }
+
     price.timeScale().fitContent();
     const unlinkTimeScales = linkTimeScales(charts);
 
@@ -459,7 +704,7 @@ export function AssetChart({
         }
       }
     };
-  }, [state, data, toggles, tf, levels, activeZones, signals, warmupInfo, t]);
+  }, [state, data, toggles, tf, levels, activeZones, signals, warmupInfo, t, customSeries, strategySignals, indCfg]);
 
   const chip = (key: ToggleKey, label: string) => (
     <button
@@ -507,7 +752,33 @@ export function AssetChart({
           {chip('macd', 'MACD')}
           {chip('atr', 'ATR')}
         </div>
+        <span className="mx-1 h-4 w-px" style={{ background: 'var(--color-line)' }} />
+        {/* Eigene Indikatoren + Strategie-Marker (Patricks Wunsch) — violett = „meins" */}
+        <button
+          onClick={() => setShowIndPanel((v) => !v)}
+          className="rounded border px-2 py-0.5 text-[11px] transition-colors"
+          aria-expanded={showIndPanel}
+          style={{
+            borderColor: showIndPanel || activeCustomCount > 0 ? 'rgba(139,92,246,0.55)' : 'var(--color-line)',
+            color: showIndPanel || activeCustomCount > 0 ? 'var(--color-violet)' : 'var(--color-mut)',
+            background: showIndPanel ? 'rgba(139,92,246,0.1)' : 'transparent',
+          }}
+        >
+          ⚙ {t('chart.ind.button')}
+          {activeCustomCount > 0 ? <span className="num"> ({activeCustomCount})</span> : null}
+        </button>
       </div>
+
+      {showIndPanel && (
+        <div className="mb-2">
+          <ChartIndicatorPanel
+            config={indCfg}
+            onChange={updateIndCfg}
+            strategies={pineStrategies}
+            strategySignalCount={strategySignals.length}
+          />
+        </div>
+      )}
 
       {state === 'loading' && (
         <div className="flex h-[340px] items-center justify-center text-sm" style={{ color: 'var(--color-mut)' }}>
@@ -542,6 +813,27 @@ export function AssetChart({
             <p className="label px-2">ATR 14</p>
             <div ref={atrRef} className="w-full overflow-hidden rounded" style={{ background: 'rgba(4,6,20,0.45)' }} />
           </div>
+        )}
+        {/* Eigene Oszillator-Panels — Beschriftung mit Periode + „eigene", damit
+            sie neben den Standard-Panels klar zuzuordnen sind */}
+        {customSeries?.rsi && customSeries.rsi.length > 0 && (
+          <div className="mt-1">
+            <p className="label px-2">RSI {indCfg.rsi.period} · {t('chart.ind.customTag')}</p>
+            <div ref={custRsiRef} className="w-full overflow-hidden rounded" style={{ background: 'rgba(4,6,20,0.45)' }} />
+          </div>
+        )}
+        {customSeries?.macd && customSeries.macd.line.length > 0 && (
+          <div className="mt-1">
+            <p className="label px-2">
+              MACD {indCfg.macd.fast}/{indCfg.macd.slow}/{indCfg.macd.signal} · {t('chart.ind.customTag')}
+            </p>
+            <div ref={custMacdRef} className="w-full overflow-hidden rounded" style={{ background: 'rgba(4,6,20,0.45)' }} />
+          </div>
+        )}
+        {emptyCustomLabels.length > 0 && (
+          <p className="label mt-1.5 px-2" style={{ color: 'var(--color-warn)' }}>
+            {t('chart.ind.tooFewCandles', { list: emptyCustomLabels.join(', ') })}
+          </p>
         )}
         {data && data.zonesTotal > activeZones.length && (
           <p className="label mt-1.5 px-2">{t('chart.zonesInfo', { shown: activeZones.length, total: data.zonesTotal })}</p>
