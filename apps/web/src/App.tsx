@@ -9,9 +9,30 @@ import { Login } from './views/Login.js';
 /**
  * Router (Hash-basiert) + Code-Splitting (P2.13): jede Seite wird lazy geladen,
  * damit der initiale Bundle klein bleibt. Named Exports → { default } mappen.
+ *
+ * Selbstheilung nach Deploys: Ein Rebuild ändert die Chunk-Hashes — ein Tab,
+ * der noch die alte index.html hält, findet seine Seiten-Chunks nicht mehr
+ * („Failed to fetch dynamically imported module", live beobachtet: schwarze
+ * Seite). Dann EINMAL hart neu laden (Session-Flag verhindert Reload-Schleifen
+ * bei echten Netzfehlern).
  */
+const CHUNK_RELOAD_KEY = 'gladiator.chunkReloaded';
 const lazyView = <T extends string>(load: () => Promise<Record<T, ComponentType>>, name: T) =>
-  lazy(() => load().then((m) => ({ default: m[name] })));
+  lazy(() =>
+    load()
+      .then((m) => {
+        sessionStorage.removeItem(CHUNK_RELOAD_KEY);
+        return { default: m[name] };
+      })
+      .catch((err: unknown) => {
+        if (sessionStorage.getItem(CHUNK_RELOAD_KEY) !== '1') {
+          sessionStorage.setItem(CHUNK_RELOAD_KEY, '1');
+          window.location.reload();
+          return new Promise<{ default: ComponentType }>(() => {}); // Seite lädt neu
+        }
+        throw err;
+      }),
+  );
 
 const Dashboard = lazyView(() => import('./views/Dashboard.js'), 'Dashboard');
 const Signals = lazyView(() => import('./views/Signals.js'), 'Signals');
