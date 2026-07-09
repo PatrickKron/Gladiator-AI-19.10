@@ -206,6 +206,24 @@ Interaktiver Strategie-Workshop: (1) Pine-Script-Eingabe + KI-Analyse (Indikator
 
 ---
 
+# SESSION 7 — UI-Konzept Welle 1+2 LIVE: 5-Bereiche-Navigation, Einfach/Profi, Heute-Hero (+Chunk-Selbstheilung)
+
+**Start:** 2026-07-08 spätabends · Patrick hat das UI-Konzept abgenommen („kann gerne so unterteilt werden … Autopilot, Meine Agenten … aber plane ein, es ganz rückgängig zu machen … topmodern"). Konzept: https://claude.ai/code/artifact/71069a8a-d237-4b6e-ae2d-edecf12e53c3 (Memory: project_gladiator_v2_ui_konzept.md).
+
+## Umgesetzt (Commits 3271f0e + 32644fb, deployed + im echten Chrome live verifiziert)
+1. **5-Bereiche-Sidebar** (Shell.tsx `AREA_GROUPS`): Heute(Übersicht) · Markt(Chart/Entdecken/Kalender/News) · Traden(Demo/Agenten-Konto/Signale) · Autopilot(Meine Agenten + 5 Profi-Punkte) · System. ALLE Routen unverändert — reine Neuordnung, nichts entfernt.
+2. **Einfach/Profi-Toggle** (Topbar, `lib/ui-mode.ts`, localStorage `gladiator.uiMode`, Default einfach): Einfach versteckt Werkstatt/Strategien/Strategie-Workshop/Labor/Intelligenz-Hub hinter dezentem „▸ 5 weitere im Profi-Modus"-Button; Dashboard blendet KI-Status/Konto-Snapshot/System/Datenquellen/Ingest-Panels aus. Verlustfrei reversibel.
+3. **Sofort-Rückweg (Patricks Bedingung):** „Klassische Ansicht"-Link im Sidebar-Footer (`gladiator.classicNav`) stellt die alte 17-Punkte-Navigation OHNE Deploy 1:1 wieder her; komplette Welle zusätzlich per git revert 3271f0e rückgängig machbar.
+4. **Heute-Hero:** EINE große Zahl = Gesamtvermögen Demo+Paper (echte Konten via demo.account + trading.account, je Quelle ehrlich isoliert), Tages-PnL (Paper), Aufschlüsselung, offene-Positionen-Link; Watchlist heißt „Meine Märkte". Live: 110.062 $ (Demo 100.062 + Paper 10.000).
+5. **🐛 Selbstheilung nach Deploys (32644fb):** Live entdeckt — nach jedem Rebuild finden offene Tabs ihre lazy-Chunks nicht mehr („Failed to fetch dynamically imported module" → SCHWARZE SEITE; sehr wahrscheinlich Patricks wiederkehrendes „kann nicht zugreifen"). Fix: App.tsx lazyView lädt bei Chunk-Fehler EINMAL hart neu (sessionStorage-Flag gegen Schleifen).
+- i18n: 24 neue Keys ×5 (nav.area*/mode*/classicView…, dashboard.hero*/myMarketsTitle), Paritätstest grün · 784 Tests · build grün · Server-CI 2× GRUEN.
+- Live-Verify (echtes Chrome, 100.72.94.1:3010): Einfach-Sidebar ✓ · Profi zeigt alle 5 Zusatzpunkte ✓ · Klassisch-Schalter stellt alte Nav her + zurück ✓ · Hero mit echten Zahlen ✓ · Einfach versteckt KI-Status/System-Panels, Signale bleiben ✓ · Mobile 375px kein Overflow ✓ · Konsole sauber ✓. Patricks Browser steht auf PROFI.
+
+## Offen (Folge-Wellen laut Konzept, erst nach Patricks Feedback zu Welle 1+2)
+- Welle 3: Traden vereinheitlicht (Konto-Schalter-Seite, Einsteiger-Ticket €-Betrag/Review) · Welle 4: Markt-Bühne (Chart + Watchlist-Sidebar + Docks, Space-Navigation) · Welle 5: Strategien+Workshop-Merge, Vorlagen-Galerie, Hotkeys, Reset-Knopf.
+
+---
+
 # NACHTRAG Session 6 (gleicher Abend) — Auto-Login: nie mehr Login-Formular
 
 Patrick war erneut ausgeloggt. **Wurzelursache:** Reuse-Detection der Token-Rotation revoked bei jedem verdächtigen Refresh ALLE Sessions des Users (schlafender Tab, zweiter Browser oder eine Test-Session reicht). **Fix (Commit 5c72e20):** `auth.autoLogin` (nur aktiv mit `AUTO_LOGIN_EMAIL` in `.env` — gesetzt auf admin@gladiator-ai.com; App ist nur im privaten Tailnet erreichbar, Abwägung dokumentiert im Code) + Frontend fällt bei totem Refresh still auf Auto-Login zurück; explizites „Abmelden" setzt ein Flag und wird respektiert. Token-Mechanik (Rotation/Reuse-Detection/Audit) UNVERÄNDERT. **Passwort auf Patricks Wunsch auf `123` gesetzt** (direktes bcrypt-Update in der DB; Login-Zod erlaubt ≥1 Zeichen, nur register verlangt 10+). E2E im echten Chrome: localStorage geleert → Reload → OHNE Formular drin ✓ · Abmelden → Formular bleibt ✓ · Login mit `123` ✓. Serverseitige Änderung: `AUTO_LOGIN_EMAIL` in `/opt/gladiator-v2/app/.env`.
