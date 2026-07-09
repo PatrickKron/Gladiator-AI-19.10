@@ -4,6 +4,7 @@ import { logout, trpc } from '../api.js';
 import { ensurePriceStream, getFeedState, onFeedState, type FeedState } from '../lib/prices.js';
 import { LANGUAGES, setLanguage, storedLanguage, type LanguageCode } from '../i18n/index.js';
 import { isDemoMode, onDemoModeChange } from '../lib/demo-mode.js';
+import { getUiMode, isClassicNav, onUiModeChange, setClassicNav, setUiMode, type UiMode } from '../lib/ui-mode.js';
 import { CommandPalette } from './CommandPalette.js';
 
 /**
@@ -12,7 +13,7 @@ import { CommandPalette } from './CommandPalette.js';
  * Sprach-Switch, Abmelden. Neon-Dual-Designsprache aus DESIGN_SYSTEM.md.
  */
 
-type NavItem = { hash: string; key: string; icon: ReactNode };
+type NavItem = { hash: string; key: string; icon: ReactNode; pro?: boolean };
 type NavGroup = { key: string; items: NavItem[] };
 
 const ico = (d: string) => (
@@ -21,6 +22,55 @@ const ico = (d: string) => (
   </svg>
 );
 
+/**
+ * NEUE Informationsarchitektur (UI-Konzept, Patrick-Abnahme 2026-07-08):
+ * 5 Bereiche, jeder beantwortet EINE Frage. `pro: true` = nur im Profi-Modus
+ * sichtbar (Progressive Disclosure — Funktionen bleiben über den Toggle und
+ * die ⌘K-Palette voll erreichbar, nichts wird entfernt).
+ */
+export const AREA_GROUPS: NavGroup[] = [
+  {
+    key: 'nav.areaToday',
+    items: [{ hash: '#/', key: 'nav.today', icon: ico('M3 12l9-8 9 8M5 10v10h5v-6h4v6h5V10') }],
+  },
+  {
+    key: 'nav.areaMarket',
+    items: [
+      { hash: '#/charts', key: 'nav.chart', icon: ico('M4 19V5m0 14h16M8 14l3-3 2 2 4-5') },
+      { hash: '#/pakete', key: 'nav.discover', icon: ico('M21 8l-9-5-9 5 9 5 9-5zm-18 0v8l9 5 9-5V8M12 13v8') },
+      { hash: '#/kalender', key: 'nav.calendar', icon: ico('M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2zm3-3v4m8-4v4M3 10h18') },
+      { hash: '#/magazine', key: 'nav.news', icon: ico('M4 4h11a3 3 0 013 3v13H7a3 3 0 01-3-3V4zm14 4h2v12a2 2 0 01-2 2M8 8h6M8 12h6') },
+    ],
+  },
+  {
+    key: 'nav.areaTrade',
+    items: [
+      { hash: '#/demo', key: 'nav.demo', icon: ico('M12 3a9 9 0 109 9M12 3v9l6.4-6.4M12 3a9 9 0 016.4 2.6') },
+      { hash: '#/trading', key: 'nav.paperTrading', icon: ico('M4 19V5m0 14h16M8 15l3-4 3 2 5-7') },
+      { hash: '#/signals', key: 'nav.signals', icon: ico('M3 12h4l3-8 4 16 3-8h4') },
+    ],
+  },
+  {
+    key: 'nav.areaAutopilot',
+    items: [
+      { hash: '#/agenten', key: 'nav.myAgents', icon: ico('M12 8a4 4 0 100-8 4 4 0 000 8zm-7 13a7 7 0 0114 0M2 21h20') },
+      { hash: '#/werkstatt', key: 'nav.workshop', icon: ico('M14.7 6.3a4 4 0 00-5.4 5.3L3 18v3h3l6.9-6.9a4 4 0 005.3-5.4l-2.6 2.6-2.3-.6-.6-2.3z'), pro: true },
+      { hash: '#/strategien', key: 'nav.builder', icon: ico('M4 6h16M4 12h10M4 18h7m5-3l4 4m0-4l-4 4'), pro: true },
+      { hash: '#/strategie-workshop', key: 'nav.strategyWorkshop', icon: ico('M8 9h8m-8 4h5m-7 7l-3-3V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2H8z'), pro: true },
+      { hash: '#/labor', key: 'nav.lab', icon: ico('M9 3v6l-5 9a2 2 0 002 3h12a2 2 0 002-3l-5-9V3M7 3h10'), pro: true },
+      { hash: '#/intelligenz', key: 'nav.intelligence', icon: ico('M4 20V10l4-6h8l4 6v10M9 20v-6h6v6M2 10h20M12 4v6'), pro: true },
+    ],
+  },
+  {
+    key: 'nav.areaSystem',
+    items: [
+      { hash: '#/einstellungen', key: 'nav.settings', icon: ico('M12 15a3 3 0 100-6 3 3 0 000 6zm8-3l2-1-2-4-2.2.7a8 8 0 00-1.5-.9L16 4h-4l-.3 2.8a8 8 0 00-1.5.9L8 7 6 11l2 1v0l-2 1 2 4 2.2-.7c.5.4 1 .7 1.5.9L12 20h4l.3-2.8c.5-.2 1-.5 1.5-.9L20 17l2-4z') },
+      { hash: '#/profil', key: 'nav.profile', icon: ico('M12 12a4 4 0 100-8 4 4 0 000 8zm-8 9a8 8 0 0116 0') },
+    ],
+  },
+];
+
+/** Klassische Navigation (Stand vor dem Umbau) — über den Schalter unten in der Sidebar sofort zurückholbar. */
 export const NAV_GROUPS: NavGroup[] = [
   {
     key: 'nav.groupCommand',
@@ -108,8 +158,18 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
   const [killSwitch, setKillSwitch] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [demoMode, setDemoModeState] = useState(() => isDemoMode());
+  const [uiMode, setUiModeState] = useState<UiMode>(() => getUiMode());
+  const [classicNav, setClassicNavState] = useState(() => isClassicNav());
 
   useEffect(() => onDemoModeChange(setDemoModeState), []);
+  useEffect(
+    () =>
+      onUiModeChange(() => {
+        setUiModeState(getUiMode());
+        setClassicNavState(isClassicNav());
+      }),
+    [],
+  );
 
   // Command-Palette (P1.5): global per Cmd/Ctrl+K öffnen.
   useEffect(() => {
@@ -146,13 +206,17 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
     return clean === '' || clean === '#' ? '#/' : clean;
   }, [route]);
 
+  // Aktive Navigation: neue 5-Bereiche-IA, gefiltert nach Modus; „Klassisch" = alter Stand.
+  const groups = classicNav ? NAV_GROUPS : AREA_GROUPS;
+  const hiddenProCount = classicNav || uiMode === 'profi' ? 0 : AREA_GROUPS.reduce((n, g) => n + g.items.filter((i) => i.pro).length, 0);
+
   const nav = (
     <nav className="flex flex-col gap-6">
-      {NAV_GROUPS.map((group) => (
+      {groups.map((group) => (
         <div key={group.key}>
           <p className="label mb-2 px-3">{t(group.key)}</p>
           <ul className="space-y-0.5">
-            {group.items.map((item) => {
+            {group.items.filter((item) => classicNav || uiMode === 'profi' || !item.pro).map((item) => {
               const active = activeHash === item.hash;
               return (
                 <li key={item.hash}>
@@ -180,6 +244,15 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
           </ul>
         </div>
       ))}
+      {hiddenProCount > 0 && (
+        <button
+          onClick={() => setUiMode('profi')}
+          className="mx-3 rounded-[0.625rem] border border-dashed px-3 py-2 text-left text-xs transition-colors"
+          style={{ borderColor: 'rgba(139,92,246,0.4)', color: 'var(--color-violet)' }}
+        >
+          ▸ {t('nav.proHint', { n: hiddenProCount })}
+        </button>
+      )}
     </nav>
   );
 
@@ -195,6 +268,14 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
         </a>
         {nav}
         <div className="mt-auto px-2">
+          {/* Sofort-Rückweg (Patricks Bedingung): alte Navigation ohne Deploy zurückholbar */}
+          <button
+            onClick={() => setClassicNav(!classicNav)}
+            className="mb-2 text-[11px] underline decoration-dotted"
+            style={{ color: 'var(--color-mut)' }}
+          >
+            {classicNav ? t('nav.backToNew') : t('nav.classicView')}
+          </button>
           <p className="label">v2 · Neon-Dual</p>
         </div>
       </aside>
@@ -261,6 +342,29 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
             )}
           </div>
           <div className="flex items-center gap-4">
+            {/* Einfach/Profi (Binance-Lite/Pro-Muster): verlustfrei, sofort reversibel */}
+            <div
+              className="flex overflow-hidden rounded-[0.625rem] border text-xs"
+              style={{ borderColor: 'var(--color-line)' }}
+              role="group"
+              aria-label={t('nav.modeLabel')}
+            >
+              {(['einfach', 'profi'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setUiMode(m)}
+                  className="px-2.5 py-1.5 transition-colors"
+                  style={
+                    uiMode === m
+                      ? { background: 'linear-gradient(92deg, rgba(46,124,246,0.25), rgba(139,92,246,0.2))', color: 'var(--color-ink)' }
+                      : { color: 'var(--color-mut)' }
+                  }
+                  title={t(m === 'einfach' ? 'nav.modeSimpleHint' : 'nav.modeProHint')}
+                >
+                  {t(m === 'einfach' ? 'nav.modeSimple' : 'nav.modePro')}
+                </button>
+              ))}
+            </div>
             <button
               onClick={() => setPaletteOpen(true)}
               className="flex items-center gap-1.5 rounded-[0.625rem] border px-2.5 py-1.5 text-xs transition-colors"

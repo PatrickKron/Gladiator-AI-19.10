@@ -13,6 +13,7 @@ import { buildChartUrl } from '../lib/chart-url.js';
 import { loadTf } from '../lib/chart-tf.js';
 import { feedSymbol } from '../lib/pairs.js';
 import { normalizeRegime, REGIME_COLORS, REGIME_ICONS, type RegimeData } from '../lib/regime.js';
+import { getUiMode, onUiModeChange, type UiMode } from '../lib/ui-mode.js';
 
 /** Dashboard (09_ §3.1): Begrüßung, Live-Markt, offene Setups, Konto, System — alles echt. */
 
@@ -253,6 +254,74 @@ function fmtFavQuote(price: number, currency: string | null): string {
 }
 
 /**
+ * „Heute"-Hero (UI-Konzept Welle 2): EINE große Zahl — Gesamtvermögen über
+ * beide Konten (Demo + Agenten-Paper) — plus Tages-PnL des Paper-Kontos.
+ * Jede Quelle fällt einzeln ehrlich aus (fehlt eine, wird die andere gezeigt
+ * und die Aufschlüsselung sagt es).
+ */
+function HeroWealth({ account }: { account: Account | null }) {
+  const { t } = useTranslation();
+  const [demo, setDemo] = useState<{ equity: number } | null | undefined>(undefined); // undefined = lädt
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const d = await trpc.demo.account.query();
+        if (!cancelled) setDemo({ equity: d.equity });
+      } catch {
+        if (!cancelled) setDemo(null); // ehrlich: Demo-Konto nicht ladbar
+      }
+    }
+    void load();
+    const timer = window.setInterval(() => void load(), 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const paperEquity = account?.equity ?? null;
+  const demoEquity = demo === undefined ? null : (demo?.equity ?? null);
+  const total = paperEquity === null && demoEquity === null ? null : (paperEquity ?? 0) + (demoEquity ?? 0);
+  const dailyPct = account?.dailyPnlPct ?? null;
+
+  return (
+    <section className="reveal relative mb-8" style={{ '--stagger': 0.5 } as React.CSSProperties}>
+      <p className="label">{t('dashboard.heroTitle')}</p>
+      {total === null ? (
+        <p className="num mt-2 animate-pulse text-5xl font-semibold" style={{ color: 'var(--color-mut)' }}>…</p>
+      ) : (
+        <>
+          <p className="num mt-1 text-[52px] leading-none font-semibold tracking-tight">
+            {total.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            <span className="ml-2 text-2xl font-normal" style={{ color: 'var(--color-mut)' }}>$</span>
+          </p>
+          <p className="num mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            {dailyPct !== null && (
+              <span style={{ color: dailyPct >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+                {dailyPct >= 0 ? '▲' : '▼'} {Math.abs(dailyPct).toFixed(2)} % {t('dashboard.heroToday')}
+              </span>
+            )}
+            <span style={{ color: 'var(--color-mut)' }}>
+              {t('dashboard.heroSplit', {
+                demo: demoEquity !== null ? demoEquity.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—',
+                paper: paperEquity !== null ? paperEquity.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—',
+              })}
+            </span>
+            {account && account.openPositions > 0 && (
+              <a href="#/trading" className="underline decoration-dotted" style={{ color: 'var(--color-cyan)' }}>
+                {t('dashboard.heroOpenPositions', { n: account.openPositions })}
+              </a>
+            )}
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
  * Favoriten-Kachel für Nicht-Krypto (Aktien/ETF/Index/Future/Rohstoff):
  * echter Börsen-Quote (TradingView/CBOE) statt Live-Tick — ehrlich beschriftet.
  */
@@ -391,6 +460,9 @@ export function Dashboard() {
   const [watchIsFav, setWatchIsFav] = useState(false);
   const [quoteFavs, setQuoteFavs] = useState<QuoteFav[]>([]);
   const [favQuotes, setFavQuotes] = useState<Record<string, FavQuote>>({});
+  const [uiMode, setUiModeState] = useState<UiMode>(() => getUiMode());
+
+  useEffect(() => onUiModeChange(() => setUiModeState(getUiMode())), []);
   const [signalRows, setSignalRows] = useState<SignalRow[] | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -530,7 +602,11 @@ export function Dashboard() {
 
       {error && <ErrorBox message={error} />}
 
-      {/* Watchlist — Favoriten des Users (Fallback BTC/ETH/SOL), klickbar in den Chart */}
+      {/* Heute-Hero: Gesamtvermögen (Demo + Paper) — die EINE große Zahl */}
+      <HeroWealth account={account} />
+
+      {/* Watchlist — „Meine Märkte": Favoriten des Users (Fallback BTC/ETH/SOL), klickbar in den Chart */}
+      <p className="label mb-3">{t('dashboard.myMarketsTitle')}</p>
       <section
         className={`relative grid gap-5 ${
           watch.length >= 4 ? 'md:grid-cols-2 xl:grid-cols-4' : watch.length === 3 ? 'md:grid-cols-3' : 'sm:grid-cols-2'
@@ -560,8 +636,8 @@ export function Dashboard() {
         </section>
       )}
 
-      {/* KI-Status: Regime + ML-Pipeline + RL-Agenten auf einen Blick */}
-      <AiStatusPanel />
+      {/* KI-Status: Regime + ML-Pipeline + RL-Agenten — Detailtiefe für den Profi-Modus */}
+      {uiMode === 'profi' && <AiStatusPanel />}
 
       {/* Signal-Vorschau */}
       <section className="reveal mt-8" style={{ '--stagger': 4 } as React.CSSProperties}>
@@ -592,6 +668,7 @@ export function Dashboard() {
 
       <BriefingPanel />
 
+      {uiMode === 'profi' && (<>
       <section className="mt-5 grid gap-5 lg:grid-cols-3">
         {/* Konto-Snapshot */}
         <Panel label={t('trading.accountTitle')} stagger={5}>
@@ -718,6 +795,7 @@ export function Dashboard() {
           </div>
         )}
       </Panel>
+      </>)}
     </div>
   );
 }
