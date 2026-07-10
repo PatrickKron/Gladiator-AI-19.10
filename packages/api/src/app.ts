@@ -50,6 +50,8 @@ export function defaultWebDistDir(): string {
 
 export function createApp(db: Db, opts: AppOptions = {}): express.Express {
   const app = express();
+  // Aktive SSE-Preis-Streams je Client-IP (Schutz gegen Socket-Hunger, s. /api/stream/prices).
+  const sseStreamsByIp = new Map<string, number>();
   app.disable('x-powered-by');
   // helmet: upgrade-insecure-requests + HSTS deaktiviert — der Dienst läuft bewusst
   // über HTTP im Tailscale-Netz (WireGuard verschlüsselt). Mit der Default-CSP
@@ -116,6 +118,23 @@ export function createApp(db: Db, opts: AppOptions = {}): express.Express {
    * auch auf dem Login-Screen. Alle nutzerbezogenen Endpunkte bleiben geschützt.
    */
   app.get('/api/stream/prices', (req, res) => {
+    // Max. 3 Streams je Client-IP: Chrome erlaubt nur 6 Verbindungen je Host —
+    // halten viele (auch vergessene) Tabs je einen SSE-Stream, verhungern neue
+    // Tabs endlos im "Lädt …". Überzählige bekommen 429; EventSource schließt
+    // bei Nicht-200 DAUERHAFT (kein Reconnect), der Socket wird sofort frei.
+    const clientKey = req.ip ?? 'unknown';
+    const active = sseStreamsByIp.get(clientKey) ?? 0;
+    if (active >= 3) {
+      res.status(429).json({ error: 'Zu viele offene Preis-Streams von dieser Adresse — alte Gladiator-Tabs schließen oder neu laden.' });
+      return;
+    }
+    sseStreamsByIp.set(clientKey, active + 1);
+    res.on('close', () => {
+      const n = (sseStreamsByIp.get(clientKey) ?? 1) - 1;
+      if (n <= 0) sseStreamsByIp.delete(clientKey);
+      else sseStreamsByIp.set(clientKey, n);
+    });
+
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
