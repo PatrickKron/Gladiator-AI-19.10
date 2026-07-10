@@ -106,7 +106,7 @@ export const catalogRouter = router({
           .returning();
       }
       if (version!.status === 'paper' || version!.status === 'live') {
-        return { activated: true, alreadyActive: true, validity: await loadCatalogValidity(ctx.db, version!.id) };
+        return { activated: true, alreadyActive: true, gateReasons: [] as string[], validity: await loadCatalogValidity(ctx.db, version!.id) };
       }
 
       // 2) ECHTER Backtest über die letzten 12 Monate echte Kerzen

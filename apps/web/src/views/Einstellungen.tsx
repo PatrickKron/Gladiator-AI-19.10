@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
+import { ExchangeConnectPanel } from '../components/ExchangeConnectPanel.js';
 
 /**
  * Trading-Einstellungen (09_ §3.10): Werte greifen DIREKT in die Risk-Engine.
@@ -519,6 +520,7 @@ export function Einstellungen() {
         )}
       </Panel>
 
+      <ExchangeConnectPanel />
       <SecretsPanel />
       <StockDataPanel />
     </div>

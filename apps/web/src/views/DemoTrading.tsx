@@ -5,6 +5,8 @@ import { AssetSelect } from '../components/AssetSelect.js';
 import { EquityChart, MetricCard, fmt } from '../components/EquityChart.js';
 import { Empty, ErrorBox, Loading, Panel } from '../components/ui.js';
 import { clearPendingTradeSymbol, peekPendingTradeSymbol } from '../lib/trade-symbol.js';
+import { getLatest, onTick } from '../lib/prices.js';
+import { getUiMode } from '../lib/ui-mode.js';
 
 /**
  * Demo-Trading (Session 5): manuelles Üben mit virtuellem Guthaben (100k),
@@ -200,7 +202,13 @@ export function DemoTrading() {
   );
 }
 
-/** Order-Ticket mit LIVE-Kosten-Vorschau aus dem echten Orderbuch. */
+/**
+ * Order-Ticket — EIN Trade-Flow (Umbau 2026-07-10, Patricks Vorgabe):
+ * Betrag in € statt Stückzahl (echter EUR-Kurs, echter Live-Preis),
+ * Absicherung als Klartext-Schieberegler („Verkaufe automatisch bei −x %"),
+ * LIVE-Kosten-Vorschau aus dem echten Orderbuch, dann erst [Jetzt kaufen].
+ * Profi kann weiterhin direkt Stückzahl eingeben (Umschalter).
+ */
 function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
   const { t } = useTranslation();
   // Vorbelegung vom Dashboard-„Traden"-Button: peek (pur) im Initialisierer,
@@ -212,10 +220,14 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
   }, []);
   const [direction, setDirection] = useState<'long' | 'short'>('long');
   const [type, setType] = useState<'market' | 'limit'>('market');
+  const [amountMode, setAmountMode] = useState<'eur' | 'qty'>('eur');
+  const [amountEur, setAmountEur] = useState('');
   const [qty, setQty] = useState('');
   const [limitPrice, setLimitPrice] = useState('');
-  const [stopLoss, setStopLoss] = useState('');
-  const [takeProfit, setTakeProfit] = useState('');
+  const [slPct, setSlPct] = useState(0); // 0 = keine Absicherung
+  const [tpPct, setTpPct] = useState(0); // 0 = kein Gewinnziel
+  const [eurUsd, setEurUsd] = useState<number | null>(null);
+  const [livePrice, setLivePrice] = useState<number | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -223,17 +235,69 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
   const [success, setSuccess] = useState<string | null>(null);
   const debounce = useRef<number | null>(null);
 
-  const valid = num(qty) > 0 && (type === 'market' || num(limitPrice) > 0);
+  // Echter EUR/USD-Kurs (Server, Binance EURUSDT) — ohne Kurs ehrlich kein €-Modus.
+  useEffect(() => {
+    let cancelled = false;
+    const loadRate = () =>
+      trpc.market.eurUsd
+        .query()
+        .then((r) => {
+          if (!cancelled) setEurUsd(r.rate);
+        })
+        .catch(() => {
+          if (!cancelled) setEurUsd(null);
+        });
+    void loadRate();
+    const timer = window.setInterval(() => void loadRate(), 120_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  // Echter Live-Preis fürs Symbol (SSE-Feed) — Grundlage der €→Stück-Umrechnung.
+  useEffect(() => {
+    setLivePrice(getLatest().find((tick) => tick.symbol === symbol)?.price ?? null);
+    return onTick((tick) => {
+      if (tick.symbol === symbol) setLivePrice(tick.price);
+    });
+  }, [symbol]);
+
+  // €-Modus: Stückzahl aus Betrag × Kurs ÷ Preis (nur echte Zahlen, sonst null).
+  const previewFill = preview && preview.ok ? preview.estFillPrice : null;
+  const refPrice = type === 'limit' && num(limitPrice) > 0 ? num(limitPrice) : (livePrice ?? previewFill);
+  const eurAmount = num(amountEur);
+  const derivedQty =
+    amountMode === 'eur' && eurUsd !== null && refPrice !== null && typeof refPrice === 'number' && refPrice > 0 && eurAmount > 0
+      ? (eurAmount * eurUsd) / refPrice
+      : null;
+  const effQty = amountMode === 'eur' ? (derivedQty ?? 0) : num(qty);
+
+  // Absicherung/Gewinnziel: Prozent vom (Referenz-)Preis, richtungsbewusst.
+  const slPrice =
+    slPct > 0 && typeof refPrice === 'number' && refPrice > 0
+      ? direction === 'long'
+        ? refPrice * (1 - slPct / 100)
+        : refPrice * (1 + slPct / 100)
+      : undefined;
+  const tpPrice =
+    tpPct > 0 && typeof refPrice === 'number' && refPrice > 0
+      ? direction === 'long'
+        ? refPrice * (1 + tpPct / 100)
+        : refPrice * (1 - tpPct / 100)
+      : undefined;
+
+  const valid = effQty > 0 && (type === 'market' || num(limitPrice) > 0);
 
   function buildInput() {
     return {
       symbol,
       direction,
       type,
-      qty: num(qty),
+      qty: effQty,
       limitPrice: type === 'limit' ? num(limitPrice) : undefined,
-      stopLoss: num(stopLoss) > 0 ? num(stopLoss) : undefined,
-      takeProfit: num(takeProfit) > 0 ? num(takeProfit) : undefined,
+      stopLoss: slPrice,
+      takeProfit: tpPrice,
     };
   }
 
@@ -254,8 +318,10 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
     return () => {
       if (debounce.current !== null) window.clearTimeout(debounce.current);
     };
-    // buildInput/valid sind aus denselben Feldern abgeleitet — Felder sind die Wahrheit
-  }, [symbol, direction, type, qty, limitPrice, stopLoss, takeProfit]);
+    // buildInput/valid sind aus denselben Feldern abgeleitet — Felder sind die Wahrheit.
+    // livePrice ist bewusst KEINE Dependency: jeder Tick würde sonst das echte
+    // Orderbuch neu abfragen; die Platzierung rechnet ohnehin zum Klick-Zeitpunkt.
+  }, [symbol, direction, type, amountMode, amountEur, qty, limitPrice, slPct, tpPct, eurUsd]);
 
   async function place() {
     setBusy(true);
@@ -272,6 +338,7 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
               : t('demo.orderResting'),
         );
         setQty('');
+        setAmountEur('');
         onPlaced();
       }
     } catch (err) {
@@ -330,24 +397,90 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
               </div>
             </div>
           </div>
-          <label className="flex flex-col gap-1">
-            <span className="label">{t('demo.qty')}</span>
-            <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal" placeholder="0.01" className={inputCls} />
-          </label>
+          {/* Betrag in € (Standard) oder Stückzahl (Profi-Umschalter) */}
+          <div className="flex flex-col gap-1 sm:col-span-2">
+            <div className="flex items-center justify-between">
+              <span className="label">{t('demo.amount')}</span>
+              <div className="flex overflow-hidden rounded-[0.625rem] border text-xs" style={{ borderColor: 'var(--color-line)' }}>
+                {(['eur', 'qty'] as const).map((m) => (
+                  <button key={m} onClick={() => setAmountMode(m)} className="px-2 py-1" style={seg(amountMode === m)}>
+                    {m === 'eur' ? '€' : t('demo.qtyShort')}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {amountMode === 'eur' ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <input
+                    value={amountEur}
+                    onChange={(e) => setAmountEur(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="100"
+                    className={inputCls}
+                    disabled={eurUsd === null}
+                  />
+                  <span className="num text-sm" style={{ color: 'var(--color-mut)' }}>€</span>
+                  {[50, 100, 500, 1000].map((v) => (
+                    <button key={v} onClick={() => setAmountEur(String(v))} className="rounded border px-2 py-1 text-xs" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }} disabled={eurUsd === null}>
+                      {v}
+                    </button>
+                  ))}
+                </div>
+                {eurUsd === null ? (
+                  <p className="text-[11px]" style={{ color: 'var(--color-warn)' }}>{t('demo.noEurRate')}</p>
+                ) : derivedQty !== null ? (
+                  <p className="num text-[11px]" style={{ color: 'var(--color-mut)' }}>
+                    ≈ {fmt(derivedQty, 6)} {symbol.split('/')[0]} · {t('demo.rateUsed', { rate: fmt(eurUsd, 4) })}
+                  </p>
+                ) : eurAmount > 0 ? (
+                  <p className="text-[11px]" style={{ color: 'var(--color-warn)' }}>{t('demo.noLivePrice')}</p>
+                ) : null}
+              </>
+            ) : (
+              <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal" placeholder="0.01" className={inputCls} />
+            )}
+          </div>
           {type === 'limit' && (
             <label className="flex flex-col gap-1">
               <span className="label">{t('demo.limitPrice')}</span>
               <input value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} inputMode="decimal" className={inputCls} />
             </label>
           )}
-          <label className="flex flex-col gap-1">
-            <span className="label">{t('demo.stopLossOpt')}</span>
-            <input value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} inputMode="decimal" className={inputCls} />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="label">{t('demo.takeProfitOpt')}</span>
-            <input value={takeProfit} onChange={(e) => setTakeProfit(e.target.value)} inputMode="decimal" className={inputCls} />
-          </label>
+          {/* Absicherung in Klartext: „Verkaufe automatisch bei −x %" */}
+          <div className="flex flex-col gap-1">
+            <span className="label">
+              {getUiMode() === 'profi' ? t('demo.stopLossOpt') : t('ticket.protection')}
+              <span className="ml-1 cursor-help" title={t('ticket.protectionHint')} style={{ color: 'var(--color-mut)' }}>ⓘ</span>
+            </span>
+            <div className="flex items-center gap-2">
+              <input type="range" min={0} max={20} step={0.5} value={slPct} onChange={(e) => setSlPct(Number(e.target.value))} className="w-full" />
+              <span className="num w-24 shrink-0 text-right text-xs">
+                {slPct > 0 ? `−${slPct.toLocaleString('de-DE')} %` : t('demo.off')}
+              </span>
+            </div>
+            {slPct > 0 && slPrice !== undefined && (
+              <p className="num text-[11px]" style={{ color: 'var(--color-mut)' }}>
+                {t('ticket.protectionText', { pct: slPct.toLocaleString('de-DE') })} (≈ {fmt(slPrice)})
+              </p>
+            )}
+          </div>
+          {/* Gewinn sichern: „Verkaufe automatisch bei +x %" */}
+          <div className="flex flex-col gap-1">
+            <span className="label">
+              {getUiMode() === 'profi' ? t('demo.takeProfitOpt') : t('demo.takeProfitSimple')}
+              <span className="ml-1 cursor-help" title={t('demo.takeProfitHint')} style={{ color: 'var(--color-mut)' }}>ⓘ</span>
+            </span>
+            <div className="flex items-center gap-2">
+              <input type="range" min={0} max={50} step={0.5} value={tpPct} onChange={(e) => setTpPct(Number(e.target.value))} className="w-full" />
+              <span className="num w-24 shrink-0 text-right text-xs">
+                {tpPct > 0 ? `+${tpPct.toLocaleString('de-DE')} %` : t('demo.off')}
+              </span>
+            </div>
+            {tpPct > 0 && tpPrice !== undefined && (
+              <p className="num text-[11px]" style={{ color: 'var(--color-mut)' }}>≈ {fmt(tpPrice)}</p>
+            )}
+          </div>
         </div>
 
         {/* Kosten-Vorschau aus dem ECHTEN Buch */}
@@ -413,7 +546,7 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
         </p>
       )}
       <button onClick={() => void place()} disabled={busy || !valid} className="btn-primary mt-4 px-5 py-2 text-sm disabled:opacity-50">
-        {busy ? t('common.loading') : t('demo.placeOrder')}
+        {busy ? t('common.loading') : t(direction === 'long' ? 'demo.buyNow' : 'demo.sellNow')}
       </button>
     </Panel>
   );

@@ -8,6 +8,7 @@ import { intelligenceRouter } from './intelligence.js';
 import { labRouter } from './lab.js';
 import { marketRouter } from './market.js';
 import { mlRouter } from './ml.js';
+import { portfolioRouter } from './portfolio.js';
 import { productRouter } from './product.js';
 import { rlRouter } from './rl.js';
 import { riskRouter } from './risk.js';
@@ -30,6 +31,7 @@ export const appRouter = router({
   lab: labRouter,
   market: marketRouter,
   ml: mlRouter,
+  portfolio: portfolioRouter,
   product: productRouter,
   rl: rlRouter,
   risk: riskRouter,

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { SignalChart } from './SignalChart.js';
@@ -6,6 +6,7 @@ import { FavStarSymbol } from './FavStar.js';
 import { MlBadge } from './MlBadge.js';
 import { RegimeBadge } from './RegimeBadge.js';
 import { buildChartUrl } from '../lib/chart-url.js';
+import { getUiMode } from '../lib/ui-mode.js';
 
 export type SignalReview = {
   agent: string;
@@ -295,6 +296,276 @@ function IntelligenceSection({ signalId }: { signalId: string }) {
   );
 }
 
+type ExecPreview = Awaited<ReturnType<typeof trpc.signals.executionPreview.query>>;
+
+/**
+ * Anpassbares Order-Ticket (Patricks Kernwunsch B): Das Signal zeigt den
+ * Strategie-Vorschlag (Betrag/Hebel/SL/TP) — der User kann ALLES anpassen,
+ * bevor er bestätigt. Der Vorschlag bleibt sichtbar als Referenz. Betrag in €
+ * mit ECHTEM Kurs (kein Kurs → Betrag-Anpassung ehrlich deaktiviert).
+ * Einfach-Modus spricht Klartext („Verkaufe automatisch bei −x %"),
+ * Profi sieht Rohwerte.
+ */
+function AdjustTicket({
+  signal,
+  onExecute,
+  onCancel,
+  busy,
+}: {
+  signal: SignalRow;
+  onExecute: (overrides: { amountEur?: number; leverage?: number; stopLoss?: number; takeProfits?: number[] } | null) => void;
+  onCancel: () => void;
+  busy: boolean;
+}) {
+  const { t } = useTranslation();
+  const [preview, setPreview] = useState<ExecPreview | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [amountEur, setAmountEur] = useState<number | null>(null);
+  const [leverage, setLeverage] = useState(1);
+  const [slPct, setSlPct] = useState<number | null>(null);
+  const [tps, setTps] = useState<number[]>(signal.takeProfits.map(Number));
+  const [dirty, setDirty] = useState(false);
+  const profi = getUiMode() === 'profi';
+
+  const entry = Number(signal.entry);
+  const long = signal.direction === 'long';
+  const suggestedSlPct = (Math.abs(entry - Number(signal.stopLoss)) / entry) * 100;
+
+  useEffect(() => {
+    let cancelled = false;
+    trpc.signals.executionPreview
+      .query({ id: signal.id })
+      .then((p) => {
+        if (cancelled) return;
+        setPreview(p);
+        setAmountEur(p.suggested.notionalEur !== null ? Math.round(p.suggested.notionalEur) : null);
+        setLeverage(p.suggested.leverage);
+        setSlPct(Math.round(suggestedSlPct * 10) / 10);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [signal.id]);
+
+  if (loadError) {
+    return (
+      <div className="mt-4 rounded border p-3 text-xs" style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}>
+        {loadError}
+        <button className="ml-2 underline" onClick={onCancel}>{t('common.close')}</button>
+      </div>
+    );
+  }
+  if (!preview) {
+    return <p className="mt-4 animate-pulse text-xs" style={{ color: 'var(--color-mut)' }}>{t('common.loading')}</p>;
+  }
+
+  const rate = preview.eurUsdRate;
+  const maxEur = rate !== null ? Math.max(10, Math.floor(preview.limits.maxNotionalUsd / rate)) : null;
+  const minEur = rate !== null ? Math.max(1, Math.ceil(preview.limits.minNotionalUsd / rate)) : null;
+  const slPrice = slPct !== null ? (long ? entry * (1 - slPct / 100) : entry * (1 + slPct / 100)) : Number(signal.stopLoss);
+  const amountUsd = amountEur !== null && rate !== null ? amountEur * rate : preview.suggested.notionalUsd;
+  // Live-Kostenvorschau: Taker-Gebühr 0,04 % (Paper-Kostenmodell) auf Ein- und Ausstieg
+  const feeEstUsd = amountUsd !== null ? amountUsd * 0.0004 * 2 : null;
+  const riskUsd = amountUsd !== null && slPct !== null ? amountUsd * (slPct / 100) : null;
+
+  const num = (n: number | null, unit: string, digits = 0) =>
+    n === null ? '—' : `${n.toLocaleString('de-DE', { maximumFractionDigits: digits })} ${unit}`;
+
+  const send = () => {
+    if (!dirty) {
+      onExecute(null); // nichts angepasst → Standardpfad (Strategie-Vorschlag)
+      return;
+    }
+    onExecute({
+      ...(amountEur !== null && rate !== null ? { amountEur } : {}),
+      ...(leverage !== preview.suggested.leverage || leverage > 1 ? { leverage } : {}),
+      ...(slPct !== null ? { stopLoss: Math.round(slPrice * 1e6) / 1e6 } : {}),
+      ...(tps.length > 0 ? { takeProfits: tps.slice(0, 3) } : {}),
+    });
+  };
+
+  return (
+    <div className="mt-4 rounded border p-3" style={{ borderColor: 'rgba(99,140,255,0.35)' }}>
+      {/* Referenz: was die Strategie vorschlägt — bleibt IMMER sichtbar */}
+      <p className="text-[11px]" style={{ color: 'var(--color-mut)' }}>
+        {t('ticket.suggestionRef', {
+          amount:
+            preview.suggested.notionalEur !== null
+              ? `${Math.round(preview.suggested.notionalEur).toLocaleString('de-DE')} €`
+              : num(preview.suggested.notionalUsd, '$'),
+          lev: preview.suggested.leverage,
+          sl: fmt(signal.stopLoss),
+        })}
+        <button
+          className="ml-2 underline decoration-dotted"
+          onClick={() => {
+            setAmountEur(preview.suggested.notionalEur !== null ? Math.round(preview.suggested.notionalEur) : null);
+            setLeverage(preview.suggested.leverage);
+            setSlPct(Math.round(suggestedSlPct * 10) / 10);
+            setTps(signal.takeProfits.map(Number));
+            setDirty(false);
+          }}
+        >
+          {t('ticket.reset')}
+        </button>
+      </p>
+
+      {/* Betrag in € */}
+      <div className="mt-3">
+        <div className="flex items-center justify-between text-xs">
+          <span>{t('ticket.amount')}</span>
+          <span className="num">{rate !== null ? num(amountEur, '€') : num(preview.suggested.notionalUsd, '$')}</span>
+        </div>
+        {rate !== null && maxEur !== null && minEur !== null ? (
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              type="range"
+              min={minEur}
+              max={maxEur}
+              step={1}
+              value={amountEur ?? minEur}
+              onChange={(e) => {
+                setAmountEur(Number(e.target.value));
+                setDirty(true);
+              }}
+              className="w-full"
+            />
+            <input
+              type="number"
+              className="field w-24 px-2 py-1 text-xs"
+              min={minEur}
+              max={maxEur}
+              value={amountEur ?? ''}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v)) {
+                  setAmountEur(Math.min(maxEur, Math.max(minEur, v)));
+                  setDirty(true);
+                }
+              }}
+            />
+          </div>
+        ) : (
+          <p className="mt-1 text-[11px]" style={{ color: 'var(--color-warn)' }}>
+            {t('ticket.noRate')}
+          </p>
+        )}
+      </div>
+
+      {/* Hebel */}
+      <div className="mt-3">
+        <div className="flex items-center justify-between text-xs">
+          <span>
+            {t('ticket.leverage')}
+            {!profi && (
+              <span className="ml-1 cursor-help" title={t('ticket.leverageHint')} style={{ color: 'var(--color-mut)' }}>ⓘ</span>
+            )}
+          </span>
+          <span className="num">{leverage}×</span>
+        </div>
+        <input
+          type="range"
+          min={1}
+          max={Math.max(1, Math.round(preview.limits.maxLeverage))}
+          step={1}
+          value={leverage}
+          onChange={(e) => {
+            setLeverage(Number(e.target.value));
+            setDirty(true);
+          }}
+          className="mt-1 w-full"
+        />
+      </div>
+
+      {/* Absicherung (Stop-Loss in Klartext) */}
+      <div className="mt-3">
+        <div className="flex items-center justify-between text-xs">
+          <span>
+            {profi ? t('ticket.stopLossPro') : t('ticket.protection')}
+            {!profi && (
+              <span className="ml-1 cursor-help" title={t('ticket.protectionHint')} style={{ color: 'var(--color-mut)' }}>ⓘ</span>
+            )}
+          </span>
+          <span className="num">
+            {slPct !== null ? `−${slPct.toLocaleString('de-DE', { maximumFractionDigits: 1 })} %` : '—'}
+            {profi && slPct !== null && <span style={{ color: 'var(--color-mut)' }}> ({slPrice.toLocaleString('de-DE', { maximumFractionDigits: 6 })})</span>}
+          </span>
+        </div>
+        <input
+          type="range"
+          min={0.5}
+          max={Math.max(15, Math.ceil(suggestedSlPct * 2))}
+          step={0.1}
+          value={slPct ?? suggestedSlPct}
+          onChange={(e) => {
+            setSlPct(Number(e.target.value));
+            setDirty(true);
+          }}
+          className="mt-1 w-full"
+        />
+        {!profi && slPct !== null && (
+          <p className="mt-0.5 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+            {t('ticket.protectionText', { pct: slPct.toLocaleString('de-DE', { maximumFractionDigits: 1 }) })}
+          </p>
+        )}
+      </div>
+
+      {/* Gewinnziele (Profi: Preise editierbar) */}
+      {profi && (
+        <div className="mt-3">
+          <p className="text-xs">{t('ticket.takeProfits')}</p>
+          <div className="mt-1 flex gap-2">
+            {tps.map((tp, i) => (
+              <input
+                key={i}
+                type="number"
+                className="field w-full px-2 py-1 text-xs"
+                value={tp}
+                step="any"
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (Number.isFinite(v) && v > 0) {
+                    setTps((old) => old.map((x, j) => (j === i ? v : x)));
+                    setDirty(true);
+                  }
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Live-Kostenvorschau + echtes Risiko */}
+      <div className="mt-3 grid grid-cols-2 gap-2 rounded border p-2 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+        <span>
+          {t('ticket.feeEstimate')}: <span className="num" style={{ color: 'var(--color-ink)' }}>{feeEstUsd !== null ? `≈ ${num(rate !== null ? feeEstUsd / rate : feeEstUsd, rate !== null ? '€' : '$', 2)}` : '—'}</span>
+        </span>
+        <span>
+          {t('ticket.maxRisk')}: <span className="num" style={{ color: 'var(--color-neg)' }}>{riskUsd !== null ? `≈ ${num(rate !== null ? riskUsd / rate : riskUsd, rate !== null ? '€' : '$', 2)}` : '—'}</span>
+        </span>
+      </div>
+
+      {preview.gateReasons.length > 0 && (
+        <p className="mt-2 text-[11px]" style={{ color: 'var(--color-warn)' }}>
+          ⚠ {preview.gateReasons.join(' · ')}
+        </p>
+      )}
+
+      <div className="mt-3 flex items-center gap-2">
+        <button onClick={send} disabled={busy} className="btn-primary flex-1 px-3 py-2 text-sm disabled:opacity-50">
+          {busy ? t('signals.confirming') : t('ticket.executeNow')}
+        </button>
+        <button onClick={onCancel} disabled={busy} className="rounded-[0.625rem] border px-3 py-2 text-sm" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+          {t('common.cancel')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Signal-„Sammelkarte" (09_ §3.2): echtes Setup mit Score, Confluence und
  * Mensch-im-Loop-Entscheidung. EHRLICH: Bestätigen führt noch KEINE Order aus
@@ -307,29 +578,46 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
   const [error, setError] = useState<string | null>(null);
   const [blocked, setBlocked] = useState<string[] | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [ticketOpen, setTicketOpen] = useState(false);
   const long = signal.direction === 'long';
   const dirColor = long ? 'var(--color-pos)' : 'var(--color-neg)';
   const exp = signal.status === 'new' ? expiryInfo(signal.createdAt, signal.timeframe) : null;
 
+  async function executeConfirm(
+    overrides: { amountEur?: number; leverage?: number; stopLoss?: number; takeProfits?: number[] } | null,
+  ) {
+    setBusy('confirm');
+    setError(null);
+    setBlocked(null);
+    try {
+      const res = await trpc.signals.confirm.mutate({ id: signal.id, ...(overrides ? { overrides } : {}) });
+      if (res.executed) {
+        setSuccess(`✓ ${res.detail} ${t('signals.qty')} ${res.qty?.toFixed(6)} — ${t('signals.executed')}`);
+        setTicketOpen(false);
+        window.setTimeout(onDecided, 2500);
+      } else {
+        // Risk-Gate hat geblockt — Signal bleibt offen, Gründe anzeigen
+        setBlocked(res.riskReasons.length > 0 ? res.riskReasons : [res.detail]);
+        setBusy(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'));
+      setBusy(null);
+    }
+  }
+
   async function decide(action: 'confirm' | 'reject') {
+    if (action === 'confirm') {
+      // Kein Sofort-Kauf mehr: erst das anpassbare Ticket (Betrag/Hebel/SL/TP).
+      setTicketOpen(true);
+      return;
+    }
     setBusy(action);
     setError(null);
     setBlocked(null);
     try {
-      if (action === 'confirm') {
-        const res = await trpc.signals.confirm.mutate({ id: signal.id });
-        if (res.executed) {
-          setSuccess(`✓ ${res.detail} ${t('signals.qty')} ${res.qty?.toFixed(6)} — ${t('signals.executed')}`);
-          window.setTimeout(onDecided, 2500);
-        } else {
-          // Risk-Gate hat geblockt — Signal bleibt offen, Gründe anzeigen
-          setBlocked(res.riskReasons.length > 0 ? res.riskReasons : [res.detail]);
-          setBusy(null);
-        }
-      } else {
-        await trpc.signals.reject.mutate({ id: signal.id });
-        onDecided();
-      }
+      await trpc.signals.reject.mutate({ id: signal.id });
+      onDecided();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.error'));
       setBusy(null);
@@ -452,23 +740,32 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
 
       {!readOnly && (
         <>
-          <div className="mt-4 flex items-center gap-2.5">
-            <button
-              onClick={() => void decide('confirm')}
-              disabled={busy !== null}
-              className="btn-primary flex-1 px-3 py-2 text-sm disabled:opacity-50"
-            >
-              {busy === 'confirm' ? t('signals.confirming') : t('signals.confirmBtn')}
-            </button>
-            <button
-              onClick={() => void decide('reject')}
-              disabled={busy !== null}
-              className="flex-1 rounded-[0.625rem] border px-3 py-2 text-sm transition-colors disabled:opacity-50"
-              style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
-            >
-              {busy === 'reject' ? t('signals.rejecting') : t('signals.rejectBtn')}
-            </button>
-          </div>
+          {ticketOpen && !success ? (
+            <AdjustTicket
+              signal={signal}
+              busy={busy === 'confirm'}
+              onExecute={(overrides) => void executeConfirm(overrides)}
+              onCancel={() => setTicketOpen(false)}
+            />
+          ) : (
+            <div className="mt-4 flex items-center gap-2.5">
+              <button
+                onClick={() => void decide('confirm')}
+                disabled={busy !== null}
+                className="btn-primary flex-1 px-3 py-2 text-sm disabled:opacity-50"
+              >
+                {busy === 'confirm' ? t('signals.confirming') : t('signals.confirmBtn')}
+              </button>
+              <button
+                onClick={() => void decide('reject')}
+                disabled={busy !== null}
+                className="flex-1 rounded-[0.625rem] border px-3 py-2 text-sm transition-colors disabled:opacity-50"
+                style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
+              >
+                {busy === 'reject' ? t('signals.rejecting') : t('signals.rejectBtn')}
+              </button>
+            </div>
+          )}
           <p className="mt-2.5 text-center text-[11px]" style={{ color: 'var(--color-mut)' }}>
             {t('signals.footer')}
           </p>

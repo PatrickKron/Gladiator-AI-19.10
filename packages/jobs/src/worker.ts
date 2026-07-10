@@ -12,6 +12,7 @@ import { runSubAgents } from './sub-agent-runner.js';
 import { computeAllFeatures, autoLabelSignals, retrainModel } from './ml-pipeline.js';
 import { runRlEpisodes, aggregateRlPerformance, rebalanceRlWeights } from './rl-pipeline.js';
 import { detectAllRegimes, runSelfEvaluation, runModelComparison, createPerformanceSnapshots } from './self-improve-pipeline.js';
+import { snapshotAccountValues } from './portfolio-snapshot.js';
 
 /**
  * BullMQ-Worker (04_ §2: robuste Jobs statt loser Loops — der v1-Fehler).
@@ -38,6 +39,7 @@ const REGIME_JOB = 'regime-detect';
 const SELF_EVAL_JOB = 'self-evaluate';
 const MODEL_COMPARE_JOB = 'model-compare';
 const PERF_SNAPSHOT_JOB = 'perf-snapshot';
+const PORTFOLIO_SNAPSHOT_JOB = 'portfolio-snapshot';
 
 /**
  * Worker-Heartbeat (Phase 7): /health prüft das Alter; der Monitor-Job pingt
@@ -116,6 +118,7 @@ const SCHEDULES: [string, number][] = [
   [ML_LABEL_JOB, 60 * 60_000],         // Auto-Labeling stündlich
   [RL_EPISODE_JOB, 30 * 60_000],       // RL-Episoden alle 30 min
   [REGIME_JOB, 15 * 60_000],            // Regime-Erkennung alle 15 min
+  [PORTFOLIO_SNAPSHOT_JOB, 60 * 60_000], // Vermögens-Snapshot stündlich (Zeitverlauf „Vermögen")
 ];
 
 /** Nacht-Pipeline: täglich 03:30 UTC (08_ §5) — Cron statt Intervall. */
@@ -251,6 +254,12 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           const res = await syncDerivatives(db);
           console.log(`[derivatives-sync] funding=${res.funding} oi=${res.openInterest} Fehler=${res.errors.length}`);
           for (const e of res.errors) console.warn('[derivatives-sync]', e);
+          return res;
+        }
+        case PORTFOLIO_SNAPSHOT_JOB: {
+          const res = await snapshotAccountValues(db);
+          console.log(`[portfolio-snapshot] User=${res.users} geschrieben=${res.written} Fehler=${res.errors.length}`);
+          for (const e of res.errors) console.warn('[portfolio-snapshot]', e);
           return res;
         }
         case SUB_AGENT_JOB: {

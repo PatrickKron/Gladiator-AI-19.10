@@ -65,10 +65,8 @@ function fmt(n: string): string {
 export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDecided: () => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null);
+  const [busy, setBusy] = useState<'reject' | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [blocked, setBlocked] = useState<string[] | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
 
   const long = signal.direction === 'long';
   const dirColor = long ? 'var(--color-pos)' : 'var(--color-neg)';
@@ -92,24 +90,18 @@ export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDeci
           .join('\n');
 
   async function decide(action: 'confirm' | 'reject') {
+    if (action === 'confirm') {
+      // EIN Trade-Flow überall (Umbau 2026-07-10): Bestätigen öffnet die
+      // Detail-Karte mit dem anpassbaren Ticket (Betrag/Hebel/SL/TP) —
+      // die Zeile platziert selbst KEINE Order mehr.
+      setOpen(true);
+      return;
+    }
     setBusy(action);
     setError(null);
-    setBlocked(null);
     try {
-      if (action === 'confirm') {
-        const res = await trpc.signals.confirm.mutate({ id: signal.id });
-        if (res.executed) {
-          setSuccess(`✓ ${res.detail} ${t('signals.qty')} ${res.qty?.toFixed(6)} — ${t('signals.executed')}`);
-          window.setTimeout(onDecided, 2500);
-        } else {
-          // Risk-Gate hat live geblockt — Signal bleibt 'new', echte Gründe direkt in der Zeile.
-          setBlocked(res.riskReasons.length > 0 ? res.riskReasons : [res.detail]);
-          setBusy(null);
-        }
-      } else {
-        await trpc.signals.reject.mutate({ id: signal.id });
-        onDecided();
-      }
+      await trpc.signals.reject.mutate({ id: signal.id });
+      onDecided();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.error'));
       setBusy(null);
@@ -224,7 +216,7 @@ export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDeci
                   style={{ borderColor: 'rgba(255,92,108,0.6)', color: 'var(--color-neg)' }}
                   title={t('signals.blockedBtnHint', { reason: verdict.riskReject })}
                 >
-                  {busy === 'confirm' ? t('signals.confirming') : `⛔ ${t('signals.blockedBtn')}`}
+                  ⛔ {t('signals.blockedBtn')}
                 </button>
               ) : (
                 <button
@@ -232,7 +224,7 @@ export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDeci
                   disabled={busy !== null}
                   className="btn-primary px-2.5 py-1 text-xs disabled:opacity-50"
                 >
-                  {busy === 'confirm' ? t('signals.confirming') : t('signals.confirmBtn')}
+                  {t('signals.confirmBtn')}
                 </button>
               )}
               <button
@@ -251,22 +243,9 @@ export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDeci
         </div>
       </div>
 
-      {/* Ergebnis eines Zeilen-Klicks: echte Gate-Antwort (Erfolg/Block/Fehler) */}
+      {/* Fehler beim Ablehnen (Ausführung läuft seit dem Umbau NUR über die Karte unten) */}
       {error && (
         <p className="px-4 pb-2 text-xs" style={{ color: 'var(--color-neg)' }}>{error}</p>
-      )}
-      {success && (
-        <p className="mx-4 mb-2 rounded border p-2 text-xs" style={{ borderColor: 'rgba(61,220,151,0.4)', color: 'var(--color-pos)' }}>
-          {success}
-        </p>
-      )}
-      {blocked && (
-        <div className="mx-4 mb-2 rounded border p-2 text-xs" style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}>
-          <p className="font-medium">{t('signals.riskBlocked')}</p>
-          <ul className="mt-1 list-disc pl-4">
-            {blocked.map((r, i) => <li key={i}>{r}</li>)}
-          </ul>
-        </div>
       )}
 
       {/* Aufgeklappt: die bestehende Sammelkarte als einzige Detail-Wahrheit */}

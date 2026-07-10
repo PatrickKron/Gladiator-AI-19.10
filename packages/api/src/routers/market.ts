@@ -14,6 +14,7 @@ import {
   eventsBetween,
   classifyEvent,
   getAssetQuotes,
+  getEurUsdRate,
   getOhlcv,
   ingestTwelveData,
   twelveDataConfigured,
@@ -105,6 +106,9 @@ function resolveAffectedAssets(
 }
 
 export const marketRouter = router({
+  /** Echter EUR/USD-Kurs (Binance EURUSDT, 60s-Cache) — null wenn nicht verfügbar. */
+  eurUsd: protectedProcedure.query(async () => ({ rate: await getEurUsdRate() })),
+
   /** Letzter echter Tick je Symbol + Verbindungsstatus. Kein Feed → ehrlich 'offline'. */
   tickers: protectedProcedure.query(({ ctx }) => {
     if (!ctx.prices) {

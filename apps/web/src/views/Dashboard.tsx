@@ -265,6 +265,7 @@ function fmtFavQuote(price: number, currency: string | null): string {
 function HeroWealth({ account }: { account: Account | null }) {
   const { t } = useTranslation();
   const [demo, setDemo] = useState<{ equity: number } | null | undefined>(undefined); // undefined = lädt
+  const [real, setReal] = useState<{ connected: boolean; totalEur: number | null } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -274,6 +275,13 @@ function HeroWealth({ account }: { account: Account | null }) {
         if (!cancelled) setDemo({ equity: d.equity });
       } catch {
         if (!cancelled) setDemo(null); // ehrlich: Demo-Konto nicht ladbar
+      }
+      // Echtes Geld (verbundene Börsen) — ehrlich getrennt vom Übungsgeld.
+      try {
+        const ov = await trpc.portfolio.overview.query();
+        if (!cancelled) setReal({ connected: ov.real.connected, totalEur: ov.real.totalEur });
+      } catch {
+        if (!cancelled) setReal(null);
       }
     }
     void load();
@@ -286,6 +294,7 @@ function HeroWealth({ account }: { account: Account | null }) {
 
   const paperEquity = account?.equity ?? null;
   const demoEquity = demo === undefined ? null : (demo?.equity ?? null);
+  // EIN Übungskonto (Umbau 2026-07-10): Demo + Paper zusammen als Übungsgeld.
   const total = paperEquity === null && demoEquity === null ? null : (paperEquity ?? 0) + (demoEquity ?? 0);
   const dailyPct = account?.dailyPnlPct ?? null;
 
@@ -317,6 +326,16 @@ function HeroWealth({ account }: { account: Account | null }) {
                 {t('dashboard.heroOpenPositions', { n: account.openPositions })}
               </a>
             )}
+          </p>
+          {/* Ehrliche Trennung: echtes Geld gehört NICHT in die Übungs-Zahl. */}
+          <p className="mt-1.5 text-sm">
+            <a href="#/vermoegen" className="underline decoration-dotted" style={{ color: 'var(--color-mut)' }}>
+              {real?.connected
+                ? t('dashboard.heroReal', {
+                    amount: real.totalEur !== null ? `${real.totalEur.toLocaleString('de-DE', { maximumFractionDigits: 0 })} €` : '—',
+                  })
+                : t('dashboard.heroRealNone')}
+            </a>
           </p>
         </>
       )}

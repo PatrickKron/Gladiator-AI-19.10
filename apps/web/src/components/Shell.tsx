@@ -4,7 +4,8 @@ import { logout, trpc } from '../api.js';
 import { ensurePriceStream, getFeedState, onFeedState, type FeedState } from '../lib/prices.js';
 import { LANGUAGES, setLanguage, storedLanguage, type LanguageCode } from '../i18n/index.js';
 import { isDemoMode, onDemoModeChange } from '../lib/demo-mode.js';
-import { getUiMode, isClassicNav, onUiModeChange, setClassicNav, setUiMode, type UiMode } from '../lib/ui-mode.js';
+import { getUiMode, onUiModeChange, setUiMode, type UiMode } from '../lib/ui-mode.js';
+import { currentSessionEnd, nextSessionStart, sessionAt, type MarketSession } from '../lib/market-session.js';
 import { CommandPalette } from './CommandPalette.js';
 
 /**
@@ -23,10 +24,11 @@ const ico = (d: string) => (
 );
 
 /**
- * NEUE Informationsarchitektur (UI-Konzept, Patrick-Abnahme 2026-07-08):
- * 5 Bereiche, jeder beantwortet EINE Frage. `pro: true` = nur im Profi-Modus
- * sichtbar (Progressive Disclosure — Funktionen bleiben über den Toggle und
- * die ⌘K-Palette voll erreichbar, nichts wird entfernt).
+ * Informationsarchitektur (Umbau 2026-07-10, Patricks Vorgabe): GENAU
+ * 5 Bereiche — Heute · Markt · Vermögen · Agenten · System. EINE Navigation,
+ * eine Wahrheit (die klassische Ansicht ist gelöscht, Patrick-Freigabe).
+ * `pro: true` = nur im Profi-Modus sichtbar (Progressive Disclosure —
+ * alles bleibt über den Toggle und die ⌘K-Palette erreichbar).
  */
 export const AREA_GROUPS: NavGroup[] = [
   {
@@ -37,25 +39,23 @@ export const AREA_GROUPS: NavGroup[] = [
     key: 'nav.areaMarket',
     items: [
       { hash: '#/charts', key: 'nav.chart', icon: ico('M4 19V5m0 14h16M8 14l3-3 2 2 4-5') },
+      { hash: '#/trading', key: 'nav.trade', icon: ico('M4 19V5m0 14h16M8 15l3-4 3 2 5-7') },
+      { hash: '#/signals', key: 'nav.signals', icon: ico('M3 12h4l3-8 4 16 3-8h4') },
       { hash: '#/pakete', key: 'nav.discover', icon: ico('M21 8l-9-5-9 5 9 5 9-5zm-18 0v8l9 5 9-5V8M12 13v8') },
       { hash: '#/kalender', key: 'nav.calendar', icon: ico('M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2zm3-3v4m8-4v4M3 10h18') },
       { hash: '#/magazine', key: 'nav.news', icon: ico('M4 4h11a3 3 0 013 3v13H7a3 3 0 01-3-3V4zm14 4h2v12a2 2 0 01-2 2M8 8h6M8 12h6') },
     ],
   },
   {
-    key: 'nav.areaTrade',
-    items: [
-      { hash: '#/demo', key: 'nav.demo', icon: ico('M12 3a9 9 0 109 9M12 3v9l6.4-6.4M12 3a9 9 0 016.4 2.6') },
-      { hash: '#/trading', key: 'nav.paperTrading', icon: ico('M4 19V5m0 14h16M8 15l3-4 3 2 5-7') },
-      { hash: '#/signals', key: 'nav.signals', icon: ico('M3 12h4l3-8 4 16 3-8h4') },
-    ],
+    key: 'nav.areaWealth',
+    items: [{ hash: '#/vermoegen', key: 'nav.wealth', icon: ico('M3 7h18v12H3zM3 11h18M7 15h4m5-11l2 3h-4l2-3z') }],
   },
   {
-    key: 'nav.areaAutopilot',
+    key: 'nav.areaAgents',
     items: [
       { hash: '#/agenten', key: 'nav.myAgents', icon: ico('M12 8a4 4 0 100-8 4 4 0 000 8zm-7 13a7 7 0 0114 0M2 21h20') },
+      { hash: '#/strategien', key: 'nav.builder', icon: ico('M4 6h16M4 12h10M4 18h7m5-3l4 4m0-4l-4 4') },
       { hash: '#/werkstatt', key: 'nav.workshop', icon: ico('M14.7 6.3a4 4 0 00-5.4 5.3L3 18v3h3l6.9-6.9a4 4 0 005.3-5.4l-2.6 2.6-2.3-.6-.6-2.3z'), pro: true },
-      { hash: '#/strategien', key: 'nav.builder', icon: ico('M4 6h16M4 12h10M4 18h7m5-3l4 4m0-4l-4 4'), pro: true },
       { hash: '#/strategie-workshop', key: 'nav.strategyWorkshop', icon: ico('M8 9h8m-8 4h5m-7 7l-3-3V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2H8z'), pro: true },
       { hash: '#/labor', key: 'nav.lab', icon: ico('M9 3v6l-5 9a2 2 0 002 3h12a2 2 0 002-3l-5-9V3M7 3h10'), pro: true },
       { hash: '#/intelligenz', key: 'nav.intelligence', icon: ico('M4 20V10l4-6h8l4 6v10M9 20v-6h6v6M2 10h20M12 4v6'), pro: true },
@@ -63,46 +63,6 @@ export const AREA_GROUPS: NavGroup[] = [
   },
   {
     key: 'nav.areaSystem',
-    items: [
-      { hash: '#/einstellungen', key: 'nav.settings', icon: ico('M12 15a3 3 0 100-6 3 3 0 000 6zm8-3l2-1-2-4-2.2.7a8 8 0 00-1.5-.9L16 4h-4l-.3 2.8a8 8 0 00-1.5.9L8 7 6 11l2 1v0l-2 1 2 4 2.2-.7c.5.4 1 .7 1.5.9L12 20h4l.3-2.8c.5-.2 1-.5 1.5-.9L20 17l2-4z') },
-      { hash: '#/profil', key: 'nav.profile', icon: ico('M12 12a4 4 0 100-8 4 4 0 000 8zm-8 9a8 8 0 0116 0') },
-    ],
-  },
-];
-
-/** Klassische Navigation (Stand vor dem Umbau) — über den Schalter unten in der Sidebar sofort zurückholbar. */
-export const NAV_GROUPS: NavGroup[] = [
-  {
-    key: 'nav.groupCommand',
-    items: [
-      { hash: '#/', key: 'nav.dashboard', icon: ico('M3 12l9-8 9 8M5 10v10h5v-6h4v6h5V10') },
-      { hash: '#/charts', key: 'nav.assets', icon: ico('M4 19V5m0 14h16M8 14l3-3 2 2 4-5') },
-      { hash: '#/signals', key: 'nav.signals', icon: ico('M3 12h4l3-8 4 16 3-8h4') },
-      { hash: '#/trading', key: 'nav.trading', icon: ico('M4 19V5m0 14h16M8 15l3-4 3 2 5-7') },
-      { hash: '#/demo', key: 'nav.demo', icon: ico('M12 3a9 9 0 109 9M12 3v9l6.4-6.4M12 3a9 9 0 016.4 2.6') },
-    ],
-  },
-  {
-    key: 'nav.groupIntel',
-    items: [
-      { hash: '#/labor', key: 'nav.lab', icon: ico('M9 3v6l-5 9a2 2 0 002 3h12a2 2 0 002-3l-5-9V3M7 3h10') },
-      { hash: '#/strategien', key: 'nav.builder', icon: ico('M4 6h16M4 12h10M4 18h7m5-3l4 4m0-4l-4 4') },
-      { hash: '#/strategie-workshop', key: 'nav.strategyWorkshop', icon: ico('M8 9h8m-8 4h5m-7 7l-3-3V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2H8z') },
-      { hash: '#/werkstatt', key: 'nav.workshop', icon: ico('M14.7 6.3a4 4 0 00-5.4 5.3L3 18v3h3l6.9-6.9a4 4 0 005.3-5.4l-2.6 2.6-2.3-.6-.6-2.3z') },
-      { hash: '#/agenten', key: 'nav.agents', icon: ico('M12 8a4 4 0 100-8 4 4 0 000 8zm-7 13a7 7 0 0114 0M2 21h20') },
-      { hash: '#/intelligenz', key: 'nav.intelligence', icon: ico('M4 20V10l4-6h8l4 6v10M9 20v-6h6v6M2 10h20M12 4v6') },
-    ],
-  },
-  {
-    key: 'nav.groupOps',
-    items: [
-      { hash: '#/kalender', key: 'nav.calendar', icon: ico('M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2zm3-3v4m8-4v4M3 10h18') },
-      { hash: '#/magazine', key: 'nav.magazine', icon: ico('M4 4h11a3 3 0 013 3v13H7a3 3 0 01-3-3V4zm14 4h2v12a2 2 0 01-2 2M8 8h6M8 12h6') },
-      { hash: '#/pakete', key: 'nav.packages', icon: ico('M21 8l-9-5-9 5 9 5 9-5zm-18 0v8l9 5 9-5V8M12 13v8') },
-    ],
-  },
-  {
-    key: 'nav.groupSystem',
     items: [
       { hash: '#/einstellungen', key: 'nav.settings', icon: ico('M12 15a3 3 0 100-6 3 3 0 000 6zm8-3l2-1-2-4-2.2.7a8 8 0 00-1.5-.9L16 4h-4l-.3 2.8a8 8 0 00-1.5.9L8 7 6 11l2 1v0l-2 1 2 4 2.2-.7c.5.4 1 .7 1.5.9L12 20h4l.3-2.8c.5-.2 1-.5 1.5-.9L20 17l2-4z') },
       { hash: '#/profil', key: 'nav.profile', icon: ico('M12 12a4 4 0 100-8 4 4 0 000 8zm-8 9a8 8 0 0116 0') },
@@ -125,6 +85,42 @@ function FeedBadge() {
   return (
     <span className="num text-xs tracking-widest" style={{ color: map[feed].color }} title={feed}>
       {map[feed].text}
+    </span>
+  );
+}
+
+/**
+ * Sessions-Übersicht (Patricks Wunsch): welche Handels-Session läuft gerade?
+ * Badge in der Topbar + Tooltip mit Ende/nächstem Start. Minütlich aktualisiert.
+ */
+function SessionBadge() {
+  const { t } = useTranslation();
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const session: MarketSession = sessionAt(now);
+  const end = currentSessionEnd(now);
+  const next = nextSessionStart(now);
+  const fmt = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const title =
+    session === 'off'
+      ? t('session.nextHint', { session: t(`session.${next.session}`), time: fmt(next.startsAt) })
+      : t('session.endHint', { time: end ? fmt(end) : '—' });
+  const active = session !== 'off';
+  return (
+    <span
+      className="label hidden rounded border px-1.5 py-0.5 sm:inline"
+      style={
+        active
+          ? { borderColor: 'rgba(60,220,130,0.45)', color: 'var(--color-pos)' }
+          : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
+      }
+      title={title}
+    >
+      {active ? '● ' : '○ '}
+      {t(`session.${session}`)}
     </span>
   );
 }
@@ -159,17 +155,9 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [demoMode, setDemoModeState] = useState(() => isDemoMode());
   const [uiMode, setUiModeState] = useState<UiMode>(() => getUiMode());
-  const [classicNav, setClassicNavState] = useState(() => isClassicNav());
 
   useEffect(() => onDemoModeChange(setDemoModeState), []);
-  useEffect(
-    () =>
-      onUiModeChange(() => {
-        setUiModeState(getUiMode());
-        setClassicNavState(isClassicNav());
-      }),
-    [],
-  );
+  useEffect(() => onUiModeChange(() => setUiModeState(getUiMode())), []);
 
   // Command-Palette (P1.5): global per Cmd/Ctrl+K öffnen.
   useEffect(() => {
@@ -206,9 +194,9 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
     return clean === '' || clean === '#' ? '#/' : clean;
   }, [route]);
 
-  // Aktive Navigation: neue 5-Bereiche-IA, gefiltert nach Modus; „Klassisch" = alter Stand.
-  const groups = classicNav ? NAV_GROUPS : AREA_GROUPS;
-  const hiddenProCount = classicNav || uiMode === 'profi' ? 0 : AREA_GROUPS.reduce((n, g) => n + g.items.filter((i) => i.pro).length, 0);
+  // EINE Navigation, eine Wahrheit: 5 Bereiche, gefiltert nach Einfach/Profi.
+  const groups = AREA_GROUPS;
+  const hiddenProCount = uiMode === 'profi' ? 0 : AREA_GROUPS.reduce((n, g) => n + g.items.filter((i) => i.pro).length, 0);
 
   const nav = (
     <nav className="flex flex-col gap-6">
@@ -216,7 +204,7 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
         <div key={group.key}>
           <p className="label mb-2 px-3">{t(group.key)}</p>
           <ul className="space-y-0.5">
-            {group.items.filter((item) => classicNav || uiMode === 'profi' || !item.pro).map((item) => {
+            {group.items.filter((item) => uiMode === 'profi' || !item.pro).map((item) => {
               const active = activeHash === item.hash;
               return (
                 <li key={item.hash}>
@@ -268,14 +256,6 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
         </a>
         {nav}
         <div className="mt-auto px-2">
-          {/* Sofort-Rückweg (Patricks Bedingung): alte Navigation ohne Deploy zurückholbar */}
-          <button
-            onClick={() => setClassicNav(!classicNav)}
-            className="mb-2 text-[11px] underline decoration-dotted"
-            style={{ color: 'var(--color-mut)' }}
-          >
-            {classicNav ? t('nav.backToNew') : t('nav.classicView')}
-          </button>
           <p className="label">v2 · Neon-Dual</p>
         </div>
       </aside>
@@ -376,6 +356,7 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
               <span className="hidden sm:inline">{t('palette.button')}</span>
               <span className="num label hidden md:inline">⌘K</span>
             </button>
+            <SessionBadge />
             <FeedBadge />
             <LanguageSwitch />
             <button

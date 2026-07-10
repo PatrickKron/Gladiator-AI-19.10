@@ -49,6 +49,7 @@ const Workshop = lazyView(() => import('./views/Workshop.js'), 'Workshop');
 const Intelligenz = lazyView(() => import('./views/Intelligenz.js'), 'Intelligenz');
 const Einstellungen = lazyView(() => import('./views/Einstellungen.js'), 'Einstellungen');
 const Profil = lazyView(() => import('./views/Profil.js'), 'Profil');
+const Vermoegen = lazyView(() => import('./views/Vermoegen.js'), 'Vermoegen');
 
 type AuthState = 'restoring' | 'anonymous' | 'authenticated';
 
@@ -96,6 +97,7 @@ const ROUTES: Record<string, ComponentType> = {
   '#/performance': () => <Redirect to="#/intelligenz?tab=performance" />,
   '#/einstellungen': Einstellungen,
   '#/profil': Profil,
+  '#/vermoegen': Vermoegen,
 };
 
 export function App() {

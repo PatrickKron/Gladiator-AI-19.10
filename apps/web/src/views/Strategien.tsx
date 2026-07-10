@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
+import { StrategyCatalog } from '../components/StrategyCatalog.js';
 
 /**
  * Strategie-Builder (09_ §3.14 + §3.5): Registry mit Versionen + Promotion
@@ -11,7 +12,6 @@ import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js
 
 type Strategy = Awaited<ReturnType<typeof trpc.strategies.list.query>>[number];
 type Version = Awaited<ReturnType<typeof trpc.strategies.versions.query>>[number];
-type DslPreview = Awaited<ReturnType<typeof trpc.strategies.dslPreview.mutate>>;
 
 const KIND_COLOR: Record<string, string> = {
   builtin: 'var(--color-cyan)',
@@ -513,141 +513,12 @@ function PineAnalyzePanel() {
   );
 }
 
-function DslTab({ onRegistered }: { onRegistered: () => void }) {
-  const { t } = useTranslation();
-  const [text, setText] = useState('');
-  const [json, setJson] = useState('');
-  const [preview, setPreview] = useState<DslPreview | null>(null);
-  const [busy, setBusy] = useState<'preview' | 'register' | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [registered, setRegistered] = useState<number | null>(null);
-
-  async function doPreview() {
-    setBusy('preview');
-    setError(null);
-    setRegistered(null);
-    try {
-      let dsl: unknown;
-      if (json.trim()) {
-        try {
-          dsl = JSON.parse(json);
-        } catch {
-          setError(t('builder.dslErrors') + ': JSON');
-          return;
-        }
-      }
-      const res = await trpc.strategies.dslPreview.mutate(dsl !== undefined ? { dsl } : { text });
-      setPreview(res);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('common.error'));
-      setPreview(null);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function doRegister() {
-    if (!preview?.ok) return;
-    setBusy('register');
-    setError(null);
-    try {
-      const res = await trpc.strategies.dslRegister.mutate({ dsl: preview.dsl });
-      setRegistered(res.version);
-      setPreview(null);
-      setText('');
-      setJson('');
-      onRegistered();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('common.error'));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  return (
-    <Panel label={t('builder.dslTitle')} stagger={2}>
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <label className="flex flex-col gap-1.5">
-          <span className="label">{t('builder.dslTextLabel')}</span>
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={5}
-            placeholder={t('builder.dslTextPlaceholder')}
-            className="field px-3 py-2 text-sm"
-          />
-        </label>
-        <label className="flex flex-col gap-1.5">
-          <span className="label">{t('builder.dslJsonLabel')}</span>
-          <textarea
-            value={json}
-            onChange={(e) => setJson(e.target.value)}
-            rows={5}
-            placeholder='{"id":"btc-london-bos", ...}'
-            className="field num px-3 py-2 text-xs"
-          />
-        </label>
-      </div>
-      <button
-        onClick={() => void doPreview()}
-        disabled={busy !== null || (text.trim().length < 10 && json.trim().length < 10)}
-        className="btn-primary mt-4 px-5 py-2 text-sm disabled:opacity-50"
-      >
-        {busy === 'preview' ? t('builder.dslPreviewing') : t('builder.dslPreviewBtn')}
-      </button>
-      <p className="mt-2 text-[11px]" style={{ color: 'var(--color-mut)' }}>
-        {t('builder.dslLlmOff')}
-      </p>
-
-      {error && (
-        <p className="mt-3 text-xs" style={{ color: 'var(--color-neg)' }}>
-          {error}
-        </p>
-      )}
-
-      {preview && (
-        <div className="mt-5 rounded-[0.625rem] border p-4" style={{ borderColor: preview.ok ? 'rgba(139,92,246,0.4)' : 'rgba(255,92,108,0.4)' }}>
-          <p className="label">{t('builder.dslPreviewTitle')}</p>
-          {preview.llmUsed && (
-            <p className="mt-2 text-xs" style={{ color: 'var(--color-warn)' }}>
-              {t('builder.dslLlmUsed')}
-            </p>
-          )}
-          <pre className="num mt-3 max-h-72 overflow-auto rounded p-3 text-xs leading-relaxed" style={{ background: 'rgba(4,6,20,0.7)' }}>
-            {JSON.stringify(preview.ok ? preview.dsl : preview.draft, null, 2)}
-          </pre>
-          {!preview.ok && preview.errors.length > 0 && (
-            <div className="mt-3">
-              <p className="text-xs font-medium" style={{ color: 'var(--color-neg)' }}>
-                {t('builder.dslErrors')}:
-              </p>
-              <ul className="mt-1 list-disc pl-5 text-xs" style={{ color: 'var(--color-neg)' }}>
-                {preview.errors.map((e, i) => (
-                  <li key={i}>{e}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {preview.ok && (
-            <button onClick={() => void doRegister()} disabled={busy !== null} className="btn-primary mt-4 px-5 py-2 text-sm disabled:opacity-50">
-              {busy === 'register' ? t('builder.dslRegistering') : t('builder.dslRegisterBtn')}
-            </button>
-          )}
-        </div>
-      )}
-
-      {registered !== null && (
-        <p className="mt-4 rounded-[0.625rem] border p-3 text-sm" style={{ borderColor: 'rgba(61,220,151,0.4)', color: 'var(--color-pos)' }}>
-          ✓ {t('builder.dslRegistered', { version: registered })}
-        </p>
-      )}
-    </Panel>
-  );
-}
-
 export function Strategien() {
   const { t } = useTranslation();
-  const [tab, setTab] = useState<'builtin' | 'pine' | 'dsl'>('builtin');
+  // Katalog zuerst (Patricks „umfassendes Sortiment"); der DSL-Editor-Tab
+  // wurde konsolidiert — DSL-Strategien baut man im Strategie-Workshop
+  // (iterativ, mit Backtest-Gate), nicht mehr an zwei Orten.
+  const [tab, setTab] = useState<'katalog' | 'builtin' | 'pine'>('katalog');
   const [list, setList] = useState<Strategy[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -665,9 +536,9 @@ export function Strategien() {
   }, []);
 
   const tabs = [
+    { id: 'katalog' as const, key: 'builder.tabCatalog' },
     { id: 'builtin' as const, key: 'builder.tabBuiltin' },
     { id: 'pine' as const, key: 'builder.tabPine' },
-    { id: 'dsl' as const, key: 'builder.tabDsl' },
   ];
 
   return (
@@ -707,11 +578,17 @@ export function Strategien() {
           <PineAnalyzePanel />
         </>
       )}
-      {tab === 'dsl' && <DslTab onRegistered={() => void load()} />}
+      {tab === 'katalog' && <StrategyCatalog />}
       {tab === 'builtin' && (
         <Panel stagger={2}>
           <p className="text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
             {t('builder.builtinHint')}
+          </p>
+          <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+            {t('builder.dslMovedHint')}{' '}
+            <a href="#/strategie-workshop" className="underline decoration-dotted" style={{ color: 'var(--color-cyan)' }}>
+              {t('nav.strategyWorkshop')}
+            </a>
           </p>
         </Panel>
       )}
@@ -724,7 +601,7 @@ export function Strategien() {
           <Empty text={t('common.empty')} />
         ) : (
           <ul className="mt-4 space-y-3">
-            {(tab === 'builtin' ? list : list.filter((s) => s.kind === tab)).map((s) => (
+            {(tab === 'pine' ? list.filter((s) => s.kind === 'pine') : list).map((s) => (
               <StrategyRow key={s.id} s={s} onChanged={() => void load()} />
             ))}
           </ul>

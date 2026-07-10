@@ -144,3 +144,5 @@ export {
 } from './twelvedata.js';
 
 export { eurToUsd, getEurUsdRate, resetFxCache, usdToEur, type FetchLike } from './fx.js';
+
+export { valueBalancesUsd, type ValuedBalances } from './valuation.js';
