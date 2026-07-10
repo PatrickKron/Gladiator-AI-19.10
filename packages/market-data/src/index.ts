@@ -142,3 +142,5 @@ export {
   type TwelveDataParse,
   type TwelveDataIngestResult,
 } from './twelvedata.js';
+
+export { eurToUsd, getEurUsdRate, resetFxCache, usdToEur, type FetchLike } from './fx.js';

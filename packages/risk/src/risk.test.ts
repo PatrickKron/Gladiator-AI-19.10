@@ -77,6 +77,53 @@ describe('Risk-Engine: Sizing (exakt, Tick/Lot/Min-Notional)', () => {
   });
 });
 
+describe('Risk-Engine: User-Wunschbetrag (requestedNotional)', () => {
+  it('qty folgt dem Wunschbetrag, riskAmount ist das ECHTE Risiko bis zum Stop', () => {
+    // Wunsch: 500 Notional @ Entry 100 → qty 5; Risiko = 5 × Abstand 10 = 50
+    const v = evaluateRisk({ ...ORDER, requestedNotional: 500 }, SETTINGS, STATE, MARKET, []);
+    expect(v.allowed).toBe(true);
+    expect(v.sizing!.qty).toBeCloseTo(5, 9);
+    expect(v.sizing!.notional).toBeCloseTo(500);
+    expect(v.sizing!.riskAmount).toBeCloseTo(50);
+  });
+
+  it('Wunschbetrag über dem Exposure-Limit wird geblockt (Gate bleibt maßgeblich)', () => {
+    // 20 % von 10.000 = 2.000 max Exposure — Wunsch 3.000 muss fallen
+    const v = evaluateRisk({ ...ORDER, requestedNotional: 3000 }, SETTINGS, STATE, MARKET, []);
+    expect(v.allowed).toBe(false);
+    expect(v.reasons.join(' ')).toMatch(/Exposure/);
+  });
+
+  it('Wunschbetrag unter Börsen-Minimum wird geblockt', () => {
+    const v = evaluateRisk({ ...ORDER, requestedNotional: 5 }, SETTINGS, STATE, MARKET, []);
+    expect(v.allowed).toBe(false);
+    expect(v.reasons.join(' ')).toMatch(/Mindest-Notional/);
+  });
+
+  it('Margin-Check nutzt den Hebel: hoher Wunschbetrag geht nur mit genug Margin', () => {
+    // Wunsch 1.500 bei Margin 1.000: Hebel 1 → 1.500 > 1.000 blockt; Hebel 2 → 750 ok
+    const tight = { ...STATE, availableMargin: 1000 };
+    const lev1 = evaluateRisk({ ...ORDER, leverage: 1, requestedNotional: 1500 }, SETTINGS, tight, MARKET, []);
+    expect(lev1.allowed).toBe(false);
+    expect(lev1.reasons.join(' ')).toMatch(/Margin/);
+    const lev2 = evaluateRisk({ ...ORDER, leverage: 2, requestedNotional: 1500 }, SETTINGS, tight, MARKET, []);
+    expect(lev2.allowed).toBe(true);
+    expect(lev2.sizing!.marginRequired).toBeCloseTo(750);
+  });
+
+  it('Hebel über dem Cap blockt auch mit Wunschbetrag', () => {
+    const v = evaluateRisk({ ...ORDER, leverage: 25, requestedNotional: 500 }, SETTINGS, STATE, MARKET, []);
+    expect(v.allowed).toBe(false);
+    expect(v.reasons.join(' ')).toMatch(/Hebel/);
+  });
+
+  it('ohne requestedNotional bleibt das bisherige Risiko%-Sizing exakt erhalten', () => {
+    const before = evaluateRisk(ORDER, SETTINGS, STATE, MARKET, []);
+    expect(before.sizing!.qty).toBeCloseTo(10, 9);
+    expect(before.sizing!.riskAmount).toBeCloseTo(100);
+  });
+});
+
 describe('Risk-Engine: statische Limits & SAFE-Kill-Switches', () => {
   it('Kill-Switch blockt alles', () => {
     const v = evaluateRisk(ORDER, { ...SETTINGS, killSwitchActive: true }, STATE, MARKET, []);

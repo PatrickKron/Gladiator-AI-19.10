@@ -21,6 +21,14 @@ export type OrderIntent = {
   session: string;
   emaRegime: 'above' | 'below';
   marketPhase: 'bull' | 'bear';
+  /**
+   * Vom User GEWÜNSCHTER Einsatz (Positionswert in Kontowährung) — Patricks
+   * „ich kann die Höhe nicht setzen"-Fix. Fehlt er, rechnet das Sizing wie
+   * bisher aus Risiko% ÷ SL-Abstand. Alle HARTEN Checks (Hebel-Cap, Margin,
+   * Exposure, Min-Notional, SAFE-Gates) gelten unverändert auch für den
+   * Wunsch-Betrag — der User bestimmt die Größe, das Gate bleibt maßgeblich.
+   */
+  requestedNotional?: number;
 };
 
 export type RiskSettings = {
@@ -177,9 +185,18 @@ export function evaluateRisk(
     pass('margin', 'übersprungen (kein Sizing)');
     pass('exposure', 'übersprungen (kein Sizing)');
   } else {
-    const riskAmount = state.equity * (settings.riskPctPerTrade / 100);
     const riskDistance = Math.abs(order.entry - order.stopLoss);
-    const rawQty = riskAmount / riskDistance;
+    let rawQty: number;
+    let riskAmount: number;
+    if (order.requestedNotional !== undefined && order.requestedNotional > 0) {
+      // User-Wunschbetrag: qty aus dem Betrag; riskAmount = ECHTES Risiko
+      // dieser Größe bis zum Stop (ehrlich, nicht das Default-Risiko%).
+      rawQty = order.requestedNotional / order.entry;
+      riskAmount = roundDownToStep(rawQty, market.lotSize) * riskDistance;
+    } else {
+      riskAmount = state.equity * (settings.riskPctPerTrade / 100);
+      rawQty = riskAmount / riskDistance;
+    }
     const qty = roundDownToStep(rawQty, market.lotSize);
     const notional = qty * order.entry;
 

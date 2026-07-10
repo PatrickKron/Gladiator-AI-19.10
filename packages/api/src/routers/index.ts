@@ -1,7 +1,9 @@
 import { router } from '../trpc.js';
 import { agentsRouter } from './agents.js';
 import { authRouter } from './auth.js';
+import { catalogRouter } from './catalog.js';
 import { demoRouter } from './demo.js';
+import { exchangesRouter } from './exchanges.js';
 import { intelligenceRouter } from './intelligence.js';
 import { labRouter } from './lab.js';
 import { marketRouter } from './market.js';
@@ -21,7 +23,9 @@ import { workshopRouter } from './workshop.js';
 export const appRouter = router({
   agents: agentsRouter,
   auth: authRouter,
+  catalog: catalogRouter,
   demo: demoRouter,
+  exchanges: exchangesRouter,
   intelligence: intelligenceRouter,
   lab: labRouter,
   market: marketRouter,

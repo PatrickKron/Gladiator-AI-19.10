@@ -2,7 +2,15 @@ import { TRPCError } from '@trpc/server';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
-import { executeConfirmedSignal } from '@gladiator/exchange';
+import {
+  buildAccountState,
+  executeConfirmedSignal,
+  loadActiveGates,
+  loadRiskContext,
+  loadRiskSettings,
+} from '@gladiator/exchange';
+import { evaluateRisk } from '@gladiator/risk';
+import { getEurUsdRate } from '@gladiator/market-data';
 import { protectedProcedure, router } from '../trpc.js';
 
 const { signals, signalReviews, strategies, auditLog, assetFavorites, assets } = schema;
@@ -116,13 +124,107 @@ export const signalsRouter = router({
       return rowsOut.map((r) => ({ ...r, reviews: bySignal.get(r.id) ?? [] }));
     }),
 
-  /** Bestätigen (Mensch im Loop): Risk-Gate → Paper-Order. Nur aus Status 'new'. */
-  confirm: protectedProcedure
+  /**
+   * Ausführungs-Vorschau: Was schlägt die Strategie vor (Betrag/Hebel/SL/TP),
+   * was sind die harten Grenzen, wie ist der echte EUR-Kurs? Grundlage für
+   * das anpassbare Signal-Ticket — der Vorschlag bleibt sichtbare Referenz.
+   */
+  executionPreview: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      if (!ctx.venue) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Kein Trading-Venue aktiv.' });
+      }
+      const [signal] = await ctx.db.select().from(signals).where(eq(signals.id, input.id)).limit(1);
+      if (!signal) throw new TRPCError({ code: 'NOT_FOUND', message: 'Signal nicht gefunden.' });
+
+      const settings = await loadRiskSettings(ctx.db, ctx.user.id);
+      const state = await buildAccountState(ctx.db, ctx.user.id);
+      const rules = await ctx.venue.marketRules(signal.symbol);
+      const gates = await loadActiveGates(ctx.db);
+      const verdict = evaluateRisk(
+        {
+          symbol: signal.symbol,
+          timeframe: signal.timeframe,
+          direction: signal.direction,
+          entry: Number(signal.entry),
+          stopLoss: Number(signal.stopLoss),
+          leverage: 1,
+          session: signal.session,
+          emaRegime: signal.emaRegime as 'above' | 'below',
+          marketPhase: signal.marketPhase as 'bull' | 'bear',
+        },
+        settings,
+        state,
+        rules,
+        gates,
+        await loadRiskContext(ctx.db),
+      );
+      const eurUsd = await getEurUsdRate();
+      const suggestedNotionalUsd = verdict.sizing?.notional ?? null;
+      return {
+        // Strategie-Vorschlag (Referenz fürs Ticket)
+        suggested: {
+          notionalUsd: suggestedNotionalUsd,
+          notionalEur: suggestedNotionalUsd !== null && eurUsd ? suggestedNotionalUsd / eurUsd : null,
+          leverage: Number(signal.leverageSuggested ?? 1) || 1,
+          stopLoss: Number(signal.stopLoss),
+          takeProfits: signal.takeProfits.map((tp) => Number(tp)),
+          entry: Number(signal.entry),
+          riskAmountUsd: verdict.sizing?.riskAmount ?? null,
+        },
+        // Grenzen für die Schieberegler
+        limits: {
+          maxLeverage: settings.maxLeverage,
+          maxNotionalUsd: Math.min(
+            state.availableMargin * settings.maxLeverage,
+            state.equity * (settings.maxExposurePctPerAsset / 100),
+          ),
+          minNotionalUsd: rules.minNotional,
+          equityUsd: state.equity,
+        },
+        /** Echter EUR/USD-Kurs; null = Quelle nicht erreichbar (UI zeigt USD). */
+        eurUsdRate: eurUsd,
+        gateReasons: verdict.allowed ? [] : verdict.reasons,
+      };
+    }),
+
+  /** Bestätigen (Mensch im Loop): Risk-Gate → Paper-Order. Nur aus Status 'new'.
+   *  Optional mit User-Anpassungen (Betrag in €, Hebel, SL, TP) — der
+   *  Strategie-Vorschlag bleibt als Referenz in Signal + Audit erhalten. */
+  confirm: protectedProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        overrides: z
+          .object({
+            amountEur: z.number().positive().max(100_000_000).optional(),
+            leverage: z.number().min(1).max(200).optional(),
+            stopLoss: z.number().positive().optional(),
+            takeProfits: z.array(z.number().positive()).max(3).optional(),
+          })
+          .optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       if (!ctx.venue) {
         throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Kein Trading-Venue aktiv — Ausführung nicht möglich.' });
       }
+
+      // €-Betrag mit ECHTEM Kurs nach USD umrechnen — kein Kurs, kein Trade in €.
+      let notionalUsd: number | undefined;
+      let eurUsdRateUsed: number | null = null;
+      if (input.overrides?.amountEur !== undefined) {
+        eurUsdRateUsed = await getEurUsdRate();
+        if (eurUsdRateUsed === null) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'EUR/USD-Kurs gerade nicht verfügbar — bitte kurz erneut versuchen (es wird nie ein Kurs erfunden).',
+          });
+        }
+        notionalUsd = input.overrides.amountEur * eurUsdRateUsed;
+      }
+
       const [updated] = await ctx.db
         .update(signals)
         .set({ status: 'confirmed', updatedAt: new Date() })
@@ -137,14 +239,35 @@ export const signalsRouter = router({
         action: 'signal.confirm',
         entityType: 'signal',
         entityId: updated.id,
-        details: { symbol: updated.symbol, timeframe: updated.timeframe, direction: updated.direction },
+        details: {
+          symbol: updated.symbol,
+          timeframe: updated.timeframe,
+          direction: updated.direction,
+          ...(input.overrides ? { overrides: input.overrides, eurUsdRateUsed } : {}),
+        },
         ip: ctx.ip,
       });
+
+      const hasOverrides =
+        notionalUsd !== undefined ||
+        input.overrides?.leverage !== undefined ||
+        input.overrides?.stopLoss !== undefined ||
+        (input.overrides?.takeProfits?.length ?? 0) > 0;
 
       const execution = await executeConfirmedSignal(ctx.db, ctx.venue, {
         signalId: updated.id,
         userId: ctx.user.id,
         ip: ctx.ip,
+        ...(hasOverrides
+          ? {
+              overrides: {
+                ...(notionalUsd !== undefined ? { notionalUsd } : {}),
+                ...(input.overrides?.leverage !== undefined ? { leverage: input.overrides.leverage } : {}),
+                ...(input.overrides?.stopLoss !== undefined ? { stopLoss: input.overrides.stopLoss } : {}),
+                ...(input.overrides?.takeProfits?.length ? { takeProfits: input.overrides.takeProfits } : {}),
+              },
+            }
+          : {}),
       });
 
       if (!execution.executed) {

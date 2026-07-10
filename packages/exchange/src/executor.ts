@@ -156,6 +156,21 @@ export async function executeConfirmedSignal(
      * nur die Sizing-Größe je Trade wird ersetzt (Gate bleibt maßgeblich).
      */
     riskPctOverride?: number;
+    /**
+     * User-Anpassungen VOR der Ausführung (Patricks „ich bekomme es trotzdem
+     * vorgeschlagen wie die Strategie ausgemacht war"-Fix): Betrag, Hebel,
+     * Stop-Loss und Take-Profits dürfen den Strategie-Vorschlag ersetzen.
+     * Der Vorschlag bleibt in Signal + Audit als Referenz erhalten. ALLE
+     * harten Risk-Gates gelten unverändert auch für die angepassten Werte.
+     */
+    overrides?: {
+      /** Gewünschter Positionswert in USD (UI rechnet € mit echtem Kurs um). */
+      notionalUsd?: number;
+      /** 1× … maxLeverage (Cap aus den Risk-Settings, Gate blockt darüber). */
+      leverage?: number;
+      stopLoss?: number;
+      takeProfits?: number[];
+    };
   },
 ): Promise<ExecutionResult> {
   const [signal] = await db.select().from(signals).where(eq(signals.id, opts.signalId)).limit(1);
@@ -171,17 +186,27 @@ export async function executeConfirmedSignal(
   const gates = await loadActiveGates(db);
   const rules = await venue.marketRules(signal.symbol);
 
+  // User-Anpassungen (Betrag/Hebel/SL/TP) — Strategie-Vorschlag bleibt Referenz.
+  const effectiveStopLoss = opts.overrides?.stopLoss ?? Number(signal.stopLoss);
+  const effectiveTakeProfits =
+    opts.overrides?.takeProfits && opts.overrides.takeProfits.length > 0
+      ? opts.overrides.takeProfits.slice(0, 3)
+      : signal.takeProfits.map((tp) => Number(tp));
+  // Ohne Override bleibt es bei konservativ 1× (Paper-Phase, Hebel-Anwendung mit VDB2-Promotion).
+  const effectiveLeverage = opts.overrides?.leverage ?? 1;
+
   const verdict = evaluateRisk(
     {
       symbol: signal.symbol,
       timeframe: signal.timeframe,
       direction: signal.direction,
       entry: Number(signal.entry),
-      stopLoss: Number(signal.stopLoss),
-      leverage: 1, // Paper-Phase: konservativ 1× (Hebel-Anwendung kommt mit VDB2-Promotion)
+      stopLoss: effectiveStopLoss,
+      leverage: effectiveLeverage,
       session: signal.session,
       emaRegime: signal.emaRegime as 'above' | 'below',
       marketPhase: signal.marketPhase as 'bull' | 'bear',
+      requestedNotional: opts.overrides?.notionalUsd,
     },
     settings,
     state,
@@ -196,7 +221,18 @@ export async function executeConfirmedSignal(
     action: verdict.allowed ? 'order.risk_check.passed' : 'order.risk_check.blocked',
     entityType: 'signal',
     entityId: signal.id,
-    details: { reasons: verdict.reasons, checks: verdict.checks, sizing: verdict.sizing },
+    details: {
+      reasons: verdict.reasons,
+      checks: verdict.checks,
+      sizing: verdict.sizing,
+      // Transparenz: Was hat der User angepasst, was war der Strategie-Vorschlag?
+      ...(opts.overrides
+        ? {
+            overrides: opts.overrides,
+            suggested: { stopLoss: signal.stopLoss, takeProfits: signal.takeProfits, leverage: 1 },
+          }
+        : {}),
+    },
     ip: opts.ip ?? null,
   });
 
@@ -255,7 +291,7 @@ export async function executeConfirmedSignal(
       direction: signal.direction,
       qty: String(verdict.sizing.qty),
       entryPrice: String(entryRes.fillPrice),
-      leverage: '1',
+      leverage: String(effectiveLeverage),
       mode: 'paper',
     })
     .returning();
@@ -263,10 +299,10 @@ export async function executeConfirmedSignal(
   // ── Schutz-Orders: SL (voll) + TPs (gewichtet), mit Retry im Venue ──
   const closeSide = side === 'buy' ? 'sell' : 'buy';
   const protection: { type: 'stop_market' | 'take_profit_market'; trigger: number; fraction: number; tag: string }[] = [
-    { type: 'stop_market', trigger: Number(signal.stopLoss), fraction: 1, tag: 'sl' },
-    ...signal.takeProfits.slice(0, 3).map((tp, i) => ({
+    { type: 'stop_market', trigger: effectiveStopLoss, fraction: 1, tag: 'sl' },
+    ...effectiveTakeProfits.slice(0, 3).map((tp, i) => ({
       type: 'take_profit_market' as const,
-      trigger: Number(tp),
+      trigger: tp,
       fraction: TP_WEIGHTS[i] ?? TP_WEIGHTS[TP_WEIGHTS.length - 1]!,
       tag: `tp${i + 1}`,
     })),
@@ -309,7 +345,9 @@ export async function executeConfirmedSignal(
     entityId: position!.id,
     details: {
       signalId: signal.id, venue: venue.id, qty: verdict.sizing.qty,
-      entryFill: entryRes.fillPrice, stopLoss: signal.stopLoss, takeProfits: signal.takeProfits,
+      entryFill: entryRes.fillPrice, stopLoss: effectiveStopLoss, takeProfits: effectiveTakeProfits,
+      leverage: effectiveLeverage,
+      ...(opts.overrides ? { overrides: opts.overrides } : {}),
     },
     ip: opts.ip ?? null,
   });

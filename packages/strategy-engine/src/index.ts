@@ -39,3 +39,5 @@ export {
   type SubAgentPositionView,
 } from './sub-agent.js';
 export { analyzePineScript, type PineAnalysis, type PineInput } from './pine-analyze.js';
+
+export { presetBySlug, STRATEGY_PRESETS, type PresetCategory, type StrategyPreset } from './strategy-presets.js';
