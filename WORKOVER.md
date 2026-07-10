@@ -82,6 +82,31 @@
 
 ---
 
+# SESSION 8 — Großer Umbau: Universal-Börsen, anpassbare Orders, Strategie-Katalog, Vermögen, UX-Final (2026-07-10, Fable-5)
+
+**Auftrag Patrick (wörtlich):** 1) „Jeder soll die Börse seines Vertrauens verbinden können — egal ob EU, Amerika, dies das jenes." 2) „Ich kann keine Menge setzen … ich bekomme es trotzdem vorgeschlagen wie die Strategie ausgemacht war" → Betrag/Hebel/SL/TP anpassbar VOR Bestätigung. 3) „Umfassendes Sortiment an Strategien, die nachweislich funktionieren." 4) Sessions-Übersicht im UI. Dazu Phase 1+2 der abgesegneten Analyse (Sidebar 5 Bereiche final, Klassik-Nav LÖSCHEN, Vermögen, Übungskonto-Merge, €-Ticket, Jargon-Abbau).
+
+## Gebaut (2 Commits: 49d51c0 Backend · 53a0f53 Frontend)
+- **A) CCXT-Universalanbindung:** `exchange_connections` (Migration 0018, strikt additiv; Vault AES-256-GCM, nur last4), `packages/exchange/src/connections.ts` (Verbindung wird beim Anlegen GEGEN DIE ECHTE BÖRSE bewiesen: loadMarkets+fetchBalance; injizierbarer Client → ohne Netz testbar), Read-Only/Trading-Modus, automatische Markt-Erkennung (Symbole/Quotes/Futures/Max-Hebel als jsonb), Order-Router `pickConnectionForSymbol` (aktiv+trading+Symbol handelbar, älteste gewinnt; Perp-Variante zählt) + `exchanges`-tRPC-Router (supported/list/connect/balances/setMode/disconnect/refreshMarkets/routePreview). UI: Einstellungen → „Börse verbinden" (Dropdown 100+, Passphrase-Feld, Withdraw-Warnung, Kontostände, Trennen mit Bestätigung). **Live-Orders bleiben bewusst NICHT verdrahtet** — Trading-Modus markiert nur für den Router; Freigabe-Gate unverändert.
+- **B) Anpassbares Signal-Ticket:** Risk-Engine `requestedNotional` (harte Gates — Hebel-Cap/Margin/Exposure/Min-Notional/SAFE — gelten unverändert für Wunschbeträge; riskAmount = ECHTES Risiko bis zum Stop), Executor-`overrides` {notionalUsd, leverage, stopLoss, takeProfits} (Vorschlag bleibt als Referenz im Audit; Position trägt User-Hebel), `signals.confirm` mit Overrides (€→USD mit echtem Binance-EURUSDT-Kurs via neuem `fx.ts`; kein Kurs = ehrlicher Fehler), `signals.executionPreview` (Vorschlag+Grenzen+Kurs). UI: SignalCard „Bestätigen" öffnet das Ticket (Betrag-€-Slider, Hebel-Slider bis Settings-Cap, Absicherungs-Slider „Verkaufe automatisch bei −x %", TP-Preise im Profi, Live-Gebühren-/Risiko-Vorschau, Referenzzeile + Zurücksetzen). Signal-ZEILE platziert keine Orders mehr (EIN Flow).
+- **C) Strategie-Katalog:** 9 DSL-Presets (3× Konservativ ≤0,5 %/1×, Ausgewogen ≤1 %/2×, Aggressiv ≤2 %/5×; nur BTC/ETH/SOL-USDT = echte Kerzen-Historie; schema-validiert per Test). `catalog`-Router: Aktivieren = registrieren → ECHTER 12-Monats-Backtest (runLabBacktest, Netto-Kosten) → Validitäts-Gate → erst dann Paper (dsl-scan erzeugt Signale, Mensch bestätigt weiter). Karten zeigen NUR echte Zahlen oder „noch nicht geprüft"; Gate-Fail bleibt draft + ehrliche Gründe. Strategien-View: Katalog-Tab zuerst; **DSL-Editor-Tab GELÖSCHT** (Duplikat — Workshop ist der eine Ort).
+- **Vermögen (Phase 2):** `#/vermoegen` + `portfolio`-Router (overview/history), `account_value_snapshots` (Migration 0018) + stündlicher Worker-Job `portfolio-snapshot` (ehrliche Nulls, Verlauf entsteht ab jetzt), `valuation.ts` (USD-Bewertung via echte Binance-Kurse, Stables 1:1, unbewertbar = ehrlich ausgewiesen), EUR nur mit echtem Kurs. Hero: „Übungsgeld (virtuell)" + Zeile „Echtes Geld: 0 € — noch kein Börsen-Konto verbunden →".
+- **UX-Final (Phase 1):** Sidebar = GENAU 5 Bereiche (Heute · Markt · Vermögen · Agenten · System); **Klassische Ansicht KOMPLETT GELÖSCHT** (NAV_GROUPS, classicNav-Storage, Toggle — Patrick-Freigabe); tote Views Charts/Oracle/Aegis gelöscht; Demo+Paper als EIN „Übungskonto" beschriftet (Engines bleiben getrennt); Demo-Ticket: **€-Einsatz statt Stückzahl** (Live-Preis × echter EUR-Kurs, Stück-Modus als Profi-Umschalter), Absicherung/Gewinn-sichern als Klartext-Slider mit ⓘ, [Jetzt kaufen]/[Jetzt verkaufen].
+- **Sessions-Übersicht:** Topbar-Badge (Asien/London/Overlap/New York/aus) mit „läuft bis …"/„beginnt um …" — `lib/market-session.ts` spiegelt exakt die Engine-UTC-Fenster (getestet).
+
+## CI + Verifikation
+- Lokal: Suite **907 grün** (93 DB-Tests skippen lokal, Server-CI maßgeblich), Lint 0, Typecheck alle Pakete, `build:web` ok. i18n: ~120 neue Keys ×5 Sprachen, Parity-Test grün.
+- Migration 0018: NUR CREATE (2 Tabellen, 2 Enums) — kein ALTER/DROP.
+- ⚠ Gefundene Falle dokumentiert: `String.replace` mit `$'` im Ersatztext zerlegt Kataloge → immer Callback nutzen.
+
+## ⚠ Patrick-Action
+- KEINE zwingend. Optional: erste echte Börse unter Einstellungen → „Börse verbinden" anbinden (API-Key OHNE Withdraw-Recht!).
+
+## Offen für Folge-Sessions
+- Katalog-Aktivierung braucht ≥250 echte Kerzen je Symbol/TF auf dem Server (Backfill läuft dort; 15m-Scalp ggf. nachfüllen).
+- Live-Order-Pfad über den Router: erst nach Patricks ausdrücklicher Freigabe (venue_approvals-Muster erweitern).
+- Vermögens-Verlauf füllt sich ab jetzt stündlich — Chart bleibt bis dahin ehrlich leer.
+
 # SESSION 3 — KI-Trading-Intelligence-Layer (Goal-Ergänzungs-PDF: CPI/FRED + COT/CFTC + Buffett + Signalobjekt)
 
 **Start:** 2026-07-08 · **Session 3:** Fable-5 · Quelle: `Goal_Ergaenzung_zu_Gladiator_AI.pdf` (finales One-Source-of-Truth-Dokument) · Worker-Trennungs-Dateien weiterhin unangetastet (gezieltes git add!).
