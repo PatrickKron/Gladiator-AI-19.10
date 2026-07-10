@@ -91,7 +91,19 @@ export function ensurePriceStream(): void {
     const s = JSON.parse((e as MessageEvent).data) as { status: string };
     if (s.status === 'disconnected') setState('disconnected');
   });
-  es.onerror = () => setState('disconnected');
+  es.onerror = () => {
+    setState('disconnected');
+    // Bei Nicht-200 (z. B. 429 vom Stream-Limit) schließt EventSource DAUERHAFT —
+    // sanft selbst heilen: nach 60 s neu versuchen, sobald wieder ein Slot frei
+    // ist (etwa weil alte Tabs geschlossen wurden). Netzwerk-Blips (CONNECTING)
+    // reconnectet der Browser selbst, da greifen wir nicht ein.
+    if (es && es.readyState === EventSource.CLOSED) {
+      es = null;
+      window.setTimeout(() => {
+        if (!document.hidden) ensurePriceStream();
+      }, 60_000);
+    }
+  };
   es.onopen = () => {
     if (state === 'disconnected') setState('connecting');
   };
