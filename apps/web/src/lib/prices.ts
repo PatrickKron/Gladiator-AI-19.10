@@ -18,6 +18,40 @@ const latest = new Map<string, TickWithDirection>();
 let es: EventSource | null = null;
 let state: FeedState = 'connecting';
 
+/**
+ * Hintergrund-Tabs geben ihren Socket frei: Chrome erlaubt nur 6 Verbindungen
+ * je Host — halten viele offene Tabs ihre SSE-Streams, verhungern neue Tabs
+ * endlos im "Lädt …" (Assets/API bleiben pending). Nach 30 s im Hintergrund
+ * wird die Verbindung geschlossen; wird der Tab wieder sichtbar, verbindet er
+ * sofort neu (Snapshot-Event liefert direkt wieder alle Kurse).
+ */
+let visibilityRegistered = false;
+let hiddenCloseTimer: number | null = null;
+
+function registerVisibilityHandler(): void {
+  if (visibilityRegistered || typeof document === 'undefined') return;
+  visibilityRegistered = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      if (hiddenCloseTimer !== null || es === null) return;
+      hiddenCloseTimer = window.setTimeout(() => {
+        hiddenCloseTimer = null;
+        if (document.hidden && es) {
+          es.close();
+          es = null;
+          setState('connecting');
+        }
+      }, 30_000);
+    } else {
+      if (hiddenCloseTimer !== null) {
+        window.clearTimeout(hiddenCloseTimer);
+        hiddenCloseTimer = null;
+      }
+      ensurePriceStream();
+    }
+  });
+}
+
 function setState(s: FeedState) {
   if (state === s) return;
   state = s;
@@ -46,6 +80,7 @@ export function ensurePriceStream(): void {
     window.addEventListener('load', () => ensurePriceStream(), { once: true });
     return;
   }
+  registerVisibilityHandler();
   es = new EventSource('/api/stream/prices');
   es.addEventListener('snapshot', (e) => {
     const snap = JSON.parse((e as MessageEvent).data) as { tickers: Tick[] };

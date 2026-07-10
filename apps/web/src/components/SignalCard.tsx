@@ -551,6 +551,7 @@ function AdjustTicket({
       {preview.gateReasons.length > 0 && (
         <p className="mt-2 text-[11px]" style={{ color: 'var(--color-warn)' }}>
           ⚠ {preview.gateReasons.join(' · ')}
+          {dirty && <span style={{ color: 'var(--color-mut)' }}> {t('ticket.gateRecheck')}</span>}
         </p>
       )}
 

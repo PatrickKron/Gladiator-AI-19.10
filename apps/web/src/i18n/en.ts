@@ -106,6 +106,7 @@ export const en: Catalog = {
     feeEstimate: 'Estimated fees',
     maxRisk: 'Max. loss until protection',
     executeNow: 'Execute now',
+    gateRecheck: 'Note: checked against the strategy suggestion — your adjusted ticket is re-checked on execution.',
   },
   catalog: {
     hint: 'Proven strategy types — but numbers here are REAL only: every activation runs a real 12-month backtest (net costs) and a validity gate. Only if it passes does the strategy trade on the practice account — you still confirm every order yourself.',

@@ -105,6 +105,7 @@ export const de = {
     feeEstimate: 'Geschätzte Gebühren',
     maxRisk: 'Max. Verlust bis zur Absicherung',
     executeNow: 'Jetzt ausführen',
+    gateRecheck: 'Hinweis: geprüft am Strategie-Vorschlag — dein angepasstes Ticket wird beim Ausführen neu geprüft.',
   },
   catalog: {
     hint: 'Bewährte Strategie-Typen — Zahlen gibt es hier nur ECHT: Jede Aktivierung läuft durch einen echten 12-Monats-Backtest (Netto-Kosten) und ein Validitäts-Gate. Erst wenn das besteht, handelt die Strategie auf dem Übungskonto — jede Order bestätigst du weiterhin selbst.',

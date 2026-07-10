@@ -106,6 +106,7 @@ export const fr: Catalog = {
     feeEstimate: 'Frais estimés',
     maxRisk: 'Perte max. jusqu’à la protection',
     executeNow: 'Exécuter maintenant',
+    gateRecheck: 'Remarque : vérifié sur la proposition de la stratégie — votre ticket ajusté est revérifié lors de l’exécution.',
   },
   catalog: {
     hint: 'Des types de stratégies éprouvés — mais ici les chiffres sont uniquement RÉELS : chaque activation exécute un vrai backtest de 12 mois (coûts nets) et une porte de validité. La stratégie ne trade sur le compte d’entraînement que si elle passe — chaque ordre reste confirmé par vous.',

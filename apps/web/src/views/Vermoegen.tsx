@@ -187,7 +187,7 @@ export function Vermoegen() {
       {/* Zeitverlauf */}
       <div className="glass p-5">
         <p className="label mb-3">{t('wealth.historyTitle')}</p>
-        <EquityChart points={chartPoints} emptyText={t('wealth.historyEmpty')} />
+        <EquityChart points={chartPoints} emptyText={t('wealth.historyEmpty')} unit="€" />
       </div>
     </div>
   );

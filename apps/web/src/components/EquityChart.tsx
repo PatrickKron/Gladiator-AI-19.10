@@ -28,7 +28,7 @@ export const COMPARE_COLORS = ['#4fd1ff', '#3ddc97', '#f5b642', '#8b5cf6', '#e14
 export type EquityPoint = { ts: string; equity: number };
 export type ComparableRun = { key: string; label: string; color: string; equityCurve: EquityPoint[] };
 
-export function EquityChart({ points, emptyText }: { points: EquityPoint[]; emptyText: string }) {
+export function EquityChart({ points, emptyText, unit = '$' }: { points: EquityPoint[]; emptyText: string; unit?: string }) {
   if (points.length < 2) return <p className="label">{emptyText}</p>;
   const W = 860;
   const H = 220;
@@ -52,10 +52,10 @@ export function EquityChart({ points, emptyText }: { points: EquityPoint[]; empt
         <polygon points={`0,${H} ${line} ${W},${H}`} fill="url(#sw-eqfill)" />
         <polyline points={line} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" />
         <text x="4" y="14" className="num" fill="var(--color-mut)" fontSize="11">
-          {fmt(max, 0)} $
+          {fmt(max, 0)} {unit}
         </text>
         <text x="4" y={H - 4} className="num" fill="var(--color-mut)" fontSize="11">
-          {fmt(min, 0)} $
+          {fmt(min, 0)} {unit}
         </text>
       </svg>
       <p className="label mt-1">

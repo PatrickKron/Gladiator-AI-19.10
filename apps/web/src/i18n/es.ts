@@ -106,6 +106,7 @@ export const es: Catalog = {
     feeEstimate: 'Comisiones estimadas',
     maxRisk: 'Pérdida máx. hasta la protección',
     executeNow: 'Ejecutar ahora',
+    gateRecheck: 'Nota: comprobado con la propuesta de la estrategia — tu ticket ajustado se vuelve a comprobar al ejecutar.',
   },
   catalog: {
     hint: 'Tipos de estrategia probados — pero aquí los números son solo REALES: cada activación ejecuta un backtest real de 12 meses (costes netos) y una puerta de validez. Solo si la supera, la estrategia opera en la cuenta de práctica — cada orden la confirmas tú.',

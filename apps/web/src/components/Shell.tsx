@@ -126,14 +126,17 @@ function SessionBadge() {
 }
 
 function LanguageSwitch() {
-  const [lang, setLang] = useState<LanguageCode>(storedLanguage());
+  // Aktuelle Sprache aus i18n ableiten (useTranslation re-rendert bei Wechsel) —
+  // so bleibt der Topbar-Switch synchron, auch wenn die Sprache im Profil geändert wird.
+  const { i18n } = useTranslation();
+  const lang: LanguageCode = LANGUAGES.some((l) => l.code === i18n.language)
+    ? (i18n.language as LanguageCode)
+    : storedLanguage();
   return (
     <select
       value={lang}
       onChange={(e) => {
-        const code = e.target.value as LanguageCode;
-        setLang(code);
-        setLanguage(code);
+        setLanguage(e.target.value as LanguageCode);
       }}
       className="field cursor-pointer px-2 py-1 text-xs uppercase"
       style={{ color: 'var(--color-mut)' }}
