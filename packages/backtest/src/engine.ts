@@ -5,6 +5,9 @@ import { computeMetrics, type Metrics } from './metrics.js';
  * Look-ahead-freie Backtest-Engine (08_ §3/§3a):
  * - Entscheidung nur am Signal-Bar (der Evaluator sieht intern nur Daten bis i).
  * - Fills erst ab dem FOLGE-Bar; gleiche-Bar-Ambiguität konservativ: SL vor TP.
+ * - Gap-realistisch: öffnet ein Bar bereits jenseits des Stops, wird zum Open
+ *   gefüllt (schlechter als der Stop); TPs bleiben konservativ am TP-Preis.
+ * - Funding: historische Settlements (fundingSeries) oder flaches Modell.
  * - ALLE Ergebnisse netto: Gebühren je Fill, Slippage auf Fill-Preise,
  *   Funding über die Haltezeit. Ohne Kostenmodell läuft kein Lauf (Pflicht).
  * - Teil-Exits nach TP-Gewichten; nach TP1 Stop auf Break-Even (decker S010).
@@ -54,6 +57,13 @@ export type BacktestConfig = {
   tpWeights: number[];
   /** Welcher Setup-Typ gehandelt wird, wenn der Evaluator mehrere liefert. */
   setupType?: 'scalp' | 'swing' | 'position';
+  /**
+   * Historische Funding-Settlements (Rate je 8h wie gespeichert). Wenn gesetzt,
+   * ersetzt sie das flache Modell: Funding = Σ Notional × Rate × Vorzeichen über
+   * alle Zeitpunkte in (entryTs, exitTs] — Long zahlt positive Raten, Short
+   * erhält sie (negativ = Ertrag). Leere Serie = kein Funding im Zeitraum.
+   */
+  fundingSeries?: { ts: Date; rate: number }[];
 };
 
 export type BacktestTrade = {
@@ -71,6 +81,7 @@ export type BacktestTrade = {
   grossPnl: number;
   fees: number;
   slippage: number;
+  /** Funding-Kosten (positiv = gezahlt, negativ = erhalten, z. B. Short bei positiver Rate). */
   funding: number;
   netPnl: number;
   rMultiple: number;
@@ -198,10 +209,13 @@ export function runBacktest(candles: Candle[], config: BacktestConfig): Backtest
       // Konservativ: Stop zuerst prüfen (worst case bei gleichzeitiger Berührung)
       const stopHit = dirSign === 1 ? bar.low <= stop : bar.high >= stop;
       if (stopHit) {
-        const exitFill = stop * (1 - dirSign * slip);
+        // Gap über den Stop: die Stop-Order wird erst zum Open ausgelöst (schlechterer Preis)
+        const gapped = dirSign === 1 ? bar.open <= stop : bar.open >= stop;
+        const triggerPrice = gapped ? bar.open : stop;
+        const exitFill = triggerPrice * (1 - dirSign * slip);
         grossPnl += remaining * qty * (exitFill - entryFill) * dirSign;
         fees += Math.abs(exitFill) * remaining * qty * costModel.takerFeeRate;
-        slippageCost += Math.abs(exitFill - stop) * remaining * qty;
+        slippageCost += Math.abs(exitFill - triggerPrice) * remaining * qty;
         exitReason = beActive ? 'be' : 'sl';
         remaining = 0;
         exitTs = bar.ts;
@@ -246,8 +260,19 @@ export function runBacktest(candles: Candle[], config: BacktestConfig): Backtest
 
     const entryTs = candles[i]!.ts;
     const barsHeld = Math.max(1, Math.min(j, candles.length) - i);
-    const hoursHeld = Math.max(0, (exitTs.getTime() - entryTs.getTime()) / 3_600_000);
-    const funding = entryFill * qty * costModel.fundingRatePer8h * (hoursHeld / 8);
+    const notional = entryFill * qty;
+    let funding: number;
+    if (config.fundingSeries) {
+      // Historisch: jedes Settlement in (entryTs, exitTs] auf das Entry-Notional
+      funding = 0;
+      for (const f of config.fundingSeries) {
+        const t = f.ts.getTime();
+        if (t > entryTs.getTime() && t <= exitTs.getTime()) funding += notional * f.rate * dirSign;
+      }
+    } else {
+      const hoursHeld = Math.max(0, (exitTs.getTime() - entryTs.getTime()) / 3_600_000);
+      funding = notional * costModel.fundingRatePer8h * (hoursHeld / 8);
+    }
 
     const netPnl = grossPnl - fees - funding;
     const totalTps = setup.takeProfits.length;

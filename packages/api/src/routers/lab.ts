@@ -154,6 +154,16 @@ export const labRouter = router({
           },
           analysis: out.analysis,
           turningPoints: out.turningPoints,
+          // Ehrlichkeit: Funding-Herkunft + Datenqualitäts-Warnungen (08_ §3a/§3b)
+          fundingSource: out.fundingSource,
+          dataQuality: {
+            gaps: out.dataQuality.gaps,
+            expectedBars: out.dataQuality.expectedBars,
+            zeroVolumeBars: out.dataQuality.zeroVolumeBars,
+            spikes: out.dataQuality.spikes,
+            ok: out.dataQuality.ok,
+            warnings: out.dataQuality.warnings,
+          },
         };
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'Backtest fehlgeschlagen.' });

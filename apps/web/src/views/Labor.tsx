@@ -494,6 +494,19 @@ export function Labor() {
       {/* ── Backtest-Ergebnis ── */}
       {run && m && (
         <>
+          {/* Datenqualität (08_ §3b): Auffälligkeiten ehrlich VOR den Kennzahlen zeigen */}
+          {run.dataQuality.warnings.length > 0 && (
+            <section
+              className="mt-6 rounded-[0.625rem] border p-4 text-sm"
+              style={{ borderColor: 'var(--color-warn)', color: 'var(--color-warn)' }}
+            >
+              <p className="font-medium">Datenqualität · Ergebnis mit Vorsicht lesen</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {run.dataQuality.warnings.map((w) => <li key={w}>{w}</li>)}
+              </ul>
+            </section>
+          )}
+
           <section className="mt-6 grid gap-3 md:grid-cols-3 xl:grid-cols-5">
             <MetricCard label="Netto-PnL" value={`${fmt(m.netPnl)} $`} tone={m.netPnl >= 0 ? 'pos' : 'neg'} />
             <MetricCard label="Netto-Return" value={`${fmt(m.netReturnPct)} %`} tone={m.netReturnPct >= 0 ? 'pos' : 'neg'} />
@@ -506,6 +519,14 @@ export function Labor() {
             <MetricCard label="Trades" value={String(m.tradeCount)} />
             <MetricCard label="Kerzen" value={fmt(run.candles, 0)} />
           </section>
+
+          {/* Kostenmodell inkl. Funding-Herkunft (08_ §3a) — historisch nur bei vollständigen echten Settlements */}
+          <p className="mt-3 text-xs" style={{ color: 'var(--color-mut)' }}>
+            Kosten: Taker {fmt(run.costModel.takerFeeRate * 100, 3)} % · Slippage {fmt(run.costModel.slippageBps, 1)} bps · Funding:{' '}
+            {run.fundingSource === 'historical'
+              ? 'historisch (echte 8h-Settlements aus der DB)'
+              : `Modell (${fmt(run.costModel.fundingRatePer8h * 100, 3)} % je 8h, keine vollständige Funding-Historie)`}
+          </p>
 
           <section className="glass mt-6 p-6">
             <h2 className="label">Equity-Kurve · Start 10.000 $ · netto</h2>
