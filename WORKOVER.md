@@ -397,3 +397,29 @@ Umgesetzt (alle mit Tests; volle Suite 1161 grün, 4 rot nur umgebungsbedingt wi
 ⚠ **Blockiert (Patrick-Entscheidung):** Das Verdrahten des Live-Pfads in den Executor (Live-Konto-Equity, Volumengrenze je Freigabe, Hebel/Margin setzen, Freigabe pro Verbindung, Live-Abgleich, UI) wurde vom Sicherheitsfilter der Cloud-Umgebung blockiert. Design steht (Recherche-Brief freqtrade/Hummingbot/nautilus im Session-Chat). Fortsetzung braucht Patricks ausdrückliche Freigabe bzw. eine Berechtigungsregel; bis dahin bleibt alles Paper.
 Gefundene Bugs im bestehenden `binance-venue.ts` (Testnet): Duplicate-Code ist -4116 (nicht -4015); Market-Entry wird nach Timeout blind wiederholt; `setSandboxMode` auf binanceusdm ist veraltet (→ `enableDemoTrading`); Algo-Orders brauchen `{trigger:true}`.
 
+→ **Behoben in Session 11:** `binance-venue.ts` ist jetzt eine dünne Hülle um `CcxtLiveVenue` (Demo-Trading, kein Blind-Retry, -4116 via clientOrderId, Trigger-Storno).
+
+---
+
+# SESSION 11 — Nacht-Durchlauf (2026-10-19, Claude Code Cloud, Branch `claude/focused-darwin-51s9k3`)
+
+Patricks Auftrag: Daten selbst holen und abbilden, App stellt sich über den Chat auf seine Börsen ein, Wallets anschließen, von unterwegs nutzbar, echte Orders erlaubt.
+Volle Suite: 1345 grün, 4 rot nur umgebungsbedingt (review, signal-scan „BASIS-Symbole frisch“, phase6 product, pine — wie auf main).
+
+## Umgesetzt
+- **Wallet anschließen (nur lesend):** Einstellungen › Börsen › „Wallet-Adresse“. Für Börsen mit Wallet-Login laut CCXT (Hyperliquid, Paradex, Derive, Aftermath). Nur öffentliche Adresse, nie Private Key; Prüfung gegen die echte Börse vor dem Speichern; Verbindung bleibt immer `read_only` (Trading-Umschalter abgelehnt). Kein Migrationsbedarf.
+- **Daten-Assistent:** Marktlage › Datenreihen. Klartext („Geldmenge“, „Zinskurve“, „Liquidität“) → kuratierter Katalog echter FRED-IDs, oder ID direkt. Hinzufügen prüft gegen FRED (keine Daten → nichts gespeichert), macro-sync zieht alle 30 min nach. Speicherung `macro_series` (source `fred-user`).
+- **Börsen aus dem Chat:** deterministische Erkennung (keine Fehltreffer bei Gate/bullish/Delta …). Workshop-Chat zeigt erwähnte, nicht verbundene Börsen mit Direkt-Link; „Börse verbinden“ zeigt „Aus deinem Chat erkannt“-Chips mit Vorauswahl. Nur Vorschlag, nie Auto-Aktion.
+- **Handy-App (PWA):** Manifest, Icons, Standalone; Anleitung `deploy/MOBILE.md` (`tailscale serve` für HTTPS im Tailnet, kein Funnel). Bewusst kein Offline-Cache.
+- **05 §9 Signal-Lebenszyklus (Agent):** Auto-Kill (Stop gerissen / Struktur gebrochen / Re-Score < 6,5), Reentry (1 je Signal, Zone je Setup-Typ), Hebel-Upgrade nur als **Vorschlag** — Job `signal-lifecycle` jede Minute, platziert nie Orders.
+- **13 VDB1/VDB2 (Agent):** echte Paper-Trades → `study_trades`; wöchentlicher Cluster-Batch (90 Tage, ≥ 50 Trades, Holdout, Half-Kelly); Ticket zeigt „Vorschlag aus Erfahrung“ (ein Klick füllt, Gate prüft weiter).
+- **08 §5 Nacht-Optimierung (Agent):** So 03:00 UTC Walk-Forward-Grid → nur **Vorschläge** (Labor › Optimierungs-Vorschläge, Übernehmen = neue Draft-Version). Walk-Forward nutzt jetzt Trailing, echtes Funding, Datenqualität und 250 Warmup-Kerzen (Ergebnisse weichen von alten Läufen ab).
+- **DSL (Agent):** ODER-Gruppen, TP-Gewichte je Ziel, Break-Even-Schalter — Backtest = Live (Executor liest den Plan aus der Strategie-Version). Live/Testnet mit 2 TPs platziert jetzt 50/50 statt 50/30.
+- **Binance-Testnet** auf gemeinsamen CCXT-Kern umgestellt.
+
+## Entscheidungen für Patrick
+1. **Echte Orders:** Live-Verdrahtung ist von der Cloud-Sicherheitsfilterung blockiert, auch mit deinem Go. Freigabe nur über eine Berechtigungsregel in deinen Claude-Code-Einstellungen oder lokal mit dir zusammen. Adapter, Testnet und Design sind fertig.
+2. VDB2-Fenster 90 Tage (Blueprint) → anfangs kaum Vorschläge; `STUDY_WINDOW_DAYS` erweitern?
+3. Nacht-Optimierung wöchentlich statt täglich — ok?
+4. Auto-Kill nur bei echtem Abfall unter 6,5 (Signale mit Start-Score < 6,5 bleiben) — ok?
+5. Weitere Wallet-Börsen: dYdX/Lighter brauchen andere Kennungen — bei Bedarf.
