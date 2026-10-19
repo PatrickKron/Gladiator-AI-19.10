@@ -16,6 +16,7 @@ import { loadTf } from '../lib/chart-tf.js';
 import { feedSymbol } from '../lib/pairs.js';
 import { normalizeRegime, REGIME_COLORS, REGIME_ICONS, type RegimeData } from '../lib/regime.js';
 import { getUiMode, onUiModeChange, type UiMode } from '../lib/ui-mode.js';
+import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 
 /** Dashboard (09_ §3.1): Begrüßung, Live-Markt, offene Setups, Konto, System — alles echt. */
 
@@ -284,10 +285,10 @@ function HeroWealth({ account }: { account: Account | null }) {
       }
     }
     void load();
-    const timer = window.setInterval(() => void load(), 60_000);
+    const timer = setVisibleInterval(() => void load(), 60_000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      clearVisibleInterval(timer);
     };
   }, []);
 
@@ -557,12 +558,12 @@ export function Dashboard() {
     }
     void load();
     void loadSignals();
-    const timer = window.setInterval(() => void load(), 60_000);
-    const sigTimer = window.setInterval(() => void loadSignals(), 30_000);
+    const timer = setVisibleInterval(() => void load(), 60_000);
+    const sigTimer = setVisibleInterval(() => void loadSignals(), 30_000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
-      window.clearInterval(sigTimer);
+      clearVisibleInterval(timer);
+      clearVisibleInterval(sigTimer);
     };
   }, []);
 
@@ -604,10 +605,10 @@ export function Dashboard() {
       }
     }
     void loadQuotes();
-    const timer = window.setInterval(() => void loadQuotes(), 60_000);
+    const timer = setVisibleInterval(() => void loadQuotes(), 60_000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      clearVisibleInterval(timer);
     };
   }, [quoteFavs]);
 
@@ -628,10 +629,10 @@ export function Dashboard() {
       if (!cancelled) setSparks(Object.fromEntries(entries));
     }
     void loadSparks();
-    const timer = window.setInterval(() => void loadSparks(), 60_000);
+    const timer = setVisibleInterval(() => void loadSparks(), 60_000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      clearVisibleInterval(timer);
     };
   }, [watch]);
 

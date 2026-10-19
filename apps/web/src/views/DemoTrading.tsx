@@ -7,6 +7,7 @@ import { Empty, ErrorBox, Loading, Panel } from '../components/ui.js';
 import { clearPendingTradeSymbol, peekPendingTradeSymbol } from '../lib/trade-symbol.js';
 import { getLatest, onTick } from '../lib/prices.js';
 import { getUiMode } from '../lib/ui-mode.js';
+import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 
 /**
  * Demo-Trading (Session 5): manuelles Üben mit virtuellem Guthaben (100k),
@@ -76,8 +77,8 @@ export function DemoTrading() {
 
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => void load(), 15_000);
-    return () => window.clearInterval(timer);
+    const timer = setVisibleInterval(() => void load(), 15_000);
+    return () => clearVisibleInterval(timer);
   }, [load]);
 
   async function doReset() {
@@ -248,10 +249,10 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
           if (!cancelled) setEurUsd(null);
         });
     void loadRate();
-    const timer = window.setInterval(() => void loadRate(), 120_000);
+    const timer = setVisibleInterval(() => void loadRate(), 120_000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      clearVisibleInterval(timer);
     };
   }, []);
 

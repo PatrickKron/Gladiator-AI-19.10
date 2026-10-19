@@ -202,6 +202,7 @@ export const de = {
     searchHint: '↑↓ wählen · Enter öffnen · Esc schließen',
     sectionPages: 'Seiten & Bereiche',
     sectionAssets: 'Assets',
+    loadFailed: "{{n}} Datenquelle(n) konnten nicht geladen werden — angezeigte Bereiche können unvollständig sein.",
   },
   nav: {
     wealth: 'Vermögen',

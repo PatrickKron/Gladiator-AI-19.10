@@ -8,6 +8,7 @@ import { buildTabHash, parseTab } from '../lib/tab-hash.js';
 import { buildChartUrl } from '../lib/chart-url.js';
 import { isDemoMode, setDemoMode } from '../lib/demo-mode.js';
 import { DemoTrading } from './DemoTrading.js';
+import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 
 /** Tabs der Trading-Seite (P1.8). */
 const TABS = ['positionen', 'historie', 'risiko', 'alerts', 'performance'] as const;
@@ -59,8 +60,8 @@ function AlertsPanel() {
   }
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => void load(), 30_000);
-    return () => window.clearInterval(timer);
+    const timer = setVisibleInterval(() => void load(), 30_000);
+    return () => clearVisibleInterval(timer);
   }, []);
 
   async function create() {
@@ -441,8 +442,8 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
   useEffect(() => {
     if (demo) return; // Demo-Konto lädt seine eigenen Daten (DemoTrading)
     void load();
-    const timer = window.setInterval(() => void load(), 20_000);
-    return () => window.clearInterval(timer);
+    const timer = setVisibleInterval(() => void load(), 20_000);
+    return () => clearVisibleInterval(timer);
   }, [demo]);
 
   async function toggleKillSwitch() {

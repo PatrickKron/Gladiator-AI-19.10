@@ -16,6 +16,7 @@ import {
   fmtQuote,
   type ClassFilter,
 } from '../lib/discover.js';
+import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 
 /**
  * „Entdecken" (Trading-Universum, 09_ §3.3) — Komplett-Redesign 2026-07-09.
@@ -303,10 +304,10 @@ export function Pakete() {
         });
     };
     load();
-    const timer = window.setInterval(load, 120_000); // Nicht-Krypto-Quotes frisch halten (Server-Cache 60 s)
+    const timer = setVisibleInterval(load, 120_000); // Nicht-Krypto-Quotes frisch halten (Server-Cache 60 s)
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      clearVisibleInterval(timer);
     };
   }, [catalogLoaded]);
 

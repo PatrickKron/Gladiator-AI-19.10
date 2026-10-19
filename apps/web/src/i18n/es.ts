@@ -203,6 +203,7 @@ export const es: Catalog = {
     searchHint: "↑↓ elegir · Intro abrir · Esc cerrar",
     sectionPages: "Páginas y áreas",
     sectionAssets: "Activos",
+    loadFailed: "No se pudieron cargar {{n}} fuente(s) de datos; algunas secciones pueden estar incompletas.",
   },
   nav: {
     wealth: 'Patrimonio',

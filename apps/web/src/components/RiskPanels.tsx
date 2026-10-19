@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
-import { Empty, Loading, NotConnected, Panel } from './ui.js';
+import { Empty, LoadFailures, Loading, NotConnected, Panel, useLoadFailures } from './ui.js';
 
 /**
  * Risiko-Panels (P2.9): GRS-Gauge mit Komponenten, Schutzschichten (SAFE/Gates/
@@ -24,12 +24,15 @@ export function RiskPanels() {
   const [macro, setMacro] = useState<Macro | null>(null);
   const [calendar, setCalendar] = useState<Calendar | null>(null);
 
-  useEffect(() => {
-    void trpc.risk.gates.query().then(setGates).catch(() => setGates([]));
-    void trpc.settings.get.query().then(setSettings).catch(() => setSettings(null));
-    void trpc.market.macro.query().then(setMacro).catch(() => setMacro(null));
-    void trpc.market.calendar.query({ days: 2 }).then(setCalendar).catch(() => setCalendar(null));
-  }, []);
+  const { failed, fail, reset } = useLoadFailures();
+  const load = useCallback(() => {
+    reset();
+    void trpc.risk.gates.query().then(setGates).catch(fail('risk.gates', () => setGates([])));
+    void trpc.settings.get.query().then(setSettings).catch(fail('settings', () => setSettings(null)));
+    void trpc.market.macro.query().then(setMacro).catch(fail('market.macro', () => setMacro(null)));
+    void trpc.market.calendar.query({ days: 2 }).then(setCalendar).catch(fail('market.calendar', () => setCalendar(null)));
+  }, [fail, reset]);
+  useEffect(() => load(), [load]);
 
   const grs = macro?.grs ?? null;
   const activeGates = (gates ?? []).filter((g) => g.isActive);
@@ -42,6 +45,7 @@ export function RiskPanels() {
 
   return (
     <div>
+      <LoadFailures failed={failed} onRetry={load} />
       <section className="grid gap-5 lg:grid-cols-2">
         {/* GRS-Gauge + Komponenten */}
         <Panel label={t('aegis.grsGauge')} stagger={1}>

@@ -8,6 +8,7 @@ import { getUiMode, onUiModeChange, setUiMode, type UiMode } from '../lib/ui-mod
 import { currentSessionEnd, nextSessionStart, sessionAt, type MarketSession } from '../lib/market-session.js';
 import { CommandPalette } from './CommandPalette.js';
 import { AREAS, NAV_PAGES, pageForHash, tabForHash } from '../lib/navigation.js';
+import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 
 /**
  * App-Shell (09_ §2): Sidebar-Navigation in Gruppen, Topbar mit Wortmarke,
@@ -84,8 +85,8 @@ function SessionBadge() {
   const { t } = useTranslation();
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 60_000);
-    return () => window.clearInterval(timer);
+    const timer = setVisibleInterval(() => setNow(new Date()), 60_000);
+    return () => clearVisibleInterval(timer);
   }, []);
   const session: MarketSession = sessionAt(now);
   const end = currentSessionEnd(now);
@@ -172,10 +173,10 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
       }
     };
     void load();
-    const timer = window.setInterval(() => void load(), 60_000);
+    const timer = setVisibleInterval(() => void load(), 60_000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      clearVisibleInterval(timer);
     };
   }, [route]);
 

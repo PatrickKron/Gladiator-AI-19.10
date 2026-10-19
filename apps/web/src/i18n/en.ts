@@ -203,6 +203,7 @@ export const en: Catalog = {
     searchHint: "↑↓ select · Enter open · Esc close",
     sectionPages: "Pages & areas",
     sectionAssets: "Assets",
+    loadFailed: "{{n}} data source(s) could not be loaded — some sections may be incomplete.",
   },
   nav: {
     wealth: 'Wealth',

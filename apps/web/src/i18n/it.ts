@@ -203,6 +203,7 @@ export const it: Catalog = {
     searchHint: "↑↓ seleziona · Invio apri · Esc chiudi",
     sectionPages: "Pagine e aree",
     sectionAssets: "Asset",
+    loadFailed: "{{n}} fonte/i di dati non caricata/e — alcune sezioni potrebbero essere incomplete.",
   },
   nav: {
     wealth: 'Patrimonio',

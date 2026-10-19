@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Loading } from './ui.js';
+import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 
 /**
  * Asset-Kontext (Patrick-Lücke 2/6): echte, asset-spezifische Kennzahlen aus
@@ -25,10 +26,10 @@ export function useAssetContext(symbol: string, refreshMs = 60_000) {
           if (!cancelled) setCtx({ symbol, available: false, candles: 0 } as AssetContext);
         });
     void load();
-    const timer = window.setInterval(() => void load(), refreshMs);
+    const timer = setVisibleInterval(() => void load(), refreshMs);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      clearVisibleInterval(timer);
     };
   }, [symbol, refreshMs]);
   return ctx;
