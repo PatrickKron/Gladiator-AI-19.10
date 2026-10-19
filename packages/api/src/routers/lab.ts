@@ -1,13 +1,14 @@
 import { TRPCError } from '@trpc/server';
-import { and, desc, eq, max } from 'drizzle-orm';
+import { and, desc, eq, max, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
-import { runLabBacktest, runLabWalkForward } from '@gladiator/backtest';
+import { readProposalState, runLabBacktest, runLabWalkForward, type OptimizationProposalResults } from '@gladiator/backtest';
+import { parseInstructionDsl } from '@gladiator/strategy-engine';
 import { SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
 import { deriveAdaptiveGates } from '@gladiator/risk';
 import { protectedProcedure, router } from '../trpc.js';
 
-const { strategies, strategyVersions, backtests, auditLog, riskGates } = schema;
+const { strategies, strategyVersions, backtests, auditLog, riskGates, optimizations } = schema;
 
 const timeframeSchema = z.enum(SUPPORTED_TIMEFRAMES);
 const setupSchema = z.enum(['scalp', 'swing', 'position']);
@@ -186,11 +187,13 @@ export const labRouter = router({
         oosBars: z.number().int().min(50).max(10_000),
         grid: z.array(paramsSchema).min(1).max(27),
         riskPctPerTrade: z.number().min(0.1).max(5).default(1),
+        /** Trailing-Stop in % (optional) — wie beim Backtest. */
+        trailPct: z.number().min(0.1).max(50).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       try {
-        const { runId, wf } = await runLabWalkForward(ctx.db, {
+        const { runId, wf, fundingSource, dataQuality } = await runLabWalkForward(ctx.db, {
           ...input,
           from: new Date(input.from),
           to: new Date(input.to),
@@ -208,6 +211,17 @@ export const labRouter = router({
             oosNetPnl: Math.round(w.oosMetrics.netPnl * 100) / 100,
             oosTrades: w.oosMetrics.tradeCount,
           })),
+          // Parität zum Backtest: Funding-Herkunft + Datenqualitäts-Warnungen (08_ §3a/§3b)
+          trailPct: input.trailPct ?? null,
+          fundingSource,
+          dataQuality: {
+            gaps: dataQuality.gaps,
+            expectedBars: dataQuality.expectedBars,
+            zeroVolumeBars: dataQuality.zeroVolumeBars,
+            spikes: dataQuality.spikes,
+            ok: dataQuality.ok,
+            warnings: dataQuality.warnings,
+          },
         };
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'Walk-Forward fehlgeschlagen.' });
@@ -281,6 +295,141 @@ export const labRouter = router({
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'Kalibrierung fehlgeschlagen.' });
       }
+    }),
+
+  /**
+   * Optimierungs-Vorschläge der Nacht-Optimierung (08_ §5). Nur lesen —
+   * Vorher/Nachher (kombiniert OOS, netto), Prüfungen, geänderte Parameter.
+   */
+  proposals: protectedProcedure
+    .input(z.object({ state: z.enum(['open', 'all']).default('open'), limit: z.number().int().min(1).max(100).default(30) }))
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .select({
+          id: optimizations.id,
+          createdAt: optimizations.createdAt,
+          strategyId: optimizations.strategyId,
+          baseVersionId: optimizations.baseVersionId,
+          method: optimizations.method,
+          bestParams: optimizations.bestParams,
+          results: optimizations.results,
+          slug: strategies.slug,
+          name: strategies.name,
+          kind: strategies.kind,
+        })
+        .from(optimizations)
+        .innerJoin(strategies, eq(strategies.id, optimizations.strategyId))
+        .where(
+          and(
+            eq(optimizations.status, 'done'),
+            input.state === 'open' ? sql`${optimizations.results}->'review'->>'state' = 'open'` : undefined,
+          ),
+        )
+        .orderBy(desc(optimizations.createdAt))
+        .limit(input.limit);
+      return rows.map((r) => {
+        const results = r.results as OptimizationProposalResults;
+        return { ...r, results, baseVersion: results.baseVersion, state: readProposalState(r.results) };
+      });
+    }),
+
+  /**
+   * Vorschlag übernehmen → NEUE Strategie-Version als draft mit den
+   * vorgeschlagenen Parametern. Scharf geschaltet wird NICHTS: die Version
+   * muss wie jede andere backtestet und über das Validitäts-Gate promotet werden.
+   */
+  acceptProposal: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.transaction(async (tx) => {
+        const [row] = await tx.select().from(optimizations).where(eq(optimizations.id, input.id)).for('update').limit(1);
+        if (!row || row.status !== 'done') throw new TRPCError({ code: 'NOT_FOUND', message: 'Vorschlag nicht gefunden.' });
+        const state = readProposalState(row.results);
+        if (state !== 'open') {
+          throw new TRPCError({ code: 'CONFLICT', message: `Vorschlag ist bereits ${state === 'accepted' ? 'übernommen' : state === 'rejected' ? 'verworfen' : 'durch einen neueren ersetzt'}.` });
+        }
+        const [strategy] = await tx.select().from(strategies).where(eq(strategies.id, row.strategyId)).limit(1);
+        if (!strategy) throw new TRPCError({ code: 'NOT_FOUND', message: 'Strategie nicht gefunden.' });
+
+        // Parameter vor dem Anlegen erneut validieren (nie ungeprüft übernehmen)
+        if (strategy.kind === 'dsl') {
+          const parsed = parseInstructionDsl(row.bestParams);
+          if (!parsed.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: `Vorgeschlagene DSL ungültig: ${parsed.errors.join('; ')}` });
+        } else if (strategy.slug === 'smc-core') {
+          const parsed = paramsSchema.safeParse(row.bestParams);
+          if (!parsed.success) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Vorgeschlagene SMC-Parameter ungültig.' });
+        } else {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: `Strategie-Art ${strategy.kind} ist nicht optimierbar.` });
+        }
+
+        const [maxRow] = await tx
+          .select({ maxV: max(strategyVersions.version) })
+          .from(strategyVersions)
+          .where(eq(strategyVersions.strategyId, strategy.id));
+        const nextVersion = (maxRow?.maxV ?? 0) + 1;
+        const [version] = await tx
+          .insert(strategyVersions)
+          .values({ strategyId: strategy.id, version: nextVersion, params: row.bestParams as object, status: 'draft' })
+          .returning();
+
+        const results = row.results as OptimizationProposalResults;
+        await tx
+          .update(optimizations)
+          .set({
+            results: {
+              ...results,
+              review: { state: 'accepted', at: new Date().toISOString(), newVersionId: version!.id, newVersion: nextVersion },
+            },
+          })
+          .where(eq(optimizations.id, row.id));
+        await tx.insert(auditLog).values([
+          {
+            actor: 'user',
+            userId: ctx.user.id,
+            action: 'strategy.optimization.accepted',
+            entityType: 'optimization',
+            entityId: row.id,
+            details: { strategy: strategy.slug, baseVersion: results.baseVersion, newVersion: nextVersion, changes: results.changes },
+            ip: ctx.ip,
+          },
+          {
+            actor: 'user',
+            userId: ctx.user.id,
+            action: 'strategy.version.create',
+            entityType: 'strategy_version',
+            entityId: version!.id,
+            details: { version: nextVersion, source: 'optimization', optimizationId: row.id },
+            ip: ctx.ip,
+          },
+        ]);
+        return { versionId: version!.id, version: nextVersion, strategyId: strategy.id, slug: strategy.slug };
+      });
+    }),
+
+  /** Vorschlag verwerfen (auditiert) — bleibt in der Historie sichtbar. */
+  rejectProposal: protectedProcedure
+    .input(z.object({ id: z.string().uuid(), reason: z.string().max(500).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.transaction(async (tx) => {
+        const [row] = await tx.select().from(optimizations).where(eq(optimizations.id, input.id)).for('update').limit(1);
+        if (!row || row.status !== 'done') throw new TRPCError({ code: 'NOT_FOUND', message: 'Vorschlag nicht gefunden.' });
+        if (readProposalState(row.results) !== 'open') throw new TRPCError({ code: 'CONFLICT', message: 'Vorschlag ist bereits abgeschlossen.' });
+        const results = row.results as OptimizationProposalResults;
+        await tx
+          .update(optimizations)
+          .set({ results: { ...results, review: { state: 'rejected', at: new Date().toISOString(), ...(input.reason ? { reason: input.reason } : {}) } } })
+          .where(eq(optimizations.id, row.id));
+        await tx.insert(auditLog).values({
+          actor: 'user',
+          userId: ctx.user.id,
+          action: 'strategy.optimization.rejected',
+          entityType: 'optimization',
+          entityId: row.id,
+          details: { strategy: results.strategySlug, baseVersion: results.baseVersion, reason: input.reason ?? null },
+          ip: ctx.ip,
+        });
+        return { ok: true as const };
+      });
     }),
 
   /** Verlauf der Läufe (für Vergleich v2 vs v3 etc.). */

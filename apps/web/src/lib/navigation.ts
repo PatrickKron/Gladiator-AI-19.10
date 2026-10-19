@@ -200,7 +200,7 @@ export const PAGES = [
     labelKey: 'ia.page_lab',
     descKey: 'ia.desc_lab',
     icon: 'M9 3v6l-5 9a2 2 0 002 3h12a2 2 0 002-3l-5-9V3M7 3h10',
-    keywords: ['backtest', 'walk-forward', 'kalibrieren', 'vergleich', 'mfe', 'mae', 'optimierung'],
+    keywords: ['backtest', 'walk-forward', 'kalibrieren', 'vergleich', 'mfe', 'mae', 'optimierung', 'vorschlag', 'optimierungs-vorschläge', 'proposal'],
   },
   {
     id: 'aiModels',

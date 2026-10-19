@@ -15,12 +15,14 @@ import { runRlEpisodes, aggregateRlPerformance, rebalanceRlWeights } from './rl-
 import { detectAllRegimes, runSelfEvaluation, runModelComparison, createPerformanceSnapshots } from './self-improve-pipeline.js';
 import { snapshotAccountValues } from './portfolio-snapshot.js';
 import { recomputeStudyClusters } from '@gladiator/backtest';
+import { runStrategyOptimization } from './optimization.js';
 
 /**
  * BullMQ-Worker (04_ §2: robuste Jobs statt loser Loops — der v1-Fehler).
  * signal-scan 5 min · position-monitor 1 min · macro-sync 30 min ·
  * calendar-sync 60 min · news-sync 15 min · derivatives-sync 30 min ·
  * signal-lifecycle 1 min (05_ §9: Auto-Kill, Reentry, Leverage-Upgrade).
+ * strategy-optimize So 03:00 UTC (nur Vorschläge, Mensch promotet).
  */
 
 const QUEUE_NAME = 'gladiator-jobs';
@@ -45,6 +47,7 @@ const PERF_SNAPSHOT_JOB = 'perf-snapshot';
 const PORTFOLIO_SNAPSHOT_JOB = 'portfolio-snapshot';
 const SIGNAL_LIFECYCLE_JOB = 'signal-lifecycle';
 const STUDY_CLUSTER_JOB = 'study-clusters';
+const OPTIMIZE_JOB = 'strategy-optimize';
 
 /**
  * Worker-Heartbeat (Phase 7): /health prüft das Alter; der Monitor-Job pingt
@@ -132,6 +135,13 @@ const SCHEDULES: [string, number][] = [
 
 /** Nacht-Pipeline: täglich 03:30 UTC (08_ §5) — Cron statt Intervall. */
 const NIGHT_CRON = '30 3 * * *';
+/**
+ * Strategie-Optimierung → Vorschläge (08_ §4/§5): sonntags 03:00 UTC — wöchentlich,
+ * weil sich das Ergebnis eines 1000/250-Bar-Walk-Forwards über einen Tag kaum
+ * ändert (täglich wären es nur Doppel-Vorschläge), und VOR dem Briefing um 03:30,
+ * das offene Vorschläge nennt. Erzeugt NUR Vorschläge, schaltet nichts scharf.
+ */
+const OPTIMIZE_CRON = '0 3 * * 0';
 /** ML-Retraining: wöchentlich sonntags 04:00 UTC — genug Labels sammeln vor Neutraining. */
 const ML_RETRAIN_CRON = '0 4 * * 0';
 /** RL-Performance-Aggregation: täglich 23:55 UTC — Tages-Rollup der Agenten-Metriken. */
@@ -162,6 +172,7 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
     await queue.upsertJobScheduler(name, { every }, { name });
   }
   await queue.upsertJobScheduler(NIGHT_JOB, { pattern: NIGHT_CRON }, { name: NIGHT_JOB });
+  await queue.upsertJobScheduler(OPTIMIZE_JOB, { pattern: OPTIMIZE_CRON }, { name: OPTIMIZE_JOB });
   await queue.upsertJobScheduler(ML_RETRAIN_JOB, { pattern: ML_RETRAIN_CRON }, { name: ML_RETRAIN_JOB });
   await queue.upsertJobScheduler(RL_PERF_JOB, { pattern: RL_PERF_CRON }, { name: RL_PERF_JOB });
   await queue.upsertJobScheduler(RL_REBALANCE_JOB, { pattern: RL_REBALANCE_CRON }, { name: RL_REBALANCE_JOB });
@@ -231,6 +242,16 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
         case NIGHT_JOB: {
           const res = await runNightPipeline(db);
           console.log(`[night-pipeline] ${res.day} erstellt=${res.created} versendet=${res.sent}`);
+          return res;
+        }
+        case OPTIMIZE_JOB: {
+          const res = await runStrategyOptimization(db);
+          console.log(
+            `[strategy-optimize] bewertet=${res.evaluated} Vorschläge=${res.proposals.length} übersprungen=${res.skipped.length} Fehler=${res.errors.length}`,
+          );
+          for (const p of res.proposals) console.log(`[strategy-optimize] Vorschlag für ${p.strategy} v${p.baseVersion} (${p.optimizationId})`);
+          for (const s of res.skipped) console.log(`[strategy-optimize] ${s.target}: ${s.reason}`);
+          for (const e of res.errors) console.warn('[strategy-optimize]', e);
           return res;
         }
         case MACRO_JOB: {

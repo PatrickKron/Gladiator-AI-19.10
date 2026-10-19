@@ -93,4 +93,58 @@ describe('Walk-Forward (08_ §4: rollierend IS-optimieren, OOS validieren)', () 
     expect(result.windows).toHaveLength(0);
     expect(result.combinedOos.tradeCount).toBe(0);
   });
+  it('Warmup: OOS-Evaluator sieht vorangehende Kerzen als Indikator-Historie, handelt aber erst ab OOS-Start', () => {
+    // Evaluator braucht ≥ 40 Kerzen Historie (wie EMA-Warmup) — ohne Warmup wären die
+    // ersten 40 Bars jedes OOS-Fensters tot.
+    const needsHistory = (params: P) => {
+      const inner = makeEvaluator(params);
+      return (cs: Candle[], i: number) => (i < 40 ? [] : inner(cs, i));
+    };
+    const cs = candles(400);
+    const base = { initialEquity: 10_000, riskPctPerTrade: 1, costModel: ZERO_COSTS, barsPerYear: 8760, tpWeights: [0.5, 0.3, 0.2] };
+    const cold = runWalkForward(cs, { paramGrid: [{ direction: 'long' }] as P[], makeEvaluator: needsHistory, isBars: 100, oosBars: 50, base });
+    const warm = runWalkForward(cs, {
+      paramGrid: [{ direction: 'long' }] as P[],
+      makeEvaluator: needsHistory,
+      isBars: 100,
+      oosBars: 50,
+      warmupBars: 60,
+      base,
+    });
+    // Fenster-Raster bleibt identisch (gleiche OOS-Bereiche → vergleichbar)
+    expect(warm.windows.map((w) => [w.oosStart, w.oosEnd])).toEqual(cold.windows.map((w) => [w.oosStart, w.oosEnd]));
+    expect(warm.combinedOos.tradeCount).toBeGreaterThan(cold.combinedOos.tradeCount);
+    // Kein Trade vor dem OOS-Start seines Fensters (Warmup handelt nie)
+    for (const w of warm.windows) {
+      const startTs = cs[w.oosStart]!.ts.getTime();
+      const endTs = cs[w.oosEnd - 1]!.ts.getTime();
+      const inWindow = warm.oosTrades.filter((t) => t.entryTs.getTime() >= startTs && t.entryTs.getTime() <= endTs);
+      expect(inWindow.length).toBeGreaterThan(0);
+    }
+    const inSomeOos = (ts: number) =>
+      warm.windows.some((w) => ts > cs[w.oosStart]!.ts.getTime() && ts <= cs[w.oosEnd - 1]!.ts.getTime());
+    expect(warm.oosTrades.every((t) => inSomeOos(t.entryTs.getTime()))).toBe(true);
+  });
+
+  it('Warmup sieht NIE Kerzen nach dem Fensterende (look-ahead-frei)', () => {
+    const cs = candles(400);
+    let maxSeenTs = 0;
+    const spy = (params: P) => {
+      const inner = makeEvaluator(params);
+      return (slice: Candle[], i: number) => {
+        maxSeenTs = Math.max(maxSeenTs, slice[slice.length - 1]!.ts.getTime());
+        return inner(slice, i);
+      };
+    };
+    const res = runWalkForward(cs, {
+      paramGrid: [{ direction: 'long' }] as P[],
+      makeEvaluator: spy,
+      isBars: 100,
+      oosBars: 50,
+      warmupBars: 60,
+      base: { initialEquity: 10_000, riskPctPerTrade: 1, costModel: ZERO_COSTS, barsPerYear: 8760, tpWeights: [0.5, 0.3, 0.2] },
+    });
+    const last = res.windows[res.windows.length - 1]!;
+    expect(maxSeenTs).toBeLessThanOrEqual(cs[last.oosEnd - 1]!.ts.getTime());
+  });
 });

@@ -16,6 +16,7 @@ const data: BriefingData = {
   killSwitchActive: false,
   news: [{ source: 'coindesk', title: 'ETF-Zuflüsse steigen' }],
   llmInsight: null,
+  openProposals: [],
 };
 
 describe('renderBriefing', () => {
@@ -53,5 +54,21 @@ describe('renderBriefing', () => {
     const withInsight = renderBriefing({ ...data, llmInsight: 'London-Shorts tragen die Woche.' });
     expect(withInsight).toMatch(/KI-Erkenntnis/);
     expect(withInsight).toMatch(/London-Shorts/);
+  });
+
+  it('offene Optimierungs-Vorschläge werden genannt (Mensch entscheidet) — sonst keine Zeile', () => {
+    expect(renderBriefing(data)).not.toMatch(/Optimierungs-Vorschl/);
+    const text = renderBriefing({
+      ...data,
+      openProposals: [
+        { id: 'a', strategy: 'smc-core', baseVersion: 1, expectancyBefore: 0.12, expectancyAfter: 0.31, changes: 2 },
+        { id: 'b', strategy: 'dip-buyer', baseVersion: 3, expectancyBefore: null, expectancyAfter: 0.2, changes: 1 },
+      ],
+    });
+    expect(text).toMatch(/2 Optimierungs-Vorschl/);
+    expect(text).toMatch(/smc-core v1/);
+    expect(text).toMatch(/0[.,]12.*0[.,]31/);
+    expect(text).toMatch(/dip-buyer v3/);
+    expect(text).toMatch(/Labor/);
   });
 });

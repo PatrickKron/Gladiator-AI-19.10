@@ -9,6 +9,12 @@ import { computeMetrics, type Metrics } from './metrics.js';
  * seines Fensters — kein Datenleck zwischen IS und OOS.
  *
  * Auswahlkriterium in-sample: Netto-PnL (bei Gleichstand: höherer Expectancy).
+ *
+ * Optionaler Warmup: Indikatoren wie EMA200 brauchen Historie. Mit `warmupBars`
+ * bekommt jedes Fenster die unmittelbar VORANGEHENDEN Kerzen als reine
+ * Indikator-Historie mit — gehandelt wird erst ab dem Fensterstart. Das ist
+ * Vergangenheit, kein Look-ahead; ohne Warmup wären die ersten ~200 Bars jedes
+ * OOS-Fensters „tot" (Evaluator liefert mangels EMA nichts).
  */
 
 export type WalkForwardConfig<P> = {
@@ -18,6 +24,8 @@ export type WalkForwardConfig<P> = {
   isBars: number;
   /** Länge des Out-of-Sample-Fensters in Bars. */
   oosBars: number;
+  /** Vorangehende Kerzen als Indikator-Historie je Fenster (Default 0 = keine). */
+  warmupBars?: number;
   base: Omit<BacktestConfig, 'evaluate'>;
 };
 
@@ -38,22 +46,31 @@ export type WalkForwardResult<P> = {
   oosTrades: BacktestTrade[];
 };
 
+/** Evaluator, der erst ab Slice-Index `from` handelt (davor nur Historie). */
+function tradingFrom(evaluate: Evaluator, from: number): Evaluator {
+  return from <= 0 ? evaluate : (cs, i) => (i < from ? [] : evaluate(cs, i));
+}
+
 export function runWalkForward<P>(candles: Candle[], config: WalkForwardConfig<P>): WalkForwardResult<P> {
   const { isBars, oosBars, paramGrid, makeEvaluator, base } = config;
+  const warmup = Math.max(0, Math.floor(config.warmupBars ?? 0));
   if (paramGrid.length === 0) throw new Error('Walk-Forward: leeres Parameter-Grid.');
+
+  /** Fenster [start, end) plus bis zu `warmup` vorangehende Kerzen als Historie. */
+  const run = (start: number, end: number, evaluate: Evaluator) => {
+    const from = Math.max(0, start - warmup);
+    return runBacktest(candles.slice(from, end), { ...base, evaluate: tradingFrom(evaluate, start - from) });
+  };
 
   const windows: WalkForwardWindow<P>[] = [];
   const oosTrades: BacktestTrade[] = [];
   const oosEquitySteps: number[] = [base.initialEquity];
 
   for (let start = 0; start + isBars + oosBars <= candles.length; start += oosBars) {
-    const isSlice = candles.slice(start, start + isBars);
-    const oosSlice = candles.slice(start + isBars, start + isBars + oosBars);
-
     // In-Sample: bestes Grid-Element nach Netto-PnL (Tiebreak: Expectancy)
     let best: { params: P; metrics: Metrics } | null = null;
     for (const params of paramGrid) {
-      const res = runBacktest(isSlice, { ...base, evaluate: makeEvaluator(params) });
+      const res = run(start, start + isBars, makeEvaluator(params));
       if (
         best === null ||
         res.metrics.netPnl > best.metrics.netPnl ||
@@ -65,7 +82,7 @@ export function runWalkForward<P>(candles: Candle[], config: WalkForwardConfig<P
     }
 
     // Out-of-Sample: NUR mit den IS-Siegern, auf ungesehenen Bars
-    const oosRes = runBacktest(oosSlice, { ...base, evaluate: makeEvaluator(best!.params) });
+    const oosRes = run(start + isBars, start + isBars + oosBars, makeEvaluator(best!.params));
     oosTrades.push(...oosRes.trades);
     for (const t of oosRes.trades) {
       oosEquitySteps.push(oosEquitySteps[oosEquitySteps.length - 1]! + t.netPnl);
