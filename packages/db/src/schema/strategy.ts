@@ -82,6 +82,8 @@ export const signals = pgTable(
     entry: numeric('entry').notNull(),
     stopLoss: numeric('stop_loss').notNull(),
     takeProfits: numeric('take_profits').array().notNull(),
+    /** Trailing-Stop-Abstand in % aus der Strategie (DSL trailingStop); null = statischer Stop. */
+    trailPct: numeric('trail_pct'),
     leverageSuggested: numeric('leverage_suggested').notNull().default('1'),
     /** 0..10, IMMER echt berechnet (nie hartkodiert). */
     score: numeric('score').notNull(),

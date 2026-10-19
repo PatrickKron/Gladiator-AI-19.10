@@ -33,6 +33,8 @@ export type LabRunInput = {
   versionId?: string;
   riskPctPerTrade?: number;
   costModel?: CostModel;
+  /** Trailing-Stop in % für alle Trades (DSL-Strategien mit eigenem trailingStop behalten ihren Wert). */
+  trailPct?: number;
 };
 
 export type TurningPoint = { ts: string; kind: 'BOS' | 'CHoCH'; direction: 'bullish' | 'bearish'; level: number };
@@ -121,6 +123,7 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
     barsPerYear: BARS_PER_YEAR[runTimeframe]!,
     tpWeights: [0.5, 0.3, 0.2],
     setupType: runSetupType,
+    ...(input.trailPct !== undefined ? { trailPct: input.trailPct } : {}),
   });
 
   const m = result.metrics;
@@ -133,8 +136,8 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
       fromTs: input.from,
       toTs: input.to,
       config: dslResolved
-        ? { strategy: dslResolved.slug, dsl: dslResolved.dsl, riskPctPerTrade: riskPct }
-        : { setupType: input.setupType, riskPctPerTrade: riskPct, params },
+        ? { strategy: dslResolved.slug, dsl: dslResolved.dsl, riskPctPerTrade: riskPct, trailPct: input.trailPct ?? null }
+        : { setupType: input.setupType, riskPctPerTrade: riskPct, params, trailPct: input.trailPct ?? null },
       feesModel: costModel,
       sharpe: m.sharpe === null ? null : String(m.sharpe),
       sortino: m.sortino === null ? null : String(m.sortino),

@@ -3,7 +3,7 @@ import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { evaluateRisk, noTradeWindowFor, type AdaptiveGate, type RiskVerdict } from '@gladiator/risk';
 import type { TradingVenue, VenueOrderResult } from './venue.js';
-import { trailStep } from './trailing.js';
+import { trailStep } from '@gladiator/strategy-engine';
 
 const { signals, orders, positions, executedTrades, tradingSettings, riskGates, auditLog, economicEvents, macroSeries } = schema;
 
@@ -312,6 +312,9 @@ export async function executeConfirmedSignal(
       qty: String(verdict.sizing.qty),
       entryPrice: String(entryRes.fillPrice),
       leverage: String(effectiveLeverage),
+      // Trailing-Stop aus der Strategie (DSL trailingStop) übernehmen — der Monitor
+      // zieht ihn mit derselben trailStep-Funktion nach wie der Backtest (Start: Fill).
+      ...(signal.trailPct !== null ? { trailPct: signal.trailPct, trailPeak: String(entryRes.fillPrice) } : {}),
       mode: 'paper',
     })
     .returning();

@@ -82,6 +82,8 @@ export async function runDslScan(db: Db): Promise<DslScanResult> {
       entry: String(setup.entry),
       stopLoss: String(setup.stopLoss),
       takeProfits: setup.takeProfits.map(String),
+      // Trailing-Stop der Strategie reist mit dem Signal bis in die Live-Position (Backtest = Live).
+      ...(setup.trailPct !== undefined ? { trailPct: String(setup.trailPct) } : {}),
       leverageSuggested: String(setup.leverageSuggested),
       score: String(setup.score),
       riskClass: setup.riskClass,

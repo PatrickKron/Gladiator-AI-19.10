@@ -356,7 +356,32 @@ Branch `claude/focused-darwin-51s9k3` (Deploy erst nach Merge nach `main`). Loka
 - **Trailing-Stop & Gewinn mitnehmen (Teilschluss)** — Patrick-Auftrag: Migration 0019 (strikt additiv: `positions.trail_pct`, `trail_peak`); `trailing.ts` (rein, 7 Tests: folgt dem besten Kurs im %-Abstand, nur verschärfen); Monitor zieht den Stop je Tick VOR der Fill-Prüfung nach; `updateProtection({ trailPct })` 0,1–50 % bzw. null = aus, greift sofort. `closePositionManually(..., { qty })`: Teilschluss per reduceOnly-Market-Order, danach Stop = Restmenge, TPs proportional (Verhältnis bleibt); qty ≥ Rest → Vollschluss. Gemeinsamer Helfer `replaceProtectionOrder` (neue Order zuerst, dann Storno). UI: 25/50/75 % mit Rückfrage, Trailing-Feld + Aktiv-Badge. 4 neue DB-Tests. Hinweis: Trailing ist ein manuelles Positions-Werkzeug (Monitor); als Strategie-Exit in Backtest/DSL ist es noch NICHT verfügbar (sonst Backtest ≠ Live).
 
 ## Offen (Vorschläge, nicht umgesetzt — Patrick entscheidet)
-- Trailing als Strategie-Exit in Backtest-Engine + DSL (gleiche `trailStep`-Funktion nutzen).
+- ~~Trailing als Strategie-Exit in Backtest-Engine + DSL~~ → erledigt in Session 10.
 - Default-Limits (1 % Risiko + 20 % Exposure) blocken Stops < 5 % → hebelbewusste Exposure oder Hinweis im Ticket.
 - Positions-Monitor in eigene Queue (läuft hinter RL/ML-Jobs); CI gegen eigene Test-DB statt Live-DB; Auto-Login absichern (Rate-Limit, Host-Allowlist), echtes Passwort.
 - Zeichenwerkzeuge + lightweight-charts v5; Backtest-Stops gap-realistisch, Out-of-Sample-Gate; Jesse-artige Trade-Ansicht.
+
+---
+
+# SESSION 10 — Trailing-Stop in Backtest & Strategien, Blueprint-Abgleich (2026-10-19, Claude Code Cloud)
+
+## Umgesetzt
+- **Eine Wahrheit:** `trailStep` liegt jetzt in `@gladiator/strategy-engine` (`trailing.ts`) — Backtest UND Live-Monitor nutzen dieselbe Funktion.
+- **DSL:** optionales `trailingStop: { pct: 0.1–50 }` (strict); `DslSetup.trailPct`; Schema-Doku für KI/Workshop ergänzt, Grenze „keine Trailing-Stops“ entfernt (nur ATR-/Indikator-Trailing bleibt unmöglich).
+- **Backtest-Engine:** `setup.trailPct ?? config.trailPct`; Stop zieht nach jeder ABGESCHLOSSENEN Kerze nach (gilt ab Folge-Kerze, kein Intrabar-Look-ahead), nur verschärfen; Break-Even nach TP1 lockert einen nachgezogenen Stop nie; neuer Exit-Grund `trail`, neues Feld `exitPrice` (Chart zeichnet echte Ausstiege, Marker „TS“). 5 Engine-Tests.
+- **Signal → Position:** Migration 0020 (additiv `signals.trail_pct`), dsl-scan schreibt ihn, Executor setzt `positions.trail_pct/trail_peak` (Start = Fill) → Monitor trailt live wie im Backtest. Kanonisches Signal-Schema (`@gladiator/core`) um `trailPct` ergänzt. DB-Test.
+- **UI:** Labor-Feld „Trailing-Stop %“ (für eingebaute Strategien; DSL-Wert hat Vorrang), Workshop-Formularfeld `trailingStop`.
+
+## Blueprint-Abgleich (Agent, Belege im Session-Chat) — Top-Lücken nach Nutzwert
+1. Reentry/Leverage-Upgrade/Auto-Kill-Engine (05 §9) — nur Schema, keine Engine (M)
+2. Out-of-Sample-Gate vor Promotion (08 §4) — validity prüft nur In-Sample (S–M)
+3. Fehlerpfad SL/TP-Platzierung + Reconciliation repariert nicht + Dead-Man ohne Order-Sperre (06 §5/§7) (M)
+4. Nacht-Optimierung → Vorschlag (08 §5), `optimizations`-Tabelle ungenutzt (M–L)
+5. VDB1 aus echten Trades, VDB2 im Signalpfad (13) (L)
+6. SAFE-004…010 im Risk-Gate (10 §5) (M)
+7. Backtest: echtes Funding aus `funding_rates`, Börsen-Fees, gap-realistische Stops (08 §3a) (M)
+8. Datenqualität/Survivorship-Checks (08 §3b) (M)
+9. Steuer-Export CSV/FIFO (10 §6) (S–M)
+10. SMC: OB-Retest im Score, Breaker, Equal Highs/Lows (05 §3) (M–L)
+Offene Entscheidungen für Patrick: Registrierung nach erstem User sperren? Score-Schwelle 6 vs. 7? Erste Live-Börse? 30-Tage-Paper-Pflicht technisch erzwingen? Gamification (14) / services/quant bauen oder streichen?
+

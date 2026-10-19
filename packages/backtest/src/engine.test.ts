@@ -177,3 +177,73 @@ describe('Backtest-Engine (look-ahead-frei, netto)', () => {
     expect(t.pnlRTpD).toBeCloseTo(3.0, 6);
   });
 });
+
+describe('Backtest-Engine: Trailing-Stop (dieselbe trailStep-Funktion wie live)', () => {
+  // Entry 100, SL 90 → qty 10 (1 % von 10.000 / 10); TPs weit weg, damit nur der Trail greift.
+  const far = { takeProfits: [200, 300] };
+
+  it('zieht nach jeder abgeschlossenen Kerze nach — nie innerhalb derselben Kerze (look-ahead-frei)', () => {
+    const candles = [
+      c(0, 100, 101, 99, 100), c(1, 100, 101, 99, 100), c(2, 100, 101, 99, 100), // Signal @2
+      c(3, 100, 110, 104, 108), // Hoch 110 → Stop erst AB Bar 4 = 104,5 (Tief 104 löst hier NICHT aus)
+      c(4, 108, 112, 105, 111), // Stop 104,5 hält; danach Hoch 112 → 106,4
+      c(5, 111, 111, 106, 107), // Tief 106 < 106,4 → Ausstieg am nachgezogenen Stop
+      c(6, 107, 108, 106, 107),
+    ];
+    const res = runBacktest(candles, { ...BASE, evaluate: setupAt(2, { ...far, trailPct: 5 }) });
+    const t = res.trades[0]!;
+    expect(t.exitReason).toBe('trail');
+    expect(t.exitTs.getTime()).toBe(5 * 3_600_000);
+    expect(t.grossPnl).toBeCloseTo(10 * 6.4, 6);
+  });
+
+  it('Short spiegelbildlich: Stop folgt dem Tief nach unten', () => {
+    const candles = [
+      c(0, 100, 101, 99, 100), c(1, 100, 101, 99, 100), c(2, 100, 101, 99, 100),
+      c(3, 100, 96, 90, 92), // Tief 90 → Stop ab Bar 4 = 94,5
+      c(4, 92, 95, 91, 94), // Hoch 95 ≥ 94,5 → raus
+    ];
+    const res = runBacktest(candles, {
+      ...BASE,
+      evaluate: setupAt(2, { direction: 'short', stopLoss: 110, takeProfits: [50], trailPct: 5 }),
+    });
+    const t = res.trades[0]!;
+    expect(t.exitReason).toBe('trail');
+    expect(t.grossPnl).toBeCloseTo(10 * (100 - 94.5), 6);
+  });
+
+  it('Break-Even nach TP1 lockert einen schon nachgezogenen Stop nie', () => {
+    const candles = [
+      c(0, 100, 101, 99, 100), c(1, 100, 101, 99, 100), c(2, 100, 101, 99, 100),
+      c(3, 100, 112, 105, 111), // TP1 110 (50 %) → BE 100; Trail ab Bar 4: 112 × 0,95 = 106,4
+      c(4, 111, 111, 101, 102), // Tief 101: über BE 100, aber unter 106,4 → raus am Trail
+    ];
+    const res = runBacktest(candles, { ...BASE, evaluate: setupAt(2, { takeProfits: [110, 300], trailPct: 5 }) });
+    const t = res.trades[0]!;
+    expect(t.exitReason).toBe('trail');
+    // 5 × (110 − 100) + 5 × (106,4 − 100)
+    expect(t.grossPnl).toBeCloseTo(50 + 32, 6);
+  });
+
+  it('Labor-Vorgabe (config.trailPct) gilt, wenn das Setup keinen eigenen Wert hat; Setup-Wert gewinnt', () => {
+    const candles = [
+      c(0, 100, 101, 99, 100), c(1, 100, 101, 99, 100), c(2, 100, 101, 99, 100),
+      c(3, 100, 110, 104, 108),
+      c(4, 108, 109, 103, 104), // 10 % Trail: Stop 99 → hält; 5 % Trail: 104,5 → raus
+      c(5, 104, 105, 103, 104),
+    ];
+    const viaConfig = runBacktest(candles, { ...BASE, trailPct: 5, evaluate: setupAt(2, far) });
+    expect(viaConfig.trades[0]!.exitReason).toBe('trail');
+    const setupWins = runBacktest(candles, { ...BASE, trailPct: 5, evaluate: setupAt(2, { ...far, trailPct: 10 }) });
+    expect(setupWins.trades[0]!.exitReason).toBe('end-of-data');
+  });
+
+  it('ohne Trailing bleibt alles wie bisher (Stop fix)', () => {
+    const candles = [
+      c(0, 100, 101, 99, 100), c(1, 100, 101, 99, 100), c(2, 100, 101, 99, 100),
+      c(3, 100, 110, 104, 108), c(4, 108, 109, 103, 104), c(5, 104, 105, 103, 104),
+    ];
+    expect(runBacktest(candles, { ...BASE, evaluate: setupAt(2, far) }).trades[0]!.exitReason).toBe('end-of-data');
+  });
+});
+

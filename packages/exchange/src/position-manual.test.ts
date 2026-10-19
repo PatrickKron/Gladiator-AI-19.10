@@ -299,4 +299,45 @@ describe.skipIf(!hasDb)('Agenten-Konto: Position schließen & SL/TP ändern (ech
     expect((await openProt()).find((o) => o.type === 'stop_market')!.price).toBeCloseTo(95, 6);
     await closePositionManually(db, venue, userId, positionId);
   });
+
+  it('Signal einer Strategie mit Trailing-Stop: die Position übernimmt den Trail (Backtest = Live)', async () => {
+    const venue = new TestVenue();
+    venue.price = 100;
+    const [sig] = await db
+      .insert(signals)
+      .values({
+        source: 'instruction',
+        strategyId,
+        strategyVersionId: versionId,
+        symbol: SYMBOL,
+        timeframe: '1h',
+        assetClass: 'crypto',
+        venueType: 'cex',
+        direction: 'long',
+        setupType: 'swing',
+        entry: '100',
+        stopLoss: '90',
+        takeProfits: ['300'],
+        trailPct: '5',
+        leverageSuggested: '1',
+        score: '6',
+        riskClass: 'medium',
+        confluence: ['dsl:test'],
+        session: 'london',
+        emaRegime: 'above',
+        marketPhase: 'bull',
+        status: 'confirmed',
+      })
+      .returning();
+    const res = await executeConfirmedSignal(db, venue, { signalId: sig!.id, userId, riskContext: NEUTRAL_CTX });
+    expect(res.executed, res.detail).toBe(true);
+    const pos = await db.execute(sql`SELECT trail_pct::float AS pct, trail_peak::float AS peak FROM positions WHERE id = ${res.positionId!}`);
+    expect(pos.rows[0]).toEqual({ pct: 5, peak: 100 });
+
+    venue.price = 120; // Monitor zieht nach: 120 × 0,95 = 114
+    await monitorOpenPositions(db, venue);
+    expect((await openProt()).find((o) => o.type === 'stop_market')!.price).toBeCloseTo(114, 6);
+    await closePositionManually(db, venue, userId, res.positionId!);
+  });
 });
+

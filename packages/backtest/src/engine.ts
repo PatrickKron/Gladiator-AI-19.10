@@ -1,4 +1,4 @@
-import type { Candle, SetupCandidate } from '@gladiator/strategy-engine';
+import { trailStep, type Candle, type SetupCandidate } from '@gladiator/strategy-engine';
 import { computeMetrics, type Metrics } from './metrics.js';
 
 /**
@@ -8,6 +8,9 @@ import { computeMetrics, type Metrics } from './metrics.js';
  * - ALLE Ergebnisse netto: Gebühren je Fill, Slippage auf Fill-Preise,
  *   Funding über die Haltezeit. Ohne Kostenmodell läuft kein Lauf (Pflicht).
  * - Teil-Exits nach TP-Gewichten; nach TP1 Stop auf Break-Even (decker S010).
+ * - Optionaler Trailing-Stop (Setup.trailPct oder config.trailPct): nach jeder
+ *   ABGESCHLOSSENEN Kerze nachziehen (gilt ab der Folge-Kerze — kein Intrabar-
+ *   Look-ahead), nur verschärfen; dieselbe trailStep-Funktion wie live.
  * - Je Trade werden zusätzlich die R-Ergebnisse der TP-Schemas A–D simuliert
  *   (13_ §3, Futter für den RAPS-Cluster-Kern).
  */
@@ -54,6 +57,8 @@ export type BacktestConfig = {
   tpWeights: number[];
   /** Welcher Setup-Typ gehandelt wird, wenn der Evaluator mehrere liefert. */
   setupType?: 'scalp' | 'swing' | 'position';
+  /** Trailing-Stop in % für alle Trades (Labor-Vorgabe); ein Wert im Setup hat Vorrang. */
+  trailPct?: number;
 };
 
 export type BacktestTrade = {
@@ -66,6 +71,8 @@ export type BacktestTrade = {
   stopLoss: number;
   /** Take-Profit-Preise des Setups in Reihenfolge (für Chart-Overlay). */
   takeProfits: number[];
+  /** Preis des letzten Ausstiegs (vor Slippage) — Stop, TP, Trailing-Stop oder letzter Close. */
+  exitPrice: number;
   qty: number;
   riskAmount: number;
   grossPnl: number;
@@ -85,7 +92,8 @@ export type BacktestTrade = {
   emaRegime: 'above' | 'below';
   marketPhase: 'bull' | 'bear';
   confluence: string[];
-  exitReason: 'tp' | 'sl' | 'be' | 'end-of-data';
+  /** trail = Ausstieg am nachgezogenen Trailing-Stop. */
+  exitReason: 'tp' | 'sl' | 'be' | 'trail' | 'end-of-data';
   /** R-Ergebnis unter TP-Schema A (50/30/20), B (60/30/10), C (100 % TP1), D (Runner). */
   pnlRTpA: number;
   pnlRTpB: number;
@@ -185,8 +193,12 @@ export function runBacktest(candles: Candle[], config: BacktestConfig): Backtest
     let maeR = 0;
     let exitReason: BacktestTrade['exitReason'] = 'end-of-data';
     let beActive = false;
+    const trailPct = setup.trailPct ?? config.trailPct;
+    let trailPeak: number | null = null;
+    let trailMoved = false;
     let j = i + 1;
     let exitTs = candles[candles.length - 1]!.ts;
+    let exitPrice = entryFill;
 
     for (; j < candles.length && remaining > 1e-9; j++) {
       const bar = candles[j]!;
@@ -202,7 +214,8 @@ export function runBacktest(candles: Candle[], config: BacktestConfig): Backtest
         grossPnl += remaining * qty * (exitFill - entryFill) * dirSign;
         fees += Math.abs(exitFill) * remaining * qty * costModel.takerFeeRate;
         slippageCost += Math.abs(exitFill - stop) * remaining * qty;
-        exitReason = beActive ? 'be' : 'sl';
+        exitReason = trailMoved ? 'trail' : beActive ? 'be' : 'sl';
+        exitPrice = stop;
         remaining = 0;
         exitTs = bar.ts;
         break;
@@ -220,14 +233,35 @@ export function runBacktest(candles: Candle[], config: BacktestConfig): Backtest
         slippageCost += Math.abs(exitFill - tp) * part * qty;
         remaining -= part;
         tpRsHit.push(tpRs[tpIdx]!);
+        exitPrice = tp;
         tpIdx++;
-        // decker S010: nach TP1 Stop auf Break-Even
+        // decker S010: nach TP1 Stop auf Break-Even — nur verschärfen (ein schon
+        // nachgezogener Trailing-Stop darf dadurch nie lockerer werden)
         if (tpIdx === 1) {
-          stop = entryFill;
-          beActive = true;
+          const tighter = dirSign === 1 ? Math.max(stop, entryFill) : Math.min(stop, entryFill);
+          if (tighter !== stop) {
+            stop = tighter;
+            beActive = true;
+          }
         }
         exitTs = bar.ts;
         if (remaining <= 1e-9) exitReason = 'tp';
+      }
+
+      // Trailing-Stop: Bar ist abgeschlossen → Peak fortschreiben, Stop für die NÄCHSTE Bar nachziehen.
+      if (trailPct !== undefined && remaining > 1e-9) {
+        const step = trailStep({
+          direction: setup.direction,
+          pct: trailPct,
+          peak: trailPeak,
+          price: dirSign === 1 ? bar.high : bar.low,
+          currentStop: stop,
+        });
+        trailPeak = step.peak;
+        if (step.stop !== null) {
+          stop = step.stop;
+          trailMoved = true;
+        }
       }
     }
 
@@ -239,6 +273,7 @@ export function runBacktest(candles: Candle[], config: BacktestConfig): Backtest
       fees += Math.abs(exitFill) * remaining * qty * costModel.takerFeeRate;
       slippageCost += Math.abs(exitFill - last.close) * remaining * qty;
       exitTs = last.ts;
+      exitPrice = last.close;
       exitReason = 'end-of-data';
       remaining = 0;
       j = candles.length;
@@ -261,6 +296,7 @@ export function runBacktest(candles: Candle[], config: BacktestConfig): Backtest
       entry: entryFill,
       stopLoss: setup.stopLoss,
       takeProfits: [...setup.takeProfits],
+      exitPrice,
       qty,
       riskAmount,
       grossPnl,

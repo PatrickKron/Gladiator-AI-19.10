@@ -83,6 +83,8 @@ export type SetupCandidate = {
   emaRegime: 'above' | 'below';
   /** Marktphase aus der Struktur (letztes Break-Ereignis): bull- oder bear-Phase. */
   marketPhase: 'bull' | 'bear';
+  /** Optionaler Trailing-Stop-Abstand in % (Strategie-Exit; Backtest und Live nutzen trailStep). */
+  trailPct?: number;
 };
 
 export type SmcContext = {

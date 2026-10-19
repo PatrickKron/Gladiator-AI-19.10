@@ -112,6 +112,12 @@ export function Labor() {
   const [retestWindowBars, setRetestWindow] = useState(12);
   const [emaProximityPct, setEmaProximity] = useState(2);
   const [riskPct, setRiskPct] = useState(1);
+  // Trailing-Stop in % (leer = aus). DSL-Strategien mit eigenem trailingStop behalten ihren Wert.
+  const [trailPctInput, setTrailPctInput] = useState('');
+  const trailPct = (() => {
+    const n = Number(trailPctInput.replace(',', '.'));
+    return trailPctInput.trim() !== '' && n >= 0.1 && n <= 50 ? n : undefined;
+  })();
   const [versionId, setVersionId] = useState<string>('');
 
   const [busy, setBusy] = useState<'bt' | 'wf' | 'save' | 'cal' | null>(null);
@@ -173,6 +179,7 @@ export function Labor() {
         params: paramOverrides,
         versionId: versionId || undefined,
         riskPctPerTrade: riskPct,
+        ...(trailPct !== undefined ? { trailPct } : {}),
       });
       setRun(res);
       setRunWindow({ from: fromIso, to: toIso });
@@ -261,6 +268,7 @@ export function Labor() {
           to: toIso,
           params: paramOverrides,
           riskPctPerTrade: riskPct,
+          ...(trailPct !== undefined ? { trailPct } : {}),
         });
         results.push({
           key: sel,
@@ -434,6 +442,20 @@ export function Labor() {
           <label className="text-sm">
             <span className="label">Risiko %/Trade</span>
             <input type="number" min={0.1} max={5} step={0.1} value={riskPct} onChange={(e) => setRiskPct(Number(e.target.value))} className="field num mt-1.5 w-full px-3 py-2" />
+          </label>
+          <label className="text-sm" title="Stop folgt dem besten Kurs im %-Abstand, nur enger (gleiche Logik wie live). Leer = aus. DSL-Strategien mit eigenem Trailing behalten ihren Wert.">
+            <span className="label">Trailing-Stop %</span>
+            <input
+              id="lab-trail"
+              type="number"
+              min={0.1}
+              max={50}
+              step={0.1}
+              placeholder="aus"
+              value={trailPctInput}
+              onChange={(e) => setTrailPctInput(e.target.value)}
+              className="field num mt-1.5 w-full px-3 py-2"
+            />
           </label>
           <label className="text-sm">
             <span className="label">Von</span>

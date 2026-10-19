@@ -157,6 +157,8 @@ export const instructionDslSchema = z
       z.object({ type: z.literal('pct'), pct: z.number().positive().max(50) }).strict(),
     ]),
     takeProfits: z.array(z.object({ rr: z.number().positive().max(20) }).strict()).min(1).max(5),
+    /** Optionaler Trailing-Stop: folgt dem besten Kurs im %-Abstand, nur verschärfen (Backtest UND Live). */
+    trailingStop: z.object({ pct: z.number().min(0.1).max(50) }).strict().optional(),
     risk: z
       .object({
         maxLeveragePerTrade: z.number().min(1).max(25),
@@ -195,6 +197,8 @@ export type DslSetup = {
   emaRegime: 'above' | 'below';
   marketPhase: 'bull' | 'bear';
   leverageSuggested: number;
+  /** Trailing-Stop-Abstand in % (aus dsl.trailingStop); fehlt = statischer Stop. */
+  trailPct?: number;
 };
 
 /** Wie viele Bars zurück ein BOS/CHoCH-Ereignis für die signal-Bedingung zählt. */
@@ -383,5 +387,6 @@ export function evaluateDslAt(allCandles: Candle[], i: number, dsl: InstructionD
     emaRegime: bar.close >= ema200 ? 'above' : 'below',
     marketPhase: lastEvent ? (lastEvent.direction === 'bullish' ? 'bull' : 'bear') : bar.close >= ema200 ? 'bull' : 'bear',
     leverageSuggested: dsl.risk.maxLeveragePerTrade,
+    ...(dsl.trailingStop ? { trailPct: dsl.trailingStop.pct } : {}),
   };
 }
