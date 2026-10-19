@@ -20,8 +20,9 @@ npm run ci                  # Lint + Typecheck + Tests
 
 `main` auf GitHub wird vom Server automatisch übernommen (`deploy/github-sync.sh`, Timer alle 2 min):
 Fast-Forward ins Server-Repo → bestehender post-receive-Hook → CI (`scripts/ci.sh`) → Neustart nur bei Grün.
-Einmalige Einrichtung: `bash deploy/install-github-sync.sh <SERVER_REPO>` und den ausgegebenen Key als
-**read-only** Deploy-Key bei GitHub eintragen. Danach nur noch nach GitHub pushen.
+Einmalige Einrichtung (als root): `bash /opt/gladiator-v2/app/deploy/install-github-sync.sh` — findet das
+Server-Repo selbst (Hook mit `scripts/ci.sh`); bei privatem GitHub-Repo den ausgegebenen Key als **read-only**
+Deploy-Key eintragen. Danach nur noch nach GitHub pushen.
 
 ## Navigation (Frontend)
 
