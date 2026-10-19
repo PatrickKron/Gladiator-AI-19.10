@@ -98,3 +98,33 @@ export function fmtNum(n: number, digits = 2): string {
 export function fmtMoney(n: number): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+
+/** Tab-Leiste (einheitlich auf allen Seiten): Unterstrich-Stil, horizontal scrollbar auf Mobile. */
+export function TabBar<T extends string>({
+  tabs,
+  active,
+  onChange,
+  label,
+}: {
+  tabs: readonly { id: T; label: string }[];
+  active: T;
+  onChange: (id: T) => void;
+  label?: string;
+}) {
+  return (
+    <div role="tablist" aria-label={label} className="mb-5 flex gap-1 overflow-x-auto border-b" style={{ borderColor: 'var(--color-line)' }}>
+      {tabs.map((tb) => (
+        <button
+          key={tb.id}
+          role="tab"
+          aria-selected={active === tb.id}
+          onClick={() => onChange(tb.id)}
+          className="shrink-0 border-b-2 px-4 py-2 text-sm transition-colors"
+          style={active === tb.id ? { borderColor: 'var(--color-cyan)', color: 'var(--color-ink)' } : { borderColor: 'transparent', color: 'var(--color-mut)' }}
+        >
+          {tb.label}
+        </button>
+      ))}
+    </div>
+  );
+}

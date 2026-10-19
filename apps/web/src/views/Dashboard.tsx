@@ -10,7 +10,6 @@ import { AssetContextBody, useAssetContext } from '../components/AssetContextPan
 import { AddMarketPicker } from '../components/AddMarketPicker.js';
 import { FavStar, FavStarSymbol } from '../components/FavStar.js';
 import { getLatest, onTick, type TickWithDirection } from '../lib/prices.js';
-import { setDemoMode } from '../lib/demo-mode.js';
 import { setPendingTradeSymbol } from '../lib/trade-symbol.js';
 import { buildChartUrl } from '../lib/chart-url.js';
 import { loadTf } from '../lib/chart-tf.js';
@@ -487,15 +486,14 @@ function WatchCard({ symbol, isFavorite, closes, stagger, onRemoved }: { symbol:
       </div>
       {/* „Traden“ (Patrick: Favoriten sollen direkt tradebar sein): Die Karte bleibt
           Chart-Link — der Button fängt den Klick ab (stopPropagation + preventDefault,
-          sonst navigiert das umschließende <a> zum Chart), schaltet den Demo-Modus ein
+          sonst navigiert das umschließende <a> zum Chart), springt zum Demo-Konto (#/demo)
           und übergibt das Symbol ans Demo-Ticket (echtes Binance-Orderbuch, 100k virtuell). */}
       <button
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
           setPendingTradeSymbol(symbol);
-          setDemoMode(true);
-          window.location.hash = '#/trading';
+          window.location.hash = '#/demo';
         }}
         className="btn-primary mt-4 w-full px-3 py-2 text-sm"
         title={t('dashboard.tradeTooltip', { symbol })}

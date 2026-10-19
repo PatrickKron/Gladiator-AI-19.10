@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useHashTab } from '../lib/use-hash-tab.js';
 import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
 import { StrategyCatalog } from '../components/StrategyCatalog.js';
@@ -513,12 +514,16 @@ function PineAnalyzePanel() {
   );
 }
 
+/** Tabs im Hash — Deep-Link z. B. `#/strategien?tab=pine` (auch über ⌘K-Suche). */
+const STRATEGY_TABS = ['katalog', 'builtin', 'pine'] as const;
+type StrategyTab = (typeof STRATEGY_TABS)[number];
+
 export function Strategien() {
   const { t } = useTranslation();
   // Katalog zuerst (Patricks „umfassendes Sortiment"); der DSL-Editor-Tab
   // wurde konsolidiert — DSL-Strategien baut man im Strategie-Workshop
   // (iterativ, mit Backtest-Gate), nicht mehr an zwei Orten.
-  const [tab, setTab] = useState<'katalog' | 'builtin' | 'pine'>('katalog');
+  const [tab, setTab] = useHashTab<StrategyTab>('#/strategien', STRATEGY_TABS, 'katalog');
   const [list, setList] = useState<Strategy[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -544,7 +549,7 @@ export function Strategien() {
   return (
     <div>
       <PageHeader
-        title={t('builder.title')}
+        title={t('ia.page_strategies')}
         subtitle={t('builder.subtitle')}
         right={
           <div className="flex gap-2">

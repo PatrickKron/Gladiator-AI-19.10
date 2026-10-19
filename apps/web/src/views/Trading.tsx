@@ -377,9 +377,18 @@ function ModeSwitch({ demo, onChange }: { demo: boolean; onChange: (on: boolean)
   );
 }
 
-export function Trading() {
+/**
+ * Demo-Konto als eigene Seite (#/demo, Sidebar „Demo-Konto"). Vorher war es
+ * nur ein localStorage-Schalter INNERHALB von #/trading und dadurch kaum zu
+ * finden. Der Demo-Merker bleibt für das Topbar-Badge erhalten.
+ */
+export function DemoKonto() {
+  return <Trading account="demo" />;
+}
+
+export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' | 'demo' }) {
   const { t } = useTranslation();
-  const [demo, setDemo] = useState<boolean>(() => isDemoMode());
+  const demo = accountKind === 'demo';
   const [account, setAccount] = useState<Account | null>(null);
   const [venues, setVenues] = useState<Venue[]>([]);
   const [positions, setPositions] = useState<Position[] | null>(null);
@@ -430,10 +439,11 @@ export function Trading() {
   }
 
   useEffect(() => {
+    if (demo) return; // Demo-Konto lädt seine eigenen Daten (DemoTrading)
     void load();
     const timer = window.setInterval(() => void load(), 20_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [demo]);
 
   async function toggleKillSwitch() {
     if (!settings) return;
@@ -448,9 +458,13 @@ export function Trading() {
     }
   }
 
+  // Merker für das Topbar-Badge: zeigt an, dass zuletzt das Demo-Konto offen war.
+  useEffect(() => {
+    if (isDemoMode() !== demo) setDemoMode(demo);
+  }, [demo]);
+
   function switchMode(on: boolean) {
-    setDemo(on);
-    setDemoMode(on); // informiert Topbar-Badge + andere Tabs
+    window.location.hash = on ? '#/demo' : '#/trading';
   }
 
   if (demo) {

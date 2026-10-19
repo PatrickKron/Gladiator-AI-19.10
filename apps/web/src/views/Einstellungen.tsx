@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
-import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
+import { Empty, ErrorBox, Loading, PageHeader, Panel, TabBar } from '../components/ui.js';
+import { useHashTab } from '../lib/use-hash-tab.js';
 import { ExchangeConnectPanel } from '../components/ExchangeConnectPanel.js';
 
 /**
@@ -361,8 +362,13 @@ function StockDataPanel() {
   );
 }
 
+/** Tabs statt einer langen Seite — Deep-Link z. B. `#/einstellungen?tab=boersen` (Vermögen verlinkt dorthin). */
+const SETTINGS_TABS = ['risiko', 'boersen', 'keys', 'daten'] as const;
+type SettingsTab = (typeof SETTINGS_TABS)[number];
+
 export function Einstellungen() {
   const { t } = useTranslation();
+  const [tab, setTab] = useHashTab<SettingsTab>('#/einstellungen', SETTINGS_TABS, 'risiko');
   const [form, setForm] = useState<Record<string, string> | null>(null);
   const [mode, setMode] = useState<string>('paper');
   const [gates, setGates] = useState<Gate[] | null>(null);
@@ -434,9 +440,22 @@ export function Einstellungen() {
 
   return (
     <div>
-      <PageHeader title={t('settings.title')} subtitle={t('settings.subtitle')} />
+      <PageHeader title={t('ia.page_settings')} subtitle={t('settings.subtitle')} />
+      <TabBar
+        label={t('ia.page_settings')}
+        active={tab}
+        onChange={setTab}
+        tabs={[
+          { id: 'risiko', label: t('ia.tab_settingsRisk') },
+          { id: 'boersen', label: t('ia.tab_settingsExchanges') },
+          { id: 'keys', label: t('ia.tab_settingsKeys') },
+          { id: 'daten', label: t('ia.tab_settingsData') },
+        ]}
+      />
       {error && <ErrorBox message={error} />}
 
+      {tab === 'risiko' && (
+      <>
       <Panel stagger={1}>
         {form === null ? (
           <Loading />
@@ -519,10 +538,12 @@ export function Einstellungen() {
           </ul>
         )}
       </Panel>
+      </>
+      )}
 
-      <ExchangeConnectPanel />
-      <SecretsPanel />
-      <StockDataPanel />
+      {tab === 'boersen' && <ExchangeConnectPanel />}
+      {tab === 'keys' && <SecretsPanel />}
+      {tab === 'daten' && <StockDataPanel />}
     </div>
   );
 }

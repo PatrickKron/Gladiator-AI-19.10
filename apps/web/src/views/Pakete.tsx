@@ -5,7 +5,6 @@ import { Empty, ErrorBox, Loading, PageHeader } from '../components/ui.js';
 import { FavStar } from '../components/FavStar.js';
 import { getLatest, onTick } from '../lib/prices.js';
 import { feedSymbol } from '../lib/pairs.js';
-import { setDemoMode } from '../lib/demo-mode.js';
 import { setPendingTradeSymbol } from '../lib/trade-symbol.js';
 import {
   ASSET_CLASSES,
@@ -45,15 +44,14 @@ type RowAsset = { id: number; ticker: string; name: string; assetType: string; p
 /**
  * „Traden"-Sprung (gleiche Konvention wie im Heute-Bereich, geteilter Helfer
  * lib/trade-symbol.ts): Symbol für das Demo-Ticket in der Session vormerken,
- * Demo-Modus einschalten, zur Trading-Seite springen. Das Ticket konsumiert
+ * zum Demo-Konto (#/demo) springen. Das Ticket konsumiert
  * die Vorbelegung genau einmal — Ende-zu-Ende im Browser verifiziert.
  * Die Sicherheit hängt NICHT daran: der Demo-Pfad ist serverseitig ein
  * eigener Router auf eigene Tabellen.
  */
 function startDemoTrade(pair: string): void {
   setPendingTradeSymbol(pair);
-  setDemoMode(true);
-  window.location.hash = '#/trading';
+  window.location.hash = '#/demo';
 }
 
 /**
