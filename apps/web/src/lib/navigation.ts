@@ -241,6 +241,15 @@ export const PAGES = [
     keywords: ['sprache', 'language', 'konto', 'abmelden', 'logout'],
   },
   {
+    id: 'protocol',
+    hash: '#/protokoll',
+    area: 'system',
+    labelKey: 'ia.page_protocol',
+    descKey: 'ia.desc_protocol',
+    icon: 'M9 4h6l1 2h3v15H5V6h3l1-2zm-1 7h8m-8 4h8m-8 4h5',
+    keywords: ['audit', 'log', 'protokoll', 'verlauf', 'wer hat', 'risk check', 'sicherheit', 'login'],
+  },
+  {
     id: 'sitemap',
     hash: '#/funktionen',
     area: 'system',

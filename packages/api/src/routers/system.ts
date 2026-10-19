@@ -1,9 +1,17 @@
-import { sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, like, lt, lte, or, sql, type SQL } from 'drizzle-orm';
+import { z } from 'zod';
+import { schema } from '@gladiator/db';
 import { latestBriefing, telegramConfigured } from '@gladiator/jobs';
 import { derivativesFresh, fredConfigured, getMacroSnapshot } from '@gladiator/market-data';
 import { protectedProcedure, router } from '../trpc.js';
 
 const startedAt = Date.now();
+const { auditLog } = schema;
+
+/** LIKE-Sonderzeichen im Präfix wörtlich nehmen (kein Wildcard-Leak). */
+function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
 
 /**
  * Ehrlicher Systemstatus: echte DB-Zählungen, echte Uptime, echter Quellen-Status.
@@ -81,6 +89,55 @@ export const systemRouter = router({
       },
     };
   }),
+
+  /**
+   * Protokoll (10_ §6: unveränderliches Audit-Log als Beleggrundlage): jede
+   * sicherheitsrelevante Aktion — Orders, Risk-Checks, SL/TP-Änderungen, Logins.
+   * Nur lesend; Einträge des Users plus System-Ereignisse ohne User-Bezug
+   * (Einzelnutzer-System, keine Mandanten). Keyset-Pagination über die id
+   * (absteigend), `cursor` = id des letzten Eintrags der vorigen Seite.
+   */
+  auditLog: protectedProcedure
+    .input(
+      z.object({
+        limit: z.number().int().min(1).max(200).default(50),
+        cursor: z.string().regex(/^\d+$/).optional(),
+        actionPrefix: z.string().trim().max(100).optional(),
+        entityType: z.string().trim().max(100).optional(),
+        from: z.string().datetime({ offset: true }).optional(),
+        to: z.string().datetime({ offset: true }).optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const conds: SQL[] = [or(eq(auditLog.userId, ctx.user.id), isNull(auditLog.userId))!];
+      if (input.cursor) conds.push(lt(auditLog.id, BigInt(input.cursor)));
+      if (input.actionPrefix) conds.push(like(auditLog.action, `${escapeLike(input.actionPrefix)}%`));
+      if (input.entityType) conds.push(eq(auditLog.entityType, input.entityType));
+      if (input.from) conds.push(gte(auditLog.ts, new Date(input.from)));
+      if (input.to) conds.push(lte(auditLog.ts, new Date(input.to)));
+
+      const rows = await ctx.db
+        .select()
+        .from(auditLog)
+        .where(and(...conds))
+        .orderBy(desc(auditLog.id))
+        .limit(input.limit + 1);
+      const page = rows.slice(0, input.limit);
+      return {
+        // bigint ist nicht JSON-serialisierbar → id als String
+        items: page.map((r) => ({
+          id: r.id.toString(),
+          ts: r.ts.toISOString(),
+          actor: r.actor,
+          action: r.action,
+          entityType: r.entityType,
+          entityId: r.entityId,
+          details: r.details as unknown,
+          ip: r.ip,
+        })),
+        nextCursor: rows.length > input.limit ? page[page.length - 1]!.id.toString() : null,
+      };
+    }),
 
   /** Neuestes Morning-Briefing (Nacht-Pipeline, 08_ §7). */
   briefing: protectedProcedure.query(async ({ ctx }) => {

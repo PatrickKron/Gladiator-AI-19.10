@@ -8,6 +8,8 @@ function mapAuthError(err: unknown): never {
     switch (err.code) {
       case 'EMAIL_TAKEN':
         throw new TRPCError({ code: 'CONFLICT', message: err.message });
+      case 'REGISTRATION_CLOSED':
+        throw new TRPCError({ code: 'FORBIDDEN', message: err.message });
       case 'INVALID_CREDENTIALS':
       case 'INVALID_REFRESH':
         throw new TRPCError({ code: 'UNAUTHORIZED', message: err.message });

@@ -91,6 +91,8 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
       expect(first('pine')).toBe('#/strategien?tab=pine');
       expect(first('cot')).toBe('#/marktlage?tab=entscheidung');
       expect(first('alarm')).toBe('#/trading?tab=alerts');
+      expect(first('audit')).toBe('#/protokoll');
+      expect(first('wer hat')).toBe('#/protokoll');
     });
 
     it('Groß-/Kleinschreibung und Umlaute egal, mehrere Wörter müssen alle passen', () => {
