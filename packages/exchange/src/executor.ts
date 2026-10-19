@@ -134,6 +134,12 @@ export type ExecutionResult = {
   entryFill?: number;
   qty?: number;
   detail: string;
+  /**
+   * Notfall: Stop-Loss ließ sich nicht platzieren → Glattstellung versucht.
+   * closed=false heißt: Position ist UNGESCHÜTZT offen (Kill-Switch ist an) —
+   * der Aufrufer muss sofort alarmieren (Telegram).
+   */
+  emergency?: { closed: boolean; reason: string; exitPrice?: number };
 };
 
 export async function executeConfirmedSignal(
@@ -333,22 +339,55 @@ export async function executeConfirmedSignal(
 
   for (const p of protection) {
     const pid = `gld-${signal.id.slice(0, 18)}-${p.tag}`;
-    const res = await venue.placeOrder({
-      clientOrderId: pid,
-      symbol: signal.symbol,
-      side: closeSide,
-      type: p.type,
-      qty: verdict.sizing.qty * p.fraction,
-      triggerPrice: p.trigger,
-      reduceOnly: true,
-    });
+    let res: VenueOrderResult | null = null;
+    let failure: string | null = null;
+    try {
+      res = await venue.placeOrder({
+        clientOrderId: pid,
+        symbol: signal.symbol,
+        side: closeSide,
+        type: p.type,
+        qty: verdict.sizing.qty * p.fraction,
+        triggerPrice: p.trigger,
+        reduceOnly: true,
+      });
+      if (res.status === 'rejected') failure = 'von der Börse abgelehnt';
+    } catch (err) {
+      failure = err instanceof Error ? err.message : String(err);
+    }
+
+    if (failure !== null) {
+      await db.insert(auditLog).values({
+        actor: 'system', userId: opts.userId, action: 'order.protection.failed',
+        entityType: 'position', entityId: position!.id,
+        details: { tag: p.tag, trigger: p.trigger, error: failure, venue: venue.id }, ip: opts.ip ?? null,
+      });
+      // Ohne Stop NIE offen lassen (06_ §5): sofort glattstellen. Ein fehlender TP ist kein Notfall.
+      if (p.type === 'stop_market') {
+        const emergency = await emergencyClose(db, venue, position!.id, opts.userId, failure, opts.ip ?? null);
+        await db.update(signals).set({ status: 'filled', updatedAt: new Date() }).where(eq(signals.id, signal.id));
+        return {
+          verdict,
+          executed: false,
+          positionId: position!.id,
+          entryFill: entryRes.fillPrice,
+          qty: verdict.sizing.qty,
+          emergency,
+          detail: emergency.closed
+            ? `Stop-Loss ließ sich nicht setzen (${failure}) — Position sofort glattgestellt @ ${emergency.exitPrice}, Kill-Switch aktiv.`
+            : `ACHTUNG: Stop-Loss ließ sich nicht setzen UND der Notfall-Schluss scheiterte (${emergency.reason}) — Position ist UNGESCHÜTZT offen. Kill-Switch aktiv, sofort an der Börse prüfen!`,
+        };
+      }
+      continue;
+    }
+
     await db.insert(orders).values({
       userId: opts.userId,
       signalId: signal.id,
       venue: venue.id,
       symbol: signal.symbol,
       clientOrderId: pid,
-      exchangeOrderId: res.exchangeOrderId,
+      exchangeOrderId: res!.exchangeOrderId,
       type: p.type,
       side: closeSide,
       qty: String(verdict.sizing.qty * p.fraction),
@@ -482,6 +521,39 @@ export async function monitorOpenPositions(db: Db, venue: TradingVenue): Promise
   }
 
   return { checked: open.length, fills };
+}
+
+/**
+ * Notfall-Glattstellung (Stop nicht platzierbar): reduceOnly-Market für die
+ * ganze Position, Schutz-Reste storniert, Netto-Abrechnung, Kill-Switch AN.
+ * Scheitert auch das, bleibt die Position sichtbar offen und wird als
+ * UNGESCHÜTZT gemeldet — nie still verschluckt.
+ */
+async function emergencyClose(
+  db: Db,
+  venue: TradingVenue,
+  positionId: string,
+  userId: string,
+  cause: string,
+  ip: string | null,
+): Promise<{ closed: boolean; reason: string; exitPrice?: number }> {
+  await db
+    .insert(tradingSettings)
+    .values({ userId, killSwitchActive: true })
+    .onConflictDoUpdate({ target: tradingSettings.userId, set: { killSwitchActive: true } });
+
+  const r = await closePositionManually(db, venue, userId, positionId, ip);
+  const closed = r.closed;
+  await db.insert(auditLog).values({
+    actor: 'system',
+    userId,
+    action: 'position.emergency_close',
+    entityType: 'position',
+    entityId: positionId,
+    details: { cause, closed, exitPrice: r.exitPrice ?? null, reason: r.reason ?? null, killSwitch: true },
+    ip,
+  });
+  return closed ? { closed, reason: cause, exitPrice: r.exitPrice } : { closed, reason: r.reason ?? 'unbekannt' };
 }
 
 async function closePaperPosition(

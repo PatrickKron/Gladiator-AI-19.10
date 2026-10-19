@@ -17,6 +17,7 @@ import {
 import { closePositionNow, executeConfirmedSignal, PAPER_START_EQUITY, type TradingVenue } from '@gladiator/exchange';
 import { CostGuard, envAnthropicProvider } from '@gladiator/agents';
 import { runAnalysisGate } from './sub-agent-llm.js';
+import { formatEmergencyAlert, sendTelegram } from './telegram.js';
 
 const { subAgents, subAgentRuns, signals, positions, executedTrades, strategies, auditLog } = schema;
 
@@ -346,6 +347,7 @@ export async function runSubAgents(
             userId: agent.userId,
             riskPctOverride: spec.riskParams.riskPctPerTrade,
           });
+          if (exec.emergency) void sendTelegram(formatEmergencyAlert(sig!.symbol, exec.detail, exec.emergency.closed));
           if (exec.executed) {
             held++;
           } else {
