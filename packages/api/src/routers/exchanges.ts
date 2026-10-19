@@ -7,6 +7,7 @@ import {
   fetchConnectionBalances,
   listConnections,
   listSupportedExchanges,
+  loadPreferredExchanges,
   loadRoutingConnections,
   pickConnectionForSymbol,
   refreshConnectionMarkets,
@@ -46,6 +47,11 @@ export const exchangesRouter = router({
   walletSupported: protectedProcedure.query(() => walletExchanges()),
 
   list: protectedProcedure.query(({ ctx }) => listConnections(ctx.db, ctx.user.id)),
+
+  /** Aus Patricks eigenen Chat-Nachrichten erkannte Börsen (Vorschlag, nie Auto-Aktion). */
+  preferred: protectedProcedure.query(async ({ ctx }) =>
+    (await loadPreferredExchanges(ctx.db, ctx.user.id)).map((p) => ({ ...p, lastMentionedAt: p.lastMentionedAt.toISOString() })),
+  ),
 
   /** Wallet anschließen: nur die ÖFFENTLICHE Adresse, nie ein Private Key — immer read_only. */
   connectWallet: protectedProcedure

@@ -697,6 +697,7 @@ function ChatPanel({ session, messages, onChanged }: { session: SessionDetail['s
   const [busy, setBusy] = useState(false);
   const [applyBusy, setApplyBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [exchangeHints, setExchangeHints] = useState<{ id: string; name: string }[]>([]);
 
   async function send() {
     const message = input.trim();
@@ -706,6 +707,7 @@ function ChatPanel({ session, messages, onChanged }: { session: SessionDetail['s
     try {
       const res = await trpc.workshop.chat.mutate({ id: session.id, message });
       setInput('');
+      setExchangeHints(res.exchangeHints);
       if (res.dslErrors.length > 0) setError(`${t('sw.proposalInvalid')}: ${res.dslErrors.join(' · ')}`);
       onChanged();
     } catch (err) {
@@ -760,6 +762,21 @@ function ChatPanel({ session, messages, onChanged }: { session: SessionDetail['s
       {error && (
         <div className="mt-3">
           <ErrorBox message={error} />
+        </div>
+      )}
+      {exchangeHints.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--color-mut)' }}>
+          <span>{t('exchanges.detectedInChat')}</span>
+          {exchangeHints.map((h) => (
+            <a
+              key={h.id}
+              className="rounded border px-2 py-1"
+              style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink)' }}
+              href={`#/einstellungen?tab=boersen&ex=${encodeURIComponent(h.id)}`}
+            >
+              {t('exchanges.connectNamed', { name: h.name })}
+            </a>
+          ))}
         </div>
       )}
       <div className="mt-4 flex gap-2">

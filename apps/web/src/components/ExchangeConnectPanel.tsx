@@ -16,6 +16,13 @@ import { fmt } from './EquityChart.js';
 type Supported = Awaited<ReturnType<typeof trpc.exchanges.supported.query>>;
 type Connection = Awaited<ReturnType<typeof trpc.exchanges.list.query>>[number];
 type Balances = Awaited<ReturnType<typeof trpc.exchanges.balances.query>>;
+type Preferred = Awaited<ReturnType<typeof trpc.exchanges.preferred.query>>[number];
+
+/** Vorauswahl aus dem Chat-Hinweis: '#/einstellungen?tab=boersen&ex=bybit' → 'bybit'. */
+function exchangeFromHash(): string | null {
+  const q = window.location.hash.indexOf('?');
+  return q < 0 ? null : new URLSearchParams(window.location.hash.slice(q + 1)).get('ex');
+}
 
 export function ExchangeConnectPanel() {
   const { t } = useTranslation();
@@ -23,6 +30,7 @@ export function ExchangeConnectPanel() {
   const [walletSupported, setWalletSupported] = useState<Supported>([]);
   const [via, setVia] = useState<'api' | 'wallet'>('api');
   const [wallet, setWallet] = useState({ exchangeId: '', label: '', address: '' });
+  const [preferred, setPreferred] = useState<Preferred[]>([]);
   const [connections, setConnections] = useState<Connection[] | null>(null);
   const [form, setForm] = useState({ exchangeId: '', label: '', apiKey: '', secret: '', password: '', mode: 'read_only' as 'read_only' | 'trading' });
   const [busy, setBusy] = useState(false);
@@ -42,6 +50,9 @@ export function ExchangeConnectPanel() {
     void load();
     trpc.exchanges.supported.query().then(setSupported).catch(() => setSupported([]));
     trpc.exchanges.walletSupported.query().then(setWalletSupported).catch(() => setWalletSupported([]));
+    trpc.exchanges.preferred.query().then(setPreferred).catch(() => setPreferred([]));
+    const ex = exchangeFromHash();
+    if (ex) pick(ex, false);
   }, []);
 
   async function connect() {
@@ -66,6 +77,17 @@ export function ExchangeConnectPanel() {
       setMessage({ ok: false, text: err instanceof Error ? err.message : t('common.error') });
     } finally {
       setBusy(false);
+    }
+  }
+
+  /** Börse vorauswählen — Wallet-Login-Börsen (Hyperliquid & Co.) landen im Wallet-Formular. */
+  function pick(exchangeId: string, walletLogin: boolean) {
+    if (walletLogin || exchangeId === 'hyperliquid') {
+      setVia('wallet');
+      setWallet((w) => ({ ...w, exchangeId }));
+    } else {
+      setVia('api');
+      setForm((f) => ({ ...f, exchangeId }));
     }
   }
 
@@ -127,6 +149,27 @@ export function ExchangeConnectPanel() {
       <p className="mb-4 text-sm" style={{ color: 'var(--color-mut)' }}>
         {t('exchanges.subtitle')}
       </p>
+
+      {/* Aus dem Chat erkannte, noch nicht verbundene Börsen → ein Klick wählt sie vor */}
+      {preferred.some((p) => !p.connected) && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--color-mut)' }}>
+          <span>{t('exchanges.detectedInChat')}</span>
+          {preferred
+            .filter((p) => !p.connected)
+            .map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className="rounded border px-2 py-1"
+                style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink)' }}
+                title={t('exchanges.mentionedTimes', { n: p.mentions })}
+                onClick={() => pick(p.id, p.walletLogin)}
+              >
+                {p.name}
+              </button>
+            ))}
+        </div>
+      )}
 
       {/* Anschluss-Art: klassische API-Keys oder (nur lesend) öffentliche Wallet-Adresse */}
       <div className="mb-3 flex w-fit overflow-hidden rounded-[0.625rem] border text-xs" style={{ borderColor: 'var(--color-line)' }}>

@@ -90,3 +90,11 @@ export {
   type SecretKey,
   type SecretStatus,
 } from './secrets.js';
+export {
+  detectExchangeMentions,
+  loadPreferredExchanges,
+  rankPreferredExchanges,
+  type ExchangeMention,
+  type PreferredExchange,
+  type PreferredExchangeView,
+} from './exchange-mentions.js';
