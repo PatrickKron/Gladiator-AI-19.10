@@ -19,6 +19,8 @@ export {
   loadActiveGates,
   loadNoTradeWindow,
   loadRiskContext,
+  loadOrderRiskInputs,
+  loadIntradayMovePct,
   PAPER_START_EQUITY,
   type ExecutionResult,
 } from './executor.js';
