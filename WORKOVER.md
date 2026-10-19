@@ -385,3 +385,15 @@ Branch `claude/focused-darwin-51s9k3` (Deploy erst nach Merge nach `main`). Loka
 10. SMC: OB-Retest im Score, Breaker, Equal Highs/Lows (05 §3) (M–L)
 Offene Entscheidungen für Patrick: Registrierung nach erstem User sperren? Score-Schwelle 6 vs. 7? Erste Live-Börse? 30-Tage-Paper-Pflicht technisch erzwingen? Gamification (14) / services/quant bauen oder streichen?
 
+## Session 10 — Fortsetzung (autonom, Patrick: „ohne mein weiteres Zutun“)
+Umgesetzt (alle mit Tests; volle Suite 1161 grün, 4 rot nur umgebungsbedingt wie zuvor):
+- **Robustheits-Gate:** jüngster 30-%-Abschnitt muss allein bestehen (≥ 10 Trades, Erwartung ≥ 0, PF ≥ 1); alte Backtests ohne Auswertung → neu laufen lassen. Ehrlich benannt (echtes OOS = Walk-Forward).
+- **Notfallpfad:** Stop nicht platzierbar → sofort glattstellen, Kill-Switch, Telegram; doppelter Fehler → als UNGESCHÜTZT gemeldet.
+- **SAFE-003…010** als harte Pre-Trade-Gates (Agent; Schwellen laut 10 §5, Details in `packages/risk/src/safe.ts`). Offene Definitionen: SAFE-008 „Order-Size max 5 %“ (wovon?), SAFE-010 Cancel-Rate.
+- **Ehrlichere Backtests:** Gap-Stops füllen zum Open, historisches Funding aus echten 8h-Settlements (sonst Modell, sichtbar markiert), Datenqualitäts-Prüfung (> 5 % Lücken → Abbruch).
+- **Steuer-Export CSV** (Trading › Historie), **Protokoll-Seite** `#/protokoll` (Audit-Log), **Registrierungs-Sperre** nach dem ersten User (`ALLOW_REGISTRATION=1` öffnet).
+- **Live-Adapter `CcxtLiveVenue`** (Perpetuals; kein blinder Retry, Timeout-Klärung per clientOrderId, ID-Formate je Börse, Binance-Algo-Orders `{trigger:true}`), 15 Tests — **noch NICHT verdrahtet**.
+
+⚠ **Blockiert (Patrick-Entscheidung):** Das Verdrahten des Live-Pfads in den Executor (Live-Konto-Equity, Volumengrenze je Freigabe, Hebel/Margin setzen, Freigabe pro Verbindung, Live-Abgleich, UI) wurde vom Sicherheitsfilter der Cloud-Umgebung blockiert. Design steht (Recherche-Brief freqtrade/Hummingbot/nautilus im Session-Chat). Fortsetzung braucht Patricks ausdrückliche Freigabe bzw. eine Berechtigungsregel; bis dahin bleibt alles Paper.
+Gefundene Bugs im bestehenden `binance-venue.ts` (Testnet): Duplicate-Code ist -4116 (nicht -4015); Market-Entry wird nach Timeout blind wiederholt; `setSandboxMode` auf binanceusdm ist veraltet (→ `enableDemoTrading`); Algo-Orders brauchen `{trigger:true}`.
+
