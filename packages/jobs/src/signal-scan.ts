@@ -5,6 +5,7 @@ import { getOhlcv } from '@gladiator/market-data';
 import { ensureCandles, scanUniverse } from './universe.js';
 import { expireStaleSignals } from './signal-expiry.js';
 import {
+  deriveLifecyclePlans,
   evaluateSmcCoreAt,
   SMC_CORE_DEFAULTS,
   type Candle,
@@ -27,7 +28,7 @@ export const SCAN_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']; // Basis — F
 export const SCAN_TIMEFRAMES = ['15m', '1h', '4h', '1d'] as const;
 type Timeframe = (typeof SCAN_TIMEFRAMES)[number];
 
-const HIGHER_TF: Record<Timeframe, Timeframe | null> = {
+export const HIGHER_TF: Record<Timeframe, Timeframe | null> = {
   '15m': '1h',
   '1h': '4h',
   '4h': '1d',
@@ -38,7 +39,7 @@ const HIGHER_TF: Record<Timeframe, Timeframe | null> = {
 const MIN_CANDLES = 220;
 const LOAD_LIMIT = 400;
 
-function emaTrendOf(candles: Candle[], period: number): 'bull' | 'bear' | 'neutral' {
+export function emaTrendOf(candles: Candle[], period: number): 'bull' | 'bear' | 'neutral' {
   if (candles.length < period) return 'neutral';
   const k = 2 / (period + 1);
   let value = candles.slice(0, period).reduce((a, c) => a + c.close, 0) / period;
@@ -185,6 +186,9 @@ async function persistCandidate(
     riskClass: candidate.riskClass,
     confluence: candidate.confluence,
     session: candidate.session,
+    // 05_ §9: Reentry-Plan + Leverage-Upgrade-Bedingungen je Setup-Typ (Werte 05_ §5) —
+    // der Signal-Lifecycle-Monitor wertet sie aus, ausgeführt wird nichts automatisch.
+    ...deriveLifecyclePlans(candidate),
     emaRegime: candidate.emaRegime,
     marketPhase: candidate.marketPhase,
     status: 'new',

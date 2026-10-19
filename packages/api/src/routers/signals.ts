@@ -10,6 +10,7 @@ import {
   loadRiskSettings,
 } from '@gladiator/exchange';
 import { evaluateRisk } from '@gladiator/risk';
+import { leverageUpgradeSchema, reentrySchema } from '@gladiator/core';
 import { formatEmergencyAlert, sendTelegram } from '@gladiator/jobs';
 import { getEurUsdRate } from '@gladiator/market-data';
 import { protectedProcedure, router } from '../trpc.js';
@@ -30,6 +31,9 @@ type SignalReviewDto = {
   reason: string;
   refs: unknown;
 };
+
+/** Auto-Kill-Ereignis (05_ §9) für die Karte: Grund + Score vorher/nachher. */
+type AutoKillDto = { reason: string; score: number | null; rescored: number | null; at: string };
 
 export const signalsRouter = router({
   list: protectedProcedure
@@ -64,6 +68,8 @@ export const signalsRouter = router({
           status: signals.status,
           source: signals.source,
           strategySlug: strategies.slug,
+          reentryRaw: signals.reentry,
+          leverageUpgradeRaw: signals.leverageUpgrade,
         })
         .from(signals)
         .innerJoin(strategies, eq(strategies.id, signals.strategyId))
@@ -92,14 +98,46 @@ export const signalsRouter = router({
           .filter((x): x is string => Boolean(x))
           .map((x) => (x.endsWith('USDT') ? x.slice(0, -4) + '/USDT' : x.endsWith('USDC') ? x.slice(0, -4) + '/USDC' : x)),
       );
-      let filtered = rows.map((r) => ({ ...r, isFavorite: favSymbols.has(r.symbol) }));
+      // 05_ §9: Pläne/Vorschläge aus den jsonb-Spalten — validiert über das EINE Schema (@gladiator/core).
+      let filtered = rows.map(({ reentryRaw, leverageUpgradeRaw, ...r }) => {
+        const re = reentrySchema.safeParse(reentryRaw);
+        const lu = leverageUpgradeSchema.safeParse(leverageUpgradeRaw);
+        return {
+          ...r,
+          reentry: re.success ? re.data : null,
+          leverageUpgrade: lu.success ? lu.data : null,
+          isFavorite: favSymbols.has(r.symbol),
+        };
+      });
       if (input.favoritesOnly) filtered = filtered.filter((r) => r.isFavorite);
       // Favoriten zuerst, dann Zeit
       filtered.sort((a, b) => Number(b.isFavorite) - Number(a.isFavorite) || b.createdAt.getTime() - a.createdAt.getTime());
       const rowsOut = filtered;
 
       // Schwarm-Urteile (Phase 5) in EINEM Batch dazuladen — transparent auf der Karte.
-      if (rowsOut.length === 0) return rowsOut.map((r) => ({ ...r, reviews: [] as SignalReviewDto[] }));
+      if (rowsOut.length === 0) {
+        return rowsOut.map((r) => ({ ...r, reviews: [] as SignalReviewDto[], autoKill: null as AutoKillDto | null }));
+      }
+      // Auto-Kill-Grund (05_ §9) aus dem Audit-Log — eine Batch-Abfrage, nur entwertete Signale.
+      const expiredIds = rowsOut.filter((r) => r.status === 'expired').map((r) => r.id);
+      const killRows =
+        expiredIds.length === 0
+          ? []
+          : await ctx.db
+              .select({ entityId: auditLog.entityId, ts: auditLog.ts, details: auditLog.details })
+              .from(auditLog)
+              .where(and(eq(auditLog.action, 'signal.auto_killed'), inArray(auditLog.entityId, expiredIds)));
+      const killBySignal = new Map<string, AutoKillDto>();
+      for (const k of killRows) {
+        const d = (k.details ?? {}) as { reason?: string; score?: number; rescored?: number | null };
+        if (!k.entityId || !d.reason) continue;
+        killBySignal.set(k.entityId, {
+          reason: d.reason,
+          score: typeof d.score === 'number' ? d.score : null,
+          rescored: typeof d.rescored === 'number' ? d.rescored : null,
+          at: k.ts.toISOString(),
+        });
+      }
       const reviewRows = await ctx.db
         .select({
           signalId: signalReviews.signalId,
@@ -122,7 +160,7 @@ export const signalsRouter = router({
         list.push({ agent: r.agent, vote: r.vote, confidence: Number(r.confidence), reason: r.reason, refs: r.refs });
         bySignal.set(r.signalId, list);
       }
-      return rowsOut.map((r) => ({ ...r, reviews: bySignal.get(r.id) ?? [] }));
+      return rowsOut.map((r) => ({ ...r, reviews: bySignal.get(r.id) ?? [], autoKill: killBySignal.get(r.id) ?? null }));
     }),
 
   /**

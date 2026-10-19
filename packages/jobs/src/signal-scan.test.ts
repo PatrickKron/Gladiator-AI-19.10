@@ -50,6 +50,7 @@ describe.skipIf(!hasDb)('Signal-Scan (Multi-TF, echte Kerzen)', () => {
   }, 180_000);
 
   it('scannt alle Symbol×TF-Kombinationen und dedupliziert beim zweiten Lauf', async () => {
+    const startedAt = new Date();
     const first = await runSignalScan(db);
     // Universum ist dynamisch (Basis + ★ Favoriten aus der DB) × 4 TFs —
     // die Erwartung wird aus derselben Quelle berechnet, nicht hart kodiert.
@@ -75,6 +76,16 @@ describe.skipIf(!hasDb)('Signal-Scan (Multi-TF, echte Kerzen)', () => {
       expect(r.score).toBeLessThanOrEqual(10);
       if (r.direction === 'long') expect(r.sl).toBeLessThan(r.entry);
       else expect(r.sl).toBeGreaterThan(r.entry);
+    }
+
+    // 05_ §9: Jedes NEU erzeugte Engine-Signal trägt Reentry-Plan + Leverage-Upgrade-Bedingungen.
+    const fresh = await db.execute(sql`
+      SELECT setup_type, reentry, leverage_upgrade FROM signals
+      WHERE source = 'engine' AND created_at >= ${startedAt}
+    `);
+    for (const r of fresh.rows as { setup_type: string; reentry: { minPullbackPct: number } | null; leverage_upgrade: { triggerPct: number } | null }[]) {
+      expect(r.reentry, r.setup_type).not.toBeNull();
+      expect(r.leverage_upgrade?.triggerPct).toBeGreaterThan(0);
     }
   });
 });

@@ -48,3 +48,4 @@ export {
   type SnapshotResult,
 } from './self-improve-pipeline.js';
 export { snapshotAccountValues, loadValueHistory, type SnapshotResult as PortfolioSnapshotResult } from './portfolio-snapshot.js';
+export { runSignalLifecycle, type SignalLifecycleOptions, type SignalLifecycleResult } from './signal-lifecycle.js';

@@ -6,6 +6,7 @@ import { fredConfigured, syncDerivatives, syncFredWatch, syncEconomicCalendar, s
 import { runNightPipeline } from './briefing.js';
 import { runSignalScan } from './signal-scan.js';
 import { runDslScan } from './dsl-scan.js';
+import { runSignalLifecycle } from './signal-lifecycle.js';
 import { reviewNewSignals } from './review.js';
 import { checkPriceAlerts } from './alerts.js';
 import { runSubAgents } from './sub-agent-runner.js';
@@ -17,7 +18,8 @@ import { snapshotAccountValues } from './portfolio-snapshot.js';
 /**
  * BullMQ-Worker (04_ §2: robuste Jobs statt loser Loops — der v1-Fehler).
  * signal-scan 5 min · position-monitor 1 min · macro-sync 30 min ·
- * calendar-sync 60 min · news-sync 15 min · derivatives-sync 30 min.
+ * calendar-sync 60 min · news-sync 15 min · derivatives-sync 30 min ·
+ * signal-lifecycle 1 min (05_ §9: Auto-Kill, Reentry, Leverage-Upgrade).
  */
 
 const QUEUE_NAME = 'gladiator-jobs';
@@ -40,6 +42,7 @@ const SELF_EVAL_JOB = 'self-evaluate';
 const MODEL_COMPARE_JOB = 'model-compare';
 const PERF_SNAPSHOT_JOB = 'perf-snapshot';
 const PORTFOLIO_SNAPSHOT_JOB = 'portfolio-snapshot';
+const SIGNAL_LIFECYCLE_JOB = 'signal-lifecycle';
 
 /**
  * Worker-Heartbeat (Phase 7): /health prüft das Alter; der Monitor-Job pingt
@@ -119,6 +122,7 @@ const SCHEDULES: [string, number][] = [
   [RL_EPISODE_JOB, 30 * 60_000],       // RL-Episoden alle 30 min
   [REGIME_JOB, 15 * 60_000],            // Regime-Erkennung alle 15 min
   [PORTFOLIO_SNAPSHOT_JOB, 60 * 60_000], // Vermögens-Snapshot stündlich (Zeitverlauf „Vermögen")
+  [SIGNAL_LIFECYCLE_JOB, 60_000],        // 05_ §9: Auto-Kill/Reentry/Leverage-Upgrade je Minute (echte Preise)
 ];
 
 /** Nacht-Pipeline: täglich 03:30 UTC (08_ §5) — Cron statt Intervall. */
@@ -258,6 +262,18 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           const res = await syncDerivatives(db);
           console.log(`[derivatives-sync] funding=${res.funding} oi=${res.openInterest} Fehler=${res.errors.length}`);
           for (const e of res.errors) console.warn('[derivatives-sync]', e);
+          return res;
+        }
+        case SIGNAL_LIFECYCLE_JOB: {
+          // Nur Vorschläge/Entwertungen — platziert NIE eine Order, ändert NIE einen Hebel.
+          const res = await runSignalLifecycle(db, { priceOf: (symbol) => venue.markPrice(symbol) });
+          if (res.killed > 0 || res.reentries > 0 || res.upgrades > 0 || res.errors.length > 0) {
+            console.log(
+              `[signal-lifecycle] geprüft=${res.checked} auto-kill=${res.killed} reentry=${res.reentries} ` +
+                `hebel-vorschläge=${res.upgrades} Fehler=${res.errors.length}`,
+            );
+            for (const e of res.errors) console.warn('[signal-lifecycle]', e);
+          }
           return res;
         }
         case PORTFOLIO_SNAPSHOT_JOB: {
