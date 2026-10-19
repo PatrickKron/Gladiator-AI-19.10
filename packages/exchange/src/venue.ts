@@ -35,6 +35,9 @@ export type VenuePosition = {
 
 export type MarketRules = { tickSize: number; lotSize: number; minNotional: number };
 
+/** Status einer Order an der Börse (Live-Abgleich). unknown = Börse liefert keinen eindeutigen Status. */
+export type OrderState = { status: 'open' | 'filled' | 'canceled' | 'unknown'; filled: number; average: number | null };
+
 /**
  * ccxt-Precision → Schrittweite. Börsen im TICK_SIZE-Modus (z. B. Binance)
  * liefern die Schrittweite DIREKT (0.00001); DECIMAL_PLACES-Börsen liefern die
@@ -58,7 +61,10 @@ export interface TradingVenue {
   /** Aktueller Marktpreis (für Paper-Fills und Monitoring). IMMER echt. */
   markPrice(symbol: string): Promise<number>;
   placeOrder(req: VenueOrderRequest): Promise<VenueOrderResult>;
-  cancelOrder(symbol: string, exchangeOrderId: string): Promise<void>;
+  /** trigger = Stop/TP-Order (manche Börsen führen sie getrennt, z. B. Binance-Algo-Service). */
+  cancelOrder(symbol: string, exchangeOrderId: string, opts?: { trigger?: boolean }): Promise<void>;
+  /** Nur Börsen-Venues (Live/Testnet): Order-Status für den Abgleich. Paper hat ihn in der DB. */
+  fetchOrderState?(symbol: string, exchangeOrderId: string, opts?: { trigger?: boolean }): Promise<OrderState>;
   fetchPositions(): Promise<VenuePosition[]>;
   fetchOpenOrders(symbol?: string): Promise<{ clientOrderId: string; exchangeOrderId: string }[]>;
 }
