@@ -3,6 +3,7 @@ import { PageHeader, TabBar } from '../components/ui.js';
 import { MacroPanels } from '../components/MacroPanels.js';
 import { RiskPanels } from '../components/RiskPanels.js';
 import { Entscheidung } from './Entscheidung.js';
+import { DataSourcesPanel } from '../components/DataSourcesPanel.js';
 import { useHashTab } from '../lib/use-hash-tab.js';
 
 /**
@@ -11,7 +12,7 @@ import { useHashTab } from '../lib/use-hash-tab.js';
  * Entscheidungslogik CPI/COT/Bewertung (vorher im KI-Hub versteckt).
  * Inhalte unverändert — nur der Ort ist jetzt dort, wo man ihn sucht.
  */
-const TABS = ['makro', 'risiko', 'entscheidung'] as const;
+const TABS = ['makro', 'risiko', 'entscheidung', 'daten'] as const;
 type Tab = (typeof TABS)[number];
 
 export function Marktlage() {
@@ -21,6 +22,7 @@ export function Marktlage() {
     makro: t('oracle.subtitle'),
     risiko: t('aegis.subtitle'),
     entscheidung: t('intel.subtitle'),
+    daten: t('data.subtitle'),
   };
   return (
     <div>
@@ -33,11 +35,13 @@ export function Marktlage() {
           { id: 'makro', label: t('asset.tab_makro') },
           { id: 'risiko', label: t('asset.tab_risiko') },
           { id: 'entscheidung', label: t('ia.tab_entscheidung') },
+          { id: 'daten', label: t('ia.tab_daten') },
         ]}
       />
       {tab === 'makro' && <MacroPanels />}
       {tab === 'risiko' && <RiskPanels />}
       {tab === 'entscheidung' && <Entscheidung embedded />}
+      {tab === 'daten' && <DataSourcesPanel />}
     </div>
   );
 }

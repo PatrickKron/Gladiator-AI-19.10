@@ -2,7 +2,7 @@ import { Queue, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { requireEnv, type Db } from '@gladiator/db';
 import { binanceBookSource, monitorDemoTick, monitorOpenPositions, reconcile, type TradingVenue } from '@gladiator/exchange';
-import { fredConfigured, syncDerivatives, syncEconomicCalendar, syncFredSeries, syncMacroSeries, syncNews } from '@gladiator/market-data';
+import { fredConfigured, syncDerivatives, syncFredWatch, syncEconomicCalendar, syncFredSeries, syncMacroSeries, syncNews } from '@gladiator/market-data';
 import { runNightPipeline } from './briefing.js';
 import { runSignalScan } from './signal-scan.js';
 import { runDslScan } from './dsl-scan.js';
@@ -235,6 +235,10 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
             const fred = await syncFredSeries(db);
             console.log(`[macro-sync] FRED: ${fred.synced.join(',') || 'nichts'}`);
           }
+          // Daten-Assistent: vom Nutzer hinzugefügte FRED-Serien (offizielle CSV, kein Key)
+          const watch = await syncFredWatch(db);
+          if (watch.synced.length || watch.errors.length) console.log(`[macro-sync] Watchlist: ${watch.synced.join(',') || '—'} Fehler=${watch.errors.length}`);
+          for (const e of watch.errors) console.warn('[macro-sync] Watchlist', e);
           return res;
         }
         case CALENDAR_JOB: {

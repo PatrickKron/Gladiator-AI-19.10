@@ -88,6 +88,7 @@ export const PAGES = [
       { id: 'makro', labelKey: 'asset.tab_makro', keywords: ['vix', 'dxy', 'us10y', 'funding', 'open interest', 'grs'] },
       { id: 'risiko', labelKey: 'asset.tab_risiko', keywords: ['gates', 'risk', 'aegis', 'was funktioniert'] },
       { id: 'entscheidung', labelKey: 'ia.tab_entscheidung', keywords: ['cpi', 'cot', 'buffett', 'no-trade', 'intelligence'] },
+      { id: 'daten', labelKey: 'ia.tab_daten', keywords: ['fred', 'datenquellen', 'data', 'geldmenge', 'm2', 'zinskurve', 'fed bilanz', 'arbeitsmarkt', 'watchlist'] },
     ],
   },
   {
