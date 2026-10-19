@@ -301,6 +301,9 @@ describe.skipIf(!hasDb)('Agenten-Konto: Position schließen & SL/TP ändern (ech
   });
 
   it('Signal einer Strategie mit Trailing-Stop: die Position übernimmt den Trail (Backtest = Live)', async () => {
+    // Diese Datei eröffnet in kurzer Zeit viele Positionen — die echten Orders der
+    // Vorgänger-Tests zeitlich zurücksetzen, sonst greift korrekt SAFE-008 (max. 10 Orders/min).
+    await db.execute(sql`UPDATE orders SET created_at = created_at - interval '5 minutes' WHERE user_id = ${userId}`);
     const venue = new TestVenue();
     venue.price = 100;
     const [sig] = await db
