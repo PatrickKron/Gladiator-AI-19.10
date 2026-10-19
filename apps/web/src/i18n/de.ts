@@ -1159,7 +1159,7 @@ export const de = {
     insightsHint: 'Meta-Label-Prognose und Truth-Core-Validierung für {{symbol}}.',
     loadError: 'ML-Daten konnten nicht geladen werden',
     labelProgressTitle: 'Trainings-Fortschritt',
-    labelProgress: 'Signale werden nach Ablauf automatisch gelabelt (Gewinn/Verlust). Ab 30 Labels trainiert das System den ersten Random Forest. Aktuell: {{n}} Labels.',
+    labelProgress: 'Signale werden nach Ablauf automatisch gelabelt (Gewinn/Verlust). Ab 30 trainierbaren Labels (mit Marktmerkmalen zum Signal-Zeitpunkt) trainiert das System den ersten Random Forest. Aktuell: {{n}}.',
   },
   rl: {
     title: 'RL-Agenten',

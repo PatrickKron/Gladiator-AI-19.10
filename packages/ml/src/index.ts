@@ -3,6 +3,7 @@ export {
   featureVectorToArray,
   arrayToFeatureVector,
   FEATURE_NAMES,
+  FEATURE_MIN_CANDLES,
   type FeatureVector,
 } from './features.js';
 

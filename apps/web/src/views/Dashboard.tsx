@@ -113,7 +113,7 @@ function AiStatusPanel() {
         const active = (m.models as { name: string; isActive: boolean; metrics: Record<string, number> | null }[]).find((x) => x.isActive) ?? null;
         setMlState({
           activeModel: active ? { name: active.name, accuracy: active.metrics?.accuracy ?? null } : null,
-          labels: s.total,
+          labels: s.usable,
         });
       })
       .catch(() => { if (!cancelled) setMlState(null); });

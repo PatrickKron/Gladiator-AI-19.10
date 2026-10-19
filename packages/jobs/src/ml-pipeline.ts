@@ -1,10 +1,11 @@
-import { desc, eq, sql } from 'drizzle-orm';
+import { asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
-import { getOhlcv } from '@gladiator/market-data';
+import { getOhlcv, TIMEFRAME_MS } from '@gladiator/market-data';
 import {
   computeFeatures,
   featureVectorToArray,
+  FEATURE_MIN_CANDLES,
   labelSignal,
   trainForest,
   evaluateForest,
@@ -76,6 +77,39 @@ export function parsePgNumericArray(raw: string): number[] {
 }
 
 /**
+ * Beginn des Kerzen-Fensters für ein Label: genug Historie VOR dem Signal für
+ * einen Feature-Vektor (FEATURE_MIN_CANDLES + Puffer für Lücken). Vorher
+ * startete das Fenster 1 h vor dem Signal → computeFeatures bekam 1–4 Kerzen,
+ * lieferte null, und retrainModel fand nie ein trainierbares Sample.
+ */
+export function labelHistoryStart(createdAt: Date, timeframe: string): Date {
+  const barMs = (TIMEFRAME_MS as Record<string, number>)[timeframe] ?? TIMEFRAME_MS['1h'];
+  return new Date(createdAt.getTime() - (FEATURE_MIN_CANDLES + 20) * barMs);
+}
+
+/** Features zum Signal-Zeitpunkt: nur Kerzen bis einschließlich Signal (look-ahead-frei). */
+async function featuresAt(db: Db, symbol: string, timeframe: string, at: Date): Promise<FeatureVector | null> {
+  const history = await getOhlcv(db, { symbol, timeframe, since: labelHistoryStart(at, timeframe), until: at });
+  return computeFeatures(history);
+}
+
+/**
+ * Labels, die vor dem Fix ohne Features gespeichert wurden, nachträglich
+ * ergänzen (echte Kerzen aus der DB, nur bis zum Signal-Zeitpunkt).
+ */
+export async function backfillLabelFeatures(db: Db, limit = 200): Promise<{ filled: number; skipped: number }> {
+  const missing = await db.select().from(mlLabels).where(isNull(mlLabels.features)).limit(limit);
+  let filled = 0;
+  for (const l of missing) {
+    const fv = await featuresAt(db, l.symbol, l.timeframe, l.ts);
+    if (!fv) continue;
+    await db.update(mlLabels).set({ features: fv }).where(eq(mlLabels.id, l.id));
+    filled++;
+  }
+  return { filled, skipped: missing.length - filled };
+}
+
+/**
  * Auto-label old signals based on actual price outcomes.
  * Finds signals that have enough future price data but haven't been labeled yet.
  */
@@ -111,6 +145,7 @@ export async function autoLabelSignals(db: Db): Promise<MlAutoLabelResult> {
       // Max holding bars depends on timeframe
       const maxBars = timeframe === '15m' ? 16 : timeframe === '1h' ? 12 : timeframe === '4h' ? 12 : 5;
 
+      // Ausgang (Label) braucht nur die Kerzen AB dem Signal.
       const candles = await getOhlcv(db, {
         symbol,
         timeframe,
@@ -146,9 +181,8 @@ export async function autoLabelSignals(db: Db): Promise<MlAutoLabelResult> {
         continue;
       }
 
-      // Compute features at signal time
-      const featureCandles = candles.slice(0, entryBarIndex + 1);
-      const fv = computeFeatures(featureCandles);
+      // Features zum Signal-Zeitpunkt aus eigener Vorlauf-Historie (look-ahead-frei)
+      const fv = await featuresAt(db, symbol, timeframe, createdAt);
 
       await db.insert(mlLabels).values({
         signalId: sig.id as string,
@@ -184,7 +218,9 @@ export type MlRetrainResult = {
  * Only retrains if there are at least 30 labeled samples.
  */
 export async function retrainModel(db: Db): Promise<MlRetrainResult> {
-  const labels = await db.select().from(mlLabels);
+  await backfillLabelFeatures(db);
+  // Chronologisch: Train = ältere 80 %, Test = jüngste 20 % (kein Blick in die Zukunft).
+  const labels = await db.select().from(mlLabels).orderBy(asc(mlLabels.ts));
 
   const samples: TrainingSample[] = [];
   for (const label of labels) {
@@ -205,7 +241,7 @@ export async function retrainModel(db: Db): Promise<MlRetrainResult> {
     };
   }
 
-  // 80/20 split
+  // 80/20 split (chronologisch, s. o.)
   const splitIdx = Math.floor(samples.length * 0.8);
   const trainSet = samples.slice(0, splitIdx);
   const testSet = samples.slice(splitIdx);
