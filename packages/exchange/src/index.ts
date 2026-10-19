@@ -6,6 +6,11 @@ export { planFills, type OpenProtectionOrder, type PlannedFill } from './lifecyc
 export {
   executeConfirmedSignal,
   closePositionNow,
+  closePositionManually,
+  updateProtection,
+  type ManualCloseResult,
+  type ProtectionUpdate,
+  type ProtectionResult,
   monitorOpenPositions,
   reconcile,
   buildAccountState,

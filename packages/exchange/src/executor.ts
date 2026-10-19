@@ -2,7 +2,7 @@ import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { evaluateRisk, noTradeWindowFor, type AdaptiveGate, type RiskVerdict } from '@gladiator/risk';
-import type { TradingVenue } from './venue.js';
+import type { TradingVenue, VenueOrderResult } from './venue.js';
 
 const { signals, orders, positions, executedTrades, tradingSettings, riskGates, auditLog, economicEvents, macroSeries } = schema;
 
@@ -479,9 +479,9 @@ async function closePaperPosition(
   positionId: string,
   lastPrice: number,
   reason: 'sl' | 'tp' | 'manual' | 'agent',
-): Promise<void> {
+): Promise<{ netPnl: number } | null> {
   const [pos] = await db.select().from(positions).where(eq(positions.id, positionId)).limit(1);
-  if (!pos) return;
+  if (!pos) return null;
 
   // Gefüllte Exits DIESER Position aggregieren (gewichteter Exit-Preis) —
   // nur Orders ab Eröffnung, sonst zählen Fills früherer Trades mit.
@@ -565,6 +565,7 @@ async function closePaperPosition(
     entityId: positionId,
     details: { reason, avgExit, grossPnl, fees, funding, netPnl },
   });
+  return { netPnl };
 }
 
 /**
@@ -590,6 +591,235 @@ export async function closePositionNow(
   }
   await closePaperPosition(db, venue, positionId, price, reason);
   return { closed: true, exitPrice: price };
+}
+
+/** Orders, die zu DIESER Position gehören (ab Eröffnung — gleiche Konvention wie reconcile). */
+function positionOrders(pos: typeof positions.$inferSelect) {
+  return and(
+    eq(orders.userId, pos.userId),
+    eq(orders.symbol, pos.symbol),
+    eq(orders.venue, pos.venue),
+    gte(orders.createdAt, pos.openedAt),
+  );
+}
+
+/** Kurze, börsentaugliche clientOrderId (Binance: max. 36 Zeichen). */
+function manualOrderId(prefix: 'm' | 'r', id: string): string {
+  return `gld-${prefix}-${id.slice(0, 18)}-${Date.now().toString(36)}`;
+}
+
+export type ManualCloseResult = {
+  closed: boolean;
+  reason?: 'not_found' | 'no_price' | 'rejected';
+  exitPrice?: number;
+  closedQty?: number;
+  netPnl?: number;
+};
+
+/**
+ * Manueller Schluss einer Agenten-Konto-Position (Mensch im Loop). Anders als
+ * closePositionNow läuft der Ausstieg über eine ECHTE reduceOnly-Market-Order
+ * an der aktiven Venue (Paper: Fill zum Live-Preis; Testnet: echte Order) —
+ * sonst bliebe die Position an einer Testnet-Börse offen. Verkauft wird nur
+ * die Restmenge (bereits gefüllte TPs zählen ab); offene Schutz-Orders werden
+ * auch an der Venue storniert. Abrechnung über denselben Netto-Pfad.
+ */
+export async function closePositionManually(
+  db: Db,
+  venue: TradingVenue,
+  userId: string,
+  positionId: string,
+  ip: string | null = null,
+): Promise<ManualCloseResult> {
+  const [pos] = await db
+    .select()
+    .from(positions)
+    .where(and(eq(positions.id, positionId), eq(positions.userId, userId)))
+    .limit(1);
+  if (!pos) return { closed: false, reason: 'not_found' };
+
+  const own = await db.select().from(orders).where(positionOrders(pos));
+  const exited = own.filter((o) => o.reduceOnly && o.status === 'filled').reduce((n, o) => n + Number(o.qty), 0);
+  const remaining = Math.max(0, Number(pos.qty) - exited);
+  const side = pos.direction === 'long' ? 'sell' : 'buy';
+
+  let exitPrice: number;
+  if (remaining > 1e-12) {
+    const clientOrderId = manualOrderId('m', pos.id);
+    let res: VenueOrderResult;
+    try {
+      res = await venue.placeOrder({ clientOrderId, symbol: pos.symbol, side, type: 'market', qty: remaining, reduceOnly: true });
+    } catch (err) {
+      console.warn(`[close-manual] ${pos.symbol}: ${String(err)}`);
+      return { closed: false, reason: 'no_price' };
+    }
+    if (res.status === 'rejected' || res.fillPrice === undefined) return { closed: false, reason: 'rejected' };
+    exitPrice = res.fillPrice;
+    await db.insert(orders).values({
+      userId: pos.userId,
+      venue: pos.venue,
+      symbol: pos.symbol,
+      clientOrderId,
+      exchangeOrderId: res.exchangeOrderId,
+      type: 'market',
+      side,
+      qty: String(remaining),
+      price: String(exitPrice),
+      reduceOnly: true,
+      status: 'filled',
+      mode: 'paper',
+    });
+  } else {
+    try {
+      exitPrice = await venue.markPrice(pos.symbol);
+    } catch {
+      return { closed: false, reason: 'no_price' };
+    }
+  }
+
+  // Schutz-Orders auch an der Venue entfernen (Paper: No-op); die DB-Stornierung macht closePaperPosition.
+  for (const o of own.filter((x) => x.status === 'open' && x.exchangeOrderId)) {
+    try {
+      await venue.cancelOrder(pos.symbol, o.exchangeOrderId!);
+    } catch (err) {
+      console.warn(`[close-manual] Storno ${o.clientOrderId} fehlgeschlagen: ${String(err)}`);
+    }
+  }
+
+  const booked = await closePaperPosition(db, venue, pos.id, exitPrice, 'manual');
+  await db.insert(auditLog).values({
+    actor: 'user',
+    userId,
+    action: 'position.close.manual',
+    entityType: 'position',
+    entityId: pos.id,
+    details: { symbol: pos.symbol, exitPrice, closedQty: remaining, netPnl: booked?.netPnl ?? null },
+    ip,
+  });
+  return { closed: true, exitPrice, closedQty: remaining, netPnl: booked?.netPnl };
+}
+
+export type ProtectionUpdate = {
+  stopLoss?: number;
+  takeProfits?: { orderId: string; price: number }[];
+  /** Stop weiter vom Preis weg = mehr Risiko → nur mit ausdrücklicher Bestätigung. */
+  confirmWiden?: boolean;
+};
+
+export type ProtectionResult = {
+  ok: boolean;
+  reason?: 'not_found' | 'no_price' | 'no_stop' | 'order_not_found' | 'invalid_stop' | 'invalid_take_profit' | 'widen_requires_confirm' | 'rejected';
+};
+
+/**
+ * SL/TP einer Agenten-Konto-Position ändern. Jede Änderung = neue Schutz-Order
+ * an der Venue ZUERST, dann Storno der alten — die Position ist dabei nie
+ * ungeschützt. Gleiche Seitenregeln wie das Demo-Konto (Stop unter/über dem
+ * Live-Preis); einen Stop zu WEITEN erhöht das Risiko über das, was das
+ * Risk-Gate freigegeben hat → nur mit confirmWiden (Mensch im Loop, Audit).
+ */
+export async function updateProtection(
+  db: Db,
+  venue: TradingVenue,
+  userId: string,
+  positionId: string,
+  input: ProtectionUpdate,
+  ip: string | null = null,
+): Promise<ProtectionResult> {
+  const [pos] = await db
+    .select()
+    .from(positions)
+    .where(and(eq(positions.id, positionId), eq(positions.userId, userId)))
+    .limit(1);
+  if (!pos) return { ok: false, reason: 'not_found' };
+
+  let mark: number;
+  try {
+    mark = await venue.markPrice(pos.symbol);
+  } catch {
+    return { ok: false, reason: 'no_price' };
+  }
+  const sign = pos.direction === 'long' ? 1 : -1;
+  const open = await db
+    .select()
+    .from(orders)
+    .where(and(positionOrders(pos), eq(orders.status, 'open'), inArray(orders.type, ['stop_market', 'take_profit_market'])));
+
+  // ── Erst ALLES prüfen, dann ändern (keine halben Änderungen) ──
+  const changes: { row: (typeof open)[number]; price: number }[] = [];
+  let widened = false;
+  if (input.stopLoss !== undefined) {
+    if ((mark - input.stopLoss) * sign <= 0) return { ok: false, reason: 'invalid_stop' };
+    const sl = open.find((o) => o.type === 'stop_market');
+    if (!sl) return { ok: false, reason: 'no_stop' };
+    widened = (Number(sl.price) - input.stopLoss) * sign > 0;
+    if (widened && !input.confirmWiden) return { ok: false, reason: 'widen_requires_confirm' };
+    if (Number(sl.price) !== input.stopLoss) changes.push({ row: sl, price: input.stopLoss });
+  }
+  for (const tp of input.takeProfits ?? []) {
+    const row = open.find((o) => o.id === tp.orderId && o.type === 'take_profit_market');
+    if (!row) return { ok: false, reason: 'order_not_found' };
+    if ((tp.price - mark) * sign <= 0) return { ok: false, reason: 'invalid_take_profit' };
+    if (Number(row.price) !== tp.price) changes.push({ row, price: tp.price });
+  }
+
+  const applied: { type: string; from: number; to: number }[] = [];
+  for (const { row, price } of changes) {
+    const clientOrderId = manualOrderId('r', row.id);
+    const res = await venue.placeOrder({
+      clientOrderId,
+      symbol: pos.symbol,
+      side: row.side,
+      type: row.type as 'stop_market' | 'take_profit_market',
+      qty: Number(row.qty),
+      triggerPrice: price,
+      reduceOnly: true,
+    });
+    if (res.status === 'rejected') return { ok: false, reason: 'rejected' };
+    await db.insert(orders).values({
+      userId: pos.userId,
+      signalId: row.signalId,
+      venue: pos.venue,
+      symbol: pos.symbol,
+      clientOrderId,
+      exchangeOrderId: res.exchangeOrderId,
+      type: row.type,
+      side: row.side,
+      qty: row.qty,
+      price: String(price),
+      reduceOnly: true,
+      status: 'open',
+      mode: 'paper',
+    });
+    if (row.exchangeOrderId) {
+      try {
+        await venue.cancelOrder(pos.symbol, row.exchangeOrderId);
+      } catch (err) {
+        console.warn(`[protection] Storno ${row.clientOrderId} fehlgeschlagen: ${String(err)}`);
+      }
+    }
+    await db.update(orders).set({ status: 'canceled', updatedAt: new Date() }).where(eq(orders.id, row.id));
+    applied.push({ type: row.type, from: Number(row.price), to: price });
+  }
+
+  if (applied.length > 0) {
+    const slChange = applied.find((a) => a.type === 'stop_market');
+    await db.insert(auditLog).values({
+      actor: 'user',
+      userId,
+      action: 'position.protection.updated',
+      entityType: 'position',
+      entityId: pos.id,
+      details: {
+        symbol: pos.symbol,
+        markPrice: mark,
+        ...(slChange ? { stopLoss: { from: slChange.from, to: slChange.to, widened } } : {}),
+        takeProfits: applied.filter((a) => a.type === 'take_profit_market').map(({ from, to }) => ({ from, to })),
+      },
+      ip,
+    });
+  }
+  return { ok: true };
 }
 
 /**

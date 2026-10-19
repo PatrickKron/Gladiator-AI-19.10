@@ -126,7 +126,7 @@ export const PAGES = [
     icon: 'M4 19V5m0 14h16M8 15l3-4 3 2 5-7',
     keywords: ['paper', 'agenten-konto', 'übungskonto', 'kill-switch', 'konto'],
     tabs: [
-      { id: 'positionen', labelKey: 'trading.tab_positionen', keywords: ['position', 'stop', 'take profit', 'sl', 'tp'] },
+      { id: 'positionen', labelKey: 'trading.tab_positionen', keywords: ['position', 'stop', 'take profit', 'sl', 'tp', 'schliessen', 'close', 'stop verschieben'] },
       { id: 'historie', labelKey: 'trading.tab_historie', keywords: ['journal', 'notiz', 'trades', 'history'] },
       { id: 'risiko', labelKey: 'trading.tab_risiko', keywords: ['positionsgröße', 'sizing', 'rechner', 'live-freigabe', 'venue'] },
       { id: 'alerts', labelKey: 'trading.tab_alerts', keywords: ['alarm', 'preisalarm', 'benachrichtigung'] },

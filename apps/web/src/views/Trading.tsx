@@ -8,6 +8,7 @@ import { buildTabHash, parseTab } from '../lib/tab-hash.js';
 import { buildChartUrl } from '../lib/chart-url.js';
 import { isDemoMode, setDemoMode } from '../lib/demo-mode.js';
 import { DemoTrading } from './DemoTrading.js';
+import { PaperPositions } from '../components/PaperPositions.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 
 /** Tabs der Trading-Seite (P1.8). */
@@ -644,49 +645,7 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
       {/* Offene Positionen */}
       {tab === 'positionen' && (
       <Panel label={t('trading.positionsTitle')} stagger={7} className="mt-5">
-        {positions === null ? (
-          <Loading />
-        ) : positions.length === 0 ? (
-          <Empty text={t('trading.noPositions')} />
-        ) : (
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="label text-left">
-                  <th className="py-1.5 pr-3 font-normal">{t('dashboard.symbol')}</th>
-                  <th className="py-1.5 pr-3 font-normal" />
-                  <th className="py-1.5 pr-3 text-right font-normal">{t('signals.qty')}</th>
-                  <th className="py-1.5 pr-3 text-right font-normal">{t('signals.entry')}</th>
-                  <th className="py-1.5 pr-3 text-right font-normal">Mark</th>
-                  <th className="py-1.5 pr-3 text-right font-normal">{t('trading.uPnl')} $</th>
-                  <th className="py-1.5 font-normal">{t('common.date')}</th>
-                </tr>
-              </thead>
-              <tbody className="num">
-                {positions.map((p) => (
-                  <tr key={p.id} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
-                    <td className="py-1.5 pr-3">
-                      <a href={buildChartUrl(p.symbol)} className="hover:underline" style={{ color: 'var(--color-cyan)' }}>{p.symbol}</a>
-                    </td>
-                    <td className="py-1.5 pr-3" style={{ color: p.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>
-                      {p.direction.toUpperCase()}
-                    </td>
-                    <td className="py-1.5 pr-3 text-right">{fmt(p.qty, 6)}</td>
-                    <td className="py-1.5 pr-3 text-right">{fmt(p.entryPrice)}</td>
-                    <td className="py-1.5 pr-3 text-right">{fmt(p.markPrice)}</td>
-                    <td
-                      className="py-1.5 pr-3 text-right"
-                      style={{ color: (p.unrealizedPnl ?? 0) >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}
-                    >
-                      {fmt(p.unrealizedPnl)}
-                    </td>
-                    <td className="py-1.5">{new Date(p.openedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <PaperPositions positions={positions} onChanged={() => void load()} />
       </Panel>
       )}
 

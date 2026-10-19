@@ -351,8 +351,10 @@ Branch `claude/focused-darwin-51s9k3` (Deploy erst nach Merge nach `main`). Loka
 - **Tempo:** Start-Bundle 606 → 329 kB (Sprachen nachladen); Polling pausiert in Hintergrund-Tabs; Ladefehler sichtbar (Marktlage) statt „leer“.
 - **Chart live:** echte SSE-Ticks bewegen die letzte Kerze (`lib/live-candle.ts`, 5 Tests).
 
+- **Position schließen & SL/TP ändern (Agenten-Konto)** — Patrick-Auftrag: `closePositionManually` (echte reduceOnly-Market-Order an der aktiven Venue für die Restmenge — vorher hätte ein reiner DB-Schluss eine Testnet-Position offen gelassen; Schutz-Orders auch an der Venue storniert) + `updateProtection` (neue Schutz-Order zuerst, dann Storno → nie ungeschützt; Stop weiten nur mit `confirmWiden`, Audit mit from/to/widened). tRPC `trading.closePosition`/`trading.updateProtection`; `trading.positions` liefert jetzt Restmenge nach TPs, uPnL auf Restmenge, SL/TP je Position, Herkunft (Agent/Signal). UI `components/PaperPositions.tsx` (zweistufiges Schließen, Risiko-Warnung beim Weiten). 6 DB-Tests `position-manual.test.ts`.
+
 ## Offen (Vorschläge, nicht umgesetzt — Patrick entscheidet)
-- Manuelles Schließen / SL-TP-Ändern für Agenten-Konto-Positionen (Backend `closePositionNow` existiert); Trailing-Stop.
+- Trailing-Stop (Engine + Monitor gemeinsam); Teil-Schließen (Menge wählbar).
 - Default-Limits (1 % Risiko + 20 % Exposure) blocken Stops < 5 % → hebelbewusste Exposure oder Hinweis im Ticket.
 - Positions-Monitor in eigene Queue (läuft hinter RL/ML-Jobs); CI gegen eigene Test-DB statt Live-DB; Auto-Login absichern (Rate-Limit, Host-Allowlist), echtes Passwort.
 - Zeichenwerkzeuge + lightweight-charts v5; Backtest-Stops gap-realistisch, Out-of-Sample-Gate; Jesse-artige Trade-Ansicht.
