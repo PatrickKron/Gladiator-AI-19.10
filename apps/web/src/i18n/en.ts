@@ -586,7 +586,7 @@ export const en: Catalog = {
     aiMl: 'ML model',
     aiMlNone: 'No model trained — {{n}} of 30 required labels collected.',
     aiAgents: 'RL agents',
-    aiAgentsNone: 'No agents yet — create one in the Intelligence Hub.',
+    aiAgentsNone: 'No agents yet — create one under AI Models.',
   },
   discover: {
     title: 'Discover',
@@ -735,7 +735,7 @@ export const en: Catalog = {
     updated: 'As of',
     change20d: '20-day change',
     footprintLive: 'Positioning: funding & open interest (Binance futures, real).',
-    cotLive: 'Net positioning of large speculators (CFTC, real) — details in Intelligence Hub → Decision.',
+    cotLive: 'Net positioning of large speculators (CFTC, real) — details under Market State → Decision Logic.',
     fundingRate: 'Funding rate',
     oi: 'Open interest',
     oiChange: 'OI Δ24h',
@@ -1049,7 +1049,7 @@ export const en: Catalog = {
   },
   agents: {
     myTitle: 'My agents',
-    myHint: 'Create your own agents here: trading agents with individual rules, events and risk in the Workshop — learning RL agents in the Intelligence Hub.',
+    myHint: 'Create your own agents here: trading agents with individual rules, events and risk in the Workshop — learning RL agents under AI Models.',
     createWorkshopCta: 'Create trading agent (Workshop)',
     createRlCta: 'Create RL agent',
     myEmpty: 'No own agents yet. Create your first one via the buttons above.',
@@ -1213,7 +1213,7 @@ export const en: Catalog = {
     promoted: 'Promoted.',
   },
   hub: {
-    title: 'Intelligence Hub',
+    title: 'AI Models',
     tab_ml: 'ML models',
     tab_rl: 'RL agents',
     tab_performance: 'Performance',

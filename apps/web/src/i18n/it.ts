@@ -586,7 +586,7 @@ export const it: Catalog = {
     aiMl: 'Modello ML',
     aiMlNone: 'Nessun modello addestrato — {{n}} di 30 label necessarie raccolte.',
     aiAgents: 'Agenti RL',
-    aiAgentsNone: 'Ancora nessun agente — creane uno nello Hub Intelligenza.',
+    aiAgentsNone: 'Ancora nessun agente — creane uno in Modelli IA.',
   },
   discover: {
     title: 'Scopri',
@@ -735,7 +735,7 @@ export const it: Catalog = {
     updated: 'Aggiornato',
     change20d: 'Variazione a 20 giorni',
     footprintLive: 'Posizionamento: funding e open interest (futures Binance, reali).',
-    cotLive: 'Posizionamento netto dei large speculators (CFTC, reale) — dettagli in Hub Intelligenza → Decisione.',
+    cotLive: 'Posizionamento netto dei large speculators (CFTC, reale) — dettagli in Situazione di mercato → Logica decisionale.',
     fundingRate: 'Tasso di funding',
     oi: 'Open interest',
     oiChange: 'OI Δ24h',
@@ -1049,7 +1049,7 @@ export const it: Catalog = {
   },
   agents: {
     myTitle: 'I miei agenti',
-    myHint: "Qui crei i tuoi agenti: agenti di trading con regole, eventi e rischio individuali nell'Officina — agenti RL che apprendono nell'Hub Intelligenza.",
+    myHint: "Qui crei i tuoi agenti: agenti di trading con regole, eventi e rischio individuali nell'Officina — agenti RL che apprendono in Modelli IA.",
     createWorkshopCta: 'Crea agente di trading (Officina)',
     createRlCta: 'Crea agente RL',
     myEmpty: 'Ancora nessun agente personale. Creane uno con i pulsanti qui sopra.',
@@ -1213,7 +1213,7 @@ export const it: Catalog = {
     promoted: 'Promosso.',
   },
   hub: {
-    title: 'Hub Intelligenza',
+    title: 'Modelli IA',
     tab_ml: 'Modelli ML',
     tab_rl: 'Agenti RL',
     tab_performance: 'Performance',

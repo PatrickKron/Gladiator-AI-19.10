@@ -586,7 +586,7 @@ export const es: Catalog = {
     aiMl: 'Modelo ML',
     aiMlNone: 'Sin modelo entrenado — {{n}} de 30 etiquetas necesarias recogidas.',
     aiAgents: 'Agentes RL',
-    aiAgentsNone: 'Aún sin agentes — crea uno en el Hub de Inteligencia.',
+    aiAgentsNone: 'Aún sin agentes — crea uno en Modelos de IA.',
   },
   discover: {
     title: 'Descubrir',
@@ -735,7 +735,7 @@ export const es: Catalog = {
     updated: 'Actualizado',
     change20d: 'Cambio a 20 días',
     footprintLive: 'Posicionamiento: funding y open interest (futuros de Binance, reales).',
-    cotLive: 'Posicionamiento neto de los large speculators (CFTC, real) — detalles en Hub de Inteligencia → Decisión.',
+    cotLive: 'Posicionamiento neto de los large speculators (CFTC, real) — detalles en Situación del mercado → Lógica de decisión.',
     fundingRate: 'Tasa de funding',
     oi: 'Open interest',
     oiChange: 'OI Δ24h',
@@ -1049,7 +1049,7 @@ export const es: Catalog = {
   },
   agents: {
     myTitle: 'Mis agentes',
-    myHint: 'Aquí creas tus propios agentes: agentes de trading con reglas, eventos y riesgo individuales en el Taller — agentes RL que aprenden en el Hub de Inteligencia.',
+    myHint: 'Aquí creas tus propios agentes: agentes de trading con reglas, eventos y riesgo individuales en el Taller — agentes RL que aprenden en Modelos de IA.',
     createWorkshopCta: 'Crear agente de trading (Taller)',
     createRlCta: 'Crear agente RL',
     myEmpty: 'Aún no hay agentes propios. Crea el primero con los botones de arriba.',
@@ -1213,7 +1213,7 @@ export const es: Catalog = {
     promoted: 'Promovido.',
   },
   hub: {
-    title: 'Hub de Inteligencia',
+    title: 'Modelos de IA',
     tab_ml: 'Modelos ML',
     tab_rl: 'Agentes RL',
     tab_performance: 'Rendimiento',

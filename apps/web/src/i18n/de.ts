@@ -585,7 +585,7 @@ export const de = {
     aiMl: 'ML-Modell',
     aiMlNone: 'Kein Modell trainiert — {{n}} von 30 nötigen Labels vorhanden.',
     aiAgents: 'RL-Agenten',
-    aiAgentsNone: 'Noch keine Agenten — im Intelligenz-Hub erstellen.',
+    aiAgentsNone: 'Noch keine Agenten — unter KI-Modelle erstellen.',
   },
   discover: {
     title: 'Entdecken',
@@ -734,7 +734,7 @@ export const de = {
     updated: 'Stand',
     change20d: '20-Tage-Änderung',
     footprintLive: 'Positionierung: Funding & Open Interest (Binance-Futures, echt).',
-    cotLive: 'Netto-Positionierung der Large Speculators (CFTC, echt) — Details im Intelligenz-Hub → Entscheidung.',
+    cotLive: 'Netto-Positionierung der Large Speculators (CFTC, echt) — Details unter Marktlage → Entscheidungslogik.',
     fundingRate: 'Funding-Rate',
     oi: 'Open Interest',
     oiChange: 'OI Δ24h',
@@ -1048,7 +1048,7 @@ export const de = {
   },
   agents: {
     myTitle: 'Meine Agenten',
-    myHint: 'Hier erstellst du eigene Agenten: Trading-Agenten mit individuellen Regeln, Ereignissen und Risiko in der Werkstatt — lernende RL-Agenten im Intelligenz-Hub.',
+    myHint: 'Hier erstellst du eigene Agenten: Trading-Agenten mit individuellen Regeln, Ereignissen und Risiko in der Agenten-Werkstatt — lernende RL-Agenten unter KI-Modelle.',
     createWorkshopCta: 'Trading-Agent erstellen (Werkstatt)',
     createRlCta: 'RL-Agent erstellen',
     myEmpty: 'Noch keine eigenen Agenten. Erstelle den ersten über die Buttons oben.',
@@ -1212,7 +1212,7 @@ export const de = {
     promoted: 'Befördert.',
   },
   hub: {
-    title: 'Intelligenz-Hub',
+    title: 'KI-Modelle',
     tab_ml: 'ML-Modelle',
     tab_rl: 'RL-Agenten',
     tab_performance: 'Performance',
