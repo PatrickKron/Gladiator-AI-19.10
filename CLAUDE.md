@@ -3,6 +3,9 @@
 ## Quelle der Wahrheit
 `GLADIATOR_V2_BLUEPRINT/` (in diesem Repo mitgeführt, Kopie der Spezifikation) ist verbindlich. Bei Konflikt oder Lücke: nachfragen, nicht raten.
 
+## Einstieg für jede neue Sitzung
+Zuerst `OFFENER_PLAN.md` lesen (offene Punkte, Zugänge, Live-Zustand), dann `WORKOVER.md` (Arbeitsprotokoll). Code-Quelle ist GitHub `PatrickKron/Gladiator-AI-19.10` (Remote `origin`); deployt wird weiterhin per `git push server main`. `PROGRESS.md` liegt jetzt auch im Repo und wird ab sofort HIER gepflegt.
+
 ## Betrieb
 Dieses Repo läuft kanonisch auf dem Hetzner-Server `95.216.10.238` unter `/opt/gladiator-v2/app`. Lokale Kopie (Windows, `Antigravity Gladiator AI versuch 1/gladiator-v2/`) ist die Arbeitskopie; Deploy per `git push server main`. Infra: `docker compose` (TimescaleDB auf 127.0.0.1:5433, Redis auf 127.0.0.1:6380 — bewusst nicht 5432/6379, dort läuft der CHAMÆLIEN-Stack; dessen Container/Ports niemals anfassen).
 
@@ -32,4 +35,4 @@ TypeScript · Express + tRPC 11 · Drizzle + PostgreSQL/TimescaleDB · ccxt(pro)
 - Seed-Daten (`packages/db/seed/data/`) enthalten echte User-Daten → gitignored, liegen nur auf dem Server.
 
 ## Definition of Done je Phase
-Abnahmekriterien B0a–B7 im Bauplan; Mock-Checkliste aus `03_MOCKUP_BEFREIUNG.md` = 0 Treffer im Laufpfad. Nach jeder Phase `PROGRESS.md` (im v1-Ordner bei Patrick) aktualisieren.
+Abnahmekriterien B0a–B7 im Bauplan; Mock-Checkliste aus `03_MOCKUP_BEFREIUNG.md` = 0 Treffer im Laufpfad. Nach jeder Phase `PROGRESS.md` (im Repo) und `OFFENER_PLAN.md` aktualisieren.

@@ -1,0 +1,63 @@
+# Gladiator AI v2 — Offener Plan (Übergabe, Stand 2026-10-19)
+
+> **Jede neue Claude-Code-Sitzung liest zuerst:** `CLAUDE.md` → diese Datei → `WORKOVER.md` (Arbeitsprotokoll Sessions 1–8) → bei Bedarf `PROGRESS.md` (Phasen-Historie) und `GLADIATOR_V2_BLUEPRINT/` (verbindliche Spezifikation).
+> Nach jedem erledigten Punkt: hier abhaken (`[x]` + Commit-Hash) und einen kurzen Abschnitt in `WORKOVER.md` ergänzen.
+
+## Zugänge & Betrieb (was eine neue Sitzung wissen muss)
+
+| Was | Wo |
+|---|---|
+| Code (Quelle) | GitHub `PatrickKron/Gladiator-AI-19.10`, Branch `main` (Remote `origin`) |
+| Live-Server | Hetzner `95.216.10.238`, App unter `/opt/gladiator-v2/app`, systemd-Dienst `gladiator` (+ Worker-Dienst) |
+| Deploy | `git push server main` (Remote `server` = `ssh://root@95.216.10.238/opt/gladiator-v2/app`) → post-receive-Hook → `scripts/ci.sh` → Neustart NUR bei grüner CI |
+| App im Browser | `http://100.72.94.1:3010` (nur über Tailscale; öffentlicher Port bewusst NICHT gebunden) |
+| DB / Redis | Container `gladiator-postgres` (127.0.0.1:5433), `gladiator-redis` (127.0.0.1:6380) — Ports 5432/6379 gehören CHAMÆLIEN: niemals anfassen |
+| Secrets | NIE ins Repo. Pflicht-Secrets in `/opt/gladiator-v2/app/.env` (Server); Betriebs-Keys pflegt Patrick in der App unter Einstellungen → API-Keys (Vault, AES-256-GCM) |
+
+**Wichtig für Cloud-Sitzungen (aus GitHub geklont):** Dort gibt es weder SSH-Zugang zu Hetzner noch Tailscale. Dann: Code ändern, lokal testen (`npm ci && npm run lint && npm run typecheck && npm test`), auf einem Branch nach GitHub pushen — das **Deploy** (`git pull origin main && git push server main`) macht danach eine lokale Sitzung auf Patricks PC. DB-Integrationstests skippen ohne `DATABASE_URL`; maßgeblich ist die Server-CI.
+
+**Nicht verhandelbar:** kein Fake (keine erfundenen Daten), TDD, Paper-Default, kein Live-Order-Pfad ohne Patricks ausdrückliche Freigabe pro Börse, keine Auszahlungs-/Transfer-Codepfade, der alte v1-Telegram-Token `7544725601:…` bleibt gesperrt, v1-Ordner außerhalb dieses Repos nie verändern.
+
+## Live-Zustand bei Übergabe (2026-10-19)
+
+- Server gesund (`/health` ok, Worker-Heartbeat aktiv, Preis-Feeds verbunden). GitHub = Server = `6256719`.
+- **Keine Betriebs-Keys hinterlegt** (`app_secrets` leer), **keine Börse verbunden** (`exchange_connections` leer).
+- Signale: 306 erzeugt — 304 `expired`, 2 `filled`. 3 Strategie-Versionen im Status `paper`.
+
+## 1 · Patrick-Schritte (blockieren am meisten — Claude kann sie nicht erledigen)
+
+- [ ] **ANTHROPIC_API_KEY** in Einstellungen → API-Keys → schaltet Pine-Analyse, Workshop-Dialog, Text→Strategie, Makro-/Shadow-Agent, Signal-Erklärung frei.
+- [ ] **Neuer Telegram-Bot** (BotFather) → `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` → Signal-/Preis-/Kill-Switch-Alarme + Morgen-Briefing aufs Handy.
+- [ ] **Alt-Secrets aus v1 widerrufen** (Telegram-Token, OpenAI `sk-proj-…`, OKX-Keys), danach `backend-node/.env` im v1-Ordner löschen — einziger offener Punkt der Sicherheits-Checkliste (`SECURITY.md` #1).
+- [ ] Optional: `HEALTHCHECKS_URL` (externer Dead-Man-Switch) · erste Börse unter Einstellungen → „Börse verbinden" (API-Key OHNE Withdraw-Recht).
+- [ ] GitHub-Repo auf **privat** stellen (enthält Server-IP, Deploy-Skripte, Sicherheits-Doku — keine Secrets).
+
+## 2 · Echtes Trading (der große Schritt)
+
+- [ ] **Live-Order-Pfad** über den bestehenden CCXT-Router (`packages/exchange/src/connections.ts`, `pickConnectionForSymbol`): Live-Adapter → Testnet-E2E → grüne Reconciliation → Freigabe-Phrase `LIVE-FREIGABE <venue>` (`venue_approvals`) → Kleinst-Trade-Probe. **Erst nach Patricks ausdrücklicher Freigabe beginnen.** Voraussetzung: Punkt 1 (Börse verbunden).
+- [ ] **Trailing-Stop** gemeinsam in Backtest-Engine (`packages/backtest`) UND PositionMonitor (`packages/exchange`), danach DSL-Exit-Feld — nur Backtest wäre Fake.
+- [ ] **Orderbuch-Ansicht** (braucht Depth-Streaming, z. B. ccxt.pro `watchOrderBook`).
+- [ ] **Reentry-/Hebel-Upgrade-Engine** (Blueprint `05_` §9, Rest aus Phase 2).
+
+## 3 · Signale, die auch genutzt werden
+
+- [ ] **304 von 306 Signalen sind unbearbeitet abgelaufen.** Ursache klären (fehlende Benachrichtigung? zu kurze Gültigkeit?) und eine „Was wäre passiert"-Auswertung abgelaufener Signale bauen (echte Kerzen nach Ablauf → hypothetisches Ergebnis netto).
+- [ ] **Strategie-Katalog:** Aktivierung braucht ≥ 250 echte Kerzen je Symbol/Timeframe — 15m-Historie für Scalp-Presets ggf. nachfüllen.
+
+## 4 · Oberfläche — Wellen 3–5 des UI-Konzepts (erst nach Patricks Feedback)
+
+- [ ] Welle 3: Traden vereinheitlichen (eine Seite mit Konto-Schalter, Einsteiger-Ticket).
+- [ ] Welle 4: Markt-Bühne (Chart + Watchlist-Seitenleiste + Docks, Tastatur-Navigation).
+- [ ] Welle 5: Strategien + Workshop zusammenführen, Vorlagen-Galerie, Hotkeys, Reset-Knopf.
+
+## 5 · Aufräumen & Technik
+
+- [ ] `apps/web/src/views/Labor.tsx`: Binnentexte auf i18n (5 Sprachen, Paritätstest) und lokale Chart-Kopien auf `components/EquityChart.tsx` umstellen.
+- [ ] Workshop-Antworten streamen (SSE statt Ein-Turn-Antwort).
+- [ ] Command-Palette um Seiten/Hub-Tabs erweitern; MacroPanels-Footprint-Slot auf `getCotSnapshot` umstellen.
+- [ ] On-Chain-Quelle (DNA-Quadrant) — bleibt ehrlich „nicht verbunden", bis es eine freie, zuverlässige Quelle gibt.
+
+## Empfohlene Reihenfolge
+
+1 (Patricks Keys) → 3 (Signale kommen an und werden ausgewertet) → 2 (Live-Order-Pfad, nach Freigabe) → 4/5.
+Patrick hat zusätzlich GitHub-Repos angekündigt, die helfen sollen — vor dem Einbau prüfen, welchem Punkt sie dienen (v. a. 2, Orderbuch, Welle 4).
