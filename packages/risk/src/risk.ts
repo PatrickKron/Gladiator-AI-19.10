@@ -11,6 +11,22 @@
  *    VERSCHÄRFEN — niemals statische Limits lockern (Mensch im Loop).
  */
 
+import {
+  SAFE_003_BTC_INTRADAY_MAX_PCT,
+  SAFE_003_ETH_INTRADAY_MAX_PCT,
+  SAFE_004_MAX_LATENCY_MS,
+  SAFE_005_MAX_ZSCORE,
+  SAFE_005_STALE_TOLERANCE_MS,
+  SAFE_006_MAX_AVG_SLIPPAGE_PCT,
+  SAFE_006_MAX_SINGLE_SLIPPAGE_PCT,
+  SAFE_007_MAX_REGIME_CHANGES_24H,
+  SAFE_007_SIZE_FACTOR,
+  SAFE_008_MAX_ORDERS_PER_MIN,
+  SAFE_008_PRICE_COLLAR_PCT,
+  SAFE_010_MAX_OPEN_ORDERS_PER_ASSET,
+  SAFE_010_OPPOSITE_COOLDOWN_MS,
+} from './safe.js';
+
 export type OrderIntent = {
   symbol: string;
   timeframe?: string;
@@ -29,6 +45,11 @@ export type OrderIntent = {
    * Wunsch-Betrag — der User bestimmt die Größe, das Gate bleibt maßgeblich.
    */
   requestedNotional?: number;
+  /**
+   * Ordertyp des Entries (Default 'market' — so platziert der Executor heute).
+   * SAFE-006 lässt bei schlechter Slippage-Historie nur noch Limit-Orders zu.
+   */
+  orderType?: 'market' | 'limit';
 };
 
 export type RiskSettings = {
@@ -75,7 +96,11 @@ export type AdaptiveGate = {
   evidence: { trades: number; expectancyR: number; winRate: number };
 };
 
-export type RiskCheck = { name: string; passed: boolean; detail: string };
+/**
+ * Ein protokollierter Check. `skipped` = Eingangsdaten fehlten — der Check
+ * konnte NICHT bewertet werden (ehrlich markiert, nie mit erfundenen Werten).
+ */
+export type RiskCheck = { name: string; passed: boolean; detail: string; skipped?: boolean };
 
 export type RiskVerdict = {
   allowed: boolean;
@@ -105,10 +130,42 @@ export type RiskContext = {
   noTrade?: { active: boolean; reason: string } | null;
   /** Aktueller VIX (echte Serie) für SAFE-003; null = Daten nicht verfügbar (ehrlich, keine Blockade). */
   vix?: number | null;
+
+  // ── Ab hier: SAFE-003…010 (10_ §5a/§5b). Konvention für ALLE Felder:
+  //    undefined = vom Aufrufer nicht erhoben (z. B. Vorschau) → „übersprungen (Daten fehlen)";
+  //    null      = erhoben, aber keine Daten vorhanden → je Regel (meist übersprungen,
+  //                beim Live-Preis/Price-Collar HARTER Block).
+
+  /** SAFE-003: größte Intraday-Auslenkung (% vom UTC-Tages-Open) von BTC/ETH. */
+  majorsIntradayMovePct?: { btc: number | null; eth: number | null };
+  /** SAFE-004: gemessene Latenz der Live-Preis-Abfrage direkt vor der Order (ms). */
+  priceLatencyMs?: number | null;
+  /**
+   * SAFE-005: Frische der Kerzen des Signal-Timeframes. `expectedMaxAgeMs` =
+   * Höchstalter, das die Ingest-Pipeline regulär erreicht (vom Aufrufer, der die
+   * Pipeline kennt); stale = älter als das + 5 min. null = keine Kerzen in der DB.
+   */
+  marketData?: { lastCandleTs: Date; expectedMaxAgeMs: number } | null;
+  /** SAFE-005: Z-Score der Live-Rendite vs. Kerzen-Historie (null = zu wenig Historie). */
+  priceZScore?: number | null;
+  /** SAFE-006: Slippage (%, absolut) der Entry-Fills im 24-h-Fenster. [] = keine Fills. */
+  recentSlippagePct?: number[];
+  /** SAFE-007: Anzahl Regime-Wechsel (Symbol/Timeframe) in 24 h; null = keine Regime-Daten. */
+  regimeChanges24h?: number | null;
+  /** SAFE-008: echter Live-Mark-Preis des Symbols; null = Abruf fehlgeschlagen ⇒ Block. */
+  markPrice?: number | null;
+  /** SAFE-008: risiko-eröffnende (nicht reduce-only) Orders des Users in den letzten 60 s. */
+  entryOrdersLastMinute?: number;
+  /** SAFE-010: offene, nicht reduce-only Orders des Users auf diesem Symbol. */
+  openEntryOrdersOnSymbol?: number;
+  /** SAFE-010: Zeitpunkt des letzten geschlossenen Trades in GEGENrichtung auf diesem Symbol; null = keiner. */
+  lastOppositeCloseAt?: Date | null;
 };
 
 /** SAFE-003-Schwelle (10_ §5a): VIX > 40 ⇒ keine neuen Positionen. */
 export const SAFE_003_VIX_MAX = 40;
+
+const SKIPPED = 'übersprungen (Daten fehlen)';
 
 export function evaluateRisk(
   order: OrderIntent,
@@ -125,6 +182,8 @@ export function evaluateRisk(
     reasons.push(detail);
   };
   const pass = (name: string, detail: string) => checks.push({ name, passed: true, detail });
+  /** Daten fehlen → Check nicht bewertbar; sichtbar markiert, blockt nicht. */
+  const skip = (name: string, detail: string) => checks.push({ name, passed: true, skipped: true, detail: `${SKIPPED}: ${detail}` });
 
   // ── 1. Kill-Switch ──
   if (settings.killSwitchActive) fail('kill-switch', 'Kill-Switch ist aktiv — keine neuen Orders.');
@@ -140,7 +199,86 @@ export function evaluateRisk(
     if (context.vix > SAFE_003_VIX_MAX) {
       fail('safe-003-vix', `SAFE-003: VIX ${context.vix.toFixed(1)} > ${SAFE_003_VIX_MAX} — keine neuen Positionen bei Extremvolatilität.`);
     } else pass('safe-003-vix', `VIX ${context.vix.toFixed(1)} ≤ ${SAFE_003_VIX_MAX}`);
-  } else pass('safe-003-vix', 'VIX-Daten nicht verfügbar — Check ohne Datengrundlage nicht erzwingbar (ehrlich markiert)');
+  } else skip('safe-003-vix', 'VIX-Daten nicht verfügbar — Check ohne Datengrundlage nicht erzwingbar (ehrlich markiert)');
+
+  // ── 1d. SAFE-003: BTC-Intraday > 10 % · ETH > 15 % ⇒ keine neuen Positionen ──
+  // Marktweiter Stress-Indikator → gilt für jede neue Position (wie der VIX-Check).
+  // Blueprint nennt zusätzlich „Size −50 %, SL enger" — das betrifft bestehende
+  // Positionen; für NEUE Orders gilt die strengere Wirkung „keine neuen Positionen".
+  const majors = context.majorsIntradayMovePct;
+  const majorCheck = (name: string, label: string, move: number | null | undefined, max: number) => {
+    if (typeof move !== 'number') return skip(name, `${label}-Intraday-Kerzen nicht verfügbar`);
+    if (move > max) fail(name, `SAFE-003: ${label}-Intraday-Bewegung ${move.toFixed(1)} % > ${max} % — keine neuen Positionen.`);
+    else pass(name, `${label}-Intraday ${move.toFixed(1)} % ≤ ${max} %`);
+  };
+  majorCheck('safe-003-btc', 'BTC', majors?.btc, SAFE_003_BTC_INTRADAY_MAX_PCT);
+  majorCheck('safe-003-eth', 'ETH', majors?.eth, SAFE_003_ETH_INTRADAY_MAX_PCT);
+
+  // ── 1e. SAFE-004: Latenz > 5 s ⇒ Execution pausieren (Circuit Breaker) ──
+  if (typeof context.priceLatencyMs !== 'number') skip('safe-004-latency', 'keine Latenzmessung');
+  else if (context.priceLatencyMs > SAFE_004_MAX_LATENCY_MS) {
+    fail('safe-004-latency', `SAFE-004: Pipeline-Latenz ${(context.priceLatencyMs / 1000).toFixed(1)} s > ${SAFE_004_MAX_LATENCY_MS / 1000} s — Execution pausiert (Circuit Breaker).`);
+  } else pass('safe-004-latency', `${Math.round(context.priceLatencyMs)} ms ≤ ${SAFE_004_MAX_LATENCY_MS} ms`);
+
+  // ── 1f. SAFE-005: Datenintegrität (stale > 5 min · Z-Score > 5) ──
+  // Blueprint: „LOW CONFIDENCE + manuelle Bestätigung". Das Gate läuft NACH der
+  // Bestätigung und kann keine neue einholen ⇒ konservativ: Block mit Hinweis.
+  if (!context.marketData) skip('safe-005-stale', 'keine Kerzen für Symbol/Timeframe');
+  else {
+    const age = state.now.getTime() - context.marketData.lastCandleTs.getTime();
+    const limit = context.marketData.expectedMaxAgeMs + SAFE_005_STALE_TOLERANCE_MS;
+    if (age > limit) {
+      fail('safe-005-stale', `SAFE-005: Marktdaten veraltet (letzte Kerze ${Math.round(age / 60_000)} min alt, erlaubt ${Math.round(limit / 60_000)} min) — LOW CONFIDENCE, manuelle Prüfung nötig.`);
+    } else pass('safe-005-stale', `letzte Kerze ${Math.round(age / 60_000)} min alt (≤ ${Math.round(limit / 60_000)} min)`);
+  }
+  if (typeof context.priceZScore !== 'number') skip('safe-005-zscore', 'zu wenig Historie oder kein Live-Preis');
+  else if (Math.abs(context.priceZScore) > SAFE_005_MAX_ZSCORE) {
+    fail('safe-005-zscore', `SAFE-005: Preis-Z-Score ${context.priceZScore.toFixed(1)} (|z| > ${SAFE_005_MAX_ZSCORE}) — Ausreißer/Datenfehler, LOW CONFIDENCE, manuelle Prüfung nötig.`);
+  } else pass('safe-005-zscore', `|z| ${Math.abs(context.priceZScore).toFixed(1)} ≤ ${SAFE_005_MAX_ZSCORE}`);
+
+  // ── 1g. SAFE-006: Slippage > 1 % einzeln · > 0,3 % Ø ⇒ nur Limit-Orders ──
+  const slips = context.recentSlippagePct;
+  if (!slips || slips.length === 0) skip('safe-006-slippage', 'keine Entry-Fills mit Slippage-Messung im 24-h-Fenster');
+  else {
+    const worst = Math.max(...slips);
+    const avg = slips.reduce((a, b) => a + b, 0) / slips.length;
+    const breached = worst > SAFE_006_MAX_SINGLE_SLIPPAGE_PCT || avg > SAFE_006_MAX_AVG_SLIPPAGE_PCT;
+    const stats = `max ${worst.toFixed(2)} %, Ø ${avg.toFixed(2)} % über ${slips.length} Fill(s)`;
+    if (breached && (order.orderType ?? 'market') === 'market') {
+      fail('safe-006-slippage', `SAFE-006: Slippage ${stats} (Grenzen ${SAFE_006_MAX_SINGLE_SLIPPAGE_PCT} % / Ø ${SAFE_006_MAX_AVG_SLIPPAGE_PCT} %) — nur Limit-Orders zulässig, Market-Entry geblockt.`);
+    } else pass('safe-006-slippage', breached ? `${stats} — Limit-Order zulässig` : stats);
+  }
+
+  // ── 1h. SAFE-008: Price-Collar 2 % (Entry vs. Live-Mark) · max 10 Orders/min ──
+  if (context.markPrice === undefined) skip('safe-008-collar', 'Live-Preis nicht erhoben');
+  else if (context.markPrice === null || !(context.markPrice > 0)) {
+    // Sicherheitskritisch: ohne echten Live-Preis keine Order (kein Raten).
+    fail('safe-008-collar', `SAFE-008: Live-Preis für ${order.symbol} nicht abrufbar — Price-Collar nicht prüfbar, Order geblockt.`);
+  } else {
+    const dev = (Math.abs(order.entry - context.markPrice) / context.markPrice) * 100;
+    if (dev > SAFE_008_PRICE_COLLAR_PCT) {
+      fail('safe-008-collar', `SAFE-008: Price-Collar verletzt — Entry ${order.entry} weicht ${dev.toFixed(2)} % vom Live-Mark ${context.markPrice} ab (> ${SAFE_008_PRICE_COLLAR_PCT} %).`);
+    } else pass('safe-008-collar', `Abweichung ${dev.toFixed(2)} % ≤ ${SAFE_008_PRICE_COLLAR_PCT} %`);
+  }
+  if (typeof context.entryOrdersLastMinute !== 'number') skip('safe-008-rate', 'Order-Rate nicht erhoben');
+  else if (context.entryOrdersLastMinute >= SAFE_008_MAX_ORDERS_PER_MIN) {
+    fail('safe-008-rate', `SAFE-008: ${context.entryOrdersLastMinute} Orders in der letzten Minute — max ${SAFE_008_MAX_ORDERS_PER_MIN} Orders/min.`);
+  } else pass('safe-008-rate', `${context.entryOrdersLastMinute}/${SAFE_008_MAX_ORDERS_PER_MIN} Orders/min`);
+
+  // ── 1i. SAFE-010: Opposite-Trade-Cooldown 5 min · max 3 offene Orders je Asset ──
+  if (context.lastOppositeCloseAt === undefined) skip('safe-010-cooldown', 'Trade-Historie nicht erhoben');
+  else if (context.lastOppositeCloseAt === null) pass('safe-010-cooldown', 'kein Gegenrichtungs-Trade auf dem Symbol');
+  else {
+    const since = state.now.getTime() - context.lastOppositeCloseAt.getTime();
+    if (since < SAFE_010_OPPOSITE_COOLDOWN_MS) {
+      const until = new Date(context.lastOppositeCloseAt.getTime() + SAFE_010_OPPOSITE_COOLDOWN_MS);
+      fail('safe-010-cooldown', `SAFE-010: Opposite-Trade-Cooldown — ${order.symbol} wurde vor ${Math.round(since / 1000)} s in Gegenrichtung geschlossen; frei ab ${until.toISOString()}.`);
+    } else pass('safe-010-cooldown', `letzter Gegenrichtungs-Trade vor ${Math.round(since / 60_000)} min`);
+  }
+  if (typeof context.openEntryOrdersOnSymbol !== 'number') skip('safe-010-open-orders', 'offene Orders nicht erhoben');
+  else if (context.openEntryOrdersOnSymbol >= SAFE_010_MAX_OPEN_ORDERS_PER_ASSET) {
+    fail('safe-010-open-orders', `SAFE-010: ${context.openEntryOrdersOnSymbol} offene Orders auf ${order.symbol} — max ${SAFE_010_MAX_OPEN_ORDERS_PER_ASSET} offene Orders je Asset.`);
+  } else pass('safe-010-open-orders', `${context.openEntryOrdersOnSymbol}/${SAFE_010_MAX_OPEN_ORDERS_PER_ASSET} offene Orders`);
 
   // ── 2. SAFE-001: Verlustlimits Tag/Woche/Monat ──
   if (state.dailyPnlPct <= -settings.dailyLossLimitPct) {
@@ -197,6 +335,14 @@ export function evaluateRisk(
       riskAmount = state.equity * (settings.riskPctPerTrade / 100);
       rawQty = riskAmount / riskDistance;
     }
+
+    // ── 7a. SAFE-007: > 3 Regime-Wechsel / 24 h ⇒ Size −75 % (verkleinert, blockt nicht) ──
+    if (typeof context.regimeChanges24h !== 'number') skip('safe-007-regime', 'keine Regime-Daten für Symbol/Timeframe (24 h)');
+    else if (context.regimeChanges24h > SAFE_007_MAX_REGIME_CHANGES_24H) {
+      rawQty *= SAFE_007_SIZE_FACTOR;
+      riskAmount *= SAFE_007_SIZE_FACTOR;
+      pass('safe-007-regime', `SAFE-007: ${context.regimeChanges24h} Regime-Wechsel in 24 h (> ${SAFE_007_MAX_REGIME_CHANGES_24H}) — Size −75 %.`);
+    } else pass('safe-007-regime', `${context.regimeChanges24h} Regime-Wechsel in 24 h`);
     const qty = roundDownToStep(rawQty, market.lotSize);
     const notional = qty * order.entry;
 

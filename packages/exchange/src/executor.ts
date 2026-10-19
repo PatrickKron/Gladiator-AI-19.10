@@ -1,11 +1,22 @@
-import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
-import { evaluateRisk, noTradeWindowFor, type AdaptiveGate, type RiskVerdict } from '@gladiator/risk';
+import {
+  countRegimeChanges,
+  evaluateRisk,
+  intradayMovePct,
+  noTradeWindowFor,
+  returnZScore,
+  SAFE_006_WINDOW_MS,
+  timeframeToMs,
+  type AdaptiveGate,
+  type RiskContext,
+  type RiskVerdict,
+} from '@gladiator/risk';
 import type { TradingVenue, VenueOrderResult } from './venue.js';
 import { trailStep } from './trailing.js';
 
-const { signals, orders, positions, executedTrades, tradingSettings, riskGates, auditLog, economicEvents, macroSeries } = schema;
+const { signals, orders, positions, executedTrades, tradingSettings, riskGates, auditLog, economicEvents, macroSeries, ohlcv, marketRegimes } = schema;
 
 /**
  * Order-Lifecycle (06_ §5): bestätigtes Signal → Risk-Gate (statisch + adaptiv)
@@ -84,8 +95,11 @@ export async function loadRiskSettings(db: Db, userId: string) {
   };
 }
 
-/** Risk-Kontext: No-Trade-Fenster + aktueller VIX (SAFE-003) aus echten Daten. */
-export async function loadRiskContext(db: Db, now = new Date()) {
+/**
+ * Risk-Kontext (marktweit): No-Trade-Fenster + SAFE-003 (VIX, BTC-/ETH-Intraday)
+ * aus echten Daten. Order-spezifische SAFE-Eingaben: loadOrderRiskInputs.
+ */
+export async function loadRiskContext(db: Db, now = new Date()): Promise<RiskContext> {
   const noTrade = await loadNoTradeWindow(db, now);
   // Jüngster VIX-Punkt (< 5 Tage alt, sonst ehrlich null — SAFE-003 braucht frische Daten)
   const [vixRow] = await db
@@ -95,7 +109,167 @@ export async function loadRiskContext(db: Db, now = new Date()) {
     .orderBy(desc(macroSeries.ts))
     .limit(1);
   const vix = vixRow && now.getTime() - vixRow.ts.getTime() < 5 * 86_400_000 ? Number(vixRow.value) : null;
-  return { noTrade, vix };
+  const majorsIntradayMovePct = {
+    btc: await loadIntradayMovePct(db, 'BTC/USDT', now),
+    eth: await loadIntradayMovePct(db, 'ETH/USDT', now),
+  };
+  return { noTrade, vix, majorsIntradayMovePct };
+}
+
+/**
+ * Regulärer Takt, in dem der Scan-Job Kerzen nachlädt (worker.ts: signal-scan
+ * alle 5 min; universe.ts/ensureCandles lädt nach, sobald die letzte Kerze
+ * ≥ 2 Intervalle alt ist). Erwartetes Höchstalter einer Kerze daher
+ * 2 Intervalle + dieser Takt — SAFE-005 schlägt erst 5 min DARÜBER an.
+ */
+const CANDLE_REFRESH_CADENCE_MS = 5 * 60_000;
+
+/**
+ * SAFE-003: größte Intraday-Auslenkung (% vom UTC-Tages-Open) aus echten
+ * 1h-Kerzen. Keine oder veraltete Kerzen (jüngste > 2 h + Scan-Takt) ⇒ null —
+ * ein Crash nach dem Datenabriss wäre sonst unsichtbar.
+ */
+export async function loadIntradayMovePct(db: Db, symbol: string, now = new Date()): Promise<number | null> {
+  const dayStart = new Date(now);
+  dayStart.setUTCHours(0, 0, 0, 0);
+  const rows = await db
+    .select({ ts: ohlcv.ts, open: ohlcv.open, high: ohlcv.high, low: ohlcv.low, close: ohlcv.close })
+    .from(ohlcv)
+    .where(and(eq(ohlcv.symbol, symbol), eq(ohlcv.timeframe, '1h'), gte(ohlcv.ts, dayStart), lte(ohlcv.ts, now)))
+    .orderBy(asc(ohlcv.ts));
+  const candles = dedupeByTs(rows);
+  const last = candles[candles.length - 1];
+  if (!last || now.getTime() - last.ts.getTime() > 2 * 3_600_000 + CANDLE_REFRESH_CADENCE_MS) return null;
+  return intradayMovePct(candles.map((c) => ({ open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close) })));
+}
+
+/** Mehrere Quellen (venue) können dieselbe Kerze liefern — je Zeitstempel nur eine. */
+function dedupeByTs<T extends { ts: Date }>(rows: T[]): T[] {
+  const seen = new Set<number>();
+  return rows.filter((r) => (seen.has(r.ts.getTime()) ? false : (seen.add(r.ts.getTime()), true)));
+}
+
+/**
+ * Order-spezifische Eingaben für SAFE-004…010 (10_ §5a/§5b) aus ECHTEN Daten:
+ * Live-Mark (+ gemessene Latenz), Kerzen-Frische + Z-Score, Slippage-Historie,
+ * Regime-Wechsel, Order-Rate, offene Orders je Asset, Gegenrichtungs-Cooldown.
+ * Nichts wird erfunden: fehlt etwas, bleibt das Feld null/leer und die
+ * Risk-Engine markiert den Check „übersprungen (Daten fehlen)" — außer beim
+ * Live-Preis: null ⇒ Price-Collar blockt (sicherheitskritisch).
+ */
+export async function loadOrderRiskInputs(
+  db: Db,
+  venue: TradingVenue,
+  p: { userId: string; symbol: string; timeframe: string; direction: 'long' | 'short'; now?: Date },
+): Promise<RiskContext> {
+  const now = p.now ?? new Date();
+
+  // SAFE-004/008: Live-Mark + Latenz der Abfrage (letzter Pipeline-Schritt vor der Order)
+  let markPrice: number | null = null;
+  let priceLatencyMs: number | null = null;
+  try {
+    const t0 = Date.now();
+    const px = await venue.markPrice(p.symbol);
+    if (Number.isFinite(px) && px > 0) {
+      markPrice = px;
+      priceLatencyMs = Date.now() - t0;
+    }
+  } catch {
+    // ehrlich null → Collar blockt
+  }
+
+  // SAFE-005: Kerzen-Frische + Z-Score aus den echten Kerzen des Signal-Timeframes
+  const tfMs = timeframeToMs(p.timeframe);
+  const candleRows = await db
+    .select({ ts: ohlcv.ts, close: ohlcv.close })
+    .from(ohlcv)
+    .where(and(eq(ohlcv.symbol, p.symbol), eq(ohlcv.timeframe, p.timeframe), lte(ohlcv.ts, now)))
+    .orderBy(desc(ohlcv.ts))
+    .limit(60);
+  const candles = dedupeByTs(candleRows).slice(0, 51).reverse();
+  const lastCandle = candles[candles.length - 1];
+  const marketData =
+    lastCandle && tfMs !== null ? { lastCandleTs: lastCandle.ts, expectedMaxAgeMs: 2 * tfMs + CANDLE_REFRESH_CADENCE_MS } : null;
+  const priceZScore = markPrice !== null ? returnZScore(markPrice, candles.map((c) => Number(c.close))) : null;
+
+  // SAFE-006: Slippage der eigenen Entry-Fills im 24-h-Fenster (am Order-Datensatz gemessen)
+  const fills = await db
+    .select({ raw: orders.raw })
+    .from(orders)
+    .where(
+      and(
+        eq(orders.userId, p.userId),
+        eq(orders.type, 'market'),
+        eq(orders.reduceOnly, false),
+        eq(orders.status, 'filled'),
+        gte(orders.createdAt, new Date(now.getTime() - SAFE_006_WINDOW_MS)),
+      ),
+    );
+  const recentSlippagePct = fills
+    .map((f) => Number((f.raw as { slippagePct?: unknown } | null)?.slippagePct))
+    .filter((v) => Number.isFinite(v));
+
+  // SAFE-007: Regime-Wechsel (Symbol/Timeframe) in 24 h, inkl. letztem Stand davor als Basis
+  const windowStart = new Date(now.getTime() - 24 * 3_600_000);
+  const inWindow = await db
+    .select({ regime: marketRegimes.regime })
+    .from(marketRegimes)
+    .where(and(eq(marketRegimes.symbol, p.symbol), eq(marketRegimes.timeframe, p.timeframe), gte(marketRegimes.ts, windowStart), lte(marketRegimes.ts, now)))
+    .orderBy(asc(marketRegimes.ts), asc(marketRegimes.createdAt));
+  let regimeChanges24h: number | null = null;
+  if (inWindow.length > 0) {
+    const [before] = await db
+      .select({ regime: marketRegimes.regime })
+      .from(marketRegimes)
+      .where(and(eq(marketRegimes.symbol, p.symbol), eq(marketRegimes.timeframe, p.timeframe), lt(marketRegimes.ts, windowStart)))
+      .orderBy(desc(marketRegimes.ts), desc(marketRegimes.createdAt))
+      .limit(1);
+    regimeChanges24h = countRegimeChanges([...(before ? [before.regime] : []), ...inWindow.map((r) => r.regime)]);
+  }
+
+  // SAFE-008: risiko-eröffnende Orders der letzten 60 s (Schutz-Orders werden nie gedrosselt)
+  const [rate] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(orders)
+    .where(and(eq(orders.userId, p.userId), eq(orders.reduceOnly, false), gte(orders.createdAt, new Date(now.getTime() - 60_000))));
+
+  // SAFE-010: offene Entry-Orders auf dem Asset + letzter Gegenrichtungs-Schluss
+  const [open] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(orders)
+    .where(
+      and(
+        eq(orders.userId, p.userId),
+        eq(orders.symbol, p.symbol),
+        eq(orders.reduceOnly, false),
+        inArray(orders.status, ['pending', 'open', 'partially_filled']),
+      ),
+    );
+  const [opposite] = await db
+    .select({ exitTs: executedTrades.exitTs })
+    .from(executedTrades)
+    .where(
+      and(
+        eq(executedTrades.userId, p.userId),
+        eq(executedTrades.symbol, p.symbol),
+        eq(executedTrades.direction, p.direction === 'long' ? 'short' : 'long'),
+        isNotNull(executedTrades.exitTs),
+      ),
+    )
+    .orderBy(desc(executedTrades.exitTs))
+    .limit(1);
+
+  return {
+    markPrice,
+    priceLatencyMs,
+    marketData,
+    priceZScore,
+    recentSlippagePct,
+    regimeChanges24h,
+    entryOrdersLastMinute: rate?.n ?? 0,
+    openEntryOrdersOnSymbol: open?.n ?? 0,
+    lastOppositeCloseAt: opposite?.exitTs ?? null,
+  };
 }
 
 /** Aktives No-Trade-Fenster aus ECHTEN Kalender-Events (High-Impact ± 30 min). */
@@ -148,8 +322,10 @@ export async function executeConfirmedSignal(
      * Kontext (No-Trade-Fenster aus dem Live-Kalender, aktueller VIX). Nur
      * Integrationstests injizieren hier einen deterministischen Kontext, damit
      * ein zufällig aktives Kalender-Fenster den Lifecycle-Test nicht kippt.
+     * Ersetzt NUR den marktweiten Kontext — die order-spezifischen SAFE-Eingaben
+     * (Live-Mark/Collar, Order-Rate, Cooldown …) werden IMMER echt erhoben.
      */
-    riskContext?: Awaited<ReturnType<typeof loadRiskContext>>;
+    riskContext?: RiskContext;
     /**
      * Optionaler Positionsgröße-Override (Risiko % je Trade) — genutzt von
      * Sub-Agenten mit eigenem Risk-Budget. Die HARTEN Grenzen (Leverage,
@@ -186,6 +362,14 @@ export async function executeConfirmedSignal(
   const state = await buildAccountState(db, opts.userId);
   const gates = await loadActiveGates(db);
   const rules = await venue.marketRules(signal.symbol);
+  // SAFE-004…010: order-spezifische Eingaben aus echten Daten (Live-Mark, Rate, Cooldown …)
+  const orderRiskInputs = await loadOrderRiskInputs(db, venue, {
+    userId: opts.userId,
+    symbol: signal.symbol,
+    timeframe: signal.timeframe,
+    direction: signal.direction,
+    now: state.now,
+  });
 
   // User-Anpassungen (Betrag/Hebel/SL/TP) — Strategie-Vorschlag bleibt Referenz.
   const effectiveStopLoss = opts.overrides?.stopLoss ?? Number(signal.stopLoss);
@@ -213,7 +397,7 @@ export async function executeConfirmedSignal(
     state,
     rules,
     gates,
-    opts.riskContext ?? (await loadRiskContext(db)),
+    { ...(opts.riskContext ?? (await loadRiskContext(db))), ...orderRiskInputs },
   );
 
   await db.insert(auditLog).values({
@@ -297,6 +481,14 @@ export async function executeConfirmedSignal(
     price: String(entryRes.fillPrice),
     status: 'filled',
     mode: 'paper',
+    // SAFE-006: echte Slippage = Fill vs. Live-Mark direkt vor der Order (Basis der Historie)
+    raw:
+      typeof orderRiskInputs.markPrice === 'number'
+        ? {
+            expectedPrice: orderRiskInputs.markPrice,
+            slippagePct: (Math.abs(entryRes.fillPrice - orderRiskInputs.markPrice) / orderRiskInputs.markPrice) * 100,
+          }
+        : null,
   });
 
   // ── Position ──
