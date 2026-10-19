@@ -1,4 +1,4 @@
-import { trailStep, type Candle, type SetupCandidate } from '@gladiator/strategy-engine';
+import { tpFractions, trailStep, type Candle, type SetupCandidate } from '@gladiator/strategy-engine';
 import { computeMetrics, type Metrics } from './metrics.js';
 
 /**
@@ -10,7 +10,9 @@ import { computeMetrics, type Metrics } from './metrics.js';
  * - Funding: historische Settlements (fundingSeries) oder flaches Modell.
  * - ALLE Ergebnisse netto: Gebühren je Fill, Slippage auf Fill-Preise,
  *   Funding über die Haltezeit. Ohne Kostenmodell läuft kein Lauf (Pflicht).
- * - Teil-Exits nach TP-Gewichten; nach TP1 Stop auf Break-Even (decker S010).
+ * - Teil-Exits nach TP-Gewichten (Setup.tpWeights aus der DSL hat Vorrang vor
+ *   config.tpWeights); nach TP1 Stop auf Break-Even (decker S010), außer das
+ *   Setup schaltet es ab (breakEvenAfterTp1 = false) — live identisch.
  * - Optionaler Trailing-Stop (Setup.trailPct oder config.trailPct): nach jeder
  *   ABGESCHLOSSENEN Kerze nachziehen (gilt ab der Folge-Kerze — kein Intrabar-
  *   Look-ahead), nur verschärfen; dieselbe trailStep-Funktion wie live.
@@ -45,7 +47,12 @@ export const ZERO_COSTS: CostModel = {
 };
 
 /** Minimales Setup-Shape, das die Engine braucht (SetupCandidate und DslSetup erfüllen es). */
-export type EvaluatorSetup = Omit<SetupCandidate, 'brokenLevel' | 'structureKind'>;
+export type EvaluatorSetup = Omit<SetupCandidate, 'brokenLevel' | 'structureKind'> & {
+  /** Teil-Exit-Gewichte je TP aus der Strategie (DSL); fehlt = config.tpWeights. */
+  tpWeights?: number[];
+  /** false = Stop nach TP1 NICHT auf Break-Even ziehen; fehlt/true = BE (Default). */
+  breakEvenAfterTp1?: boolean;
+};
 export type Evaluator = (candles: Candle[], i: number) => EvaluatorSetup[];
 
 export type BacktestConfig = {
@@ -125,16 +132,8 @@ const TP_SCHEMAS: Record<'A' | 'B' | 'C' | 'D', number[] | 'runner'> = {
   D: 'runner',
 };
 
-/** Gewichte auf die tatsächlich vorhandenen TPs verteilen (Restgewicht auf letzten TP). */
-function weightsFor(weights: number[], tpCount: number): number[] {
-  if (tpCount >= weights.length) {
-    return [...weights, ...Array(tpCount - weights.length).fill(0)];
-  }
-  const out = weights.slice(0, tpCount);
-  const rest = weights.slice(tpCount).reduce((a, b) => a + b, 0);
-  out[out.length - 1]! += rest;
-  return out;
-}
+/** Gewichte auf die tatsächlich vorhandenen TPs verteilen — dieselbe Funktion wie der Live-Executor. */
+const weightsFor = tpFractions;
 
 /** R-Ergebnis eines Schemas aus dem beobachteten Trade-Pfad (in R-Einheiten, brutto). */
 function schemaR(tpRsHit: number[], totalTps: number, stoppedAfter: number, schema: number[] | 'runner', beAfterTp1: boolean): number {
@@ -196,7 +195,8 @@ export function runBacktest(candles: Candle[], config: BacktestConfig): Backtest
     let grossPnl = 0;
     let remaining = 1; // Anteil der Position
     let stop = setup.stopLoss;
-    const weights = weightsFor(tpWeights, setup.takeProfits.length);
+    const weights = weightsFor(setup.tpWeights ?? tpWeights, setup.takeProfits.length);
+    const breakEvenAfterTp1 = setup.breakEvenAfterTp1 !== false;
     const tpRs = setup.takeProfits.map((tp) => (tp - entryFill) / riskDistance * dirSign);
     let tpIdx = 0;
     const tpRsHit: number[] = [];
@@ -250,8 +250,9 @@ export function runBacktest(candles: Candle[], config: BacktestConfig): Backtest
         exitPrice = tp;
         tpIdx++;
         // decker S010: nach TP1 Stop auf Break-Even — nur verschärfen (ein schon
-        // nachgezogener Trailing-Stop darf dadurch nie lockerer werden)
-        if (tpIdx === 1) {
+        // nachgezogener Trailing-Stop darf dadurch nie lockerer werden).
+        // Abschaltbar per DSL breakEvenAfterTp1 = false (live identisch).
+        if (tpIdx === 1 && breakEvenAfterTp1) {
           const tighter = dirSign === 1 ? Math.max(stop, entryFill) : Math.min(stop, entryFill);
           if (tighter !== stop) {
             stop = tighter;
@@ -311,7 +312,8 @@ export function runBacktest(candles: Candle[], config: BacktestConfig): Backtest
 
     const netPnl = grossPnl - fees - funding;
     const totalTps = setup.takeProfits.length;
-    const beAfter = tpRsHit.length >= 1;
+    // Schema-Simulationen folgen derselben BE-Regel wie der echte Trade-Pfad
+    const beAfter = breakEvenAfterTp1 && tpRsHit.length >= 1;
 
     trades.push({
       entryTs,
