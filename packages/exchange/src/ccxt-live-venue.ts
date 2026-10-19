@@ -103,14 +103,22 @@ function mapStatus(s: string | undefined): OrderState['status'] {
 
 export class CcxtLiveVenue implements TradingVenue {
   readonly id: string;
-  readonly kind = 'live' as const;
+  readonly kind: 'live' | 'testnet';
   readonly exchangeId: string;
   private readonly client: CcxtLiveClient;
   private readonly profile: ExchangeProfile;
   private marketsLoaded = false;
 
-  constructor(cfg: { connectionId: string; exchangeId: string; client: CcxtLiveClient }) {
-    this.id = `live:${cfg.connectionId}`;
+  constructor(cfg: {
+    connectionId: string;
+    exchangeId: string;
+    client: CcxtLiveClient;
+    /** Nur für Testnet/Demo-Venues mit fester ID (z. B. 'binance-testnet'). */
+    id?: string;
+    kind?: 'live' | 'testnet';
+  }) {
+    this.id = cfg.id ?? `live:${cfg.connectionId}`;
+    this.kind = cfg.kind ?? 'live';
     this.exchangeId = cfg.exchangeId;
     this.client = cfg.client;
     this.profile = PROFILES[cfg.exchangeId] ?? DEFAULT_PROFILE;

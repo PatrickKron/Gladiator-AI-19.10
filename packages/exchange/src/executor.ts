@@ -935,7 +935,7 @@ async function replaceProtectionOrder(
   }
   if (row.exchangeOrderId) {
     try {
-      await venue.cancelOrder(pos.symbol, row.exchangeOrderId);
+      await venue.cancelOrder(pos.symbol, row.exchangeOrderId, { trigger: true }); // Schutz-Order = Trigger-Order
     } catch (err) {
       console.warn(`[protection] Storno ${row.clientOrderId} fehlgeschlagen: ${String(err)}`);
     }
@@ -1082,7 +1082,7 @@ export async function closePositionManually(
   // Schutz-Orders auch an der Venue entfernen (Paper: No-op); die DB-Stornierung macht closePaperPosition.
   for (const o of openProt.filter((x) => x.exchangeOrderId)) {
     try {
-      await venue.cancelOrder(pos.symbol, o.exchangeOrderId!);
+      await venue.cancelOrder(pos.symbol, o.exchangeOrderId!, { trigger: true });
     } catch (err) {
       console.warn(`[close-manual] Storno ${o.clientOrderId} fehlgeschlagen: ${String(err)}`);
     }
