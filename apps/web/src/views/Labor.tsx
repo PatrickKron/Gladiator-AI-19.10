@@ -371,7 +371,7 @@ export function Labor() {
 
   return (
     <div>
-      <PageHeader title={t('lab.title')} />
+      <PageHeader title={t('ia.page_lab')} subtitle={t('ia.desc_lab')} />
 
       {/* ── Lauf-Konfiguration ── */}
       <section className="glass reveal p-6" style={{ '--stagger': 1 } as React.CSSProperties}>

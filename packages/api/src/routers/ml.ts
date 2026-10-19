@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
 import { getOhlcv } from '@gladiator/market-data';
@@ -373,6 +373,7 @@ export const mlRouter = router({
         returnPct: mlLabels.returnPct,
         signalDirection: mlLabels.signalDirection,
         signalType: mlLabels.signalType,
+        hasFeatures: sql<boolean>`${mlLabels.features} IS NOT NULL`,
       })
         .from(mlLabels)
         .where(conditions.length > 0 ? and(...conditions) : undefined);
@@ -383,6 +384,8 @@ export const mlRouter = router({
 
       return {
         total,
+        /** Trainierbar = mit Feature-Vektor (nur diese zählen fürs Training). */
+        usable: labels.filter(l => l.hasFeatures).length,
         wins,
         losses,
         winRate: total > 0 ? wins / total : null,

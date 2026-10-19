@@ -6,6 +6,7 @@ import { SignalListRow } from '../components/SignalListRow.js';
 import { ErrorBox, Loading, PageHeader } from '../components/ui.js';
 import { DEFAULT_FILTERS, type SignalFilters } from '../lib/signal-filters.js';
 import { decodeListFilters, encodeListFilters, splitByExpiry } from '../lib/signal-list.js';
+import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 
 /**
  * Signals (09_ §3.2) — Umbau 2026-07-09 nach Patricks Feedback („unübersichtlich,
@@ -88,8 +89,8 @@ export function Signals() {
     window.history.replaceState(null, '', '#/signals' + (q ? '?' + q : ''));
     setRows(null);
     void load(filters);
-    const timer = window.setInterval(() => void load(filters), 30_000);
-    return () => window.clearInterval(timer);
+    const timer = setVisibleInterval(() => void load(filters), 30_000);
+    return () => clearVisibleInterval(timer);
   }, [filters]);
 
   const symbols = useMemo(() => {

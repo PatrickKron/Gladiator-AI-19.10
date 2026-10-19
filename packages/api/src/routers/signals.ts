@@ -254,7 +254,18 @@ export const signalsRouter = router({
         input.overrides?.stopLoss !== undefined ||
         (input.overrides?.takeProfits?.length ?? 0) > 0;
 
-      const execution = await executeConfirmedSignal(ctx.db, ctx.venue, {
+      // Wirft die Ausführung (Netzfehler bei Marktregeln, DB-Konflikt …), darf
+      // das Signal NICHT in 'confirmed' hängen bleiben — dort wäre es weder
+      // erneut bestätig- noch ablehnbar. Zurück auf 'new', Fehler an die UI.
+      const resetToNew = () =>
+        ctx.db
+          .update(signals)
+          .set({ status: 'new', updatedAt: new Date() })
+          .where(and(eq(signals.id, updated.id), eq(signals.status, 'confirmed')));
+
+      let execution: Awaited<ReturnType<typeof executeConfirmedSignal>>;
+      try {
+        execution = await executeConfirmedSignal(ctx.db, ctx.venue, {
         signalId: updated.id,
         userId: ctx.user.id,
         ip: ctx.ip,
@@ -268,14 +279,18 @@ export const signalsRouter = router({
               },
             }
           : {}),
-      });
+        });
+      } catch (err) {
+        await resetToNew();
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Ausführung fehlgeschlagen — Signal bleibt offen: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
 
       if (!execution.executed) {
         // Gate hat geblockt → Signal bleibt handlungsfähig ('new'), Gründe an die UI
-        await ctx.db
-          .update(signals)
-          .set({ status: 'new', updatedAt: new Date() })
-          .where(eq(signals.id, updated.id));
+        await resetToNew();
       }
 
       return {

@@ -18,6 +18,8 @@ type ModelRow = {
 
 type LabelStats = {
   total: number;
+  /** Labels mit Feature-Vektor — nur diese sind trainierbar. */
+  usable: number;
   wins: number;
   losses: number;
   winRate: number | null;
@@ -69,21 +71,21 @@ export function MlModels({ embedded = false }: { embedded?: boolean }) {
       {loadError && <ErrorBox message={`${t('ml.loadError')}: ${loadError}`} />}
 
       {/* Label-Fortschritt, solange noch kein Training möglich ist (ehrliche Pipeline-Sicht) */}
-      {stats && stats.total < 30 && (
+      {stats && stats.usable < 30 && (
         <Panel label={t('ml.labelProgressTitle')} stagger={1} className="mb-5">
           <p className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--color-mut)' }}>
-            {t('ml.labelProgress', { n: stats.total })}
+            {t('ml.labelProgress', { n: stats.usable })}
           </p>
           <div className="mt-3 h-2 w-full max-w-sm overflow-hidden rounded" style={{ background: 'rgba(255,255,255,0.06)' }}>
             <div
               className="h-full rounded"
               style={{
-                width: `${Math.min(100, (stats.total / 30) * 100)}%`,
+                width: `${Math.min(100, (stats.usable / 30) * 100)}%`,
                 background: 'linear-gradient(90deg, rgba(46,124,246,0.7), rgba(139,92,246,0.5))',
               }}
             />
           </div>
-          <p className="label mt-2">{stats.total} / 30</p>
+          <p className="label mt-2">{stats.usable} / 30</p>
         </Panel>
       )}
 

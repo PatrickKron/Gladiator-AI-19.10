@@ -152,6 +152,10 @@ export const positions = pgTable(
     leverage: numeric('leverage').notNull().default('1'),
     liquidationPrice: numeric('liquidation_price'),
     unrealizedPnl: numeric('unrealized_pnl'),
+    /** Trailing-Stop-Abstand in % (null = aus). Der Monitor zieht den Stop nur enger. */
+    trailPct: numeric('trail_pct'),
+    /** Bester Kurs seit Aktivierung des Trailing-Stops (Long: Hoch, Short: Tief). */
+    trailPeak: numeric('trail_peak'),
     mode: tradeModeEnum('mode').notNull().default('paper'),
     openedAt: timestamp('opened_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

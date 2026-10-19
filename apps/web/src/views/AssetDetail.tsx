@@ -6,15 +6,14 @@ import { AssetChart } from '../components/AssetChart.js';
 import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
 import { MlInsights } from '../components/MlInsights.js';
 import { FavStarSymbol } from '../components/FavStar.js';
-import { MacroPanels } from '../components/MacroPanels.js';
-import { RiskPanels } from '../components/RiskPanels.js';
 import { ASSET_TABS, buildAssetUrl, parseChartHash, type AssetTab } from '../lib/chart-url.js';
 import { parseTab } from '../lib/tab-hash.js';
 
 /**
- * Asset-Detailseite (P2.9): führt Charts + Oracle + Aegis in EINER Seite mit Tabs
- * zusammen (Chart · Kontext · Makro · Risiko). Deep-Link:
- * `#/charts?symbol=ETH/USDT&tf=4h&tab=makro`. Asset-Wahl teilt localStorage mit
+ * Asset-Detailseite (P2.9): Chart + Kontext eines Assets. Makro und Risiko
+ * zeigen globale Daten und liegen deshalb in der Marktlage (#/marktlage);
+ * alte Links mit tab=makro/risiko leitet lib/navigation.ts dorthin um.
+ * Deep-Link: `#/charts?symbol=ETH/USDT&tf=4h&tab=kontext`. Asset-Wahl teilt localStorage mit
  * den (umgeleiteten) Alt-Routen; aktiver Tab + Symbol liegen im URL-Hash.
  */
 export function AssetDetail() {
@@ -34,10 +33,12 @@ export function AssetDetail() {
     setSelectedAsset(sym);
     setAsset(sym);
     window.history.replaceState(null, '', buildAssetUrl(sym, tab));
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
   }
   function changeTab(tb: AssetTab) {
     setTab(tb);
     window.history.replaceState(null, '', buildAssetUrl(asset, tb));
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
   }
 
   // Auf Hash-Wechsel reagieren (Command-Palette, Redirects, Deep-Links).
@@ -60,17 +61,8 @@ export function AssetDetail() {
 
   return (
     <div>
-      {/* Breadcrumb (P2.10) */}
-      <nav className="reveal mb-2 flex items-center gap-1.5 text-xs" style={{ color: 'var(--color-mut)' }}>
-        <a href="#/" className="hover:underline">{t('nav.dashboard')}</a>
-        <span>›</span>
-        <span className="num" style={{ color: 'var(--color-ink)' }}>{asset}</span>
-        <span>›</span>
-        <span>{t(`asset.tab_${tab}`)}</span>
-      </nav>
-
       <PageHeader
-        title={t('asset.title')}
+        title={t('ia.page_chart')}
         subtitle={t('asset.subtitle')}
         right={
           <div className="flex items-center gap-3">
@@ -115,8 +107,6 @@ export function AssetDetail() {
           <MlInsights symbol={asset} />
         </Panel>
       )}
-      {tab === 'makro' && <MacroPanels />}
-      {tab === 'risiko' && <RiskPanels />}
     </div>
   );
 }

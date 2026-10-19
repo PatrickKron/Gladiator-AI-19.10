@@ -2,7 +2,15 @@ import { TRPCError } from '@trpc/server';
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
-import { buildAccountState, loadActiveGates, loadRiskContext, loadRiskSettings, PAPER_START_EQUITY } from '@gladiator/exchange';
+import {
+  buildAccountState,
+  closePositionManually,
+  loadActiveGates,
+  loadRiskContext,
+  loadRiskSettings,
+  PAPER_START_EQUITY,
+  updateProtection,
+} from '@gladiator/exchange';
 import { evaluateRisk } from '@gladiator/risk';
 import { protectedProcedure, router } from '../trpc.js';
 
@@ -54,6 +62,14 @@ export const tradingRouter = router({
       .from(positions)
       .where(eq(positions.userId, ctx.user.id))
       .orderBy(desc(positions.openedAt));
+    if (rows.length === 0) return [];
+
+    // Orders dieser Positionen (offene Schutz-Orders + gefüllte Ausstiege) in EINER Abfrage;
+    // Zuordnung je Position wie im Executor: gleiches Symbol/Venue, erstellt ab Eröffnung.
+    const userOrders = await ctx.db
+      .select()
+      .from(orders)
+      .where(and(eq(orders.userId, ctx.user.id), inArray(orders.status, ['open', 'filled']), eq(orders.reduceOnly, true)));
 
     // Unrealisierter PnL gegen den ECHTEN Live-Preis (kein Cache-Fake)
     const out = [];
@@ -64,22 +80,76 @@ export const tradingRouter = router({
       } catch {
         mark = null; // ehrlich: Preis gerade nicht verfügbar
       }
+      const own = userOrders.filter((o) => o.symbol === p.symbol && o.venue === p.venue && o.createdAt >= p.openedAt);
+      const exitedQty = own.filter((o) => o.status === 'filled').reduce((n, o) => n + Number(o.qty), 0);
       const entry = Number(p.entryPrice);
       const qty = Number(p.qty);
+      // Nach Teil-Gewinnmitnahmen (TP1/TP2) ist nur noch die Restmenge offen.
+      const openQty = Math.max(0, qty - exitedQty);
       const sign = p.direction === 'long' ? 1 : -1;
+      const prot = own.filter((o) => o.status === 'open');
+      const sl = prot.find((o) => o.type === 'stop_market');
       out.push({
         id: p.id,
         symbol: p.symbol,
         direction: p.direction,
         qty,
+        openQty,
         entryPrice: entry,
         openedAt: p.openedAt.toISOString(),
         markPrice: mark,
-        unrealizedPnl: mark === null ? null : (mark - entry) * qty * sign,
+        unrealizedPnl: mark === null ? null : (mark - entry) * openQty * sign,
+        stopLoss: sl ? { orderId: sl.id, price: Number(sl.price) } : null,
+        takeProfits: prot
+          .filter((o) => o.type === 'take_profit_market')
+          .map((o) => ({ orderId: o.id, price: Number(o.price), qty: Number(o.qty) }))
+          .sort((a, b) => (a.price - b.price) * sign),
+        /** Trailing-Stop-Abstand in % (null = aus). */
+        trailPct: p.trailPct === null ? null : Number(p.trailPct),
+        /** Herkunft: von einem eigenen Agenten eröffnet (sonst aus einem bestätigten Signal). */
+        subAgentId: p.subAgentId,
       });
     }
     return out;
   }),
+
+  /**
+   * Position manuell (teil-)schließen (Mensch im Loop): echte reduceOnly-Gegen-Order
+   * an der aktiven Venue (ohne qty: die ganze Restmenge), Netto-Abrechnung,
+   * Schutz-Orders storniert bzw. auf den Rest angepasst, Audit. Fehler als Code (`position:<reason>`) → UI übersetzt.
+   */
+  closePosition: protectedProcedure
+    .input(z.object({ positionId: z.string().uuid(), qty: z.number().positive().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.venue) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'position:no_venue' });
+      const r = await closePositionManually(ctx.db, ctx.venue, ctx.user.id, input.positionId, ctx.ip, { qty: input.qty });
+      if (!r.closed && !r.partial) {
+        throw new TRPCError({ code: r.reason === 'not_found' ? 'NOT_FOUND' : 'PRECONDITION_FAILED', message: `position:${r.reason}` });
+      }
+      return r;
+    }),
+
+  /** SL/TP ändern und Trailing-Stop schalten — neue Schutz-Order zuerst, dann Storno; Stop weiten nur mit confirmWiden. */
+  updateProtection: protectedProcedure
+    .input(
+      z.object({
+        positionId: z.string().uuid(),
+        stopLoss: z.number().positive().optional(),
+        takeProfits: z.array(z.object({ orderId: z.string().uuid(), price: z.number().positive() })).max(3).optional(),
+        confirmWiden: z.boolean().optional(),
+        /** Trailing-Stop in % (0,1–50), null = aus. */
+        trailPct: z.number().min(0.1).max(50).nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.venue) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'position:no_venue' });
+      const { positionId, ...change } = input;
+      const r = await updateProtection(ctx.db, ctx.venue, ctx.user.id, positionId, change, ctx.ip);
+      if (!r.ok) {
+        throw new TRPCError({ code: r.reason === 'not_found' ? 'NOT_FOUND' : 'PRECONDITION_FAILED', message: `position:${r.reason}` });
+      }
+      return r;
+    }),
 
   protectionOrders: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db

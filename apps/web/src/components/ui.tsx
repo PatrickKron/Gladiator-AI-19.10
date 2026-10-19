@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 /** Gemeinsame UI-Bausteine (Design-System v2 Neon-Dual) — Loading/Empty/Error/NotConnected sind Pflicht-States (09_ §1). */
@@ -97,4 +97,72 @@ export function fmtNum(n: number, digits = 2): string {
 
 export function fmtMoney(n: number): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Tab-Leiste (einheitlich auf allen Seiten): Unterstrich-Stil, horizontal scrollbar auf Mobile. */
+export function TabBar<T extends string>({
+  tabs,
+  active,
+  onChange,
+  label,
+}: {
+  tabs: readonly { id: T; label: string }[];
+  active: T;
+  onChange: (id: T) => void;
+  label?: string;
+}) {
+  return (
+    <div role="tablist" aria-label={label} className="mb-5 flex gap-1 overflow-x-auto border-b" style={{ borderColor: 'var(--color-line)' }}>
+      {tabs.map((tb) => (
+        <button
+          key={tb.id}
+          role="tab"
+          aria-selected={active === tb.id}
+          onClick={() => onChange(tb.id)}
+          className="shrink-0 border-b-2 px-4 py-2 text-sm transition-colors"
+          style={active === tb.id ? { borderColor: 'var(--color-cyan)', color: 'var(--color-ink)' } : { borderColor: 'transparent', color: 'var(--color-mut)' }}
+        >
+          {tb.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Ladefehler sichtbar machen statt sie als „leer" zu tarnen: `fail(name, fallback)`
+ * als catch-Handler setzt den leeren Zustand UND merkt sich die Quelle.
+ * <LoadFailures> zeigt dann ehrlich, was fehlt — mit „Erneut versuchen".
+ */
+export function useLoadFailures() {
+  const [failed, setFailed] = useState<string[]>([]);
+  const fail = useCallback(
+    (name: string, fallback?: () => void) => (err: unknown) => {
+      fallback?.();
+      console.warn(`[load] ${name}:`, err);
+      setFailed((f) => (f.includes(name) ? f : [...f, name]));
+    },
+    [],
+  );
+  const reset = useCallback(() => setFailed([]), []);
+  return { failed, fail, reset };
+}
+
+export function LoadFailures({ failed, onRetry }: { failed: string[]; onRetry: () => void }) {
+  const { t } = useTranslation();
+  if (failed.length === 0) return null;
+  return (
+    <div
+      role="alert"
+      className="glass mb-5 flex flex-wrap items-center justify-between gap-3 p-4 text-sm"
+      style={{ borderColor: 'rgba(255,92,108,0.4)' }}
+    >
+      <span style={{ color: 'var(--color-neg)' }}>
+        {t('ia.loadFailed', { n: failed.length })} <span className="num text-xs" style={{ color: 'var(--color-mut)' }}>({failed.join(', ')})</span>
+      </span>
+      <button onClick={onRetry} className="rounded-[0.625rem] border px-3 py-1.5 text-xs" style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink)' }}>
+        {t('common.retry')}
+      </button>
+    </div>
+  );
 }

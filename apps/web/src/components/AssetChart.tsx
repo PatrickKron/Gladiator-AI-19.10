@@ -26,6 +26,8 @@ import {
   type IndicatorConfig,
 } from '../lib/indicators.js';
 import { ChartIndicatorPanel, type PineStrategy } from './ChartIndicatorPanel.js';
+import { applyTick, liveBarSeconds, type Bar } from '../lib/live-candle.js';
+import { ensurePriceStream, onTick } from '../lib/prices.js';
 
 /**
  * Voll-Chart mit Indikatoren (Krypto-Charting):
@@ -447,6 +449,23 @@ export function AssetChart({
     });
     candle.setData(data.candles as never);
 
+    // Live: echte SSE-Ticks bewegen die letzte Kerze (wie TradingView) —
+    // nur für Symbole im Live-Feed; ohne Ticks bleibt der geladene Stand.
+    let lastBar = data.candles[data.candles.length - 1] as Bar | undefined;
+    const barSec = liveBarSeconds(tf);
+    if (lastBar) {
+      ensurePriceStream();
+      cleanups.push(
+        onTick((tick) => {
+          if (tick.symbol !== symbol || !lastBar) return;
+          const next = applyTick(lastBar, tick.price, Date.parse(tick.ts) || Date.now(), barSec);
+          if (!next) return;
+          lastBar = next;
+          candle.update(next as never);
+        }),
+      );
+    }
+
     // Volumen (Overlay unten)
     if (toggles.volume) {
       const vol = price.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol' });
@@ -704,7 +723,7 @@ export function AssetChart({
         }
       }
     };
-  }, [state, data, toggles, tf, levels, activeZones, signals, warmupInfo, t, customSeries, strategySignals, indCfg]);
+  }, [state, data, toggles, tf, levels, activeZones, signals, warmupInfo, t, customSeries, strategySignals, indCfg, symbol]);
 
   const chip = (key: ToggleKey, label: string) => (
     <button

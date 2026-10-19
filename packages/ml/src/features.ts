@@ -48,7 +48,9 @@ export const FEATURE_NAMES: (keyof FeatureVector)[] = [
   'regime',
 ];
 
-const MIN_CANDLES = 220;
+/** Mindest-Historie für einen Feature-Vektor (EMA200 + Puffer). */
+export const FEATURE_MIN_CANDLES = 220;
+const MIN_CANDLES = FEATURE_MIN_CANDLES;
 
 function logReturn(current: number, previous: number): number {
   if (previous <= 0 || current <= 0) return 0;

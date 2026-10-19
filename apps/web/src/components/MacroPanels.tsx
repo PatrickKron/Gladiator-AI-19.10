@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
-import { Loading, NotConnected, Panel } from './ui.js';
+import { LoadFailures, Loading, NotConnected, Panel, useLoadFailures } from './ui.js';
 import { Sparkline } from './Sparkline.js';
 
 /**
@@ -47,12 +47,15 @@ export function MacroPanels() {
   const [hist, setHist] = useState<GrsHist>([]);
   const [cot, setCot] = useState<Cot>([]);
 
-  useEffect(() => {
-    void trpc.market.macro.query().then(setMacro).catch(() => setMacro(null));
-    void trpc.market.derivatives.query().then(setDeriv).catch(() => setDeriv([]));
-    void trpc.market.grsHistory.query().then(setHist).catch(() => setHist([]));
-    void trpc.intelligence.cotSnapshot.query({}).then(setCot).catch(() => setCot([]));
-  }, []);
+  const { failed, fail, reset } = useLoadFailures();
+  const load = useCallback(() => {
+    reset();
+    void trpc.market.macro.query().then(setMacro).catch(fail('market.macro', () => setMacro(null)));
+    void trpc.market.derivatives.query().then(setDeriv).catch(fail('market.derivatives', () => setDeriv([])));
+    void trpc.market.grsHistory.query().then(setHist).catch(fail('market.grsHistory', () => setHist([])));
+    void trpc.intelligence.cotSnapshot.query({}).then(setCot).catch(fail('intelligence.cotSnapshot', () => setCot([])));
+  }, [fail, reset]);
+  useEffect(() => load(), [load]);
 
   const cotRows = cot.filter((c) => c.weeks > 0);
 
@@ -61,6 +64,7 @@ export function MacroPanels() {
 
   return (
     <div>
+      <LoadFailures failed={failed} onRetry={load} />
       {/* GRS-Zentrum: Ring + Verlauf */}
       <Panel stagger={1} className="relative overflow-hidden">
         {macro === null ? (

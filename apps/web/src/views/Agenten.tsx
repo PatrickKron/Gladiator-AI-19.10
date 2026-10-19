@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
+import { FeatureCard } from './Funktionen.js';
+import { NAV_PAGES } from '../lib/navigation.js';
 
 /**
  * Agenten-Übersicht (Phase 5/6): EIGENE Agenten des Users (Werkstatt/RL, mit
@@ -145,6 +147,18 @@ export function Agenten() {
 
       {/* Eigene Agenten zuerst — inkl. Erstellen-Einstieg (Werkstatt/RL) */}
       <MyAgentsPanel />
+
+      {/* Werkzeuge: aus der Funktions-Registry — neue Agenten-Werkzeuge erscheinen automatisch */}
+      <section className="reveal mt-5" style={{ '--stagger': 2 } as React.CSSProperties}>
+        <h2 className="label mb-3">{t('ia.toolsTitle')}</h2>
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+          {NAV_PAGES
+            .filter((p) => p.area === 'agents' && p.id !== 'agents')
+            .map((p) => (
+              <FeatureCard key={p.id} page={p} />
+            ))}
+        </div>
+      </section>
 
       {status === null ? (
         <div className="glass mt-5 p-6">
