@@ -3,6 +3,7 @@ import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { evaluateRisk, noTradeWindowFor, type AdaptiveGate, type RiskVerdict } from '@gladiator/risk';
 import type { TradingVenue, VenueOrderResult } from './venue.js';
+import { trailStep } from './trailing.js';
 
 const { signals, orders, positions, executedTrades, tradingSettings, riskGates, auditLog, economicEvents, macroSeries } = schema;
 
@@ -419,6 +420,13 @@ export async function monitorOpenPositions(db: Db, venue: TradingVenue): Promise
       );
     if (prot.length === 0) continue;
 
+    // Trailing-Stop: Stop vor der Fill-Prüfung nachziehen (nur verschärfen).
+    if (pos.trailPct !== null) {
+      const slIdx = prot.findIndex((o) => o.type === 'stop_market');
+      const moved = await applyTrailing(db, venue, pos, prot[slIdx], price);
+      if (slIdx >= 0 && moved) prot[slIdx] = moved;
+    }
+
     const planned = planFills(
       pos.direction,
       prot.map((o) => ({
@@ -608,21 +616,117 @@ function manualOrderId(prefix: 'm' | 'r', id: string): string {
   return `gld-${prefix}-${id.slice(0, 18)}-${Date.now().toString(36)}`;
 }
 
+type OrderRow = typeof orders.$inferSelect;
+type PositionRow = typeof positions.$inferSelect;
+
+/**
+ * Schutz-Order ersetzen (neuer Preis und/oder neue Menge): NEUE Order zuerst
+ * an der Venue, dann Storno der alten — die Position ist dabei nie
+ * ungeschützt. Menge ≤ 0 → nur stornieren. Gemeinsamer Pfad für SL/TP
+ * ändern, Teilschließen und den Trailing-Stop.
+ */
+async function replaceProtectionOrder(
+  db: Db,
+  venue: TradingVenue,
+  pos: PositionRow,
+  row: OrderRow,
+  change: { price?: number; qty?: number },
+): Promise<{ ok: boolean; row?: OrderRow }> {
+  const price = change.price ?? Number(row.price);
+  const qty = change.qty ?? Number(row.qty);
+  let replacement: OrderRow | undefined;
+  if (qty > 1e-12) {
+    const clientOrderId = manualOrderId('r', row.id);
+    const res = await venue.placeOrder({
+      clientOrderId,
+      symbol: pos.symbol,
+      side: row.side,
+      type: row.type as 'stop_market' | 'take_profit_market',
+      qty,
+      triggerPrice: price,
+      reduceOnly: true,
+    });
+    if (res.status === 'rejected') return { ok: false };
+    [replacement] = await db
+      .insert(orders)
+      .values({
+        userId: pos.userId,
+        signalId: row.signalId,
+        venue: pos.venue,
+        symbol: pos.symbol,
+        clientOrderId,
+        exchangeOrderId: res.exchangeOrderId,
+        type: row.type,
+        side: row.side,
+        qty: String(qty),
+        price: String(price),
+        reduceOnly: true,
+        status: 'open',
+        mode: 'paper',
+      })
+      .returning();
+  }
+  if (row.exchangeOrderId) {
+    try {
+      await venue.cancelOrder(pos.symbol, row.exchangeOrderId);
+    } catch (err) {
+      console.warn(`[protection] Storno ${row.clientOrderId} fehlgeschlagen: ${String(err)}`);
+    }
+  }
+  await db.update(orders).set({ status: 'canceled', updatedAt: new Date() }).where(eq(orders.id, row.id));
+  return { ok: true, row: replacement };
+}
+
+/**
+ * Trailing-Stop eines Ticks anwenden (Monitor + direkt beim Aktivieren):
+ * Peak fortschreiben, Stop nur verschärfen. Liefert die (ggf. ersetzte)
+ * SL-Order zurück, damit der Aufrufer mit dem aktuellen Stand weiterrechnet.
+ */
+async function applyTrailing(
+  db: Db,
+  venue: TradingVenue,
+  pos: PositionRow,
+  sl: OrderRow | undefined,
+  price: number,
+): Promise<OrderRow | undefined> {
+  if (pos.trailPct === null || !sl) return sl;
+  const step = trailStep({
+    direction: pos.direction,
+    pct: Number(pos.trailPct),
+    peak: pos.trailPeak === null ? null : Number(pos.trailPeak),
+    price,
+    currentStop: Number(sl.price),
+  });
+  if (step.peak !== null && String(step.peak) !== pos.trailPeak) {
+    await db.update(positions).set({ trailPeak: String(step.peak), updatedAt: new Date() }).where(eq(positions.id, pos.id));
+    pos.trailPeak = String(step.peak);
+  }
+  if (step.stop === null) return sl;
+  const r = await replaceProtectionOrder(db, venue, pos, sl, { price: step.stop });
+  return r.ok ? r.row : sl;
+}
+
 export type ManualCloseResult = {
   closed: boolean;
-  reason?: 'not_found' | 'no_price' | 'rejected';
+  /** Teilschluss: Position bleibt mit Restmenge offen. */
+  partial?: boolean;
+  reason?: 'not_found' | 'no_price' | 'rejected' | 'invalid_qty';
   exitPrice?: number;
   closedQty?: number;
+  remainingQty?: number;
   netPnl?: number;
 };
 
 /**
- * Manueller Schluss einer Agenten-Konto-Position (Mensch im Loop). Anders als
- * closePositionNow läuft der Ausstieg über eine ECHTE reduceOnly-Market-Order
- * an der aktiven Venue (Paper: Fill zum Live-Preis; Testnet: echte Order) —
- * sonst bliebe die Position an einer Testnet-Börse offen. Verkauft wird nur
- * die Restmenge (bereits gefüllte TPs zählen ab); offene Schutz-Orders werden
- * auch an der Venue storniert. Abrechnung über denselben Netto-Pfad.
+ * Manueller (Teil-)Schluss einer Agenten-Konto-Position (Mensch im Loop).
+ * Anders als closePositionNow läuft der Ausstieg über eine ECHTE
+ * reduceOnly-Market-Order an der aktiven Venue (Paper: Fill zum Live-Preis;
+ * Testnet: echte Order) — sonst bliebe die Position an einer Testnet-Börse
+ * offen. Ohne `qty` (oder qty ≥ Rest) wird alles geschlossen; offene
+ * Schutz-Orders werden auch an der Venue storniert. Bei einem Teilschluss
+ * (= manuelle Gewinnmitnahme) decken Stop und TPs danach genau die Restmenge
+ * (TPs proportional, ihr Verhältnis bleibt). Realisiert wird — wie bei
+ * TP-Fills — mit dem Vollschluss über denselben Netto-Pfad.
  */
 export async function closePositionManually(
   db: Db,
@@ -630,6 +734,7 @@ export async function closePositionManually(
   userId: string,
   positionId: string,
   ip: string | null = null,
+  opts: { qty?: number } = {},
 ): Promise<ManualCloseResult> {
   const [pos] = await db
     .select()
@@ -637,18 +742,22 @@ export async function closePositionManually(
     .where(and(eq(positions.id, positionId), eq(positions.userId, userId)))
     .limit(1);
   if (!pos) return { closed: false, reason: 'not_found' };
+  if (opts.qty !== undefined && !(opts.qty > 0)) return { closed: false, reason: 'invalid_qty' };
 
   const own = await db.select().from(orders).where(positionOrders(pos));
   const exited = own.filter((o) => o.reduceOnly && o.status === 'filled').reduce((n, o) => n + Number(o.qty), 0);
   const remaining = Math.max(0, Number(pos.qty) - exited);
+  // Rest so klein, dass er nicht mehr handelbar wäre → als Vollschluss behandeln.
+  const full = opts.qty === undefined || opts.qty >= remaining - remaining * 1e-9;
+  const closeQty = full ? remaining : opts.qty!;
   const side = pos.direction === 'long' ? 'sell' : 'buy';
 
   let exitPrice: number;
-  if (remaining > 1e-12) {
+  if (closeQty > 1e-12) {
     const clientOrderId = manualOrderId('m', pos.id);
     let res: VenueOrderResult;
     try {
-      res = await venue.placeOrder({ clientOrderId, symbol: pos.symbol, side, type: 'market', qty: remaining, reduceOnly: true });
+      res = await venue.placeOrder({ clientOrderId, symbol: pos.symbol, side, type: 'market', qty: closeQty, reduceOnly: true });
     } catch (err) {
       console.warn(`[close-manual] ${pos.symbol}: ${String(err)}`);
       return { closed: false, reason: 'no_price' };
@@ -663,7 +772,7 @@ export async function closePositionManually(
       exchangeOrderId: res.exchangeOrderId,
       type: 'market',
       side,
-      qty: String(remaining),
+      qty: String(closeQty),
       price: String(exitPrice),
       reduceOnly: true,
       status: 'filled',
@@ -677,8 +786,34 @@ export async function closePositionManually(
     }
   }
 
+  const openProt = own.filter((o) => o.status === 'open' && (o.type === 'stop_market' || o.type === 'take_profit_market'));
+
+  if (!full) {
+    // Schutz-Orders auf die Restmenge zuschneiden: Stop = Rest, TPs proportional.
+    const rest = remaining - closeQty;
+    for (const sl of openProt.filter((o) => o.type === 'stop_market')) {
+      await replaceProtectionOrder(db, venue, pos, sl, { qty: rest });
+    }
+    const tps = openProt.filter((o) => o.type === 'take_profit_market');
+    const tpSum = tps.reduce((n, o) => n + Number(o.qty), 0);
+    if (tpSum > rest + 1e-12) {
+      const factor = rest / tpSum;
+      for (const tp of tps) await replaceProtectionOrder(db, venue, pos, tp, { qty: Number(tp.qty) * factor });
+    }
+    await db.insert(auditLog).values({
+      actor: 'user',
+      userId,
+      action: 'position.close.partial',
+      entityType: 'position',
+      entityId: pos.id,
+      details: { symbol: pos.symbol, exitPrice, closedQty: closeQty, remainingQty: rest },
+      ip,
+    });
+    return { closed: false, partial: true, exitPrice, closedQty: closeQty, remainingQty: rest };
+  }
+
   // Schutz-Orders auch an der Venue entfernen (Paper: No-op); die DB-Stornierung macht closePaperPosition.
-  for (const o of own.filter((x) => x.status === 'open' && x.exchangeOrderId)) {
+  for (const o of openProt.filter((x) => x.exchangeOrderId)) {
     try {
       await venue.cancelOrder(pos.symbol, o.exchangeOrderId!);
     } catch (err) {
@@ -693,10 +828,10 @@ export async function closePositionManually(
     action: 'position.close.manual',
     entityType: 'position',
     entityId: pos.id,
-    details: { symbol: pos.symbol, exitPrice, closedQty: remaining, netPnl: booked?.netPnl ?? null },
+    details: { symbol: pos.symbol, exitPrice, closedQty: closeQty, netPnl: booked?.netPnl ?? null },
     ip,
   });
-  return { closed: true, exitPrice, closedQty: remaining, netPnl: booked?.netPnl };
+  return { closed: true, exitPrice, closedQty: closeQty, remainingQty: 0, netPnl: booked?.netPnl };
 }
 
 export type ProtectionUpdate = {
@@ -704,19 +839,30 @@ export type ProtectionUpdate = {
   takeProfits?: { orderId: string; price: number }[];
   /** Stop weiter vom Preis weg = mehr Risiko → nur mit ausdrücklicher Bestätigung. */
   confirmWiden?: boolean;
+  /** Trailing-Stop-Abstand in % (0,1–50); null = ausschalten. */
+  trailPct?: number | null;
 };
 
 export type ProtectionResult = {
   ok: boolean;
-  reason?: 'not_found' | 'no_price' | 'no_stop' | 'order_not_found' | 'invalid_stop' | 'invalid_take_profit' | 'widen_requires_confirm' | 'rejected';
+  reason?:
+    | 'not_found'
+    | 'no_price'
+    | 'no_stop'
+    | 'order_not_found'
+    | 'invalid_stop'
+    | 'invalid_take_profit'
+    | 'invalid_trail'
+    | 'widen_requires_confirm'
+    | 'rejected';
 };
 
 /**
- * SL/TP einer Agenten-Konto-Position ändern. Jede Änderung = neue Schutz-Order
- * an der Venue ZUERST, dann Storno der alten — die Position ist dabei nie
- * ungeschützt. Gleiche Seitenregeln wie das Demo-Konto (Stop unter/über dem
- * Live-Preis); einen Stop zu WEITEN erhöht das Risiko über das, was das
- * Risk-Gate freigegeben hat → nur mit confirmWiden (Mensch im Loop, Audit).
+ * SL/TP einer Agenten-Konto-Position ändern und den Trailing-Stop schalten.
+ * Gleiche Seitenregeln wie das Demo-Konto (Stop unter/über dem Live-Preis);
+ * einen Stop zu WEITEN erhöht das Risiko über das, was das Risk-Gate
+ * freigegeben hat → nur mit confirmWiden (Mensch im Loop, Audit). Der
+ * Trailing-Stop verschärft nur (startet beim aktuellen Kurs).
  */
 export async function updateProtection(
   db: Db,
@@ -746,11 +892,11 @@ export async function updateProtection(
     .where(and(positionOrders(pos), eq(orders.status, 'open'), inArray(orders.type, ['stop_market', 'take_profit_market'])));
 
   // ── Erst ALLES prüfen, dann ändern (keine halben Änderungen) ──
-  const changes: { row: (typeof open)[number]; price: number }[] = [];
+  const changes: { row: OrderRow; price: number }[] = [];
   let widened = false;
+  let sl = open.find((o) => o.type === 'stop_market');
   if (input.stopLoss !== undefined) {
     if ((mark - input.stopLoss) * sign <= 0) return { ok: false, reason: 'invalid_stop' };
-    const sl = open.find((o) => o.type === 'stop_market');
     if (!sl) return { ok: false, reason: 'no_stop' };
     widened = (Number(sl.price) - input.stopLoss) * sign > 0;
     if (widened && !input.confirmWiden) return { ok: false, reason: 'widen_requires_confirm' };
@@ -762,47 +908,36 @@ export async function updateProtection(
     if ((tp.price - mark) * sign <= 0) return { ok: false, reason: 'invalid_take_profit' };
     if (Number(row.price) !== tp.price) changes.push({ row, price: tp.price });
   }
+  if (input.trailPct !== undefined && input.trailPct !== null) {
+    if (!(input.trailPct >= 0.1 && input.trailPct <= 50)) return { ok: false, reason: 'invalid_trail' };
+    if (!sl) return { ok: false, reason: 'no_stop' };
+  }
 
   const applied: { type: string; from: number; to: number }[] = [];
   for (const { row, price } of changes) {
-    const clientOrderId = manualOrderId('r', row.id);
-    const res = await venue.placeOrder({
-      clientOrderId,
-      symbol: pos.symbol,
-      side: row.side,
-      type: row.type as 'stop_market' | 'take_profit_market',
-      qty: Number(row.qty),
-      triggerPrice: price,
-      reduceOnly: true,
-    });
-    if (res.status === 'rejected') return { ok: false, reason: 'rejected' };
-    await db.insert(orders).values({
-      userId: pos.userId,
-      signalId: row.signalId,
-      venue: pos.venue,
-      symbol: pos.symbol,
-      clientOrderId,
-      exchangeOrderId: res.exchangeOrderId,
-      type: row.type,
-      side: row.side,
-      qty: row.qty,
-      price: String(price),
-      reduceOnly: true,
-      status: 'open',
-      mode: 'paper',
-    });
-    if (row.exchangeOrderId) {
-      try {
-        await venue.cancelOrder(pos.symbol, row.exchangeOrderId);
-      } catch (err) {
-        console.warn(`[protection] Storno ${row.clientOrderId} fehlgeschlagen: ${String(err)}`);
-      }
-    }
-    await db.update(orders).set({ status: 'canceled', updatedAt: new Date() }).where(eq(orders.id, row.id));
+    const r = await replaceProtectionOrder(db, venue, pos, row, { price });
+    if (!r.ok) return { ok: false, reason: 'rejected' };
+    if (row.type === 'stop_market') sl = r.row;
     applied.push({ type: row.type, from: Number(row.price), to: price });
   }
 
-  if (applied.length > 0) {
+  let trail: { from: number | null; to: number | null } | null = null;
+  if (input.trailPct !== undefined) {
+    const before = pos.trailPct === null ? null : Number(pos.trailPct);
+    pos.trailPct = input.trailPct === null ? null : String(input.trailPct);
+    pos.trailPeak = input.trailPct === null ? null : String(mark); // Start beim aktuellen Kurs
+    await db
+      .update(positions)
+      .set({ trailPct: pos.trailPct, trailPeak: pos.trailPeak, updatedAt: new Date() })
+      .where(eq(positions.id, pos.id));
+    // Sofort einmal anwenden: ist der Trailing-Stop schon enger, zieht er jetzt nach.
+    const beforeStop = sl ? Number(sl.price) : null;
+    sl = await applyTrailing(db, venue, pos, sl, mark);
+    if (sl && beforeStop !== null && Number(sl.price) !== beforeStop) applied.push({ type: 'stop_market', from: beforeStop, to: Number(sl.price) });
+    trail = { from: before, to: input.trailPct };
+  }
+
+  if (applied.length > 0 || trail) {
     const slChange = applied.find((a) => a.type === 'stop_market');
     await db.insert(auditLog).values({
       actor: 'user',
@@ -815,6 +950,7 @@ export async function updateProtection(
         markPrice: mark,
         ...(slChange ? { stopLoss: { from: slChange.from, to: slChange.to, widened } } : {}),
         takeProfits: applied.filter((a) => a.type === 'take_profit_market').map(({ from, to }) => ({ from, to })),
+        ...(trail ? { trailPct: trail } : {}),
       },
       ip,
     });

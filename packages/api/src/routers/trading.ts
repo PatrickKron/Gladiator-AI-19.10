@@ -104,6 +104,8 @@ export const tradingRouter = router({
           .filter((o) => o.type === 'take_profit_market')
           .map((o) => ({ orderId: o.id, price: Number(o.price), qty: Number(o.qty) }))
           .sort((a, b) => (a.price - b.price) * sign),
+        /** Trailing-Stop-Abstand in % (null = aus). */
+        trailPct: p.trailPct === null ? null : Number(p.trailPct),
         /** Herkunft: von einem eigenen Agenten eröffnet (sonst aus einem bestätigten Signal). */
         subAgentId: p.subAgentId,
       });
@@ -112,22 +114,22 @@ export const tradingRouter = router({
   }),
 
   /**
-   * Position manuell schließen (Mensch im Loop): echte reduceOnly-Gegen-Order
-   * an der aktiven Venue für die Restmenge, Netto-Abrechnung, Schutz-Orders
-   * storniert, Audit. Fehler als Code (`position:<reason>`) → UI übersetzt.
+   * Position manuell (teil-)schließen (Mensch im Loop): echte reduceOnly-Gegen-Order
+   * an der aktiven Venue (ohne qty: die ganze Restmenge), Netto-Abrechnung,
+   * Schutz-Orders storniert bzw. auf den Rest angepasst, Audit. Fehler als Code (`position:<reason>`) → UI übersetzt.
    */
   closePosition: protectedProcedure
-    .input(z.object({ positionId: z.string().uuid() }))
+    .input(z.object({ positionId: z.string().uuid(), qty: z.number().positive().optional() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.venue) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'position:no_venue' });
-      const r = await closePositionManually(ctx.db, ctx.venue, ctx.user.id, input.positionId, ctx.ip);
-      if (!r.closed) {
+      const r = await closePositionManually(ctx.db, ctx.venue, ctx.user.id, input.positionId, ctx.ip, { qty: input.qty });
+      if (!r.closed && !r.partial) {
         throw new TRPCError({ code: r.reason === 'not_found' ? 'NOT_FOUND' : 'PRECONDITION_FAILED', message: `position:${r.reason}` });
       }
       return r;
     }),
 
-  /** SL/TP ändern — neue Schutz-Order zuerst, dann Storno der alten; Stop weiten nur mit confirmWiden. */
+  /** SL/TP ändern und Trailing-Stop schalten — neue Schutz-Order zuerst, dann Storno; Stop weiten nur mit confirmWiden. */
   updateProtection: protectedProcedure
     .input(
       z.object({
@@ -135,6 +137,8 @@ export const tradingRouter = router({
         stopLoss: z.number().positive().optional(),
         takeProfits: z.array(z.object({ orderId: z.string().uuid(), price: z.number().positive() })).max(3).optional(),
         confirmWiden: z.boolean().optional(),
+        /** Trailing-Stop in % (0,1–50), null = aus. */
+        trailPct: z.number().min(0.1).max(50).nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

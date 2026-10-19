@@ -230,4 +230,73 @@ describe.skipIf(!hasDb)('Agenten-Konto: Position schließen & SL/TP ändern (ech
     expect(tps).toEqual([112, 120, 130]);
     await closePositionManually(db, venue, userId, positionId);
   });
+
+  it('Teil schließen (50 %): halbe Menge an der Venue, Schutz-Orders auf die Restmenge angepasst, Rest bleibt offen', async () => {
+    const venue = new TestVenue();
+    const { positionId, qty } = await openPosition(venue);
+    venue.placed = [];
+    venue.price = 105;
+
+    const part = await closePositionManually(db, venue, userId, positionId, null, { qty: qty / 2 });
+    expect(part).toMatchObject({ closed: false, partial: true, exitPrice: 105 });
+    expect(venue.placed.find((o) => o.type === 'market')!.qty).toBeCloseTo(qty / 2, 6);
+
+    const prot = await openProt();
+    const sl = prot.find((o) => o.type === 'stop_market')!;
+    expect(sl.qty).toBeCloseTo(qty / 2, 6); // Stop deckt genau die Restmenge
+    const tpSum = prot.filter((o) => o.type === 'take_profit_market').reduce((n, o) => n + o.qty, 0);
+    expect(tpSum).toBeCloseTo(qty / 2, 6); // TPs proportional auf die Restmenge (Verhältnis 50/30/20 bleibt)
+    expect(prot.filter((o) => o.type === 'take_profit_market').map((o) => o.qty / (qty / 2))).toEqual([
+      expect.closeTo(0.5, 6),
+      expect.closeTo(0.3, 6),
+      expect.closeTo(0.2, 6),
+    ]);
+
+    venue.price = 110;
+    const rest = await closePositionManually(db, venue, userId, positionId);
+    expect(rest).toMatchObject({ closed: true });
+    // ½ × 5 + ½ × 10 je Einheit = 7,5 × qty
+    expect((await lastTrade()).gross).toBeCloseTo(qty * 7.5, 6);
+  });
+
+  it('Teilmenge ≥ Restmenge → normaler Vollschluss', async () => {
+    const venue = new TestVenue();
+    const { positionId, qty } = await openPosition(venue);
+    venue.price = 101;
+    expect(await closePositionManually(db, venue, userId, positionId, null, { qty: qty * 2 })).toMatchObject({ closed: true });
+  });
+
+  it('Trailing-Stop: sofort enger, folgt neuen Hochs, nie zurück — der Monitor schließt am nachgezogenen Stop', async () => {
+    const venue = new TestVenue();
+    const { positionId } = await openPosition(venue);
+    venue.price = 100;
+
+    expect(await updateProtection(db, venue, userId, positionId, { trailPct: 0 })).toEqual({ ok: false, reason: 'invalid_trail' });
+    expect(await updateProtection(db, venue, userId, positionId, { trailPct: 5 })).toEqual({ ok: true });
+    expect((await openProt()).find((o) => o.type === 'stop_market')!.price).toBeCloseTo(95, 6); // 100 × 0,95 > 90
+
+    venue.price = 108; // TP1 bei 110 noch nicht erreicht
+    await monitorOpenPositions(db, venue);
+    expect((await openProt()).find((o) => o.type === 'stop_market')!.price).toBeCloseTo(102.6, 6);
+
+    venue.price = 104; // fällt, aber über dem Stop → Stop bleibt
+    await monitorOpenPositions(db, venue);
+    expect((await openProt()).find((o) => o.type === 'stop_market')!.price).toBeCloseTo(102.6, 6);
+
+    venue.price = 102; // unter Stop → Schluss am Stop
+    await monitorOpenPositions(db, venue);
+    expect((await lastTrade()).exit).toBeCloseTo(102.6, 6);
+  });
+
+  it('Trailing-Stop abschalten: Stop bleibt, wo er ist; Monitor zieht nicht mehr nach', async () => {
+    const venue = new TestVenue();
+    const { positionId } = await openPosition(venue);
+    venue.price = 100;
+    await updateProtection(db, venue, userId, positionId, { trailPct: 5 });
+    expect(await updateProtection(db, venue, userId, positionId, { trailPct: null })).toEqual({ ok: true });
+    venue.price = 108;
+    await monitorOpenPositions(db, venue);
+    expect((await openProt()).find((o) => o.type === 'stop_market')!.price).toBeCloseTo(95, 6);
+    await closePositionManually(db, venue, userId, positionId);
+  });
 });

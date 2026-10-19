@@ -6,7 +6,8 @@ import { buildChartUrl } from '../lib/chart-url.js';
 
 /**
  * Offene Positionen des Agenten-Kontos mit Steuerung (Mensch im Loop):
- * SL/TP direkt in der Zeile ändern, Position schließen (zweistufig bestätigt).
+ * SL/TP direkt in der Zeile ändern, Gewinn mitnehmen (Teilschluss 25/50/75 %),
+ * Trailing-Stop schalten, Position schließen (jeweils zweistufig bestätigt).
  * Einen Stop WEITER weg zu setzen erhöht das Risiko → eigene Bestätigung.
  * Ausführung serverseitig über die aktive Venue (echte Gegen-/Schutz-Orders).
  */
@@ -35,6 +36,8 @@ export function PaperPositions({ positions, onChanged }: { positions: PaperPosit
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [armedClose, setArmedClose] = useState<string | null>(null);
+  const [armedPartial, setArmedPartial] = useState<{ id: string; pct: number } | null>(null);
+  const [trailDrafts, setTrailDrafts] = useState<Record<string, string>>({});
   const [widenAsk, setWidenAsk] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ id: string; ok: boolean; text: string } | null>(null);
 
@@ -96,6 +99,46 @@ export function PaperPositions({ positions, onChanged }: { positions: PaperPosit
       const text = reasonText(t, err);
       if (err instanceof Error && err.message === 'position:widen_requires_confirm') setWidenAsk(p.id);
       else setMsg({ id: p.id, ok: false, text });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function closePart(p: PaperPosition, pct: number) {
+    setBusy(p.id);
+    setMsg(null);
+    try {
+      const r = await trpc.trading.closePosition.mutate({ positionId: p.id, qty: (p.openQty * pct) / 100 });
+      setArmedPartial(null);
+      setMsg({
+        id: p.id,
+        ok: true,
+        text: r.partial
+          ? t('position.partialDone', { price: fmt(r.exitPrice), qty: fmt(r.remainingQty, 6) })
+          : t('position.closedAt', { price: fmt(r.exitPrice), pnl: fmt(r.netPnl) }),
+      });
+      onChanged();
+    } catch (err) {
+      setMsg({ id: p.id, ok: false, text: reasonText(t, err) });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function setTrailing(p: PaperPosition, pct: number | null) {
+    setBusy(p.id);
+    setMsg(null);
+    try {
+      await trpc.trading.updateProtection.mutate({ positionId: p.id, trailPct: pct });
+      setTrailDrafts((d) => {
+        const next = { ...d };
+        delete next[p.id];
+        return next;
+      });
+      setMsg({ id: p.id, ok: true, text: pct === null ? t('position.trailOffDone') : t('position.trailOnDone', { pct: fmt(pct) }) });
+      onChanged();
+    } catch (err) {
+      setMsg({ id: p.id, ok: false, text: reasonText(t, err) });
     } finally {
       setBusy(null);
     }
@@ -231,6 +274,82 @@ export function PaperPositions({ positions, onChanged }: { positions: PaperPosit
                 )}
               </div>
             </div>
+
+            {/* Gewinn mitnehmen (Teilschluss) + Trailing-Stop */}
+            <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-3 border-t pt-3" style={{ borderColor: 'rgba(99,140,255,0.12)' }}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="label">{t('position.partialTitle')}</span>
+                {armedPartial?.id === p.id ? (
+                  <>
+                    <span className="text-xs" style={{ color: 'var(--color-mut)' }}>
+                      {t('position.partialAsk', { pct: armedPartial.pct, qty: fmt((p.openQty * armedPartial.pct) / 100, 6) })}
+                    </span>
+                    <button
+                      onClick={() => void closePart(p, armedPartial.pct)}
+                      disabled={busy !== null}
+                      className="rounded-[0.625rem] border px-3 py-1 text-xs font-medium disabled:opacity-50"
+                      style={{ borderColor: 'rgba(61,220,151,0.6)', color: 'var(--color-pos)', background: 'rgba(61,220,151,0.08)' }}
+                    >
+                      {busy === p.id ? '…' : t('position.partialConfirm')}
+                    </button>
+                    <button onClick={() => setArmedPartial(null)} className="px-1 text-xs" style={{ color: 'var(--color-mut)' }}>
+                      {t('common.cancel')}
+                    </button>
+                  </>
+                ) : (
+                  [25, 50, 75].map((pct) => (
+                    <button
+                      key={pct}
+                      onClick={() => setArmedPartial({ id: p.id, pct })}
+                      disabled={busy !== null || p.openQty <= 0}
+                      className="num rounded-[0.625rem] border px-2.5 py-1 text-xs disabled:opacity-50"
+                      style={{ borderColor: 'rgba(61,220,151,0.35)', color: 'var(--color-pos)' }}
+                    >
+                      {pct} %
+                    </button>
+                  ))
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="label">{t('position.trailing')}</span>
+                <input
+                  id={`trail-${p.id}`}
+                  value={trailDrafts[p.id] ?? (p.trailPct !== null ? String(p.trailPct) : '2')}
+                  onChange={(e) => setTrailDrafts((d) => ({ ...d, [p.id]: e.target.value }))}
+                  disabled={!p.stopLoss}
+                  className="field num w-16 px-2 py-1 text-xs"
+                  inputMode="decimal"
+                  aria-label={t('position.trailing')}
+                />
+                <span className="text-xs" style={{ color: 'var(--color-mut)' }}>%</span>
+                <button
+                  onClick={() => {
+                    const pct = parse(trailDrafts[p.id] ?? (p.trailPct !== null ? String(p.trailPct) : '2'));
+                    if (pct === null || pct < 0.1 || pct > 50) setMsg({ id: p.id, ok: false, text: t('position.err_invalid_trail') });
+                    else void setTrailing(p, pct);
+                  }}
+                  disabled={busy !== null || !p.stopLoss || (p.trailPct !== null && trailDrafts[p.id] === undefined)}
+                  className="rounded-[0.625rem] border px-2.5 py-1 text-xs disabled:opacity-40"
+                  style={{ borderColor: 'rgba(79,209,255,0.45)', color: 'var(--color-cyan)' }}
+                >
+                  {p.trailPct === null ? t('position.trailOn') : t('position.trailUpdate')}
+                </button>
+                {p.trailPct !== null && (
+                  <>
+                    <span className="label rounded border px-1.5 py-0.5" style={{ borderColor: 'rgba(79,209,255,0.45)', color: 'var(--color-cyan)' }}>
+                      {t('position.trailActive', { pct: fmt(p.trailPct) })}
+                    </span>
+                    <button onClick={() => void setTrailing(p, null)} disabled={busy !== null} className="px-1 text-xs" style={{ color: 'var(--color-mut)' }}>
+                      {t('position.trailOff')}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+            <p className="mt-2 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+              {t('position.trailHint')}
+            </p>
 
             {widenAsk === p.id && (
               <div
