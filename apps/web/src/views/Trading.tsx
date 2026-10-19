@@ -10,6 +10,7 @@ import { isDemoMode, setDemoMode } from '../lib/demo-mode.js';
 import { DemoTrading } from './DemoTrading.js';
 import { PaperPositions } from '../components/PaperPositions.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
+import { exportYears, tradesCsvFilename } from '../lib/protocol.js';
 
 /** Tabs der Trading-Seite (P1.8). */
 const TABS = ['positionen', 'historie', 'risiko', 'alerts', 'performance'] as const;
@@ -40,6 +41,72 @@ const VENUE_LABEL_KEY: Record<string, string> = {
 
 type Alert = Awaited<ReturnType<typeof trpc.trading.alerts.query>>[number];
 type Performance = Awaited<ReturnType<typeof trpc.trading.performance.query>>;
+
+/**
+ * Steuer-Export (10_ §6, §23 EStG): CSV der geschlossenen Trades vom Server,
+ * Download clientseitig per Blob. BOM vorangestellt, damit Excel die Umlaute
+ * der Kopfzeile (UTF-8) korrekt liest.
+ */
+function TradeExport() {
+  const { t } = useTranslation();
+  const [year, setYear] = useState<number | null>(new Date().getFullYear());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function download() {
+    setBusy(true);
+    try {
+      const csv = await trpc.trading.exportTrades.query({ format: 'csv', ...(year !== null ? { year } : {}) });
+      const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = tradesCsvFilename(year);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-xs" style={{ color: 'var(--color-mut)' }} htmlFor="trade-export-year">
+          {t('trading.exportYear')}
+        </label>
+        <select
+          id="trade-export-year"
+          value={year ?? ''}
+          onChange={(e) => setYear(e.target.value === '' ? null : Number(e.target.value))}
+          className="field num cursor-pointer px-2.5 py-1.5 text-sm"
+        >
+          {exportYears().map((y) => (
+            <option key={y} value={y}>
+              {y}
+            </option>
+          ))}
+          <option value="">{t('trading.exportAllYears')}</option>
+        </select>
+        <button onClick={() => void download()} disabled={busy} className="btn-primary px-3 py-1.5 text-sm disabled:opacity-50">
+          {busy ? t('trading.exportBusy') : t('trading.exportCsv')}
+        </button>
+      </div>
+      <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+        {t('trading.exportHint')}
+      </p>
+      {error && (
+        <p className="mt-2 text-xs" style={{ color: 'var(--color-neg)' }}>
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
 
 /** Preis-Alerts (Patrick-Luecke 7): minutengenauer Monitor, Trigger -> Telegram. */
 function AlertsPanel() {
@@ -690,6 +757,7 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
       {/* Historie (netto) */}
       {tab === 'historie' && (
       <Panel label={t('trading.historyTitle')} stagger={9} className="mt-5">
+        <TradeExport />
         {history.length === 0 ? (
           <Empty text={t('trading.noHistory')} />
         ) : (

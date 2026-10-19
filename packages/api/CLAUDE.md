@@ -11,4 +11,6 @@ Regeln:
 - Passwörter: bcryptjs (v1-Hashes bleiben gültig), min. 10 Zeichen.
 - Sicherheit: helmet, CORS nur per `CORS_ORIGINS`-Whitelist, Rate-Limits (streng auf Auth-Routen).
 - Auth-Ereignisse (register/login/logout/reuse) → `audit_log`.
+- Registrierungs-Sperre: existiert ein User, lehnt `auth.register` ab (FORBIDDEN, „Registrierung geschlossen …"); nur `ALLOW_REGISTRATION=1` öffnet (Tests setzen es in `vitest.config.ts`).
+- Steuer-Export `trading.exportTrades` (CSV, Builder in `src/export/trades-csv.ts`) und Protokoll `system.auditLog` (nur lesend, Keyset-Pagination).
 - Später (Phase 5/6): Pine-Webhook-Receiver (HMAC), WebSocket/SSE-Gateway, Fach-Router.
