@@ -10,6 +10,7 @@ import {
   loadRiskSettings,
 } from '@gladiator/exchange';
 import { evaluateRisk } from '@gladiator/risk';
+import { formatEmergencyAlert, sendTelegram } from '@gladiator/jobs';
 import { getEurUsdRate } from '@gladiator/market-data';
 import { protectedProcedure, router } from '../trpc.js';
 
@@ -288,7 +289,10 @@ export const signalsRouter = router({
         });
       }
 
-      if (!execution.executed) {
+      if (execution.emergency) {
+        // Notfall: Stop nicht platzierbar → Executor hat glattgestellt (oder meldet UNGESCHÜTZT).
+        void sendTelegram(formatEmergencyAlert(updated.symbol, execution.detail, execution.emergency.closed));
+      } else if (!execution.executed) {
         // Gate hat geblockt → Signal bleibt handlungsfähig ('new'), Gründe an die UI
         await resetToNew();
       }

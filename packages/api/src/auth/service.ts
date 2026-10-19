@@ -13,7 +13,7 @@ const { users, sessions, auditLog } = schema;
 
 export class AuthError extends Error {
   constructor(
-    public readonly code: 'INVALID_CREDENTIALS' | 'EMAIL_TAKEN' | 'INVALID_REFRESH',
+    public readonly code: 'INVALID_CREDENTIALS' | 'EMAIL_TAKEN' | 'INVALID_REFRESH' | 'REGISTRATION_CLOSED',
     message: string,
   ) {
     super(message);
@@ -61,11 +61,29 @@ async function audit(db: Db, action: string, userId: string | null, meta: Reques
   });
 }
 
+export const REGISTRATION_CLOSED_MESSAGE = 'Registrierung geschlossen — Gladiator ist ein Einzelnutzer-System.';
+
+/**
+ * Registrierungs-Sperre (Einzelnutzer-System): Sobald EIN User existiert, ist
+ * `register` zu — sonst könnte sich jeder, der die öffentliche Route erreicht,
+ * einen Vollzugriffs-Account anlegen (es gibt bewusst keine Rollen).
+ * Ausnahme nur explizit per Env `ALLOW_REGISTRATION=1` (Tests, Notfall).
+ */
+export async function registrationOpen(db: Db): Promise<boolean> {
+  if (process.env.ALLOW_REGISTRATION === '1') return true;
+  const [row] = await db.select({ id: users.id }).from(users).limit(1);
+  return !row;
+}
+
 export async function register(
   db: Db,
   input: { email: string; password: string; name?: string },
   meta: RequestMeta = {},
 ): Promise<{ user: PublicUser } & TokenPair> {
+  if (!(await registrationOpen(db))) {
+    await audit(db, 'auth.register.rejected', null, meta, { reason: 'registration_closed' });
+    throw new AuthError('REGISTRATION_CLOSED', REGISTRATION_CLOSED_MESSAGE);
+  }
   const email = input.email.trim().toLowerCase();
   const passwordHash = await bcrypt.hash(input.password, 12);
 

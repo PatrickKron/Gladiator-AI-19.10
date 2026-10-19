@@ -53,6 +53,7 @@ const Vermoegen = lazyView(() => import('./views/Vermoegen.js'), 'Vermoegen');
 
 const Marktlage = lazyView(() => import('./views/Marktlage.js'), 'Marktlage');
 const Funktionen = lazyView(() => import('./views/Funktionen.js'), 'Funktionen');
+const Protokoll = lazyView(() => import('./views/Protokoll.js'), 'Protokoll');
 const DemoKonto = lazyView(() => import('./views/Trading.js'), 'DemoKonto');
 
 type AuthState = 'restoring' | 'anonymous' | 'authenticated';
@@ -83,6 +84,7 @@ const ROUTES = {
   '#/intelligenz': Intelligenz,
   '#/einstellungen': Einstellungen,
   '#/profil': Profil,
+  '#/protokoll': Protokoll,
   '#/funktionen': Funktionen,
 } satisfies Record<PageHash, ComponentType>;
 

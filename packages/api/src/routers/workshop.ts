@@ -382,6 +382,7 @@ export const workshopRouter = router({
           entry: t.entry,
           stopLoss: t.stopLoss,
           takeProfits: t.takeProfits,
+          exitPrice: t.exitPrice,
           netPnl: Math.round(t.netPnl * 100) / 100,
           rMultiple: Math.round(t.rMultiple * 100) / 100,
           fees: Math.round(t.fees * 100) / 100,

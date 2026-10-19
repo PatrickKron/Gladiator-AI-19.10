@@ -1,5 +1,5 @@
 import { TRPCError } from '@trpc/server';
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
 import {
@@ -13,6 +13,7 @@ import {
 } from '@gladiator/exchange';
 import { evaluateRisk } from '@gladiator/risk';
 import { protectedProcedure, router } from '../trpc.js';
+import { buildTradesCsv } from '../export/trades-csv.js';
 
 const { positions, orders, executedTrades, venueApprovals, auditLog, priceAlerts, tradeNotes } = schema;
 
@@ -179,6 +180,41 @@ export const tradingRouter = router({
         .where(eq(executedTrades.userId, ctx.user.id))
         .orderBy(desc(executedTrades.createdAt))
         .limit(input.limit);
+    }),
+
+  /**
+   * Steuer-/Trade-Export (10_ §6, §23 EStG): geschlossene Trades des Users als
+   * CSV (Semikolon, Punkt als Dezimaltrenner, Zeiten UTC). Jahresfilter nach
+   * Veräußerungsjahr (Europe/Berlin). Paper-Trades sind simuliert — der Hinweis
+   * steht als erste Zeile in der Datei; steuerrelevant werden erst Live-Trades.
+   */
+  exportTrades: protectedProcedure
+    .input(z.object({ year: z.number().int().min(2000).max(2100).optional(), format: z.literal('csv') }))
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .select()
+        .from(executedTrades)
+        .where(and(eq(executedTrades.userId, ctx.user.id), isNotNull(executedTrades.exitTs)));
+      const csv = buildTradesCsv(
+        rows.map((r) => ({
+          symbol: r.symbol,
+          direction: r.direction,
+          venue: r.venue,
+          entryTs: r.entryTs,
+          exitTs: r.exitTs,
+          qty: r.qty,
+          entryPrice: r.entryPrice,
+          exitPrice: r.exitPrice,
+          grossPnl: r.grossPnl,
+          // Gebühren = Maker/Taker-Fees; Slippage steckt bereits in den Ausführungspreisen.
+          fee: r.makerTakerFee,
+          funding: r.fundingPaid,
+          netPnl: r.netPnl,
+          mode: r.mode,
+        })),
+        { year: input.year },
+      );
+      return csv;
     }),
 
   /**

@@ -2,7 +2,9 @@
  * Trailing-Stop (rein, getestet): Der Stop folgt dem besten Kurs seit
  * Aktivierung im festen %-Abstand — und wird NUR verschärft, nie zurück-
  * gesetzt. Der PositionMonitor ruft das je Tick mit dem ECHTEN Live-Preis auf
- * (Minuten-Granularität wie alle Paper-Schutz-Orders).
+ * (Minuten-Granularität wie alle Paper-Schutz-Orders). Die Backtest-Engine
+ * nutzt DIESELBE Funktion je abgeschlossener Kerze — eine Wahrheit für
+ * Backtest und Live.
  */
 export type TrailInput = {
   direction: 'long' | 'short';

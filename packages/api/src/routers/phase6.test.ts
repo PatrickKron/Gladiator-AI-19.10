@@ -125,7 +125,32 @@ describe.skipIf(!hasDb)('Phase-6-Router (Settings, Product, Agents, Promotion)',
     expect(noBt.hasBacktest).toBe(false);
     await expect(caller.strategies.promote({ versionId: draft!.id })).rejects.toThrow(/Backtest/i);
 
-    // Ein bestandener Netto-Backtest (40 Trades, PF 1.6, DD 18 %, Erwartung 0.3 R)
+    // Alter Backtest OHNE Auswertung des jüngsten Abschnitts → Gate verlangt neuen Lauf
+    const [oldBt] = await db
+      .insert(backtests)
+      .values({
+        strategyVersionId: draft!.id,
+        symbol: 'BTC/USDT',
+        timeframe: '1h',
+        fromTs: new Date('2024-01-01T00:00:00Z'),
+        toTs: new Date('2024-06-01T00:00:00Z'),
+        config: { test: true },
+        feesModel: { taker: 0.0004, slippageBps: 2, fundingBps: 1 },
+        maxDrawdown: '18',
+        profitFactor: '1.6',
+        expectancy: '0.3',
+        netReturn: '30',
+        tradeCount: '40',
+        status: 'done',
+      })
+      .returning();
+    const stale = await caller.strategies.validity({ versionId: draft!.id });
+    expect(stale.verdict!.passed).toBe(false);
+    expect(stale.verdict!.reasons.join(' ')).toMatch(/neu laufen/);
+    await db.delete(backtests).where(eq(backtests.id, oldBt!.id));
+
+    // Ein bestandener Netto-Backtest (40 Trades, PF 1.6, DD 18 %, Erwartung 0.3 R),
+    // jüngster Abschnitt besteht allein (so speichert runLabBacktest ihn)
     await db.insert(backtests).values({
       strategyVersionId: draft!.id,
       symbol: 'BTC/USDT',
@@ -141,6 +166,7 @@ describe.skipIf(!hasDb)('Phase-6-Router (Settings, Product, Agents, Promotion)',
       expectancy: '0.3',
       netReturn: '30',
       tradeCount: '40',
+      metrics: { holdout: { fromTs: '2024-04-16T00:00:00.000Z', tradeCount: 12, expectancy: 0.25, profitFactor: 1.4 } },
       status: 'done',
     });
 

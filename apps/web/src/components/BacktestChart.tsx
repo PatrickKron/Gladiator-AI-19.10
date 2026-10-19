@@ -33,15 +33,18 @@ export type BacktestTradeView = {
   entry: number;
   stopLoss: number;
   takeProfits: number[];
+  /** Tatsächlicher Ausstiegspreis (ältere gespeicherte Läufe haben ihn noch nicht). */
+  exitPrice?: number;
   netPnl: number;
   rMultiple: number;
-  exitReason: 'tp' | 'sl' | 'be' | 'end-of-data';
+  exitReason: 'tp' | 'sl' | 'be' | 'trail' | 'end-of-data';
 };
 
 const EXIT_LABEL: Record<BacktestTradeView['exitReason'], string> = {
   tp: 'TP',
   sl: 'SL',
   be: 'BE',
+  trail: 'TS',
   'end-of-data': '⏹',
 };
 
@@ -231,7 +234,9 @@ export function BacktestChart({
       lastValueVisible: false,
       crosshairMarkerVisible: false,
     });
-    const exitPrice = tr.exitReason === 'tp' ? tr.takeProfits[tr.takeProfits.length - 1] ?? tr.entry : tr.exitReason === 'sl' ? tr.stopLoss : tr.exitReason === 'be' ? tr.entry : tr.entry;
+    const exitPrice =
+      tr.exitPrice ??
+      (tr.exitReason === 'tp' ? tr.takeProfits[tr.takeProfits.length - 1] ?? tr.entry : tr.exitReason === 'sl' ? tr.stopLoss : tr.entry);
     const pathPts =
       exitSec > entrySec
         ? [

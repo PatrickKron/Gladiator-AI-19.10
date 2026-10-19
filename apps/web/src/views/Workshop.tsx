@@ -59,6 +59,8 @@ type Dsl = {
   entry: string;
   stopLoss: { type: 'ATR'; mult: number } | { type: 'pct'; pct: number };
   takeProfits: { rr: number }[];
+  /** Optional: Trailing-Stop im %-Abstand (gleiche Logik in Backtest und Live). */
+  trailingStop?: { pct: number };
   risk: { maxLeveragePerTrade: number; riskPctPerTrade: number };
 };
 
@@ -419,6 +421,13 @@ function DraftEditor({ sessionId, draft, universe, onSaved }: { sessionId: strin
               ) : (
                 <NumBox label="%" step={0.1} value={d.stopLoss.pct} onChange={(v) => set({ stopLoss: { type: 'pct', pct: v ?? 2 } })} />
               )}
+              <NumBox
+                label={`${t('position.trailing')} %`}
+                step={0.1}
+                value={d.trailingStop?.pct}
+                onChange={(v) => set({ trailingStop: v === undefined || v <= 0 ? undefined : { pct: v } })}
+                className="w-28"
+              />
             </div>
             <div className="flex flex-wrap items-end gap-3">
               {d.takeProfits.map((tp, i) => (

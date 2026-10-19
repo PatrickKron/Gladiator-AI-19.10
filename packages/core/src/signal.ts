@@ -52,6 +52,8 @@ export const signalSchema = z
     entry: z.number().positive(),
     stopLoss: z.number().positive(),
     takeProfits: z.array(z.number().positive()).min(1),
+    /** Optionaler Trailing-Stop-Abstand in % (Strategie-Exit; Backtest und Live nutzen dieselbe Logik). */
+    trailPct: z.number().min(0.1).max(50).optional(),
     leverageSuggested: z.number().min(1),
     score: z.number().min(0).max(10),
     riskClass: riskClassSchema,

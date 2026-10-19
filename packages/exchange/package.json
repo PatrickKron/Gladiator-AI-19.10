@@ -12,6 +12,7 @@
   "dependencies": {
     "@gladiator/db": "*",
     "@gladiator/risk": "*",
+    "@gladiator/strategy-engine": "*",
     "ccxt": "^4.4.0"
   }
 }

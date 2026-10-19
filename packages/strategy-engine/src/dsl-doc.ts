@@ -30,12 +30,13 @@ export const DSL_SCHEMA_DOC = `{
   "entry": "market" | "retest@EMA<n>",
   "stopLoss": {"type":"ATR","mult":n} | {"type":"pct","pct":n},
   "takeProfits": [{"rr":n}, ...],  // 1-5 Take-Profits als R-Vielfache
+  "trailingStop": {"pct":n},  // optional, 0.1-50: Stop folgt dem besten Kurs im %-Abstand, wird nur enger (Backtest und Live identisch)
   "risk": {"maxLeveragePerTrade":n,"riskPctPerTrade":n}
 }`;
 
 /** Ausdrucks-Grenzen der DSL — für ehrliche LLM-Antworten („das kann die DSL nicht"). */
 export const DSL_LIMITS_DOC = `Die DSL kann NICHT ausdrücken (ehrlich sagen, nie so tun als ob):
-- Trailing-Stops (Live-Ausführung kann nur statische SL/TP + Break-Even nach TP1 — ein Backtest-only-Trailing wäre unehrlich)
+- Trailing-Stops nach ATR oder Indikatoren (nur ein fester %-Abstand via "trailingStop")
 - ODER-Verknüpfungen zwischen Bedingungen (nur UND); alternative Szenarien = separate Strategie-Versionen
 - Beide Richtungen in EINER Strategie (direction ist long ODER short; für beides: zwei Strategien)
 - Pyramiding / Nachkaufen, zeitbasierte Exits, Indikator-basierte Exits (Exits sind SL/TP-basiert)

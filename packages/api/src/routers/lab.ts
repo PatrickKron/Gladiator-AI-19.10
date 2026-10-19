@@ -108,6 +108,8 @@ export const labRouter = router({
         strategyId: z.string().uuid().optional(), // registrierte DSL-Strategie backtesten
         riskPctPerTrade: z.number().min(0.1).max(5).default(1),
         costModel: costSchema.optional(),
+        /** Trailing-Stop in % (optional; DSL-Strategien mit eigenem trailingStop behalten ihren Wert). */
+        trailPct: z.number().min(0.1).max(50).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -134,6 +136,7 @@ export const labRouter = router({
             entry: t.entry,
             stopLoss: t.stopLoss,
             takeProfits: t.takeProfits,
+            exitPrice: t.exitPrice,
             netPnl: Math.round(t.netPnl * 100) / 100,
             rMultiple: Math.round(t.rMultiple * 100) / 100,
             mfeR: Math.round(t.mfeR * 100) / 100,
@@ -154,6 +157,16 @@ export const labRouter = router({
           },
           analysis: out.analysis,
           turningPoints: out.turningPoints,
+          // Ehrlichkeit: Funding-Herkunft + Datenqualitäts-Warnungen (08_ §3a/§3b)
+          fundingSource: out.fundingSource,
+          dataQuality: {
+            gaps: out.dataQuality.gaps,
+            expectedBars: out.dataQuality.expectedBars,
+            zeroVolumeBars: out.dataQuality.zeroVolumeBars,
+            spikes: out.dataQuality.spikes,
+            ok: out.dataQuality.ok,
+            warnings: out.dataQuality.warnings,
+          },
         };
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'Backtest fehlgeschlagen.' });

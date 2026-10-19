@@ -1,14 +1,16 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, lte } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
-import { getOhlcv, BARS_PER_YEAR, type SupportedTimeframe } from '@gladiator/market-data';
+import { getOhlcv, BARS_PER_YEAR, TIMEFRAME_MS, type SupportedTimeframe } from '@gladiator/market-data';
 import { detectStructure, evaluateDslAt, evaluateSmcCoreAt, parseInstructionDsl, SMC_CORE_DEFAULTS, type InstructionDsl, type SmcCoreParams } from '@gladiator/strategy-engine';
 import { DEFAULT_COSTS, runBacktest, type BacktestResult, type CostModel } from './engine.js';
 import { runWalkForward, type WalkForwardResult } from './walkforward.js';
 import { explainRapsChoice, rapsGrid, type RapsResult } from './raps.js';
 import { analyzeTrades, type TradeAnalysis } from './analysis.js';
+import { holdoutMetrics } from './validity.js';
+import { assertDataQuality, assessDataQuality, fundingSettlements, type DataQualityReport, type FundingPoint } from './data-quality.js';
 
-const { backtests, walkforwardRuns, strategies, strategyVersions, studyTrades, studyClusters } = schema;
+const { backtests, walkforwardRuns, strategies, strategyVersions, studyTrades, studyClusters, fundingRates } = schema;
 
 /**
  * Labor-Läufe: verbinden Engine ↔ echte DB-Kerzen ↔ Persistenz.
@@ -33,6 +35,8 @@ export type LabRunInput = {
   versionId?: string;
   riskPctPerTrade?: number;
   costModel?: CostModel;
+  /** Trailing-Stop in % für alle Trades (DSL-Strategien mit eigenem trailingStop behalten ihren Wert). */
+  trailPct?: number;
 };
 
 export type TurningPoint = { ts: string; kind: 'BOS' | 'CHoCH'; direction: 'bullish' | 'bearish'; level: number };
@@ -48,7 +52,52 @@ export type LabRunOutput = {
   analysis: TradeAnalysis;
   /** Letzte Struktur-Trendwenden (CHoCH) und Fortsetzungen (BOS) im Zeitraum. */
   turningPoints: TurningPoint[];
+  /** Woher das Funding stammt: echte Settlements aus `funding_rates` oder flaches Modell. */
+  fundingSource: 'historical' | 'model';
+  /** Datenqualität der Kerzen (08_ §3b) inkl. deutscher Warnungen fürs UI. */
+  dataQuality: DataQualityReport;
 };
+
+/** Mindest-Abdeckung der 8h-Settlements, damit historisches Funding verwendet wird. */
+const MIN_FUNDING_COVERAGE = 0.95;
+
+/**
+ * Historische Funding-Settlements für den Kerzen-Zeitraum laden (Binance-Perps,
+ * App-Symbol). Unvollständige Historie → null (dann flaches Modell, ehrlich markiert)
+ * plus Warnung — fehlende Settlements werden NICHT aufgefüllt.
+ */
+async function loadFundingSeries(
+  db: Db,
+  symbol: string,
+  from: Date,
+  to: Date,
+): Promise<{ series: FundingPoint[] | null; warning: string | null }> {
+  const rows = await db
+    .select({ ts: fundingRates.ts, rate: fundingRates.rate })
+    .from(fundingRates)
+    .where(
+      and(
+        eq(fundingRates.venue, 'binanceusdm'),
+        eq(fundingRates.symbol, symbol),
+        gt(fundingRates.ts, new Date(from.getTime() - 8 * 3_600_000)),
+        lte(fundingRates.ts, to),
+      ),
+    )
+    .orderBy(asc(fundingRates.ts));
+  if (rows.length === 0) return { series: null, warning: null };
+  const { series, coverage } = fundingSettlements(
+    rows.map((r) => ({ ts: r.ts, rate: Number(r.rate) })),
+    from,
+    to,
+  );
+  if (coverage < MIN_FUNDING_COVERAGE) {
+    return {
+      series: null,
+      warning: `Funding-Historie deckt nur ${Math.round(coverage * 100)} % der Settlements im Zeitraum ab — flaches Funding-Modell verwendet.`,
+    };
+  }
+  return { series, warning: null };
+}
 
 async function resolveVersion(db: Db, versionId: string): Promise<Partial<SmcCoreParams>> {
   const [v] = await db.select().from(strategyVersions).where(eq(strategyVersions.id, versionId)).limit(1);
@@ -108,6 +157,27 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
     throw new Error(`Zu wenig echte Kerzen im Zeitraum (${candles.length}) für ${runSymbol}@${runTimeframe} — Backtest wäre nicht belastbar.`);
   }
 
+  // ── Datenqualität (08_ §3b): zu viele Lücken → Abbruch; sonst Warnungen ans UI ──
+  const tfMs = TIMEFRAME_MS[runTimeframe];
+  const dataQuality = assessDataQuality(candles, tfMs);
+  assertDataQuality(dataQuality);
+  const firstTs = candles[0]!.ts;
+  const lastTs = candles[candles.length - 1]!.ts;
+  if (firstTs.getTime() - input.from.getTime() > tfMs) {
+    dataQuality.warnings.push(
+      `Kerzen beginnen erst am ${firstTs.toISOString().slice(0, 10)} (angefragt ab ${input.from.toISOString().slice(0, 10)}) — Zeitraum ist kürzer als gewählt.`,
+    );
+    dataQuality.ok = false;
+  }
+
+  // ── Funding: echte Settlements, falls vollständig vorhanden — sonst flaches Modell ──
+  const funding = await loadFundingSeries(db, runSymbol, firstTs, lastTs);
+  const fundingSource: LabRunOutput['fundingSource'] = funding.series ? 'historical' : 'model';
+  if (funding.warning) {
+    dataQuality.warnings.push(funding.warning);
+    dataQuality.ok = false;
+  }
+
   const result = runBacktest(candles, {
     evaluate: dslResolved
       ? (cs, i) => {
@@ -121,6 +191,8 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
     barsPerYear: BARS_PER_YEAR[runTimeframe]!,
     tpWeights: [0.5, 0.3, 0.2],
     setupType: runSetupType,
+    ...(input.trailPct !== undefined ? { trailPct: input.trailPct } : {}),
+    ...(funding.series ? { fundingSeries: funding.series } : {}),
   });
 
   const m = result.metrics;
@@ -133,9 +205,9 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
       fromTs: input.from,
       toTs: input.to,
       config: dslResolved
-        ? { strategy: dslResolved.slug, dsl: dslResolved.dsl, riskPctPerTrade: riskPct }
-        : { setupType: input.setupType, riskPctPerTrade: riskPct, params },
-      feesModel: costModel,
+        ? { strategy: dslResolved.slug, dsl: dslResolved.dsl, riskPctPerTrade: riskPct, trailPct: input.trailPct ?? null, fundingSource, dataWarnings: dataQuality.warnings }
+        : { setupType: input.setupType, riskPctPerTrade: riskPct, params, trailPct: input.trailPct ?? null, fundingSource, dataWarnings: dataQuality.warnings },
+      feesModel: { ...costModel, fundingSource },
       sharpe: m.sharpe === null ? null : String(m.sharpe),
       sortino: m.sortino === null ? null : String(m.sortino),
       maxDrawdown: String(m.maxDrawdownPct),
@@ -144,7 +216,8 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
       expectancy: m.expectancy === null ? null : String(m.expectancy),
       netReturn: String(m.netReturnPct),
       tradeCount: String(m.tradeCount),
-      metrics: m,
+      // Robustheits-Check (08 §4): jüngster Abschnitt separat — das Validitäts-Gate liest ihn.
+      metrics: { ...m, holdout: holdoutMetrics(result.trades, input.from, input.to) },
       status: 'done',
       finishedAt: new Date(),
     })
@@ -234,6 +307,8 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
     raps: { ...raps, explanation, clusterKey },
     analysis,
     turningPoints,
+    fundingSource,
+    dataQuality,
   };
 }
 

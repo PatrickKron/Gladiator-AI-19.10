@@ -312,3 +312,28 @@ describe('DSL-Erweiterung: Auswertung der neuen Bedingungen', () => {
     expect(JSON.stringify(withFuture)).toBe(JSON.stringify(withoutFuture));
   });
 });
+
+describe('Anweisungs-DSL: Trailing-Stop als Exit (Backtest = Live)', () => {
+  const candles = syntheticCandles(300);
+  const last = candles.length - 1;
+
+  it('trailingStop.pct ist optional und landet im Setup', () => {
+    const r = parseInstructionDsl({ ...BLUEPRINT_EXAMPLE, entry: 'market', trailingStop: { pct: 2.5 } });
+    expect(r.ok).toBe(true);
+    const withTrail = { ...simpleDsl, trailingStop: { pct: 2.5 } };
+    expect(evaluateDslAt(candles, last, withTrail)!.trailPct).toBe(2.5);
+    expect(evaluateDslAt(candles, last, simpleDsl)!.trailPct).toBeUndefined();
+  });
+
+  it.each([
+    ['0 %', { pct: 0 }],
+    ['über 50 %', { pct: 60 }],
+    ['unbekanntes Feld', { pct: 2, atr: 3 }],
+  ])('ungültiger Trailing-Stop (%s) wird abgelehnt', (_l, trailingStop) => {
+    expect(parseInstructionDsl({ ...BLUEPRINT_EXAMPLE, trailingStop }).ok).toBe(false);
+  });
+
+  it('die Doku für KI/Workshop beschreibt das Feld (und nennt es nicht mehr als Grenze)', () => {
+    expect(DSL_SCHEMA_DOC).toContain('trailingStop');
+  });
+});

@@ -91,3 +91,11 @@ export function formatKillSwitchAlert(active: boolean, actor: string): string {
     ? `🛑 <b>KILL-SWITCH AKTIVIERT</b> von ${escapeHtml(actor)} — keine neuen Orders. Bestehende Schutz-Orders laufen weiter.`
     : `🟢 Kill-Switch deaktiviert von ${escapeHtml(actor)} — Orders durchlaufen wieder das normale Risk-Gate.`;
 }
+
+/** Notfall-Alarm (Stop nicht platzierbar → Glattstellung / UNGESCHÜTZT). */
+export function formatEmergencyAlert(symbol: string, detail: string, closed: boolean): string {
+  return closed
+    ? `🚨 <b>Notfall-Glattstellung ${escapeHtml(symbol)}</b>\n${escapeHtml(detail)}\nKill-Switch ist aktiv — erst nach Prüfung wieder freigeben.`
+    : `🆘 <b>UNGESCHÜTZTE POSITION ${escapeHtml(symbol)}</b>\n${escapeHtml(detail)}\nSofort an der Börse prüfen! Kill-Switch ist aktiv.`;
+}
+

@@ -112,6 +112,12 @@ export function Labor() {
   const [retestWindowBars, setRetestWindow] = useState(12);
   const [emaProximityPct, setEmaProximity] = useState(2);
   const [riskPct, setRiskPct] = useState(1);
+  // Trailing-Stop in % (leer = aus). DSL-Strategien mit eigenem trailingStop behalten ihren Wert.
+  const [trailPctInput, setTrailPctInput] = useState('');
+  const trailPct = (() => {
+    const n = Number(trailPctInput.replace(',', '.'));
+    return trailPctInput.trim() !== '' && n >= 0.1 && n <= 50 ? n : undefined;
+  })();
   const [versionId, setVersionId] = useState<string>('');
 
   const [busy, setBusy] = useState<'bt' | 'wf' | 'save' | 'cal' | null>(null);
@@ -173,6 +179,7 @@ export function Labor() {
         params: paramOverrides,
         versionId: versionId || undefined,
         riskPctPerTrade: riskPct,
+        ...(trailPct !== undefined ? { trailPct } : {}),
       });
       setRun(res);
       setRunWindow({ from: fromIso, to: toIso });
@@ -261,6 +268,7 @@ export function Labor() {
           to: toIso,
           params: paramOverrides,
           riskPctPerTrade: riskPct,
+          ...(trailPct !== undefined ? { trailPct } : {}),
         });
         results.push({
           key: sel,
@@ -435,6 +443,20 @@ export function Labor() {
             <span className="label">Risiko %/Trade</span>
             <input type="number" min={0.1} max={5} step={0.1} value={riskPct} onChange={(e) => setRiskPct(Number(e.target.value))} className="field num mt-1.5 w-full px-3 py-2" />
           </label>
+          <label className="text-sm" title="Stop folgt dem besten Kurs im %-Abstand, nur enger (gleiche Logik wie live). Leer = aus. DSL-Strategien mit eigenem Trailing behalten ihren Wert.">
+            <span className="label">Trailing-Stop %</span>
+            <input
+              id="lab-trail"
+              type="number"
+              min={0.1}
+              max={50}
+              step={0.1}
+              placeholder="aus"
+              value={trailPctInput}
+              onChange={(e) => setTrailPctInput(e.target.value)}
+              className="field num mt-1.5 w-full px-3 py-2"
+            />
+          </label>
           <label className="text-sm">
             <span className="label">Von</span>
             <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="field num mt-1.5 w-full px-3 py-2" />
@@ -494,6 +516,19 @@ export function Labor() {
       {/* ── Backtest-Ergebnis ── */}
       {run && m && (
         <>
+          {/* Datenqualität (08_ §3b): Auffälligkeiten ehrlich VOR den Kennzahlen zeigen */}
+          {run.dataQuality.warnings.length > 0 && (
+            <section
+              className="mt-6 rounded-[0.625rem] border p-4 text-sm"
+              style={{ borderColor: 'var(--color-warn)', color: 'var(--color-warn)' }}
+            >
+              <p className="font-medium">Datenqualität · Ergebnis mit Vorsicht lesen</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {run.dataQuality.warnings.map((w) => <li key={w}>{w}</li>)}
+              </ul>
+            </section>
+          )}
+
           <section className="mt-6 grid gap-3 md:grid-cols-3 xl:grid-cols-5">
             <MetricCard label="Netto-PnL" value={`${fmt(m.netPnl)} $`} tone={m.netPnl >= 0 ? 'pos' : 'neg'} />
             <MetricCard label="Netto-Return" value={`${fmt(m.netReturnPct)} %`} tone={m.netReturnPct >= 0 ? 'pos' : 'neg'} />
@@ -506,6 +541,14 @@ export function Labor() {
             <MetricCard label="Trades" value={String(m.tradeCount)} />
             <MetricCard label="Kerzen" value={fmt(run.candles, 0)} />
           </section>
+
+          {/* Kostenmodell inkl. Funding-Herkunft (08_ §3a) — historisch nur bei vollständigen echten Settlements */}
+          <p className="mt-3 text-xs" style={{ color: 'var(--color-mut)' }}>
+            Kosten: Taker {fmt(run.costModel.takerFeeRate * 100, 3)} % · Slippage {fmt(run.costModel.slippageBps, 1)} bps · Funding:{' '}
+            {run.fundingSource === 'historical'
+              ? 'historisch (echte 8h-Settlements aus der DB)'
+              : `Modell (${fmt(run.costModel.fundingRatePer8h * 100, 3)} % je 8h, keine vollständige Funding-Historie)`}
+          </p>
 
           <section className="glass mt-6 p-6">
             <h2 className="label">Equity-Kurve · Start 10.000 $ · netto</h2>

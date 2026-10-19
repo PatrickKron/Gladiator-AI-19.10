@@ -41,3 +41,4 @@ export {
 export { analyzePineScript, type PineAnalysis, type PineInput } from './pine-analyze.js';
 
 export { presetBySlug, STRATEGY_PRESETS, type PresetCategory, type StrategyPreset } from './strategy-presets.js';
+export { trailStep, type TrailInput } from './trailing.js';
