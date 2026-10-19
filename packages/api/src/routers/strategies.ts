@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { DSL_SCHEMA_DOC, analyzePineScript, parseInstructionDsl, type InstructionDsl } from '@gladiator/strategy-engine';
-import { evaluateBacktestValidity, DEFAULT_VALIDITY_THRESHOLDS, type ValidityVerdict } from '@gladiator/backtest';
+import { evaluateBacktestValidity, readHoldout, DEFAULT_VALIDITY_THRESHOLDS, type ValidityVerdict } from '@gladiator/backtest';
 import { CostGuard, envAnthropicProvider, guardedComplete } from '@gladiator/agents';
 import { protectedProcedure, router } from '../trpc.js';
 
@@ -36,6 +36,7 @@ async function loadVersionValidity(db: Db, versionId: string): Promise<VersionVa
       expectancy: backtests.expectancy,
       netReturn: backtests.netReturn,
       tradeCount: backtests.tradeCount,
+      metrics: backtests.metrics,
     })
     .from(backtests)
     .where(and(eq(backtests.strategyVersionId, versionId), eq(backtests.status, 'done')))
@@ -53,6 +54,7 @@ async function loadVersionValidity(db: Db, versionId: string): Promise<VersionVa
     maxDrawdownPct: Number(bt.maxDrawdown),
     sharpe: num(bt.sharpe),
     netReturnPct: num(bt.netReturn),
+    holdout: readHoldout(bt.metrics),
   };
   const verdict = evaluateBacktestValidity(metrics);
   return {

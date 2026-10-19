@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { presetBySlug, STRATEGY_PRESETS } from '@gladiator/strategy-engine';
-import { evaluateBacktestValidity, runLabBacktest, type ValidityVerdict } from '@gladiator/backtest';
+import { evaluateBacktestValidity, readHoldout, runLabBacktest, type ValidityVerdict } from '@gladiator/backtest';
 import { protectedProcedure, router } from '../trpc.js';
 
 const { strategies, strategyVersions, backtests, auditLog } = schema;
@@ -210,6 +210,7 @@ async function loadCatalogValidity(db: Db, versionId: string): Promise<CatalogVa
     maxDrawdownPct: Number(bt.maxDrawdown),
     sharpe: num(bt.sharpe),
     netReturnPct: num(bt.netReturn),
+    holdout: readHoldout(bt.metrics),
   });
   return {
     hasBacktest: true,

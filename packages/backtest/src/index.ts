@@ -7,6 +7,10 @@ export { analyzeTrades, type AnalyzableTrade, type TradeAnalysis, type BucketSta
 export { backtestSubAgent, subAgentSkippedConditions, type SubAgentBacktestResult } from './sub-agent-backtest.js';
 export {
   evaluateBacktestValidity,
+  holdoutMetrics,
+  readHoldout,
+  HOLDOUT_FRACTION,
+  type HoldoutMetrics,
   DEFAULT_VALIDITY_THRESHOLDS,
   type BacktestMetricsInput,
   type ValidityThresholds,

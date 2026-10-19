@@ -7,6 +7,7 @@ import { DEFAULT_COSTS, runBacktest, type BacktestResult, type CostModel } from 
 import { runWalkForward, type WalkForwardResult } from './walkforward.js';
 import { explainRapsChoice, rapsGrid, type RapsResult } from './raps.js';
 import { analyzeTrades, type TradeAnalysis } from './analysis.js';
+import { holdoutMetrics } from './validity.js';
 
 const { backtests, walkforwardRuns, strategies, strategyVersions, studyTrades, studyClusters } = schema;
 
@@ -147,7 +148,8 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
       expectancy: m.expectancy === null ? null : String(m.expectancy),
       netReturn: String(m.netReturnPct),
       tradeCount: String(m.tradeCount),
-      metrics: m,
+      // Robustheits-Check (08 §4): jüngster Abschnitt separat — das Validitäts-Gate liest ihn.
+      metrics: { ...m, holdout: holdoutMetrics(result.trades, input.from, input.to) },
       status: 'done',
       finishedAt: new Date(),
     })
