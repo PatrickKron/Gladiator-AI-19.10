@@ -28,7 +28,11 @@ class TestVenue implements TradingVenue {
   async marketRules() {
     return { tickSize: 0.1, lotSize: 0.000001, minNotional: 5 };
   }
-  async markPrice() {
+  // Nur das eigene Test-Symbol bepreisen: der Monitor sieht ALLE offenen
+  // Paper-Positionen der DB — parallel laufende Testdateien dürfen sich nicht
+  // gegenseitig Preise unterschieben (fremdes Symbol → Monitor überspringt).
+  async markPrice(symbol: string) {
+    if (symbol !== 'TEST/USDT') throw new Error(`fremdes Test-Symbol ${symbol}`);
     return this.price;
   }
   async placeOrder(req: VenueOrderRequest): Promise<VenueOrderResult> {

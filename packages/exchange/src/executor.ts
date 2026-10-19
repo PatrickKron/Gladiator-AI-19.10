@@ -247,6 +247,25 @@ export async function executeConfirmedSignal(
     return { verdict, executed: false, detail: 'Order existiert bereits (Idempotenz) — nichts erneut platziert.' };
   }
 
+  // ── Eine Position je Symbol (positions_unique_idx): VOR der Entry-Order
+  // prüfen — sonst würde die Order platziert und erst das Positions-Insert
+  // scheitern (verwaiste Order ohne Position). ──
+  const [openPos] = await db
+    .select({ id: positions.id })
+    .from(positions)
+    .where(
+      and(
+        eq(positions.userId, opts.userId),
+        eq(positions.venue, venue.id),
+        eq(positions.symbol, signal.symbol),
+        eq(positions.mode, 'paper'),
+      ),
+    )
+    .limit(1);
+  if (openPos) {
+    return { verdict, executed: false, detail: `Auf ${signal.symbol} ist bereits eine Position offen — erst schließen, dann neu einsteigen.` };
+  }
+
   // ── Entry (Market) ──
   const side = signal.direction === 'long' ? 'buy' : 'sell';
   const entryRes = await venue.placeOrder({
@@ -383,6 +402,8 @@ export async function monitorOpenPositions(db: Db, venue: TradingVenue): Promise
       console.warn(`[position-monitor] Preis für ${pos.symbol} nicht verfügbar: ${String(err)}`);
       continue;
     }
+    // Nur Schutz-Orders DIESER Position (erstellt ab Eröffnung — gleiche
+    // Konvention wie reconcile), nie Reste früherer Trades auf dem Symbol.
     const prot = await db
       .select()
       .from(orders)
@@ -393,6 +414,7 @@ export async function monitorOpenPositions(db: Db, venue: TradingVenue): Promise
           eq(orders.venue, pos.venue),
           eq(orders.status, 'open'),
           inArray(orders.type, ['stop_market', 'take_profit_market']),
+          gte(orders.createdAt, pos.openedAt),
         ),
       );
     if (prot.length === 0) continue;
@@ -416,6 +438,14 @@ export async function monitorOpenPositions(db: Db, venue: TradingVenue): Promise
       // decker S010: nach dem ersten TP-Fill Stop auf Break-Even (nur verschärfen)
       if (fill.type === 'take_profit_market') {
         const slRow = prot.find((o) => o.type === 'stop_market');
+        // Der Stop deckt nur noch die RESTMENGE ab — sonst würde er beim
+        // Auslösen mehr schließen, als offen ist (Exit-Menge > Positionsgröße).
+        const tpQty = Number(prot.find((o) => o.id === fill.id)?.qty ?? 0);
+        if (slRow && tpQty > 0) {
+          const remaining = Math.max(0, Number(slRow.qty) - tpQty);
+          slRow.qty = String(remaining);
+          await db.update(orders).set({ qty: String(remaining), updatedAt: new Date() }).where(eq(orders.id, slRow.id));
+        }
         const slNotAtBE =
           slRow &&
           (pos.direction === 'long'
@@ -453,7 +483,8 @@ async function closePaperPosition(
   const [pos] = await db.select().from(positions).where(eq(positions.id, positionId)).limit(1);
   if (!pos) return;
 
-  // Gefüllte Exits dieses Symbols/Users aggregieren (gewichteter Exit-Preis)
+  // Gefüllte Exits DIESER Position aggregieren (gewichteter Exit-Preis) —
+  // nur Orders ab Eröffnung, sonst zählen Fills früherer Trades mit.
   const exits = await db
     .select()
     .from(orders)
@@ -464,6 +495,7 @@ async function closePaperPosition(
         eq(orders.venue, pos.venue),
         eq(orders.reduceOnly, true),
         eq(orders.status, 'filled'),
+        gte(orders.createdAt, pos.openedAt),
       ),
     );
 
@@ -511,7 +543,7 @@ async function closePaperPosition(
     mode: 'paper',
   });
 
-  // Verbleibende offene Schutz-Orders schließen
+  // Verbleibende offene Schutz-Orders dieser Position schließen
   await db
     .update(orders)
     .set({ status: 'canceled', updatedAt: new Date() })
@@ -521,6 +553,7 @@ async function closePaperPosition(
         eq(orders.symbol, pos.symbol),
         eq(orders.venue, pos.venue),
         eq(orders.status, 'open'),
+        gte(orders.createdAt, pos.openedAt),
       ),
     );
   await db.delete(positions).where(eq(positions.id, positionId));
