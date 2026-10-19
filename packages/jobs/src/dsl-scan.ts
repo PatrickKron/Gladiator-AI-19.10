@@ -72,6 +72,9 @@ export async function runDslScan(db: Db): Promise<DslScanResult> {
     await db.insert(signals).values({
       source: 'instruction',
       strategyId: row.strategyId,
+      // Die Version ist zugleich der Transportweg für TP-Gewichte und den
+      // Break-Even-Schalter: der Executor liest sie aus DERSELBEN (unveränderlichen)
+      // DSL dieser Version (loadExecutionPlan) — Backtest = Live, ohne Extra-Spalte.
       strategyVersionId: row.versionId,
       symbol: dsl.symbol,
       timeframe: dsl.timeframe,

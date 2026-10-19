@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateDslAt, parseInstructionDsl, DSL_TIMEFRAMES, type InstructionDsl } from './dsl.js';
-import { DSL_SCHEMA_DOC } from './dsl-doc.js';
+import { evaluateDslAt, parseInstructionDsl, dslExecutionPlan, DSL_TIMEFRAMES, type InstructionDsl } from './dsl.js';
+import { DSL_LIMITS_DOC, DSL_SCHEMA_DOC } from './dsl-doc.js';
 import type { Candle } from './types.js';
 
 /** Blueprint-Beispiel (07_ §3) — muss valide sein. */
@@ -335,5 +335,154 @@ describe('Anweisungs-DSL: Trailing-Stop als Exit (Backtest = Live)', () => {
 
   it('die Doku für KI/Workshop beschreibt das Feld (und nennt es nicht mehr als Grenze)', () => {
     expect(DSL_SCHEMA_DOC).toContain('trailingStop');
+  });
+});
+
+describe('DSL-Erweiterung: ODER-Gruppen (when.any)', () => {
+  const up = flatThenMove(260, 40, 'up');
+  const lastUp = up.length - 1;
+
+  it('Schema: any = Liste von UND-Listen; all darf dann leer sein, beides leer nicht', () => {
+    expect(
+      parseInstructionDsl({ ...BLUEPRINT_EXAMPLE, when: { all: [], any: [[{ trend: 'EMA200_up' }], [{ signal: 'BOS' }]] } }).ok,
+    ).toBe(true);
+    expect(parseInstructionDsl({ ...BLUEPRINT_EXAMPLE, when: { any: [[{ trend: 'EMA200_up' }]] } }).ok).toBe(true);
+    expect(parseInstructionDsl({ ...BLUEPRINT_EXAMPLE, when: { all: [] } }).ok).toBe(false);
+    expect(parseInstructionDsl({ ...BLUEPRINT_EXAMPLE, when: { all: [], any: [] } }).ok).toBe(false);
+    expect(parseInstructionDsl({ ...BLUEPRINT_EXAMPLE, when: { all: [], any: [[]] } }).ok).toBe(false);
+    // max. 5 Zweige
+    const six = Array.from({ length: 6 }, () => [{ trend: 'EMA200_up' }]);
+    expect(parseInstructionDsl({ ...BLUEPRINT_EXAMPLE, when: { all: [], any: six } }).ok).toBe(false);
+    // ungültige Bedingung in einem Zweig
+    expect(parseInstructionDsl({ ...BLUEPRINT_EXAMPLE, when: { all: [], any: [[{ adx: {} }]] } }).ok).toBe(false);
+  });
+
+  it('bestehende DSL ohne any parst unverändert (rückwärtskompatibel)', () => {
+    const r = parseInstructionDsl(BLUEPRINT_EXAMPLE);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.dsl.when.any).toBeUndefined();
+      expect(r.dsl.when.all).toHaveLength(3);
+      expect(r.dsl.breakEvenAfterTp1).toBeUndefined();
+      expect(r.dsl.takeProfits).toEqual([{ rr: 1 }, { rr: 2 }]);
+    }
+  });
+
+  it('mind. ein Zweig voll erfüllt → Setup; Confluence zeigt den getroffenen Zweig', () => {
+    const dsl = dslWith([], {
+      when: {
+        all: [{ priceVs: { kind: 'EMA', period: 50, is: 'above' } }],
+        any: [
+          [{ supertrend: { direction: 'down' } }], // im Aufwärtstrend falsch
+          [{ macd: { event: 'histogram_positive' } }, { adx: { gt: 20 } }], // wahr
+        ],
+      },
+    });
+    const hit = evaluateDslAt(up, lastUp, dsl);
+    expect(hit).not.toBeNull();
+    expect(hit!.confluence).toContain('dsl:priceVs:EMA50:above');
+    expect(hit!.confluence).toContain('dsl:any#2');
+    expect(hit!.confluence).toContain('dsl:macd:histogram_positive');
+    expect(hit!.confluence).toContain('dsl:adx>20');
+    expect(hit!.confluence).not.toContain('dsl:any#1');
+    expect(hit!.confluence).not.toContain('dsl:supertrend:down');
+  });
+
+  it('erster erfüllter Zweig gewinnt (deterministisch)', () => {
+    const dsl = dslWith([], {
+      when: { all: [], any: [[{ supertrend: { direction: 'up' } }], [{ macd: { event: 'histogram_positive' } }]] },
+    });
+    const hit = evaluateDslAt(up, lastUp, dsl)!;
+    expect(hit.confluence).toContain('dsl:any#1');
+    expect(hit.confluence).not.toContain('dsl:any#2');
+  });
+
+  it('kein Zweig voll erfüllt → null (auch wenn all erfüllt ist)', () => {
+    const dsl = dslWith([], {
+      when: {
+        all: [{ priceVs: { kind: 'EMA', period: 50, is: 'above' } }],
+        // jeder Zweig enthält eine falsche Bedingung
+        any: [
+          [{ supertrend: { direction: 'down' } }, { macd: { event: 'histogram_positive' } }],
+          [{ macd: { event: 'histogram_negative' } }],
+        ],
+      },
+    });
+    expect(evaluateDslAt(up, lastUp, dsl)).toBeNull();
+  });
+
+  it('look-ahead-frei auch mit ODER-Gruppen', () => {
+    const dsl = dslWith([], {
+      when: { all: [], any: [[{ supertrend: { direction: 'down' } }], [{ priceVs: { kind: 'EMA', period: 20, is: 'above' } }]] },
+    });
+    const i = 280;
+    expect(JSON.stringify(evaluateDslAt(up, i, dsl))).toBe(JSON.stringify(evaluateDslAt(up.slice(0, i + 1), i, dsl)));
+  });
+});
+
+describe('DSL-Erweiterung: TP-Gewichte + Break-Even-Schalter (Backtest = Live)', () => {
+  const candles = syntheticCandles(300);
+  const last = candles.length - 1;
+
+  it('Gewichte optional; wenn gesetzt an JEDEM TP, Summe = 1', () => {
+    expect(parseInstructionDsl({ ...BLUEPRINT_EXAMPLE, takeProfits: [{ rr: 1, weight: 0.7 }, { rr: 2, weight: 0.3 }] }).ok).toBe(true);
+    // Rundungs-Toleranz (0.1 + 0.2 ≠ 0.3 in Gleitkomma)
+    expect(
+      parseInstructionDsl({
+        ...BLUEPRINT_EXAMPLE,
+        takeProfits: [{ rr: 1, weight: 0.1 }, { rr: 2, weight: 0.2 }, { rr: 3, weight: 0.7 }],
+      }).ok,
+    ).toBe(true);
+  });
+
+  it.each([
+    ['Summe ≠ 1', [{ rr: 1, weight: 0.5 }, { rr: 2, weight: 0.3 }]],
+    ['nur teilweise gesetzt', [{ rr: 1, weight: 1 }, { rr: 2 }]],
+    ['Gewicht 0', [{ rr: 1, weight: 1 }, { rr: 2, weight: 0 }]],
+    ['Gewicht > 1', [{ rr: 1, weight: 1.2 }, { rr: 2, weight: -0.2 }]],
+    ['4 TPs mit Gewichten (live nur 3 TP-Orders)', [
+      { rr: 1, weight: 0.25 }, { rr: 2, weight: 0.25 }, { rr: 3, weight: 0.25 }, { rr: 4, weight: 0.25 },
+    ]],
+  ])('ungültige TP-Gewichte (%s) werden abgelehnt', (_l, takeProfits) => {
+    expect(parseInstructionDsl({ ...BLUEPRINT_EXAMPLE, takeProfits }).ok).toBe(false);
+  });
+
+  it('Gewichte und BE-Schalter landen im Setup; ohne Angabe bleibt das Setup wie bisher', () => {
+    const custom = mustParse({
+      ...BLUEPRINT_EXAMPLE,
+      entry: 'market',
+      when: { all: [{ trend: 'EMA200_up' }] },
+      takeProfits: [{ rr: 1.5, weight: 0.6 }, { rr: 3, weight: 0.4 }],
+      breakEvenAfterTp1: false,
+    });
+    const s = evaluateDslAt(candles, last, custom)!;
+    expect(s.tpWeights).toEqual([0.6, 0.4]);
+    expect(s.breakEvenAfterTp1).toBe(false);
+
+    const plain = evaluateDslAt(candles, last, simpleDsl)!;
+    expect(plain.tpWeights).toBeUndefined();
+    expect(plain.breakEvenAfterTp1).toBeUndefined();
+  });
+
+  it('breakEvenAfterTp1 muss boolean sein', () => {
+    expect(parseInstructionDsl({ ...BLUEPRINT_EXAMPLE, breakEvenAfterTp1: 'nein' }).ok).toBe(false);
+    expect(parseInstructionDsl({ ...BLUEPRINT_EXAMPLE, breakEvenAfterTp1: true }).ok).toBe(true);
+  });
+
+  it('dslExecutionPlan: Ausführungs-Plan für die Live-Ausführung (gleiche Quelle wie das Setup)', () => {
+    expect(dslExecutionPlan(simpleDsl)).toEqual({ tpWeights: null, breakEvenAfterTp1: true });
+    const custom = mustParse({
+      ...BLUEPRINT_EXAMPLE,
+      takeProfits: [{ rr: 1, weight: 0.25 }, { rr: 2, weight: 0.75 }],
+      breakEvenAfterTp1: false,
+    });
+    expect(dslExecutionPlan(custom)).toEqual({ tpWeights: [0.25, 0.75], breakEvenAfterTp1: false });
+  });
+
+  it('Doku für KI/Workshop beschreibt any, weight und breakEvenAfterTp1; ODER ist keine Grenze mehr', () => {
+    expect(DSL_SCHEMA_DOC).toContain('"any"');
+    expect(DSL_SCHEMA_DOC).toContain('"weight"');
+    expect(DSL_SCHEMA_DOC).toContain('breakEvenAfterTp1');
+    expect(DSL_LIMITS_DOC).not.toMatch(/ODER-Verknüpfungen zwischen Bedingungen \(nur UND\)/);
   });
 });

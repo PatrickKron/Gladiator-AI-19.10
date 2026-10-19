@@ -14,9 +14,17 @@ import {
   type RiskVerdict,
 } from '@gladiator/risk';
 import type { TradingVenue, VenueOrderResult } from './venue.js';
-import { trailStep } from '@gladiator/strategy-engine';
+import {
+  DEFAULT_TP_WEIGHTS,
+  dslExecutionPlan,
+  MAX_LIVE_TAKE_PROFITS,
+  parseInstructionDsl,
+  tpFractions,
+  trailStep,
+  type DslExecutionPlan,
+} from '@gladiator/strategy-engine';
 
-const { signals, orders, positions, executedTrades, tradingSettings, riskGates, auditLog, economicEvents, macroSeries, ohlcv, marketRegimes } = schema;
+const { signals, strategies, strategyVersions, orders, positions, executedTrades, tradingSettings, riskGates, auditLog, economicEvents, macroSeries, ohlcv, marketRegimes } = schema;
 
 /**
  * Order-Lifecycle (06_ §5): bestätigtes Signal → Risk-Gate (statisch + adaptiv)
@@ -26,8 +34,31 @@ const { signals, orders, positions, executedTrades, tradingSettings, riskGates, 
  */
 
 export const PAPER_START_EQUITY = 10_000;
-/** Ausführungs-Schema wie im Backtest: TP1 50 %, TP2 30 %, TP3 20 % (decker S010). */
-const TP_WEIGHTS = [0.5, 0.3, 0.2];
+
+/** Ohne Strategie-Vorgabe: Schema A (50/30/20) und Break-Even nach TP1 — wie der Backtest. */
+const DEFAULT_EXECUTION_PLAN: DslExecutionPlan = { tpWeights: null, breakEvenAfterTp1: true };
+
+/**
+ * Ausführungs-Plan (TP-Gewichte, Break-Even nach TP1) eines Signals aus
+ * DERSELBEN Strategie-Version, aus der es stammt: signals.strategy_version_id
+ * → strategy_versions.params (die DSL, unveränderlich je Version). So nutzt
+ * Live exakt die Werte, die der Backtest aus evaluateDslAt bekommt — ohne
+ * Migration und ohne zweckentfremdete Signal-Felder. Nur DSL-Strategien
+ * haben einen Plan; alles andere (und eine nicht mehr parsebare DSL) läuft
+ * mit dem Default-Schema.
+ */
+export async function loadExecutionPlan(db: Db, strategyVersionId: string | null): Promise<DslExecutionPlan> {
+  if (!strategyVersionId) return DEFAULT_EXECUTION_PLAN;
+  const [row] = await db
+    .select({ params: strategyVersions.params, kind: strategies.kind })
+    .from(strategyVersions)
+    .innerJoin(strategies, eq(strategies.id, strategyVersions.strategyId))
+    .where(eq(strategyVersions.id, strategyVersionId))
+    .limit(1);
+  if (!row || row.kind !== 'dsl') return DEFAULT_EXECUTION_PLAN;
+  const parsed = parseInstructionDsl(row.params);
+  return parsed.ok ? dslExecutionPlan(parsed.dsl) : DEFAULT_EXECUTION_PLAN;
+}
 const TAKER_FEE = 0.0004;
 const FUNDING_PER_8H = 0.0001;
 
@@ -518,15 +549,23 @@ export async function executeConfirmedSignal(
     .returning();
 
   // ── Schutz-Orders: SL (voll) + TPs (gewichtet), mit Retry im Venue ──
+  // Gewichte aus der DSL der Signal-Version (sonst Schema A) — dieselbe
+  // Verteilfunktion wie der Backtest (Restgewicht auf den letzten TP).
+  const plan = await loadExecutionPlan(db, signal.strategyVersionId);
+  const liveTakeProfits = effectiveTakeProfits.slice(0, MAX_LIVE_TAKE_PROFITS);
+  const fractions = tpFractions(plan.tpWeights ?? DEFAULT_TP_WEIGHTS, liveTakeProfits.length);
   const closeSide = side === 'buy' ? 'sell' : 'buy';
   const protection: { type: 'stop_market' | 'take_profit_market'; trigger: number; fraction: number; tag: string }[] = [
     { type: 'stop_market', trigger: effectiveStopLoss, fraction: 1, tag: 'sl' },
-    ...effectiveTakeProfits.slice(0, 3).map((tp, i) => ({
-      type: 'take_profit_market' as const,
-      trigger: tp,
-      fraction: TP_WEIGHTS[i] ?? TP_WEIGHTS[TP_WEIGHTS.length - 1]!,
-      tag: `tp${i + 1}`,
-    })),
+    ...liveTakeProfits
+      .map((tp, i) => ({
+        type: 'take_profit_market' as const,
+        trigger: tp,
+        fraction: fractions[i]!,
+        tag: `tp${i + 1}`,
+      }))
+      // Ein TP mit Anteil 0 hätte nichts zu schließen — keine Null-Order an die Börse.
+      .filter((p) => p.fraction > 0),
   ];
 
   for (const p of protection) {
@@ -601,6 +640,9 @@ export async function executeConfirmedSignal(
       signalId: signal.id, venue: venue.id, qty: verdict.sizing.qty,
       entryFill: entryRes.fillPrice, stopLoss: effectiveStopLoss, takeProfits: effectiveTakeProfits,
       leverage: effectiveLeverage,
+      // Transparenz: mit welchen Teil-Exit-Anteilen und welcher BE-Regel die Position läuft
+      tpFractions: protection.filter((p) => p.type === 'take_profit_market').map((p) => p.fraction),
+      breakEvenAfterTp1: plan.breakEvenAfterTp1,
       ...(opts.overrides ? { overrides: opts.overrides } : {}),
     },
     ip: opts.ip ?? null,
@@ -619,7 +661,8 @@ export async function executeConfirmedSignal(
 /**
  * PositionMonitor-Tick (06_ §5): prüft offene Paper-Positionen gegen den
  * ECHTEN Live-Preis, füllt Schutz-Orders (SL zuerst — konservativ),
- * setzt nach TP1 den Stop auf Break-Even, schreibt bei Voll-Schluss
+ * setzt nach TP1 den Stop auf Break-Even (außer die DSL der Signal-Version
+ * schaltet es ab: breakEvenAfterTp1 = false), schreibt bei Voll-Schluss
  * executed_trades NETTO (Fees/Funding wie im Backtest-Kostenmodell).
  */
 export async function monitorOpenPositions(db: Db, venue: TradingVenue): Promise<{ checked: number; fills: number }> {
@@ -672,6 +715,9 @@ export async function monitorOpenPositions(db: Db, venue: TradingVenue): Promise
       price,
     );
 
+    // BE-Regel der Strategie: erst bei einem TP-Fill nachladen (aus der Signal-Version der TP-Order)
+    let breakEvenAfterTp1: boolean | null = null;
+
     for (const fill of planned) {
       // Paper-Fill zum Trigger-Preis (konservativ; Live-Venue füllt selbst)
       await db.update(orders).set({ status: 'filled', updatedAt: new Date() }).where(eq(orders.id, fill.id));
@@ -688,7 +734,15 @@ export async function monitorOpenPositions(db: Db, venue: TradingVenue): Promise
           slRow.qty = String(remaining);
           await db.update(orders).set({ qty: String(remaining), updatedAt: new Date() }).where(eq(orders.id, slRow.id));
         }
+        if (breakEvenAfterTp1 === null) {
+          const tpSignalId = prot.find((o) => o.id === fill.id)?.signalId ?? null;
+          const [sig] = tpSignalId
+            ? await db.select({ v: signals.strategyVersionId }).from(signals).where(eq(signals.id, tpSignalId)).limit(1)
+            : [];
+          breakEvenAfterTp1 = (await loadExecutionPlan(db, sig?.v ?? null)).breakEvenAfterTp1;
+        }
         const slNotAtBE =
+          breakEvenAfterTp1 &&
           slRow &&
           (pos.direction === 'long'
             ? Number(slRow.price) < Number(pos.entryPrice)
