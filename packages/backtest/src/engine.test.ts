@@ -176,6 +176,153 @@ describe('Backtest-Engine (look-ahead-frei, netto)', () => {
     expect(t.pnlRTpC).toBeCloseTo(1.0, 6);
     expect(t.pnlRTpD).toBeCloseTo(3.0, 6);
   });
+  // ── Gap-realistische Stops: öffnet ein Bar JENSEITS des Stops, gibt es keinen
+  // Fill am Stop-Preis — die Order wird erst zum Open ausgeführt (schlechter). ──
+
+  it('Gap-Down über den Long-Stop: Fill zum Open (schlechter als SL), exitReason sl', () => {
+    // Entry 100, SL 90, qty 10. Bar 3 öffnet bei 85 (unter SL) → Fill 85 statt 90
+    // PnL = 10 × (85 − 100) = −150 → −1,5 R (realistischer Gap-Verlust)
+    const candles = [
+      c(0, 100, 101, 99, 100), c(1, 100, 101, 99, 100), c(2, 100, 101, 99, 100),
+      c(3, 85, 86, 80, 82),
+      c(4, 82, 83, 81, 82),
+    ];
+    const res = runBacktest(candles, { ...BASE, evaluate: setupAt(2) });
+    const t = res.trades[0]!;
+    expect(t.exitReason).toBe('sl');
+    expect(t.netPnl).toBeCloseTo(-150, 6);
+    expect(t.rMultiple).toBeCloseTo(-1.5, 6);
+  });
+
+  it('Gap-Up über den Short-Stop: Fill zum Open', () => {
+    // Short Entry 100, SL 110, TPs 90/80/70 → qty 10. Bar 3 öffnet bei 116 → Fill 116
+    const candles = [
+      c(0, 100, 101, 99, 100), c(1, 100, 101, 99, 100), c(2, 100, 101, 99, 100),
+      c(3, 116, 120, 114, 118),
+    ];
+    const res = runBacktest(candles, {
+      ...BASE,
+      evaluate: setupAt(2, { direction: 'short', stopLoss: 110, takeProfits: [90, 80, 70] }),
+    });
+    const t = res.trades[0]!;
+    expect(t.exitReason).toBe('sl');
+    expect(t.netPnl).toBeCloseTo(-160, 6); // 10 × (100 − 116)
+  });
+
+  it('Open exakt auf dem Stop zählt als Gap-Fill (= Stop-Preis, kein Unterschied)', () => {
+    const candles = [
+      c(0, 100, 101, 99, 100), c(1, 100, 101, 99, 100), c(2, 100, 101, 99, 100),
+      c(3, 90, 95, 88, 92),
+    ];
+    const res = runBacktest(candles, { ...BASE, evaluate: setupAt(2) });
+    expect(res.trades[0]!.netPnl).toBeCloseTo(-100, 6);
+  });
+
+  it('Gap-Fill bekommt zusätzlich Slippage (auf den Open-Preis)', () => {
+    // Slippage 10 bps: Entry 100.1, qty = 100/10.1; Exit = 85 × 0.999
+    const costModel = { takerFeeRate: 0, makerFeeRate: 0, slippageBps: 10, fundingRatePer8h: 0 };
+    const candles = [
+      c(0, 100, 101, 99, 100), c(1, 100, 101, 99, 100), c(2, 100, 101, 99, 100),
+      c(3, 85, 86, 80, 82),
+    ];
+    const res = runBacktest(candles, { ...BASE, costModel, evaluate: setupAt(2) });
+    const t = res.trades[0]!;
+    const qty = 100 / 10.1;
+    expect(t.grossPnl).toBeCloseTo(qty * (85 * 0.999 - 100.1), 6);
+    expect(t.slippage).toBeCloseTo(qty * (0.1 + 85 * 0.001), 6); // Entry 0,1 + Exit 0,085 je Einheit
+  });
+
+  it('Break-Even-Stop mit Gap: Rest wird zum (schlechteren) Open geschlossen, exitReason be', () => {
+    // TP1 110 (50 % → +50), Bar 4 öffnet bei 95 unter dem BE-Stop 100 → Rest 5 × (95 − 100) = −25
+    const candles = [
+      c(0, 100, 101, 99, 100), c(1, 100, 101, 99, 100), c(2, 100, 101, 99, 100),
+      c(3, 100, 112, 101, 111),
+      c(4, 95, 96, 90, 92),
+    ];
+    const res = runBacktest(candles, { ...BASE, evaluate: setupAt(2) });
+    const t = res.trades[0]!;
+    expect(t.exitReason).toBe('be');
+    expect(t.netPnl).toBeCloseTo(25, 6);
+  });
+
+  it('Gap ÜBER den TP: Fill bleibt konservativ am TP-Preis (kein Gap-Bonus)', () => {
+    // Bar 3 öffnet bei 125 (über TP1 110 und TP2 120) → Fills 110/120, nicht 125
+    const candles = [
+      c(0, 100, 101, 99, 100), c(1, 100, 101, 99, 100), c(2, 100, 101, 99, 100),
+      c(3, 125, 126, 124, 125),
+      c(4, 125, 132, 124, 131),
+    ];
+    const res = runBacktest(candles, { ...BASE, evaluate: setupAt(2) });
+    expect(res.trades[0]!.netPnl).toBeCloseTo(170, 6);
+  });
+
+  // ── Historisches Funding (fundingSeries): Summe über Funding-Zeitpunkte in
+  // (entryTs, exitTs] von Notional × Rate × Vorzeichen (Long zahlt positive Rate). ──
+
+  /** 13 flache Bars, TP1–3 erst in Bars 10–12 → Trade läuft von ts 2h bis 12h. */
+  function fundingCandles(): Candle[] {
+    const flat = Array.from({ length: 10 }, (_, k) => c(k, 100, 101, 99, 100));
+    return [...flat, c(10, 100, 112, 100, 111), c(11, 111, 122, 110, 121), c(12, 121, 132, 120, 131)];
+  }
+  const NO_FLAT_FUNDING = { takerFeeRate: 0, makerFeeRate: 0, slippageBps: 0, fundingRatePer8h: 0.5 };
+  const h = (n: number) => new Date(n * 3_600_000);
+
+  it('fundingSeries: Long zahlt positive Raten im Fenster (entryTs, exitTs]', () => {
+    // Notional = 100 × 10 = 1000. Zeitpunkte: 2h (= entryTs, exklusiv), 4h, 12h (= exitTs, inklusiv), 13h (danach)
+    const res = runBacktest(fundingCandles(), {
+      ...BASE,
+      costModel: NO_FLAT_FUNDING, // darf bei vorhandener Serie NICHT greifen
+      evaluate: setupAt(2),
+      fundingSeries: [
+        { ts: h(2), rate: 0.01 },
+        { ts: h(4), rate: 0.001 },
+        { ts: h(12), rate: 0.002 },
+        { ts: h(13), rate: 0.05 },
+      ],
+    });
+    const t = res.trades[0]!;
+    expect(t.exitTs.getTime()).toBe(h(12).getTime());
+    expect(t.funding).toBeCloseTo(1000 * (0.001 + 0.002), 9); // 3 $
+    expect(t.netPnl).toBeCloseTo(170 - 3, 6);
+  });
+
+  it('fundingSeries: Short erhält positive Raten → Funding negativ (Ertrag)', () => {
+    const candles = [
+      ...Array.from({ length: 10 }, (_, k) => c(k, 100, 101, 99, 100)),
+      c(10, 100, 100, 88, 89), c(11, 89, 90, 78, 79), c(12, 79, 80, 68, 69),
+    ];
+    const res = runBacktest(candles, {
+      ...BASE,
+      costModel: NO_FLAT_FUNDING,
+      evaluate: setupAt(2, { direction: 'short', stopLoss: 110, takeProfits: [90, 80, 70] }),
+      fundingSeries: [{ ts: h(4), rate: 0.001 }, { ts: h(12), rate: 0.002 }],
+    });
+    const t = res.trades[0]!;
+    expect(t.funding).toBeCloseTo(-3, 9);
+    expect(t.netPnl).toBeCloseTo(170 + 3, 6);
+  });
+
+  it('fundingSeries: negative Rate → Long erhält Funding', () => {
+    const res = runBacktest(fundingCandles(), {
+      ...BASE,
+      costModel: NO_FLAT_FUNDING,
+      evaluate: setupAt(2),
+      fundingSeries: [{ ts: h(8), rate: -0.0005 }],
+    });
+    expect(res.trades[0]!.funding).toBeCloseTo(-0.5, 9);
+  });
+
+  it('leere fundingSeries → 0 Funding (Serie ist die Wahrheit, kein Fallback in der Engine)', () => {
+    const res = runBacktest(fundingCandles(), { ...BASE, costModel: NO_FLAT_FUNDING, evaluate: setupAt(2), fundingSeries: [] });
+    expect(res.trades[0]!.funding).toBe(0);
+  });
+
+  it('ohne fundingSeries bleibt das flache Modell (Rate × Haltezeit/8h) unverändert', () => {
+    const costModel = { takerFeeRate: 0, makerFeeRate: 0, slippageBps: 0, fundingRatePer8h: 0.001 };
+    const res = runBacktest(fundingCandles(), { ...BASE, costModel, evaluate: setupAt(2) });
+    // 1000 Notional × 0.001 × (10h / 8h)
+    expect(res.trades[0]!.funding).toBeCloseTo(1000 * 0.001 * (10 / 8), 9);
+  });
 });
 
 describe('Backtest-Engine: Trailing-Stop (dieselbe trailStep-Funktion wie live)', () => {
