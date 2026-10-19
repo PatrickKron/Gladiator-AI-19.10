@@ -7,6 +7,7 @@ import { MlBadge } from './MlBadge.js';
 import { RegimeBadge } from './RegimeBadge.js';
 import { buildChartUrl } from '../lib/chart-url.js';
 import { getUiMode } from '../lib/ui-mode.js';
+import { lifecycleChips, type AutoKillInfo, type LeverageUpgradeInfo, type ReentryInfo } from '../lib/signal-lifecycle.js';
 
 export type SignalReview = {
   agent: string;
@@ -35,6 +36,10 @@ export type SignalRow = {
   strategySlug: string;
   reviews: SignalReview[];
   isFavorite?: boolean;
+  /** 05_ §9: Reentry-Plan, Hebel-Upgrade (inkl. Vorschlag), Auto-Kill-Grund. */
+  reentry?: ReentryInfo | null;
+  leverageUpgrade?: LeverageUpgradeInfo | null;
+  autoKill?: AutoKillInfo | null;
 };
 
 function fmt(n: string): string {
@@ -96,6 +101,39 @@ const SOURCE_HINT: Record<SignalRow['source'], string> = {
   instruction: 'signals.sourceInstructionHint',
   manual: 'signals.sourceManualHint',
 };
+
+const CHIP_COLOR: Record<'info' | 'warn' | 'neg' | 'mut', string> = {
+  info: 'var(--color-cyan)',
+  warn: 'var(--color-warn)',
+  neg: 'var(--color-neg)',
+  mut: 'var(--color-mut)',
+};
+
+/** Reentry-/Hebel-Upgrade-/Auto-Kill-Hinweise (05_ §9) — kompakt, Details im Tooltip. */
+function LifecycleChips({ signal }: { signal: SignalRow }) {
+  const { t } = useTranslation();
+  const chips = lifecycleChips({
+    status: signal.status,
+    reentry: signal.reentry,
+    leverageUpgrade: signal.leverageUpgrade,
+    autoKill: signal.autoKill,
+  });
+  if (chips.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {chips.map((c) => (
+        <span
+          key={c.key}
+          className="num cursor-help rounded border px-1.5 py-0.5 text-[11px]"
+          style={{ borderColor: CHIP_COLOR[c.tone], color: CHIP_COLOR[c.tone] }}
+          title={t(c.hintKey, c.hintParams)}
+        >
+          {c.reasonKey ? t(c.key, { reason: t(c.reasonKey, c.params) }) : t(c.key, c.params)}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 /** Schwarm-Urteile (Phase 5): transparent, aufklappbar — keine Blackbox. */
 function SwarmReviews({ reviews }: { reviews: SignalReview[] }) {
@@ -706,6 +744,8 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
           {t('common.session')}: {signal.session}
         </span>
       </div>
+
+      <LifecycleChips signal={signal} />
 
       <button onClick={() => setShowChart(!showChart)} className="mt-3 text-xs" style={{ color: 'var(--color-cyan)' }}>
         {showChart ? `− ${t('signals.chartHide')}` : `+ ${t('signals.chartShow')}`}

@@ -24,15 +24,40 @@ export const agentVerdictSchema = z.object({
   refs: z.array(z.string()).default([]),
 });
 
+/**
+ * Reentry-Plan (05_ §9) — EIN flaches Format (Alt-Bug: flach vs. verschachtelt).
+ * Zusatzfelder optional: Preis-Zone, Limit/Generation der „zweiten Chance"
+ * und die Herkunft (parent/root) eines Reentry-Signals.
+ */
 export const reentrySchema = z.object({
   enabled: z.boolean(),
   minPullbackPct: z.number(),
   maxPullbackPct: z.number(),
+  zoneLow: z.number().positive().optional(),
+  zoneHigh: z.number().positive().optional(),
+  maxReentries: z.number().int().min(0).optional(),
+  generation: z.number().int().min(0).optional(),
+  parentSignalId: z.string().min(1).optional(),
+  rootSignalId: z.string().min(1).optional(),
+});
+
+/** Sichtbarer Hebel-Vorschlag — wird NIE automatisch angewendet (Mensch im Loop). */
+export const leverageUpgradeSuggestionSchema = z.object({
+  suggested: z.number().positive(),
+  from: z.number().positive(),
+  movePct: z.number(),
+  reason: z.string(),
+  at: z.string().datetime({ offset: true }),
+  positionId: z.string().min(1),
+  price: z.number().positive(),
 });
 
 export const leverageUpgradeSchema = z.object({
   triggerPct: z.number().positive(),
   maxLeverage: z.number().positive(),
+  /** Hebel-Faktor je Setup-Typ (05_ §9: scalp ×2, swing ×1,5, position ×5). */
+  multiplier: z.number().positive().optional(),
+  suggestion: leverageUpgradeSuggestionSchema.optional(),
 });
 
 export const signalSchema = z
