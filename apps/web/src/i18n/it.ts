@@ -269,7 +269,7 @@ export const it: Catalog = {
     desc_sitemap: "Ogni pagina e area dell’app in una mappa — con breve descrizione.",
     desc_protocol: "Ogni azione rilevante per la sicurezza, completa: ordini, controlli di rischio, modifiche SL/TP, accessi.",
     tab_entscheidung: "Logica decisionale",
-    tab_daten: 'Fonti dati',
+    tab_daten: 'Serie di dati',
     tab_settingsRisk: "Rischio & limiti",
     tab_settingsExchanges: "Exchange",
     tab_settingsKeys: "Chiavi API",

@@ -268,7 +268,7 @@ export const de = {
     desc_sitemap: 'Jede Seite und jeder Bereich der App auf einer Karte — mit Kurzbeschreibung.',
     desc_protocol: "Jede sicherheitsrelevante Aktion lückenlos: Orders, Risk-Checks, SL/TP-Änderungen, Logins.",
     tab_entscheidung: 'Entscheidungslogik',
-    tab_daten: 'Datenquellen',
+    tab_daten: 'Datenreihen',
     tab_settingsRisk: 'Risiko & Limits',
     tab_settingsExchanges: 'Börsen',
     tab_settingsKeys: 'API-Keys',

@@ -81,10 +81,7 @@ export function DataSourcesPanel() {
   return (
     <div className="grid gap-5">
       <Panel label={t('ia.tab_daten')} stagger={1}>
-        <p className="mb-4 text-sm" style={{ color: 'var(--color-mut)' }}>
-          {t('data.subtitle')}
-        </p>
-        <div className="grid gap-3 md:grid-cols-[2fr_1fr]">
+        <div className="mt-3 grid gap-3 md:grid-cols-[2fr_1fr]">
           <input className={field} value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('data.ask')} />
           <div className="flex gap-2">
             <input

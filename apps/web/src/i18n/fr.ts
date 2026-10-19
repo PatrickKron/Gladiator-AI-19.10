@@ -269,7 +269,7 @@ export const fr: Catalog = {
     desc_sitemap: "Chaque page et zone de l'app sur une carte — avec une courte description.",
     desc_protocol: "Chaque action liée à la sécurité, sans lacune : ordres, contrôles de risque, modifications SL/TP, connexions.",
     tab_entscheidung: "Logique de décision",
-    tab_daten: 'Sources de données',
+    tab_daten: 'Séries de données',
     tab_settingsRisk: "Risque & limites",
     tab_settingsExchanges: "Exchanges",
     tab_settingsKeys: "Clés API",
