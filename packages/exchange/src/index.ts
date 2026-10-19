@@ -49,6 +49,9 @@ export {
 } from './demo/engine.js';
 export {
   connectExchange,
+  connectWallet,
+  isValidEvmAddress,
+  walletExchanges,
   defaultCreateClient,
   fetchConnectionBalances,
   isSupportedExchange,
@@ -67,6 +70,9 @@ export {
   type ConnectionForRouting,
   type CreateClient,
   type ExchangeCredentialsInput,
+  type WalletCredentials,
+  type StoredCredentials,
+  type ConnectWalletInput,
   type MarketsSummary,
   type SupportedExchange,
 } from './connections.js';
