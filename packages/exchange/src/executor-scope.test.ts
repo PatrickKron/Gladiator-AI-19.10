@@ -108,6 +108,7 @@ describe.skipIf(!hasDb)('Positions-Abrechnung je Position (Paper, echte DB)', ()
   });
 
   afterAll(async () => {
+    await db.execute(sql`DELETE FROM study_trades WHERE executed_trade_id IN (SELECT id FROM executed_trades WHERE user_id = ${userId})`);
     await db.execute(sql`DELETE FROM executed_trades WHERE user_id = ${userId}`);
     await db.execute(sql`DELETE FROM positions WHERE user_id = ${userId}`);
     await db.execute(sql`DELETE FROM orders WHERE user_id = ${userId}`);

@@ -4,6 +4,7 @@ export { CcxtLiveVenue, formatClientOrderId, type CcxtLiveClient, type CcxtOrder
 export { PaperVenue } from './paper-venue.js';
 export { BinanceTestnetVenue } from './binance-venue.js';
 export { planFills, type OpenProtectionOrder, type PlannedFill } from './lifecycle.js';
+export { paperStudyRow, recordPaperStudyTrade, type PaperStudyInput } from './study-record.js';
 export {
   executeConfirmedSignal,
   closePositionNow,

@@ -12,6 +12,8 @@ import {
 import { evaluateRisk } from '@gladiator/risk';
 import { formatEmergencyAlert, sendTelegram } from '@gladiator/jobs';
 import { getEurUsdRate } from '@gladiator/market-data';
+import { getOptimalParams, MIN_TRADES_PER_CLUSTER, type OptimalParams } from '@gladiator/backtest';
+import { buildClusterKey } from '@gladiator/strategy-engine';
 import { protectedProcedure, router } from '../trpc.js';
 
 const { signals, signalReviews, strategies, auditLog, assetFavorites, assets } = schema;
@@ -163,6 +165,33 @@ export const signalsRouter = router({
       );
       const eurUsd = await getEurUsdRate();
       const suggestedNotionalUsd = verdict.sizing?.notional ?? null;
+
+      // Vorschlag aus Erfahrung (13_ §7): VDB2-Cluster des Signals, gedeckelt
+      // durch die Risk-Settings. Nur Vorschlag — angewendet wird nichts
+      // automatisch, das Risk-Gate prüft beim Ausführen erneut.
+      let experience: OptimalParams | { available: false; reason: 'error'; tradeCount: 0; minTrades: number };
+      try {
+        const [strategy] = await ctx.db
+          .select({ slug: strategies.slug })
+          .from(strategies)
+          .where(eq(strategies.id, signal.strategyId))
+          .limit(1);
+        const clusterKey = buildClusterKey({
+          strategy: strategy?.slug ?? '',
+          symbol: signal.symbol,
+          setupType: signal.setupType,
+          timeframe: signal.timeframe,
+          session: signal.session,
+          emaRegime: signal.emaRegime === 'above' || signal.emaRegime === 'below' ? signal.emaRegime : null,
+          marketPhase: signal.marketPhase === 'bull' || signal.marketPhase === 'bear' ? signal.marketPhase : null,
+        });
+        experience = strategy
+          ? await getOptimalParams(ctx.db, clusterKey, { maxLeverage: settings.maxLeverage, riskPctPerTrade: settings.riskPctPerTrade })
+          : { available: false, reason: 'no_data', tradeCount: 0, minTrades: MIN_TRADES_PER_CLUSTER };
+      } catch (err) {
+        console.warn(`[executionPreview] Erfahrungs-Vorschlag nicht ladbar: ${String(err)}`);
+        experience = { available: false, reason: 'error', tradeCount: 0, minTrades: MIN_TRADES_PER_CLUSTER };
+      }
       return {
         // Strategie-Vorschlag (Referenz fürs Ticket)
         suggested: {
@@ -187,6 +216,8 @@ export const signalsRouter = router({
         /** Echter EUR/USD-Kurs; null = Quelle nicht erreichbar (UI zeigt USD). */
         eurUsdRate: eurUsd,
         gateReasons: verdict.allowed ? [] : verdict.reasons,
+        /** Optionaler Vorschlag aus echten Trades (Labor + Paper); null-Fall mit Grund. */
+        experience,
       };
     }),
 

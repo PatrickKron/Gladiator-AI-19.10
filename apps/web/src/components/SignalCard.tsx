@@ -298,6 +298,57 @@ function IntelligenceSection({ signalId }: { signalId: string }) {
 
 type ExecPreview = Awaited<ReturnType<typeof trpc.signals.executionPreview.query>>;
 
+type ExperienceOk = Extract<ExecPreview['experience'], { available: true }>;
+
+/**
+ * „Vorschlag aus Erfahrung": gelernte Parameter des passenden Clusters aus
+ * echten Labor- und Paper-Trades (VDB2). Ein Klick übernimmt Hebel + Betrag
+ * (aus Risiko %) ins Ticket — bestätigt wird weiterhin manuell, das
+ * Risk-Gate prüft beim Ausführen erneut. Kein Vorschlag → ehrlicher Grund.
+ */
+function ExperienceSuggestion({ preview, onApply }: { preview: ExecPreview; onApply: (e: ExperienceOk) => void }) {
+  const { t } = useTranslation();
+  const exp = preview.experience;
+  if (!exp.available) {
+    const text =
+      exp.reason === 'low_sample'
+        ? t('ticket.experienceNoneLowSample', { n: exp.tradeCount, min: exp.minTrades })
+        : exp.reason === 'not_recommended'
+          ? t('ticket.experienceNoneNotRecommended')
+          : exp.reason === 'error'
+            ? t('ticket.experienceNoneError')
+            : t('ticket.experienceNoneNoData');
+    return (
+      <p className="mt-2 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+        {text}
+      </p>
+    );
+  }
+  return (
+    <div className="mt-2 rounded border p-2 text-[11px]" style={{ borderColor: 'var(--color-line)' }}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs">{t('ticket.experienceTitle', { n: exp.tradeCount })}</span>
+        <button className="underline decoration-dotted" onClick={() => onApply(exp)}>
+          {t('ticket.experienceApply')}
+        </button>
+      </div>
+      <p className="num mt-1">
+        {t('ticket.experienceDetail', {
+          lev: exp.leverage,
+          risk: exp.riskPct.toLocaleString('de-DE', { maximumFractionDigits: 2 }),
+          schema: exp.tpSchema,
+        })}
+      </p>
+      <p className="mt-1" style={{ color: 'var(--color-mut)' }}>
+        {exp.level !== 'exact' && <>{t('ticket.experienceFallback')} </>}
+        {(exp.capped.leverage || exp.capped.riskPct) && <>{t('ticket.experienceCapped')} </>}
+        {exp.tpSchema !== 'A' && <>{t('ticket.experienceSchemaInfo', { schema: exp.tpSchema })} </>}
+        {t('ticket.experienceHint')}
+      </p>
+    </div>
+  );
+}
+
 /**
  * Anpassbares Order-Ticket (Patricks Kernwunsch B): Das Signal zeigt den
  * Strategie-Vorschlag (Betrag/Hebel/SL/TP) — der User kann ALLES anpassen,
@@ -412,6 +463,20 @@ function AdjustTicket({
           {t('ticket.reset')}
         </button>
       </p>
+
+      {/* Vorschlag aus Erfahrung (13_ §7): VDB2-Cluster, durch Risk-Settings gedeckelt — nur Angebot */}
+      <ExperienceSuggestion
+        preview={preview}
+        onApply={(exp) => {
+          setLeverage(exp.leverage);
+          // Risiko % → Betrag: Positionswert so, dass der Stop-Abstand genau exp.riskPct des Kontos kostet
+          if (rate !== null && maxEur !== null && minEur !== null && slPct !== null && slPct > 0) {
+            const usd = (preview.limits.equityUsd * (exp.riskPct / 100)) / (slPct / 100);
+            setAmountEur(Math.min(maxEur, Math.max(minEur, Math.round(usd / rate))));
+          }
+          setDirty(true);
+        }}
+      />
 
       {/* Betrag in € */}
       <div className="mt-3">

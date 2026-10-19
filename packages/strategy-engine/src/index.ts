@@ -42,3 +42,15 @@ export { analyzePineScript, type PineAnalysis, type PineInput } from './pine-ana
 
 export { presetBySlug, STRATEGY_PRESETS, type PresetCategory, type StrategyPreset } from './strategy-presets.js';
 export { trailStep, type TrailInput } from './trailing.js';
+export {
+  buildClusterKey,
+  parseClusterKey,
+  clusterKeyLevels,
+  isLegacyClusterKey,
+  marketStructureOf,
+  CLUSTER_ALL,
+  type ClusterKeyInput,
+  type ClusterKeyParts,
+  type ClusterLevel,
+  type MarketStructure,
+} from './study-cluster.js';

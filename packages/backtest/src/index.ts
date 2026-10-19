@@ -26,3 +26,24 @@ export {
   type ValidityVerdict,
   type ValidityCheck,
 } from './validity.js';
+export { labStudyRow, type LabStudyContext } from './study-rows.js';
+export {
+  computeCluster,
+  groupRowsByCluster,
+  studyRowFromDb,
+  recomputeStudyClusters,
+  pickOptimalParams,
+  getOptimalParams,
+  MIN_TRADES_PER_CLUSTER,
+  MIN_HOLDOUT_TRADES,
+  STUDY_WINDOW_DAYS,
+  STUDY_LAMBDA_TIME_DECAY,
+  STUDY_HOLDOUT_FRACTION,
+  RISK_PCT_CANDIDATES,
+  type StudyRow,
+  type StudyDbRow,
+  type ClusterComputation,
+  type OptimalParams,
+  type RiskCaps,
+  type StoredCluster,
+} from './study-clusters.js';

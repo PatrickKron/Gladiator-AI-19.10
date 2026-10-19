@@ -13,6 +13,7 @@ import { computeAllFeatures, autoLabelSignals, retrainModel } from './ml-pipelin
 import { runRlEpisodes, aggregateRlPerformance, rebalanceRlWeights } from './rl-pipeline.js';
 import { detectAllRegimes, runSelfEvaluation, runModelComparison, createPerformanceSnapshots } from './self-improve-pipeline.js';
 import { snapshotAccountValues } from './portfolio-snapshot.js';
+import { recomputeStudyClusters } from '@gladiator/backtest';
 
 /**
  * BullMQ-Worker (04_ §2: robuste Jobs statt loser Loops — der v1-Fehler).
@@ -40,6 +41,7 @@ const SELF_EVAL_JOB = 'self-evaluate';
 const MODEL_COMPARE_JOB = 'model-compare';
 const PERF_SNAPSHOT_JOB = 'perf-snapshot';
 const PORTFOLIO_SNAPSHOT_JOB = 'portfolio-snapshot';
+const STUDY_CLUSTER_JOB = 'study-clusters';
 
 /**
  * Worker-Heartbeat (Phase 7): /health prüft das Alter; der Monitor-Job pingt
@@ -119,6 +121,9 @@ const SCHEDULES: [string, number][] = [
   [RL_EPISODE_JOB, 30 * 60_000],       // RL-Episoden alle 30 min
   [REGIME_JOB, 15 * 60_000],            // Regime-Erkennung alle 15 min
   [PORTFOLIO_SNAPSHOT_JOB, 60 * 60_000], // Vermögens-Snapshot stündlich (Zeitverlauf „Vermögen")
+  // VDB2-Batch (13_ §4) wöchentlich: study_clusters aus study_trades (Labor + Paper) neu rechnen.
+  // Zusatzläufe (Neustart) sind unschädlich: die Hebel-Stufengrenze bezieht sich auf die Vorwoche.
+  [STUDY_CLUSTER_JOB, 7 * 24 * 60 * 60_000],
 ];
 
 /** Nacht-Pipeline: täglich 03:30 UTC (08_ §5) — Cron statt Intervall. */
@@ -358,6 +363,14 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
             console.log(`[perf-snapshot] typ=${snapshotType} erstellt=${res.snapshots} Fehler=${res.errors.length}`);
             for (const e of res.errors) console.warn('[perf-snapshot]', e);
           }
+          return res;
+        }
+        case STUDY_CLUSTER_JOB: {
+          const res = await recomputeStudyClusters(db);
+          console.log(
+            `[study-clusters] Cluster=${res.clusters} mit Vorschlag=${res.recommended} ` +
+              `Trades=${res.rowsUsed} verworfen=${res.rowsSkipped}`,
+          );
           return res;
         }
         default:
