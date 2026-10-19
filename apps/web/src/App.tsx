@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState, type ComponentType } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getAccessToken, onAuthChange, refreshSession } from './api.js';
-import { setDemoMode } from './lib/demo-mode.js';
+import { resolveRedirect, type PageHash } from './lib/navigation.js';
 import { MatrixRain } from './components/MatrixRain.js';
 import { Shell } from './components/Shell.js';
 import { Login } from './views/Login.js';
@@ -51,54 +51,40 @@ const Einstellungen = lazyView(() => import('./views/Einstellungen.js'), 'Einste
 const Profil = lazyView(() => import('./views/Profil.js'), 'Profil');
 const Vermoegen = lazyView(() => import('./views/Vermoegen.js'), 'Vermoegen');
 
+const Marktlage = lazyView(() => import('./views/Marktlage.js'), 'Marktlage');
+const Funktionen = lazyView(() => import('./views/Funktionen.js'), 'Funktionen');
+const DemoKonto = lazyView(() => import('./views/Trading.js'), 'DemoKonto');
+
 type AuthState = 'restoring' | 'anonymous' | 'authenticated';
 
-/** Leitet Alt-Routen auf die zusammengeführte Asset-Detailseite um (P2.9). */
-function Redirect({ to }: { to: string }) {
-  useEffect(() => {
-    window.location.hash = to;
-  }, [to]);
-  return null;
-}
-
 /**
- * Direkteinstieg „Demo-Trading" (Sidebar): schaltet den Demo-Modus ein und
- * landet auf der Trading-Seite — dort rendert der aktive Demo-Modus das
- * Demo-Konto. Eigener Sidebar-Eintrag, damit das Feature auffindbar ist.
+ * Hash → View. Die Seiten selbst (Name, Bereich, Tabs, Suchbegriffe) stehen in
+ * der Funktions-Registry (lib/navigation.ts); `satisfies Record<PageHash, …>`
+ * lässt den Build scheitern, wenn eine Registry-Seite keine View hat.
+ * Alte Links (Oracle, Aegis, ML/RL-Einzelseiten, Asset-Makro/Risiko) leitet
+ * resolveRedirect() zentral um — Bookmarks bleiben gültig.
  */
-function DemoEntry() {
-  useEffect(() => {
-    setDemoMode(true);
-    window.location.hash = '#/trading';
-  }, []);
-  return null;
-}
-
-const ROUTES: Record<string, ComponentType> = {
+const ROUTES = {
   '#/': Dashboard,
-  '#/signals': Signals,
-  '#/labor': Labor,
-  '#/trading': Trading,
-  '#/demo': DemoEntry,
   '#/charts': AssetDetail,
+  '#/signals': Signals,
+  '#/marktlage': Marktlage,
   '#/pakete': Pakete,
-  '#/oracle': () => <Redirect to="#/charts?tab=makro" />,
-  '#/magazine': Magazine,
   '#/kalender': Kalender,
-  '#/aegis': () => <Redirect to="#/charts?tab=risiko" />,
+  '#/magazine': Magazine,
+  '#/trading': Trading,
+  '#/demo': DemoKonto,
+  '#/vermoegen': Vermoegen,
   '#/agenten': Agenten,
-  '#/werkstatt': Werkstatt,
   '#/strategien': Strategien,
   '#/strategie-workshop': Workshop,
+  '#/werkstatt': Werkstatt,
+  '#/labor': Labor,
   '#/intelligenz': Intelligenz,
-  // Alt-Routen der drei Einzelseiten → Intelligenz-Hub (Bookmarks bleiben gültig)
-  '#/ml': () => <Redirect to="#/intelligenz?tab=ml" />,
-  '#/rl-agenten': () => <Redirect to="#/intelligenz?tab=rl" />,
-  '#/performance': () => <Redirect to="#/intelligenz?tab=performance" />,
   '#/einstellungen': Einstellungen,
   '#/profil': Profil,
-  '#/vermoegen': Vermoegen,
-};
+  '#/funktionen': Funktionen,
+} satisfies Record<PageHash, ComponentType>;
 
 export function App() {
   const { t } = useTranslation();
@@ -107,7 +93,14 @@ export function App() {
 
   useEffect(() => {
     const off = onAuthChange((authed) => setAuth(authed ? 'authenticated' : 'anonymous'));
-    const onHash = () => setRoute(window.location.hash || '#/');
+    const onHash = () => {
+      const target = resolveRedirect(window.location.hash);
+      if (target) {
+        window.history.replaceState(null, '', target);
+      }
+      setRoute(window.location.hash || '#/');
+    };
+    onHash();
     window.addEventListener('hashchange', onHash);
     void refreshSession().then((outcome) => {
       if (outcome !== 'ok' && getAccessToken() === null) setAuth('anonymous');
@@ -119,7 +112,7 @@ export function App() {
   }, []);
 
   const clean = route.split('?')[0] || '#/';
-  const Page = ROUTES[clean === '' || clean === '#' ? '#/' : clean] ?? Dashboard;
+  const Page = (ROUTES as Record<string, ComponentType>)[clean === '' || clean === '#' ? '#/' : clean] ?? Dashboard;
 
   return (
     <>

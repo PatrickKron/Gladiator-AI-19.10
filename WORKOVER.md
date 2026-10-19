@@ -333,3 +333,30 @@ Patrick war erneut ausgeloggt. **Wurzelursache:** Reuse-Detection der Token-Rota
 - ⚠ Kosmetik (bekannt, unkritisch): Direkt nach „Reset" kann der parallele 15-s-Poll noch einmal den alten Stand rendern; nächster Poll/Reload zeigt korrekt 100k. Bei Bedarf: Poll-Antworten verwerfen, wenn nach einer Mutation gestartet.
 - Bewusste v1-Grenzen (ehrlich in UI/Fehlern): Demo-Ausführung nur für Symbole mit echtem Binance-Orderbuch (Stocks/ETF via Yahoo haben keins → `demo:unknown_symbol`); SL/TP schließen die Position VOLL (keine gestaffelten TPs wie das Agenten-Konto); Partial Fills ruhender Limits sind durch die sichtbare Buchtiefe des Monitor-Ticks begrenzt (dokumentierte Minuten-Granularität); Leverage fix 1×.
 - **Patrick-Action: KEINE.** Häkchen auf der Trading-Seite setzen und lostraden.
+
+---
+
+# SESSION 9 — Audit, Navigation neu, Trading-/ML-Fixes, Auto-Deploy (2026-10-19, Claude Code Cloud)
+
+Branch `claude/focused-darwin-51s9k3` (Deploy erst nach Merge nach `main`). Lokal verifiziert gegen eigene TimescaleDB+Redis im Container
+(Marktdaten-Hosts dort gesperrt → UI zeigt ehrlich „nicht verbunden“). Volle Suite inkl. DB-Tests: 1019 grün; 4 rot NUR umgebungsbedingt
+(fehlende Seed-Daten/Binance) — identisch zum Ausgangszustand.
+
+## Umgesetzt
+- **Auto-Deploy GitHub → Server** (`deploy/github-sync.sh`, `install-github-sync.sh`): Pull-Timer, nur Fast-Forward, bestehender Hook = CI-Gate. ⚠ Patrick-Action: einmalig installieren + Deploy-Key (read-only) eintragen.
+- **Funktions-Registry** `apps/web/src/lib/navigation.ts` (18 Tests): eine Wahrheit für Sidebar, ⌘K, Brotkrumen, „Alle Funktionen“ (#/funktionen), Weiterleitungen.
+- **IA:** 5 Bereiche (Heute · Markt · Handel & Vermögen · Agenten & Strategien · System); alle Seiten in beiden Modi sichtbar; neue Seite **Marktlage** (Makro/Risiko/Entscheidungslogik, vorher verstreut); **Demo-Konto** eigene Route #/demo; Einstellungen in Tabs (#/einstellungen?tab=boersen funktioniert jetzt); Strategien-/KI-Tabs im Hash; Werkzeug-Karten auf „Meine Agenten“.
+- **Trading-Kern** (DB-Regressionstests `executor-scope.test.ts`): PnL je Position (vorher Fills früherer Trades mitgezählt), Stop nach TP nur Restmenge, Ablehnung vor Entry bei offener Position (vorher verwaiste Order), Signal hängt nie mehr in `confirmed`.
+- **ML:** Labels bekommen Features (Vorlauf 240 Kerzen statt 1 h → vorher konnte nie trainiert werden), Nachtrag für Altlabels, chronologischer Split, UI zählt nur trainierbare Labels.
+- **Tempo:** Start-Bundle 606 → 329 kB (Sprachen nachladen); Polling pausiert in Hintergrund-Tabs; Ladefehler sichtbar (Marktlage) statt „leer“.
+- **Chart live:** echte SSE-Ticks bewegen die letzte Kerze (`lib/live-candle.ts`, 5 Tests).
+
+- **Position schließen & SL/TP ändern (Agenten-Konto)** — Patrick-Auftrag: `closePositionManually` (echte reduceOnly-Market-Order an der aktiven Venue für die Restmenge — vorher hätte ein reiner DB-Schluss eine Testnet-Position offen gelassen; Schutz-Orders auch an der Venue storniert) + `updateProtection` (neue Schutz-Order zuerst, dann Storno → nie ungeschützt; Stop weiten nur mit `confirmWiden`, Audit mit from/to/widened). tRPC `trading.closePosition`/`trading.updateProtection`; `trading.positions` liefert jetzt Restmenge nach TPs, uPnL auf Restmenge, SL/TP je Position, Herkunft (Agent/Signal). UI `components/PaperPositions.tsx` (zweistufiges Schließen, Risiko-Warnung beim Weiten). 6 DB-Tests `position-manual.test.ts`.
+
+- **Trailing-Stop & Gewinn mitnehmen (Teilschluss)** — Patrick-Auftrag: Migration 0019 (strikt additiv: `positions.trail_pct`, `trail_peak`); `trailing.ts` (rein, 7 Tests: folgt dem besten Kurs im %-Abstand, nur verschärfen); Monitor zieht den Stop je Tick VOR der Fill-Prüfung nach; `updateProtection({ trailPct })` 0,1–50 % bzw. null = aus, greift sofort. `closePositionManually(..., { qty })`: Teilschluss per reduceOnly-Market-Order, danach Stop = Restmenge, TPs proportional (Verhältnis bleibt); qty ≥ Rest → Vollschluss. Gemeinsamer Helfer `replaceProtectionOrder` (neue Order zuerst, dann Storno). UI: 25/50/75 % mit Rückfrage, Trailing-Feld + Aktiv-Badge. 4 neue DB-Tests. Hinweis: Trailing ist ein manuelles Positions-Werkzeug (Monitor); als Strategie-Exit in Backtest/DSL ist es noch NICHT verfügbar (sonst Backtest ≠ Live).
+
+## Offen (Vorschläge, nicht umgesetzt — Patrick entscheidet)
+- Trailing als Strategie-Exit in Backtest-Engine + DSL (gleiche `trailStep`-Funktion nutzen).
+- Default-Limits (1 % Risiko + 20 % Exposure) blocken Stops < 5 % → hebelbewusste Exposure oder Hinweis im Ticket.
+- Positions-Monitor in eigene Queue (läuft hinter RL/ML-Jobs); CI gegen eigene Test-DB statt Live-DB; Auto-Login absichern (Rate-Limit, Host-Allowlist), echtes Passwort.
+- Zeichenwerkzeuge + lightweight-charts v5; Backtest-Stops gap-realistisch, Out-of-Sample-Gate; Jesse-artige Trade-Ansicht.

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { EquityChart, fmt, type EquityPoint } from '../components/EquityChart.js';
+import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 
 /**
  * Vermögen (Phase 2): alle Konten GETRENNT und ehrlich.
@@ -50,10 +51,10 @@ export function Vermoegen() {
       }
     };
     void load();
-    const timer = window.setInterval(() => void load(), 120_000);
+    const timer = setVisibleInterval(() => void load(), 120_000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      clearVisibleInterval(timer);
     };
   }, []);
 

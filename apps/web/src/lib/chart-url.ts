@@ -16,8 +16,8 @@ export function isChartTf(v: string | null | undefined): v is ChartTf {
   return v != null && (CHART_TFS as readonly string[]).includes(v);
 }
 
-/** Tabs der zusammengeführten Asset-Detailseite (Charts+Oracle+Aegis, P2.9). */
-export const ASSET_TABS = ['chart', 'kontext', 'makro', 'risiko'] as const;
+/** Tabs der Asset-Detailseite (Makro/Risiko liegen in der Marktlage). */
+export const ASSET_TABS = ['chart', 'kontext'] as const;
 export type AssetTab = (typeof ASSET_TABS)[number];
 
 /** Baut das Chart-Hash-Ziel; Symbol wird URL-enkodiert (Slash → %2F). */

@@ -10,13 +10,13 @@ import { AssetContextBody, useAssetContext } from '../components/AssetContextPan
 import { AddMarketPicker } from '../components/AddMarketPicker.js';
 import { FavStar, FavStarSymbol } from '../components/FavStar.js';
 import { getLatest, onTick, type TickWithDirection } from '../lib/prices.js';
-import { setDemoMode } from '../lib/demo-mode.js';
 import { setPendingTradeSymbol } from '../lib/trade-symbol.js';
 import { buildChartUrl } from '../lib/chart-url.js';
 import { loadTf } from '../lib/chart-tf.js';
 import { feedSymbol } from '../lib/pairs.js';
 import { normalizeRegime, REGIME_COLORS, REGIME_ICONS, type RegimeData } from '../lib/regime.js';
 import { getUiMode, onUiModeChange, type UiMode } from '../lib/ui-mode.js';
+import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 
 /** Dashboard (09_ §3.1): Begrüßung, Live-Markt, offene Setups, Konto, System — alles echt. */
 
@@ -114,7 +114,7 @@ function AiStatusPanel() {
         const active = (m.models as { name: string; isActive: boolean; metrics: Record<string, number> | null }[]).find((x) => x.isActive) ?? null;
         setMlState({
           activeModel: active ? { name: active.name, accuracy: active.metrics?.accuracy ?? null } : null,
-          labels: s.total,
+          labels: s.usable,
         });
       })
       .catch(() => { if (!cancelled) setMlState(null); });
@@ -285,10 +285,10 @@ function HeroWealth({ account }: { account: Account | null }) {
       }
     }
     void load();
-    const timer = window.setInterval(() => void load(), 60_000);
+    const timer = setVisibleInterval(() => void load(), 60_000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      clearVisibleInterval(timer);
     };
   }, []);
 
@@ -487,15 +487,14 @@ function WatchCard({ symbol, isFavorite, closes, stagger, onRemoved }: { symbol:
       </div>
       {/* „Traden“ (Patrick: Favoriten sollen direkt tradebar sein): Die Karte bleibt
           Chart-Link — der Button fängt den Klick ab (stopPropagation + preventDefault,
-          sonst navigiert das umschließende <a> zum Chart), schaltet den Demo-Modus ein
+          sonst navigiert das umschließende <a> zum Chart), springt zum Demo-Konto (#/demo)
           und übergibt das Symbol ans Demo-Ticket (echtes Binance-Orderbuch, 100k virtuell). */}
       <button
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
           setPendingTradeSymbol(symbol);
-          setDemoMode(true);
-          window.location.hash = '#/trading';
+          window.location.hash = '#/demo';
         }}
         className="btn-primary mt-4 w-full px-3 py-2 text-sm"
         title={t('dashboard.tradeTooltip', { symbol })}
@@ -559,12 +558,12 @@ export function Dashboard() {
     }
     void load();
     void loadSignals();
-    const timer = window.setInterval(() => void load(), 60_000);
-    const sigTimer = window.setInterval(() => void loadSignals(), 30_000);
+    const timer = setVisibleInterval(() => void load(), 60_000);
+    const sigTimer = setVisibleInterval(() => void loadSignals(), 30_000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
-      window.clearInterval(sigTimer);
+      clearVisibleInterval(timer);
+      clearVisibleInterval(sigTimer);
     };
   }, []);
 
@@ -606,10 +605,10 @@ export function Dashboard() {
       }
     }
     void loadQuotes();
-    const timer = window.setInterval(() => void loadQuotes(), 60_000);
+    const timer = setVisibleInterval(() => void loadQuotes(), 60_000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      clearVisibleInterval(timer);
     };
   }, [quoteFavs]);
 
@@ -630,10 +629,10 @@ export function Dashboard() {
       if (!cancelled) setSparks(Object.fromEntries(entries));
     }
     void loadSparks();
-    const timer = window.setInterval(() => void loadSparks(), 60_000);
+    const timer = setVisibleInterval(() => void loadSparks(), 60_000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      clearVisibleInterval(timer);
     };
   }, [watch]);
 

@@ -5,12 +5,13 @@ import { FavStarSymbol } from './FavStar.js';
 import { rankAssets } from '../lib/asset-search.js';
 import { buildChartUrl } from '../lib/chart-url.js';
 import { loadTf } from '../lib/chart-tf.js';
+import { navEntries, searchNav, type NavEntry } from '../lib/navigation.js';
 
 /**
- * Command-Palette (P1.5): globale Suche über ALLE Assets UND alle Ansichten
- * (Cmd/Ctrl+K). Typeahead über Ticker/Name bzw. View-Namen; Klick/Enter →
- * Chart des Assets (mit gemerktem Timeframe) oder direkte Navigation zur View
- * (inkl. Hub-Tabs wie Entscheidung/ML/RL/Performance/Post-Trade). Nicht-Krypto/
+ * Command-Palette (P1.5): globale Suche über ALLE Assets UND alle Seiten/Tabs
+ * der Funktions-Registry (Cmd/Ctrl+K) — auch über Synonyme („api key",
+ * „binance", „alarm"). Klick/Enter → Chart des Assets (mit gemerktem
+ * Timeframe) oder direkt in die Seite bzw. den Tab. Nicht-Krypto/
  * ohne Kerzen wird ehrlich als „kein Chart" markiert und ist nicht anklickbar.
  */
 
@@ -22,38 +23,7 @@ const TYPE_COLOR: Record<string, string> = {
   etf: 'var(--color-warn)',
 };
 
-/**
- * Navigierbare Ansichten: Sidebar-Routen + Intelligenz-Hub-Tabs (Deep-Links).
- * Labels kommen aus den bestehenden nav-/hub-Katalogen — keine Duplikate.
- */
-const VIEWS: { key: string; hash: string }[] = [
-  { key: 'nav.dashboard', hash: '#/' },
-  { key: 'nav.assets', hash: '#/charts' },
-  { key: 'nav.signals', hash: '#/signals' },
-  { key: 'nav.trading', hash: '#/trading' },
-  { key: 'nav.demo', hash: '#/demo' },
-  { key: 'nav.wealth', hash: '#/vermoegen' },
-  { key: 'nav.lab', hash: '#/labor' },
-  { key: 'nav.builder', hash: '#/strategien' },
-  { key: 'nav.strategyWorkshop', hash: '#/strategie-workshop' },
-  { key: 'nav.workshop', hash: '#/werkstatt' },
-  { key: 'nav.agents', hash: '#/agenten' },
-  { key: 'nav.intelligence', hash: '#/intelligenz' },
-  { key: 'hub.tab_intel', hash: '#/intelligenz?tab=intel' },
-  { key: 'hub.tab_ml', hash: '#/intelligenz?tab=ml' },
-  { key: 'hub.tab_rl', hash: '#/intelligenz?tab=rl' },
-  { key: 'hub.tab_performance', hash: '#/intelligenz?tab=performance' },
-  { key: 'hub.tab_posttrade', hash: '#/intelligenz?tab=posttrade' },
-  { key: 'nav.calendar', hash: '#/kalender' },
-  { key: 'nav.magazine', hash: '#/magazine' },
-  { key: 'nav.packages', hash: '#/pakete' },
-  { key: 'nav.settings', hash: '#/einstellungen' },
-  { key: 'nav.profile', hash: '#/profil' },
-];
-
-type PaletteEntry =
-  | { kind: 'view'; key: string; label: string; hash: string }
-  | { kind: 'asset'; asset: PaletteAsset };
+type PaletteEntry = { kind: 'view'; entry: NavEntry } | { kind: 'asset'; asset: PaletteAsset };
 
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation();
@@ -78,18 +48,14 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     }
   }, [open]);
 
-  // Views + Assets in EINER Trefferliste: Views matchen über ihren (übersetzten)
-  // Namen — rankAssets wird wiederverwendet (ticker=name=Label), keine 2. Logik.
+  // Seiten + Tabs aus der Funktions-Registry (inkl. Suchbegriffe/Synonyme)
+  // und Assets in EINER Trefferliste. Neue Funktionen sind automatisch suchbar.
+  const nav = useMemo(() => navEntries(t), [t]);
   const results = useMemo<PaletteEntry[]>(() => {
-    const viewEntries = VIEWS.map((v) => ({ kind: 'view' as const, key: v.key, label: t(v.key), hash: v.hash }));
-    const rankedViews = rankAssets(
-      viewEntries.map((v) => ({ ...v, ticker: v.label, name: v.label })),
-      query,
-      query.trim() === '' ? 6 : 8,
-    );
+    const views = searchNav(nav, query, query.trim() === '' ? 6 : 8);
     const rankedAssets = rankAssets(assets ?? [], query, 50);
-    return [...rankedViews.map(({ ticker: _t, name: _n, ...v }) => v), ...rankedAssets.map((asset) => ({ kind: 'asset' as const, asset }))];
-  }, [assets, query, t]);
+    return [...views.map((entry) => ({ kind: 'view' as const, entry })), ...rankedAssets.map((asset) => ({ kind: 'asset' as const, asset }))];
+  }, [assets, query, nav]);
 
   useEffect(() => {
     setSelected(0);
@@ -99,7 +65,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
   const openEntry = (entry: PaletteEntry) => {
     if (entry.kind === 'view') {
-      window.location.hash = entry.hash;
+      window.location.hash = entry.entry.hash;
       onClose();
       return;
     }
@@ -161,18 +127,21 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
               {results.map((entry, i) =>
                 entry.kind === 'view' ? (
                   <li
-                    key={`view:${entry.hash}`}
+                    key={`view:${entry.entry.hash}`}
                     onMouseEnter={() => setSelected(i)}
-                    className="flex items-center gap-2 px-3 py-2"
+                    className="flex items-center gap-2.5 px-3 py-2"
                     style={{ background: i === selected ? 'rgba(46,124,246,0.12)' : 'transparent', cursor: 'pointer' }}
                     onClick={() => openEntry(entry)}
                   >
                     <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="var(--color-cyan)" strokeWidth="1.7" strokeLinecap="round">
                       <path d="M5 12h14M13 6l6 6-6 6" />
                     </svg>
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium" style={{ color: 'var(--color-ink)' }}>{entry.label}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium" style={{ color: 'var(--color-ink)' }}>{entry.entry.label}</span>
+                      <span className="block truncate text-xs" style={{ color: 'var(--color-mut)' }}>{entry.entry.description}</span>
+                    </span>
                     <span className="label shrink-0 rounded border px-1.5 py-0.5" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
-                      {t('palette.viewBadge')}
+                      {entry.entry.area}
                     </span>
                   </li>
                 ) : (
@@ -207,7 +176,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         </div>
 
         <p className="border-t px-4 py-2 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
-          {t('palette.hint')}
+          {t('ia.searchHint')}
         </p>
       </div>
     </div>

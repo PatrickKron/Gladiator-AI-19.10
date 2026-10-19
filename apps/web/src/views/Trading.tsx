@@ -8,6 +8,8 @@ import { buildTabHash, parseTab } from '../lib/tab-hash.js';
 import { buildChartUrl } from '../lib/chart-url.js';
 import { isDemoMode, setDemoMode } from '../lib/demo-mode.js';
 import { DemoTrading } from './DemoTrading.js';
+import { PaperPositions } from '../components/PaperPositions.js';
+import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 
 /** Tabs der Trading-Seite (P1.8). */
 const TABS = ['positionen', 'historie', 'risiko', 'alerts', 'performance'] as const;
@@ -59,8 +61,8 @@ function AlertsPanel() {
   }
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => void load(), 30_000);
-    return () => window.clearInterval(timer);
+    const timer = setVisibleInterval(() => void load(), 30_000);
+    return () => clearVisibleInterval(timer);
   }, []);
 
   async function create() {
@@ -377,9 +379,18 @@ function ModeSwitch({ demo, onChange }: { demo: boolean; onChange: (on: boolean)
   );
 }
 
-export function Trading() {
+/**
+ * Demo-Konto als eigene Seite (#/demo, Sidebar „Demo-Konto"). Vorher war es
+ * nur ein localStorage-Schalter INNERHALB von #/trading und dadurch kaum zu
+ * finden. Der Demo-Merker bleibt für das Topbar-Badge erhalten.
+ */
+export function DemoKonto() {
+  return <Trading account="demo" />;
+}
+
+export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' | 'demo' }) {
   const { t } = useTranslation();
-  const [demo, setDemo] = useState<boolean>(() => isDemoMode());
+  const demo = accountKind === 'demo';
   const [account, setAccount] = useState<Account | null>(null);
   const [venues, setVenues] = useState<Venue[]>([]);
   const [positions, setPositions] = useState<Position[] | null>(null);
@@ -430,10 +441,11 @@ export function Trading() {
   }
 
   useEffect(() => {
+    if (demo) return; // Demo-Konto lädt seine eigenen Daten (DemoTrading)
     void load();
-    const timer = window.setInterval(() => void load(), 20_000);
-    return () => window.clearInterval(timer);
-  }, []);
+    const timer = setVisibleInterval(() => void load(), 20_000);
+    return () => clearVisibleInterval(timer);
+  }, [demo]);
 
   async function toggleKillSwitch() {
     if (!settings) return;
@@ -448,9 +460,13 @@ export function Trading() {
     }
   }
 
+  // Merker für das Topbar-Badge: zeigt an, dass zuletzt das Demo-Konto offen war.
+  useEffect(() => {
+    if (isDemoMode() !== demo) setDemoMode(demo);
+  }, [demo]);
+
   function switchMode(on: boolean) {
-    setDemo(on);
-    setDemoMode(on); // informiert Topbar-Badge + andere Tabs
+    window.location.hash = on ? '#/demo' : '#/trading';
   }
 
   if (demo) {
@@ -629,49 +645,7 @@ export function Trading() {
       {/* Offene Positionen */}
       {tab === 'positionen' && (
       <Panel label={t('trading.positionsTitle')} stagger={7} className="mt-5">
-        {positions === null ? (
-          <Loading />
-        ) : positions.length === 0 ? (
-          <Empty text={t('trading.noPositions')} />
-        ) : (
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="label text-left">
-                  <th className="py-1.5 pr-3 font-normal">{t('dashboard.symbol')}</th>
-                  <th className="py-1.5 pr-3 font-normal" />
-                  <th className="py-1.5 pr-3 text-right font-normal">{t('signals.qty')}</th>
-                  <th className="py-1.5 pr-3 text-right font-normal">{t('signals.entry')}</th>
-                  <th className="py-1.5 pr-3 text-right font-normal">Mark</th>
-                  <th className="py-1.5 pr-3 text-right font-normal">{t('trading.uPnl')} $</th>
-                  <th className="py-1.5 font-normal">{t('common.date')}</th>
-                </tr>
-              </thead>
-              <tbody className="num">
-                {positions.map((p) => (
-                  <tr key={p.id} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
-                    <td className="py-1.5 pr-3">
-                      <a href={buildChartUrl(p.symbol)} className="hover:underline" style={{ color: 'var(--color-cyan)' }}>{p.symbol}</a>
-                    </td>
-                    <td className="py-1.5 pr-3" style={{ color: p.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>
-                      {p.direction.toUpperCase()}
-                    </td>
-                    <td className="py-1.5 pr-3 text-right">{fmt(p.qty, 6)}</td>
-                    <td className="py-1.5 pr-3 text-right">{fmt(p.entryPrice)}</td>
-                    <td className="py-1.5 pr-3 text-right">{fmt(p.markPrice)}</td>
-                    <td
-                      className="py-1.5 pr-3 text-right"
-                      style={{ color: (p.unrealizedPnl ?? 0) >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}
-                    >
-                      {fmt(p.unrealizedPnl)}
-                    </td>
-                    <td className="py-1.5">{new Date(p.openedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <PaperPositions positions={positions} onChanged={() => void load()} />
       </Panel>
       )}
 
