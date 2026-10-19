@@ -65,3 +65,15 @@ export {
   type ReentryDecision,
   type ReentryPlan,
 } from './signal-lifecycle.js';
+export {
+  buildClusterKey,
+  parseClusterKey,
+  clusterKeyLevels,
+  isLegacyClusterKey,
+  marketStructureOf,
+  CLUSTER_ALL,
+  type ClusterKeyInput,
+  type ClusterKeyParts,
+  type ClusterLevel,
+  type MarketStructure,
+} from './study-cluster.js';

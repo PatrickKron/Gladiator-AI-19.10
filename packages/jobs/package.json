@@ -19,6 +19,7 @@
     "@gladiator/exchange": "*",
     "@gladiator/agents": "*",
     "@gladiator/risk": "*",
-    "@gladiator/ml": "*"
+    "@gladiator/ml": "*",
+    "@gladiator/backtest": "*"
   }
 }

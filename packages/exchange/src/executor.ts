@@ -23,6 +23,7 @@ import {
   trailStep,
   type DslExecutionPlan,
 } from '@gladiator/strategy-engine';
+import { recordPaperStudyTrade } from './study-record.js';
 
 const { signals, strategies, strategyVersions, orders, positions, executedTrades, tradingSettings, riskGates, auditLog, economicEvents, macroSeries, ohlcv, marketRegimes } = schema;
 
@@ -851,7 +852,7 @@ async function closePaperPosition(
   const netPnl = grossPnl - fees - funding;
   const riskAmount = Math.abs(entry - Number(exits.find((e) => e.type === 'stop_market')?.price ?? entry * 0.99)) * qty;
 
-  await db.insert(executedTrades).values({
+  const [booked] = await db.insert(executedTrades).values({
     userId: pos.userId,
     subAgentId: pos.subAgentId,
     venue: pos.venue,
@@ -870,7 +871,7 @@ async function closePaperPosition(
     netPnl: String(netPnl),
     rMultiple: riskAmount > 0 ? String(netPnl / riskAmount) : null,
     mode: 'paper',
-  });
+  }).returning({ id: executedTrades.id, exitTs: executedTrades.exitTs });
 
   // Verbleibende offene Schutz-Orders dieser Position schließen
   await db
@@ -894,6 +895,12 @@ async function closePaperPosition(
     entityId: positionId,
     details: { reason, avgExit, grossPnl, fees, funding, netPnl },
   });
+  // VDB1 (13_ §3): Studien-Zeile zum echten Trade — darf den Schluss NIE kippen.
+  try {
+    await recordPaperStudyTrade(db, pos, { id: booked!.id, exitTs: booked!.exitTs, netPnl, fees, funding });
+  } catch (err) {
+    console.warn(`[study] VDB1-Zeile für Position ${positionId} nicht geschrieben: ${String(err)}`);
+  }
   return { netPnl };
 }
 

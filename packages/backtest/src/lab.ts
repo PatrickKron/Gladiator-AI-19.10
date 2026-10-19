@@ -2,21 +2,23 @@ import { and, asc, desc, eq, gt, lte } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { getOhlcv, BARS_PER_YEAR, TIMEFRAME_MS, type SupportedTimeframe } from '@gladiator/market-data';
-import { detectStructure, evaluateDslAt, evaluateSmcCoreAt, parseInstructionDsl, SMC_CORE_DEFAULTS, type InstructionDsl, type SmcCoreParams } from '@gladiator/strategy-engine';
+import { buildClusterKey, detectStructure, evaluateDslAt, evaluateSmcCoreAt, parseInstructionDsl, SMC_CORE_DEFAULTS, type InstructionDsl, type SmcCoreParams } from '@gladiator/strategy-engine';
 import { DEFAULT_COSTS, runBacktest, type BacktestResult, type CostModel } from './engine.js';
 import { runWalkForward, type WalkForwardResult } from './walkforward.js';
 import { explainRapsChoice, rapsGrid, type RapsResult } from './raps.js';
+import { labStudyRow } from './study-rows.js';
+import { recomputeStudyClusters } from './study-clusters.js';
 import { analyzeTrades, type TradeAnalysis } from './analysis.js';
 import { holdoutMetrics } from './validity.js';
 import { assertDataQuality, assessDataQuality, fundingSettlements, type DataQualityReport, type FundingPoint } from './data-quality.js';
 
-const { backtests, walkforwardRuns, strategies, strategyVersions, studyTrades, studyClusters, fundingRates } = schema;
+const { backtests, walkforwardRuns, strategies, strategyVersions, studyTrades, fundingRates } = schema;
 
 /**
  * Labor-Läufe: verbinden Engine ↔ echte DB-Kerzen ↔ Persistenz.
  * Jeder Lauf speichert Config + PFLICHT-Kostenmodell + Netto-Kennzahlen in
- * `backtests`; Trades fließen als VDB1-Zeilen in `study_trades`, das
- * RAPS-Ergebnis als VDB2-Upsert in `study_clusters` (13_).
+ * `backtests`; Trades fließen als VDB1-Zeilen in `study_trades`; VDB2
+ * (`study_clusters`) rechnet danach der gemeinsame Batch-Pfad neu (13_).
  */
 
 /** Bars/Jahr je Timeframe (Annualisierung) — kanonisch aus @gladiator/market-data. */
@@ -224,65 +226,26 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
     .returning();
 
   // ── VDB1: Trades als study_trades (Quelle: echter Backtest, 13_ §3) ──
-  const clusterKey = `${dslResolved ? dslResolved.slug : 'smc-core'}|${runSymbol}|${runSetupType}|${runTimeframe}|all|all`;
-  for (const t of result.trades) {
-    await db.insert(studyTrades).values({
-      clusterKey,
-      direction: t.direction,
-      entryTs: t.entryTs,
-      exitTs: t.exitTs,
-      mfeBps: String(Math.round(t.mfeR * 10_000) / 100),
-      maeBps: String(Math.round(t.maeR * 10_000) / 100),
-      rMultiple: String(t.rMultiple),
-      session: t.session,
-      fees: String(t.fees),
-      funding: String(t.funding),
-      slippage: String(t.slippage),
-      netPnl: String(t.netPnl),
-      liquidationFlag: false,
-      pnlRTpA: String(t.pnlRTpA),
-      pnlRTpB: String(t.pnlRTpB),
-      pnlRTpC: String(t.pnlRTpC),
-      pnlRTpD: String(t.pnlRTpD),
-    });
+  // Voller Cluster-Key je Trade (Session + Struktur) über den gemeinsamen Builder.
+  const studyCtx = {
+    strategy: dslResolved ? dslResolved.slug : 'smc-core',
+    symbol: runSymbol,
+    setupType: runSetupType,
+    timeframe: runTimeframe,
+  };
+  const studyRows = result.trades.map((t) => labStudyRow(t, studyCtx));
+  for (let k = 0; k < studyRows.length; k += 500) {
+    await db.insert(studyTrades).values(studyRows.slice(k, k + 500));
   }
 
-  // ── VDB2: RAPS-Gitter + Upsert study_clusters ──
+  // ── RAPS dieses Laufs (Anzeige im Labor) + VDB2 über den EINEN Batch-Pfad ──
+  // Basis-Cluster des Laufs (Session/Struktur = all). study_clusters schreibt
+  // ausschließlich recomputeStudyClusters (Fenster, Holdout, Min-Stichprobe) —
+  // kein zweiter, abweichender Schreibpfad mehr.
+  const clusterKey = buildClusterKey(studyCtx);
   const raps = rapsGrid(result.trades, { now: input.to });
   const explanation = explainRapsChoice(raps, clusterKey);
-  await db
-    .insert(studyClusters)
-    .values({
-      clusterKey,
-      optimalLeverage: raps.best ? String(raps.best.leverage) : null,
-      optimalTpSchemaId: raps.best?.tpSchema ?? null,
-      optimalRiskPct: String(riskPct),
-      rapsScore: raps.best ? String(raps.best.rapsScore) : null,
-      sharpe: m.sharpe === null ? null : String(m.sharpe),
-      sortino: m.sortino === null ? null : String(m.sortino),
-      winrate: m.winRate === null ? null : String(m.winRate),
-      profitFactor: m.profitFactor === null ? null : String(m.profitFactor),
-      expectancy: m.expectancy === null ? null : String(m.expectancy),
-      tradeCount: raps.tradeCount,
-      dataWindowDays: Math.round((input.to.getTime() - input.from.getTime()) / 86_400_000),
-      lambdaTimeDecay: String(raps.lambdaTimeDecay),
-      isLowSampleSize: raps.isLowSampleSize,
-      causalityExplanation: explanation,
-      changelog: [{ at: new Date().toISOString(), backtestId: row!.id, note: 'Labor-Backtest' }],
-      updatedAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: studyClusters.clusterKey,
-      set: {
-        optimalLeverage: raps.best ? String(raps.best.leverage) : null,
-        optimalTpSchemaId: raps.best?.tpSchema ?? null,
-        rapsScore: raps.best ? String(raps.best.rapsScore) : null,
-        tradeCount: raps.tradeCount,
-        isLowSampleSize: raps.isLowSampleSize,
-        causalityExplanation: explanation,
-        updatedAt: new Date(),
-      },
-    });
+  await recomputeStudyClusters(db, { keyPrefix: clusterKey.split('|').slice(0, 4).join('|') + '|' });
 
   // Rundum-Analyse + Trendwende-Punkte (aus der Marktstruktur des Zeitraums)
   const analysis = analyzeTrades(result.trades);
