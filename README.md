@@ -2,7 +2,7 @@
 
 KI-gestützte Trading-Agenten-Plattform — kompletter Neuaufbau nach der Spezifikation in `GLADIATOR_V2_BLUEPRINT/`.
 
-**Status:** Phase 0a (Fundament). Es existiert noch keine lauffähige App — nur Monorepo-Gerüst, DB-Schema und Seed.
+**Status:** Lauffähige App im Paper-Betrieb (Server `95.216.10.238`, Tailnet). Verlauf und offene Punkte: `WORKOVER.md`.
 
 ## Betrieb (Hetzner-Server)
 
@@ -16,14 +16,27 @@ npm run db:seed             # braucht packages/db/seed/data/*.json (per scp, nic
 npm run ci                  # Lint + Typecheck + Tests
 ```
 
+## Deploy (GitHub → Server)
+
+`main` auf GitHub wird vom Server automatisch übernommen (`deploy/github-sync.sh`, Timer alle 2 min):
+Fast-Forward ins Server-Repo → bestehender post-receive-Hook → CI (`scripts/ci.sh`) → Neustart nur bei Grün.
+Einmalige Einrichtung: `bash deploy/install-github-sync.sh <SERVER_REPO>` und den ausgegebenen Key als
+**read-only** Deploy-Key bei GitHub eintragen. Danach nur noch nach GitHub pushen.
+
+## Navigation (Frontend)
+
+Alle Seiten, Tabs, Beschreibungen und Suchbegriffe stehen in `apps/web/src/lib/navigation.ts`.
+Sidebar, ⌘K-Suche, Brotkrumen, „Alle Funktionen“ und Weiterleitungen alter Links lesen daraus —
+eine neue Seite wird dort eingetragen (plus View in `App.tsx`, typgeprüft) und ist überall auffindbar.
+
 ## Struktur
 
 | Pfad | Inhalt |
 |---|---|
 | `packages/core` | Geteilte Typen + Zod-Schemas (kanonisches Signal-Modell) |
 | `packages/db` | Drizzle-Schema (Postgres/Timescale), Migrationen, Seed |
-| `packages/market-data` … `packages/jobs` | Skelette, werden in Phasen 1–5 gebaut |
-| `apps/web` | Frontend — erst Phase 6, nach Design-Abnahme |
+| `packages/market-data` … `packages/jobs`, `packages/ml` | Marktdaten, Strategie-Engine, Börsen, Risk, Agenten, Backtest, API, Jobs, ML |
+| `apps/web` | Frontend (React/Vite, Design-System „Blue Matrix Premium“) |
 | `services/quant` | optionaler Python-Backtest-Service — Phase 3 |
 
 ## Regeln
