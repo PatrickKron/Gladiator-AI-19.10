@@ -2,7 +2,18 @@ export { runBacktest, DEFAULT_COSTS, ZERO_COSTS, type BacktestConfig, type Backt
 export { computeMetrics, maxDrawdownPct, type Metrics } from './metrics.js';
 export { runWalkForward, type WalkForwardConfig, type WalkForwardResult, type WalkForwardWindow } from './walkforward.js';
 export { rapsGrid, explainRapsChoice, LEVERAGE_CANDIDATES, TP_SCHEMA_IDS, type RapsResult, type RapsCell, type RapsTrade, type TpSchemaId } from './raps.js';
-export { runLabBacktest, runLabWalkForward, BARS_PER_YEAR, type LabRunInput, type LabRunOutput, type LabWalkForwardInput } from './lab.js';
+export {
+  runLabBacktest,
+  runLabWalkForward,
+  loadLabMarketData,
+  BARS_PER_YEAR,
+  WF_WARMUP_BARS,
+  type LabRunInput,
+  type LabRunOutput,
+  type LabWalkForwardInput,
+  type LabWalkForwardOutput,
+  type LabMarketData,
+} from './lab.js';
 export {
   assessDataQuality,
   assertDataQuality,
@@ -26,3 +37,27 @@ export {
   type ValidityVerdict,
   type ValidityCheck,
 } from './validity.js';
+export {
+  runOptimizationStudy,
+  judgeOptimization,
+  pickProposal,
+  paramsKey,
+  smcCoreGrid,
+  dslGrid,
+  MAX_GRID,
+  OPTIMIZATION_THRESHOLDS,
+  type OptimizationThresholds,
+  type OptimizationJudgeInput,
+  type OptimizationSpec,
+  type OptimizationStudy,
+  type StudyMarket,
+} from './optimize.js';
+export {
+  diffParams,
+  summarizeMetrics,
+  readProposalState,
+  type ParamChange,
+  type ProposalReviewState,
+  type ProposalMetricsSummary,
+  type OptimizationProposalResults,
+} from './optimize.js';

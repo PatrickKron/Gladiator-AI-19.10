@@ -48,3 +48,15 @@ export {
   type SnapshotResult,
 } from './self-improve-pipeline.js';
 export { snapshotAccountValues, loadValueHistory, type SnapshotResult as PortfolioSnapshotResult } from './portfolio-snapshot.js';
+export {
+  runStrategyOptimization,
+  openOptimizationProposals,
+  OPT_IS_BARS,
+  OPT_OOS_BARS,
+  OPT_MIN_BARS,
+  OPT_MAX_BARS,
+  SMC_OPT_TIMEFRAME,
+  type OptimizationRunOptions,
+  type OptimizationRunSummary,
+  type OpenProposal,
+} from './optimization.js';

@@ -134,6 +134,65 @@ async function resolveDslStrategy(db: Db, strategyId: string): Promise<{ dsl: In
   return { dsl: parsed.dsl, versionId: version.id, slug: strategy.slug };
 }
 
+/** Indikator-Historie je Walk-Forward-Fenster (≥ EMA200 der SMC-/DSL-Evaluatoren). */
+export const WF_WARMUP_BARS = 250;
+
+export type LabMarketData = {
+  candles: Awaited<ReturnType<typeof getOhlcv>>;
+  dataQuality: DataQualityReport;
+  fundingSeries: FundingPoint[] | null;
+  fundingSource: 'historical' | 'model';
+};
+
+/**
+ * EINE Wahrheit für Labor-Backtest, Labor-Walk-Forward und Nacht-Optimierung:
+ * echte Kerzen laden → Mindestmenge prüfen → Datenqualität (08_ §3b, zu viele
+ * Lücken → Abbruch) → historisches Funding (sonst flaches Modell, sichtbar markiert).
+ */
+export async function loadLabMarketData(
+  db: Db,
+  opts: { symbol: string; timeframe: SupportedTimeframe; from: Date; to: Date; minCandles: number; minCandlesMessage?: (n: number) => string },
+): Promise<LabMarketData> {
+  const candles = await getOhlcv(db, {
+    symbol: opts.symbol,
+    timeframe: opts.timeframe,
+    since: opts.from,
+    until: opts.to,
+  });
+  if (candles.length < opts.minCandles) {
+    throw new Error(
+      opts.minCandlesMessage?.(candles.length) ??
+        `Zu wenig echte Kerzen im Zeitraum (${candles.length} < ${opts.minCandles}) für ${opts.symbol}@${opts.timeframe}.`,
+    );
+  }
+
+  // ── Datenqualität (08_ §3b): zu viele Lücken → Abbruch; sonst Warnungen ans UI ──
+  const tfMs = TIMEFRAME_MS[opts.timeframe];
+  const dataQuality = assessDataQuality(candles, tfMs);
+  assertDataQuality(dataQuality);
+  const firstTs = candles[0]!.ts;
+  const lastTs = candles[candles.length - 1]!.ts;
+  if (firstTs.getTime() - opts.from.getTime() > tfMs) {
+    dataQuality.warnings.push(
+      `Kerzen beginnen erst am ${firstTs.toISOString().slice(0, 10)} (angefragt ab ${opts.from.toISOString().slice(0, 10)}) — Zeitraum ist kürzer als gewählt.`,
+    );
+    dataQuality.ok = false;
+  }
+
+  // ── Funding: echte Settlements, falls vollständig vorhanden — sonst flaches Modell ──
+  const funding = await loadFundingSeries(db, opts.symbol, firstTs, lastTs);
+  if (funding.warning) {
+    dataQuality.warnings.push(funding.warning);
+    dataQuality.ok = false;
+  }
+  return {
+    candles,
+    dataQuality,
+    fundingSeries: funding.series,
+    fundingSource: funding.series ? 'historical' : 'model',
+  };
+}
+
 export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRunOutput> {
   const { defaultVersionId } = await smcCoreIds(db);
   const versionParams = input.versionId ? await resolveVersion(db, input.versionId) : {};
@@ -147,36 +206,14 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
   const runTimeframe = dslResolved ? dslResolved.dsl.timeframe : input.timeframe;
   const runSetupType = dslResolved ? dslResolved.dsl.setupType : input.setupType;
 
-  const candles = await getOhlcv(db, {
+  const { candles, dataQuality, fundingSeries, fundingSource } = await loadLabMarketData(db, {
     symbol: runSymbol,
     timeframe: runTimeframe,
-    since: input.from,
-    until: input.to,
+    from: input.from,
+    to: input.to,
+    minCandles: 250,
+    minCandlesMessage: (n) => `Zu wenig echte Kerzen im Zeitraum (${n}) für ${runSymbol}@${runTimeframe} — Backtest wäre nicht belastbar.`,
   });
-  if (candles.length < 250) {
-    throw new Error(`Zu wenig echte Kerzen im Zeitraum (${candles.length}) für ${runSymbol}@${runTimeframe} — Backtest wäre nicht belastbar.`);
-  }
-
-  // ── Datenqualität (08_ §3b): zu viele Lücken → Abbruch; sonst Warnungen ans UI ──
-  const tfMs = TIMEFRAME_MS[runTimeframe];
-  const dataQuality = assessDataQuality(candles, tfMs);
-  assertDataQuality(dataQuality);
-  const firstTs = candles[0]!.ts;
-  const lastTs = candles[candles.length - 1]!.ts;
-  if (firstTs.getTime() - input.from.getTime() > tfMs) {
-    dataQuality.warnings.push(
-      `Kerzen beginnen erst am ${firstTs.toISOString().slice(0, 10)} (angefragt ab ${input.from.toISOString().slice(0, 10)}) — Zeitraum ist kürzer als gewählt.`,
-    );
-    dataQuality.ok = false;
-  }
-
-  // ── Funding: echte Settlements, falls vollständig vorhanden — sonst flaches Modell ──
-  const funding = await loadFundingSeries(db, runSymbol, firstTs, lastTs);
-  const fundingSource: LabRunOutput['fundingSource'] = funding.series ? 'historical' : 'model';
-  if (funding.warning) {
-    dataQuality.warnings.push(funding.warning);
-    dataQuality.ok = false;
-  }
 
   const result = runBacktest(candles, {
     evaluate: dslResolved
@@ -192,7 +229,7 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
     tpWeights: [0.5, 0.3, 0.2],
     setupType: runSetupType,
     ...(input.trailPct !== undefined ? { trailPct: input.trailPct } : {}),
-    ...(funding.series ? { fundingSeries: funding.series } : {}),
+    ...(fundingSeries ? { fundingSeries } : {}),
   });
 
   const m = result.metrics;
@@ -324,26 +361,38 @@ export type LabWalkForwardInput = {
   grid: Partial<SmcCoreParams>[];
   riskPctPerTrade?: number;
   costModel?: CostModel;
+  /** Trailing-Stop in % für alle Trades (wie runLabBacktest). */
+  trailPct?: number;
 };
 
-export async function runLabWalkForward(
-  db: Db,
-  input: LabWalkForwardInput,
-): Promise<{ runId: string; wf: WalkForwardResult<Partial<SmcCoreParams>> }> {
+export type LabWalkForwardOutput = {
+  runId: string;
+  wf: WalkForwardResult<Partial<SmcCoreParams>>;
+  /** Woher das Funding stammt: echte Settlements aus `funding_rates` oder flaches Modell. */
+  fundingSource: 'historical' | 'model';
+  /** Datenqualität der Kerzen (08_ §3b) — dieselbe Prüfung wie im Backtest. */
+  dataQuality: DataQualityReport;
+};
+
+/**
+ * Walk-Forward im Labor — Parität zu runLabBacktest: dieselbe Datenqualitäts-
+ * Prüfung, historisches Funding, optionaler Trailing-Stop; zusätzlich Warmup je
+ * Fenster, damit EMA200 & Co. auch am OOS-Fensteranfang definiert sind.
+ */
+export async function runLabWalkForward(db: Db, input: LabWalkForwardInput): Promise<LabWalkForwardOutput> {
   const { defaultVersionId } = await smcCoreIds(db);
   const costModel = input.costModel ?? DEFAULT_COSTS;
-  const candles = await getOhlcv(db, {
-    symbol: input.symbol,
-    timeframe: input.timeframe,
-    since: input.from,
-    until: input.to,
-  });
-  if (candles.length < input.isBars + input.oosBars) {
-    throw new Error(`Zu wenig Kerzen (${candles.length}) für IS ${input.isBars} + OOS ${input.oosBars}.`);
-  }
   if (input.grid.length === 0 || input.grid.length > 64) {
     throw new Error('Parameter-Grid muss 1–64 Kombinationen haben.');
   }
+  const { candles, dataQuality, fundingSeries, fundingSource } = await loadLabMarketData(db, {
+    symbol: input.symbol,
+    timeframe: input.timeframe,
+    from: input.from,
+    to: input.to,
+    minCandles: input.isBars + input.oosBars,
+    minCandlesMessage: (n) => `Zu wenig Kerzen (${n}) für IS ${input.isBars} + OOS ${input.oosBars}.`,
+  });
 
   const wf = runWalkForward(candles, {
     paramGrid: input.grid,
@@ -353,6 +402,7 @@ export async function runLabWalkForward(
     },
     isBars: input.isBars,
     oosBars: input.oosBars,
+    warmupBars: WF_WARMUP_BARS,
     base: {
       initialEquity: 10_000,
       riskPctPerTrade: input.riskPctPerTrade ?? 1,
@@ -360,6 +410,8 @@ export async function runLabWalkForward(
       barsPerYear: BARS_PER_YEAR[input.timeframe]!,
       tpWeights: [0.5, 0.3, 0.2],
       setupType: input.setupType,
+      ...(input.trailPct !== undefined ? { trailPct: input.trailPct } : {}),
+      ...(fundingSeries ? { fundingSeries } : {}),
     },
   });
 
@@ -375,8 +427,12 @@ export async function runLabWalkForward(
         to: input.to.toISOString(),
         isBars: input.isBars,
         oosBars: input.oosBars,
+        warmupBars: WF_WARMUP_BARS,
         grid: input.grid,
         costModel,
+        trailPct: input.trailPct ?? null,
+        fundingSource,
+        dataWarnings: dataQuality.warnings,
       },
       windows: wf.windows.map((w) => ({
         isStart: w.isStart,
@@ -393,5 +449,5 @@ export async function runLabWalkForward(
     })
     .returning();
 
-  return { runId: row!.id, wf };
+  return { runId: row!.id, wf, fundingSource, dataQuality };
 }
