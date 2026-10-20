@@ -74,7 +74,7 @@ export const PAGES = [
     labelKey: 'ia.page_signals',
     descKey: 'ia.desc_signals',
     icon: 'M3 12h4l3-8 4 16 3-8h4',
-    keywords: ['setup', 'signal', 'bestätigen', 'confirm', 'ticket', 'smc'],
+    keywords: ['setup', 'signal', 'bestätigen', 'confirm', 'ticket', 'smc', 'was wäre passiert', 'abgelaufen', 'hindsight'],
   },
   {
     id: 'marketState',

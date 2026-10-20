@@ -82,3 +82,14 @@ export {
   type ProposalMetricsSummary,
   type OptimizationProposalResults,
 } from './optimize.js';
+export {
+  evaluateExpiredSignals,
+  hindsightOutcome,
+  summarizeHindsight,
+  HINDSIGHT_MAX_BARS,
+  type HindsightItem,
+  type HindsightOutcome,
+  type HindsightSignal,
+  type HindsightStatus,
+  type HindsightSummary,
+} from './hindsight.js';
