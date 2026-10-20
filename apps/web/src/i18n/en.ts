@@ -252,7 +252,8 @@ export const en: Catalog = {
     qty: 'Size',
     total: 'Total',
     mid: 'Mid',
-    source: 'Binance, as of {{time}} · refreshes every 3 s',
+    source: 'Binance via REST, as of {{time}} · live stream connecting or unavailable',
+    sourceLive: 'Binance live stream, as of {{time}}',
     stale: 'last refresh failed',
   },
   ia: {

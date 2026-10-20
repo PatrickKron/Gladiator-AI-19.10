@@ -25,9 +25,10 @@
 - **Keine Betriebs-Keys hinterlegt** (`app_secrets` leer), **keine Börse verbunden** (`exchange_connections` leer).
 - Signale: 306 erzeugt — 304 `expired`, 2 `filled`. 3 Strategie-Versionen im Status `paper`.
 
-## Stand nach Session 10/11 (2026-10-19, Cloud, PR #2 gemergt · PR #3 offen)
+## Stand nach Session 12 (2026-10-20, Cloud, PR #3–#12 gemergt)
 
-- PR #3 (`claude/focused-darwin-51s9k3`, **nicht gemergt**, wartet auf Patrick): Wallet nur lesend, Daten-Assistent (FRED), Börsen aus dem Chat, PWA, Signal-Lebenszyklus 05 §9, VDB1/VDB2, Nacht-Optimierung, DSL-Erweiterungen. Details `WORKOVER.md` Session 11.
+- Alles bis PR #12 ist in `main` (Details `WORKOVER.md` Session 11/12). Was Claude ohne Patrick erledigen konnte, ist erledigt; offen sind nur die Punkte unten mit Patrick-Bezug.
+- GitHub-CI bleibt bei 3 Tests rot, die bewusst echte Börsen-/Seed-Daten brauchen (signal-scan BASIS-Frische, phase6 product, pine): Binance blockiert GitHub-Runner (HTTP 451), Seed-Daten liegen nur auf dem Server. Maßgeblich ist die Server-CI (`scripts/ci.sh`). Ob sie auf GitHub als „live“ ausgeklammert werden sollen, entscheidet Patrick.
 - **Live-Order-Verdrahtung blockiert** durch die Sicherheitsfilterung der Cloud-Umgebung (trotz Patricks Go) → nur per Berechtigungsregel in Claude-Code-Einstellungen oder gemeinsam lokal. `CcxtLiveVenue` + Binance-Demo-Trading fertig, nicht verdrahtet.
 
 ## 1 · Patrick-Schritte (blockieren am meisten — Claude kann sie nicht erledigen)
@@ -47,7 +48,7 @@
 - [x] **Trailing als Strategie-Exit** (Session 10, PR #2) in Backtest-Engine + DSL — dieselbe `trailStep`-Funktion aus `packages/exchange/src/trailing.ts` nutzen (sonst Backtest ≠ Live).
 - [ ] **Default-Limits** (1 % Risiko + 20 % Exposure) blocken Stops < 5 % → hebelbewusste Exposure (Patricks Entscheidung, offen). ✓ Klarer Hinweis im Ticket gebaut (Session 12): Rechnung offengelegt + „Betrag auf X setzen (Risiko dann Y %)“.
 - [x] Backtest-Stops gap-realistisch + Robustheits-Gate (jüngste 30 %) (Session 10, PR #2); Walk-Forward mit Trailing/Funding/Warmup (PR #3).
-- [x] **Orderbuch-Ansicht** (Session 12): Chart-Seite, echtes Binance-Buch alle 3 s (REST, 3-s-Cache geteilt mit dem Demo-Modus), Bündeln, Tiefenbalken, Spread, Kauf/Verkauf-Ungleichgewicht. Echtes Streaming per `watchOrderBook` wäre die nächste Stufe.
+- [x] **Orderbuch-Ansicht** (Session 12): Chart-Seite, echtes Binance-Buch alle 3 s (REST, 3-s-Cache geteilt mit dem Demo-Modus), Bündeln, Tiefenbalken, Spread, Kauf/Verkauf-Ungleichgewicht. Seit Session 12: serverseitiger Websocket-Stream (`watchOrderBook`, `StreamingBookCache`) solange jemand hinschaut, REST-Fallback, Panel 1×/s mit ehrlicher Quellenangabe.
 - [x] **Reentry-/Hebel-Upgrade-Engine + Auto-Kill** (Blueprint `05_` §9) — PR #3; Hebel-Upgrade nur als Vorschlag.
 - [x] Wallet-Anschluss nur lesend (Hyperliquid/Paradex/Derive/Aftermath) — PR #3. Offen: eigenes Wallet, dYdX/Lighter.
 

@@ -44,7 +44,7 @@ import {
   macd,
   rsi,
 } from '@gladiator/strategy-engine';
-import { binanceBookSource, summarizeBook } from '@gladiator/exchange';
+import { binanceStreamingBook, summarizeBook } from '@gladiator/exchange';
 import { protectedProcedure, router } from '../trpc.js';
 
 /**
@@ -375,8 +375,10 @@ export const marketRouter = router({
     }),
 
   /**
-   * Orderbuch-Ansicht (echtes Binance-Buch, public REST, 3-s-Cache geteilt mit
-   * dem Demo-Modus). Nicht erreichbar/kein Markt ⇒ ehrlicher Fehler, nie ein erfundenes Buch.
+   * Orderbuch-Ansicht: echtes Binance-Buch per Websocket-Stream (warm gehalten,
+   * solange jemand hinschaut); bis der Stream liefert bzw. bei Ausfall REST
+   * (3-s-Cache). `live` sagt ehrlich, welche Quelle gerade antwortet.
+   * Nicht erreichbar/kein Markt ⇒ ehrlicher Fehler, nie ein erfundenes Buch.
    */
   orderBook: protectedProcedure
     .input(
@@ -388,8 +390,10 @@ export const marketRouter = router({
     )
     .query(async ({ input }) => {
       try {
-        const book = await binanceBookSource().fetchBook(input.symbol);
-        return summarizeBook(book, { levels: input.levels, ...(input.group ? { group: input.group } : {}) });
+        const stream = binanceStreamingBook();
+        const book = await stream.get(input.symbol);
+        const live = stream.status(input.symbol) === 'live';
+        return { ...summarizeBook(book, { levels: input.levels, ...(input.group ? { group: input.group } : {}) }), live };
       } catch (err) {
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
