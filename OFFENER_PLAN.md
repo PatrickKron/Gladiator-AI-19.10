@@ -98,6 +98,7 @@
 - [x] Workshop-Antworten streamen (Session 12): `POST /api/workshop/:id/chat-stream` (SSE), Antwort erscheint live.
 - [x] Command-Palette/Navigation: Funktions-Registry `apps/web/src/lib/navigation.ts` (Session 9).
 - [x] MacroPanels: COT-Slot nutzt bereits `intelligence.cotSnapshot` (`getCotSnapshot`) — erledigt (geprüft Session 12).
+- [x] Abhängigkeiten abgesichert (Session 12): `npm audit` 17 → 4 moderate Lücken (3 kritische weg): `npm audit fix`, drizzle-orm 0.44 → 0.45.4 (hohe Lücke im Laufpfad), vitest 3 → 5 (kritische tinypool-Lücke, nur Entwicklung). Rest: esbuild in drizzle-kits alter Abhängigkeit (nur Migrations-Werkzeug, kein Laufpfad) — beheben, sobald drizzle-kit nachzieht.
 - [ ] On-Chain-Quelle (DNA-Quadrant) — bleibt ehrlich „nicht verbunden", bis es eine freie, zuverlässige Quelle gibt.
 
 ## Empfohlene Reihenfolge
