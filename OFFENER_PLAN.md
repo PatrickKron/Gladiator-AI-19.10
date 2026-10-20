@@ -73,7 +73,8 @@
 - [x] CI gegen eigene Test-DB (Session 12, **Opt-in**): `TEST_DATABASE_URL` in der Server-`.env` setzen, z. B. `…@127.0.0.1:5433/gladiator_test` → wird angelegt, migriert, geseedet; Live-Migration erst nach grünen Tests. Achtung: Pine-/Signal-Scan-Tests brauchen echte Kerzen, ggf. erst ein Scan-Lauf gegen die Test-DB.
 - [x] Auto-Login abgesichert (nur localhost/Tailnet bzw. `AUTO_LOGIN_ALLOWED_CIDRS`, Auth-Rate-Limit) + Passwort ändern im Profil, Notfall-Reset `npm run auth:set-password -- <email>` (Session 12). Patrick: einmal ein echtes Passwort setzen.
 - [x] Chart: Zeichenwerkzeuge (Horizontale, Trendlinie, Fibonacci, Löschen/Alle löschen; DB `chart_drawings`, Migration 0021, API `drawings.*`, pro Nutzer + Symbol, TF-unabhängig).
-- [ ] Chart: Upgrade lightweight-charts v5, Jesse-artige Trade-Ansicht; Zeichnungen per Ziehen verschieben (API `drawings.update` steht bereit).
+- [x] Zeichnungen per Ziehen verschieben (Werkzeug „Verschieben“, Session 12).
+- [ ] Chart: Upgrade lightweight-charts v5, Jesse-artige Trade-Ansicht.
 
 - [x] Labor + Optimierungs-Vorschläge vollständig in 5 Sprachen (144 Schlüssel, Session 12); Chart-Komponenten waren bereits geteilt. CSV-Spaltennamen bewusst fest (Importe).
 - [x] Workshop-Antworten streamen (Session 12): `POST /api/workshop/:id/chat-stream` (SSE), Antwort erscheint live.

@@ -13,7 +13,7 @@ import { validateDrawingPoints, type DrawingKind, type DrawingPoint } from '@gla
  * dadurch bleibt alles beim Pannen/Zoomen und TF-Wechsel korrekt.
  */
 
-export type DrawingTool = 'none' | DrawingKind | 'delete';
+export type DrawingTool = 'none' | DrawingKind | 'delete' | 'move';
 
 /** Index der letzten Kerze mit times[i] <= t (times aufsteigend, t im Bereich). */
 function floorIndex(times: readonly number[], t: number): number {
@@ -78,7 +78,7 @@ export function applyDrawingClick(
   pending: DrawingPoint | null,
   p: DrawingPoint,
 ): { pending: DrawingPoint | null; create: { kind: DrawingKind; points: DrawingPoint[] } | null } {
-  if (tool === 'none' || tool === 'delete') return { pending: null, create: null };
+  if (tool === 'none' || tool === 'delete' || tool === 'move') return { pending: null, create: null };
   if (tool === 'hline') return { pending: null, create: { kind: 'hline', points: [p] } };
   if (!pending) return { pending: p, create: null };
   const points = [pending, p];
@@ -129,4 +129,27 @@ export function pickDrawing(shapes: readonly { id: string; shape: PixelShape }[]
     }
   }
   return bestId;
+}
+
+/**
+ * Zeichnung verschieben: jeder Anker wandert um dLogical Kerzen (über die
+ * gebrochene Kerzen-Position, damit es auch zwischen/hinter Kerzen stimmt) und
+ * dPrice. Ungültig (Preis ≤ 0, keine Kerzen) → null, dann wird nichts gespeichert.
+ */
+export function translatePoints(
+  times: readonly number[],
+  points: readonly DrawingPoint[],
+  dLogical: number,
+  dPrice: number,
+): DrawingPoint[] | null {
+  const out: DrawingPoint[] = [];
+  for (const p of points) {
+    const logical = timeToLogical(times, p.time);
+    if (logical == null) return null;
+    const time = logicalToTime(times, logical + dLogical);
+    const price = Number((p.price + dPrice).toPrecision(8));
+    if (time == null || time <= 0 || !(price > 0)) return null;
+    out.push({ time, price });
+  }
+  return out;
 }

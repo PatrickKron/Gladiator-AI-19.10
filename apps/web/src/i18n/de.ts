@@ -619,6 +619,8 @@ export const de = {
       hline: 'Horizontale',
       trend: 'Trendlinie',
       fib: 'Fibonacci',
+      move: 'Verschieben',
+      hintMove: 'Zeichnung anfassen, ziehen und loslassen — wird sofort gespeichert.',
       delete: 'Löschen',
       clear: 'Alle löschen',
       clearConfirm: 'Alle {{count}} Zeichnungen für {{symbol}} löschen?',

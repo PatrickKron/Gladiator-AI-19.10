@@ -620,6 +620,8 @@ export const en: Catalog = {
       hline: 'Horizontal',
       trend: 'Trend line',
       fib: 'Fibonacci',
+      move: 'Move',
+      hintMove: 'Grab a drawing, drag and release — saved immediately.',
       delete: 'Delete',
       clear: 'Clear all',
       clearConfirm: 'Delete all {{count}} drawings for {{symbol}}?',

@@ -7,6 +7,7 @@ import {
   pointFromChart,
   shapeDistance,
   timeToLogical,
+  translatePoints,
   type PixelShape,
 } from './chart-drawings.js';
 
@@ -102,5 +103,25 @@ describe('Geometrie / Treffer-Test (Löschen per Klick)', () => {
     expect(pickDrawing(shapes, { x: 99, y: 99 }, 6)).toBe('t');
     expect(pickDrawing(shapes, { x: 300, y: 103 }, 6)).toBe('h');
     expect(pickDrawing(shapes, { x: 300, y: 150 }, 6)).toBeNull();
+  });
+});
+
+describe('translatePoints (Zeichnung verschieben)', () => {
+  const times = [1000, 2000, 3000, 4000];
+  it('verschiebt Zeit über den Kerzen-Index und Preis additiv', () => {
+    const moved = translatePoints(times, [{ time: 1000, price: 100 }, { time: 2500, price: 110 }], 1, 5);
+    expect(moved).toEqual([
+      { time: 2000, price: 105 },
+      { time: 3500, price: 115 },
+    ]);
+  });
+  it('über das Datenende hinaus wird linear fortgeschrieben', () => {
+    expect(translatePoints(times, [{ time: 4000, price: 100 }], 2, 0)).toEqual([{ time: 6000, price: 100 }]);
+  });
+  it('Preis ≤ 0 nach dem Verschieben → null (ungültig, nichts speichern)', () => {
+    expect(translatePoints(times, [{ time: 1000, price: 3 }], 0, -5)).toBeNull();
+  });
+  it('ohne Kerzen → null', () => {
+    expect(translatePoints([], [{ time: 1000, price: 3 }], 1, 0)).toBeNull();
   });
 });

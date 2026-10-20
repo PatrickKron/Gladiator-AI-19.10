@@ -442,4 +442,5 @@ Volle Suite: 1345 grün, 4 rot nur umgebungsbedingt (review, signal-scan „BASI
   - **Chart-Zeichenwerkzeuge (Agent):** Horizontale/Trend/Fibonacci, `chart_drawings` (Migration 0021), API `drawings.*`. Lokal per Playwright gezeichnet und nach Reload wieder da. Hinweis: zwei Klicks innerhalb ~300 ms wertet die Chart-Bibliothek als Doppelklick.
   - **Labor i18n (Agent):** 144 Schlüssel in 5 Sprachen; CSV-Kopf bleibt fest.
   - **Orderbuch-Ansicht:** `summarizeBook` (rein, 5 Tests), `market.orderBook`, `OrderBookPanel` unter dem Chart; Preisgenauigkeit aus den echten Leveln (Fund im Screenshot: sonst doppelte Stufen). Lokal ohne Binance ehrlich „nicht verbunden“; Darstellung mit abgefangenem Test-Buch geprüft.
+  - **Zeichnungen verschieben:** Werkzeug „Verschieben“ (Pointer-Events am Chart, Scrollen währenddessen aus), `translatePoints` (rein, 4 Tests), optimistisch gespeichert über `drawings.update`, bei Fehler zurück. Per Playwright geprüft: Linie gezogen, gespeichert, Chart scrollt nicht mit.
 

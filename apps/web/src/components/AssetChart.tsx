@@ -28,7 +28,7 @@ import {
 import { ChartIndicatorPanel, type PineStrategy } from './ChartIndicatorPanel.js';
 import { applyTick, liveBarSeconds, type Bar } from '../lib/live-candle.js';
 import { ensurePriceStream, onTick } from '../lib/prices.js';
-import { applyDrawingClick, pickDrawing, pointFromChart, type DrawingTool } from '../lib/chart-drawings.js';
+import { applyDrawingClick, pickDrawing, pointFromChart, translatePoints, type DrawingTool } from '../lib/chart-drawings.js';
 import type { DrawingPoint } from '@gladiator/core/drawings';
 import { DrawingsPrimitive, type ChartDrawing } from './chart-drawings-primitive.js';
 
@@ -295,6 +295,21 @@ export function AssetChart({
       .catch(drawFail);
   };
 
+  /** Verschieben speichern (optimistisch; bei Fehler zurück auf den Server-Stand). */
+  const moveDrawing = (id: string, points: DrawingPoint[]) => {
+    const before = drawingsRef.current;
+    setDrawings((prev) => prev.map((d) => (d.id === id ? { ...d, points } : d)));
+    void trpc.drawings.update
+      .mutate({ id, points })
+      .then(() => setDrawErr(null))
+      .catch((e: unknown) => {
+        setDrawings(before);
+        drawFail(e);
+      });
+  };
+  const moveDrawingRef = useRef(moveDrawing);
+  moveDrawingRef.current = moveDrawing;
+
   const deleteDrawing = (id: string) => {
     void trpc.drawings.delete
       .mutate({ id })
@@ -323,7 +338,7 @@ export function AssetChart({
   const handleChartClickRef = useRef<(p: { x: number; y: number }, point: DrawingPoint | null) => void>(() => undefined);
   handleChartClickRef.current = (px, point) => {
     const current = toolRef.current;
-    if (current === 'none') return;
+    if (current === 'none' || current === 'move') return;
     if (current === 'delete') {
       const id = primitiveRef.current ? pickDrawing(primitiveRef.current.shapes(), px, 6) : null;
       if (id) deleteDrawing(id);
@@ -595,6 +610,59 @@ export function AssetChart({
     };
     price.subscribeCrosshairMove(onDrawMove);
     cleanups.push(() => price.unsubscribeCrosshairMove(onDrawMove));
+
+    // Verschieben (Werkzeug „Verschieben"): Zeichnung greifen, ziehen, loslassen →
+    // speichern. Die Chart-Bibliothek kennt kein Drag-Ereignis, daher Pointer-Events
+    // am Chart-Element; Scrollen/Zoomen ist während des Ziehens aus.
+    let drag: { id: string; logical: number; price: number; orig: DrawingPoint[]; moved: DrawingPoint[] | null } | null = null;
+    const localPt = (e: PointerEvent) => {
+      const r = priceEl.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
+    const onPointerDown = (e: PointerEvent) => {
+      if (toolRef.current !== 'move') return;
+      const px = localPt(e);
+      const id = pickDrawing(drawPrim.shapes(), px, 6);
+      const d = id ? drawingsRef.current.find((x) => x.id === id) : undefined;
+      const logical = price.timeScale().coordinateToLogical(px.x);
+      const pr = candle.coordinateToPrice(px.y);
+      if (!d || logical == null || pr == null) return;
+      drag = { id: d.id, logical, price: pr, orig: d.points, moved: null };
+      price.applyOptions({ handleScroll: false, handleScale: false });
+      priceEl.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (!drag) return;
+      const px = localPt(e);
+      const logical = price.timeScale().coordinateToLogical(px.x);
+      const pr = candle.coordinateToPrice(px.y);
+      if (logical == null || pr == null) return;
+      const moved = translatePoints(barTimes, drag.orig, logical - drag.logical, pr - drag.price);
+      if (!moved) return;
+      drag.moved = moved;
+      const id = drag.id;
+      drawPrim.setDrawings(drawingsRef.current.map((x) => (x.id === id ? { ...x, points: moved } : x)));
+    };
+    const endDrag = () => {
+      if (!drag) return;
+      const { id, moved } = drag;
+      drag = null;
+      price.applyOptions({ handleScroll: true, handleScale: true });
+      if (moved) moveDrawingRef.current(id, moved);
+      else drawPrim.setDrawings(drawingsRef.current);
+    };
+    priceEl.addEventListener('pointerdown', onPointerDown, true);
+    priceEl.addEventListener('pointermove', onPointerMove);
+    priceEl.addEventListener('pointerup', endDrag);
+    priceEl.addEventListener('pointercancel', endDrag);
+    cleanups.push(() => {
+      priceEl.removeEventListener('pointerdown', onPointerDown, true);
+      priceEl.removeEventListener('pointermove', onPointerMove);
+      priceEl.removeEventListener('pointerup', endDrag);
+      priceEl.removeEventListener('pointercancel', endDrag);
+    });
 
     // Live: echte SSE-Ticks bewegen die letzte Kerze (wie TradingView) —
     // nur für Symbole im Live-Feed; ohne Ticks bleibt der geladene Stand.
@@ -962,6 +1030,7 @@ export function AssetChart({
           {toolChip('hline', `― ${t('chart.draw.hline')}`)}
           {toolChip('trend', `╱ ${t('chart.draw.trend')}`)}
           {toolChip('fib', `≡ ${t('chart.draw.fib')}`)}
+          {toolChip('move', `✥ ${t('chart.draw.move')}`)}
           {toolChip('delete', `✕ ${t('chart.draw.delete')}`)}
           <button
             onClick={clearDrawings}
@@ -978,7 +1047,13 @@ export function AssetChart({
 
       {tool !== 'none' && (
         <p className="label mb-1.5 px-2" style={{ color: 'var(--color-cyan)' }}>
-          {tool === 'hline' ? t('chart.draw.hintHline') : tool === 'delete' ? t('chart.draw.hintDelete') : t('chart.draw.hintTwo')}
+          {tool === 'hline'
+            ? t('chart.draw.hintHline')
+            : tool === 'delete'
+              ? t('chart.draw.hintDelete')
+              : tool === 'move'
+                ? t('chart.draw.hintMove')
+                : t('chart.draw.hintTwo')}
         </p>
       )}
       {drawErr && (
