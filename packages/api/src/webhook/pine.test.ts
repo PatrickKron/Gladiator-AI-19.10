@@ -3,6 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, schema, type Db } from '@gladiator/db';
+import { backfillOhlcv, getOhlcv } from '@gladiator/market-data';
 import type pg from 'pg';
 import { createApp } from '../app.js';
 import { normalizeSymbol, rrBasedScore, verifyPineAuth } from './pine.js';
@@ -75,7 +76,12 @@ describe.skipIf(!hasDb)('Pine-Webhook: Ende-zu-Ende gegen echte DB', () => {
       .values({ slug: `pine-test-${Date.now()}`, name: 'Pine-Test', kind: 'pine', description: 'Test' })
       .returning();
     strategyId = s!.id;
-  });
+    // Regime braucht ≥ 220 ECHTE eigene 1h-Kerzen — auf frischer DB (CI/Selbsthosten) selbst laden
+    const have = await getOhlcv(db, { symbol: 'BTC/USDT', timeframe: '1h', limit: 400 });
+    if (have.length < 220) {
+      await backfillOhlcv(db, { symbol: 'BTC/USDT', timeframe: '1h', since: new Date(Date.now() - 20 * 86_400_000) });
+    }
+  }, 120_000);
 
   afterAll(async () => {
     delete process.env.PINE_WEBHOOK_SECRET;

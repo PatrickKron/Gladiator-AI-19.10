@@ -8,6 +8,8 @@
   },
   "scripts": {
     "push:keys": "tsx src/scripts/push-keys.ts",
+    "setup:env": "tsx src/scripts/setup-env.ts",
+    "setup:data": "tsx src/scripts/setup-data.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {

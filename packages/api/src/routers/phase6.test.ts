@@ -93,17 +93,27 @@ describe.skipIf(!hasDb)('Phase-6-Router (Settings, Product, Agents, Promotion)',
     ).rejects.toThrow();
   });
 
-  it('product: echte v1-Pakete + Assets + Artikel aus der DB', async () => {
-    const pkgs = await caller.product.packages();
-    expect(pkgs.length).toBeGreaterThan(0);
-    const withAssets = pkgs.find((p) => p.assetCount > 0);
-    if (withAssets) {
-      const assets = await caller.product.assets({ packageId: withAssets.id });
-      expect(assets.length).toBeGreaterThan(0);
-      expect(assets[0]!.ticker.length).toBeGreaterThan(0);
+  it('product: Pakete + Assets + Artikel kommen aus der DB (eigenes Test-Paket — frische Installation hat keine v1-Daten)', async () => {
+    const tag = `test-${process.pid}-${Date.now()}`;
+    const [pkg] = await db
+      .insert(schema.packages)
+      .values({ packageId: tag, name: `Test-Paket ${tag}`, category: 'Test', assetCount: 1 })
+      .returning();
+    try {
+      await db.insert(schema.assets).values({ assetId: `${tag}-btc`, packageId: pkg!.id, ticker: 'BTC', name: 'Bitcoin', assetType: 'crypto', tradingPair: 'BTC/USDT' });
+      const pkgs = await caller.product.packages();
+      const mine = pkgs.find((p) => p.packageId === tag);
+      expect(mine).toMatchObject({ name: `Test-Paket ${tag}`, assetCount: 1 });
+      const assets = await caller.product.assets({ packageId: mine!.id });
+      expect(assets.map((a) => a.ticker)).toEqual(['BTC']);
+      // vorhandene echte v1-Pakete (Server) werden genauso geliefert — keine Sonderbehandlung
+      for (const p of pkgs) expect(p.name.length).toBeGreaterThan(0);
+      const articles = await caller.product.articles({ limit: 10 });
+      expect(Array.isArray(articles)).toBe(true);
+    } finally {
+      await db.delete(schema.assets).where(eq(schema.assets.packageId, pkg!.id));
+      await db.delete(schema.packages).where(eq(schema.packages.id, pkg!.id));
     }
-    const articles = await caller.product.articles({ limit: 10 });
-    expect(Array.isArray(articles)).toBe(true);
   });
 
   it('agents.status: aktive + ehrlich deaktivierte Agenten mit Grund', async () => {

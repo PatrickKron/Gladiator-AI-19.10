@@ -1,9 +1,11 @@
 import ccxt from 'ccxt';
+import { withBinancePublic } from '@gladiator/market-data';
 import { stepFromPrecision, type MarketRules, type TradingVenue, type VenueOrderRequest, type VenueOrderResult, type VenuePosition } from './venue.js';
 
 /**
  * Interne Paper-Engine (06_ §7): füllt Market-Orders sofort zum ECHTEN
- * Live-Preis (Binance public REST — keine Keys nötig, kein Geld, keine Fakes:
+ * Live-Preis (Binance public REST — bei Standortsperre über den offiziellen
+ * Marktdaten-Spiegel; keine Keys nötig, kein Geld, keine Fakes:
  * der Preis ist real, nur die Ausführung ist simuliert und als Paper markiert).
  * Stop/TP-Orders werden angenommen und vom PositionMonitor gegen echte
  * Live-Preise überwacht (minütlich, dokumentierte Granularität).
@@ -13,7 +15,6 @@ export class PaperVenue implements TradingVenue {
   readonly id = 'paper-internal';
   readonly kind = 'paper' as const;
 
-  private exchange = new ccxt.binance({ enableRateLimit: true });
   private orderSeq = 0;
   private seenClientIds = new Map<string, VenueOrderResult>();
 
@@ -27,9 +28,10 @@ export class PaperVenue implements TradingVenue {
   }
 
   async marketRules(symbol: string): Promise<MarketRules> {
-    await this.exchange.loadMarkets();
-    const m = this.exchange.market(symbol);
-    const tickSizeMode = this.exchange.precisionMode === ccxt.TICK_SIZE;
+    const { m, tickSizeMode } = await withBinancePublic(async (ex) => {
+      await ex.loadMarkets();
+      return { m: ex.market(symbol), tickSizeMode: ex.precisionMode === ccxt.TICK_SIZE };
+    });
     return {
       tickSize: stepFromPrecision(m.precision?.price, tickSizeMode, 0.01),
       lotSize: stepFromPrecision(m.precision?.amount, tickSizeMode, 0.000001),
@@ -38,7 +40,7 @@ export class PaperVenue implements TradingVenue {
   }
 
   async markPrice(symbol: string): Promise<number> {
-    const t = await this.exchange.fetchTicker(symbol);
+    const t = await withBinancePublic((ex) => ex.fetchTicker(symbol));
     const price = t.last ?? t.close;
     if (typeof price !== 'number' || !Number.isFinite(price)) {
       throw new Error(`Kein echter Preis für ${symbol} verfügbar.`);

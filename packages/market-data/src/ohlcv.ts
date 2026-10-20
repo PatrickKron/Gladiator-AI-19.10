@@ -1,7 +1,7 @@
-import ccxt from 'ccxt';
 import { and, asc, desc, eq, gte, lte } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
+import { withBinancePublic } from './binance-public.js';
 import { sanitizeCandles, type RawOhlcv } from './candles.js';
 
 const { ohlcv } = schema;
@@ -18,7 +18,8 @@ export type BackfillResult = {
 /**
  * Historische OHLCV von einer echten Börse (ccxt, REST, paginiert) in die
  * Timescale-Hypertable laden. Idempotent (onConflictDoNothing auf PK).
- * enableRateLimit ist Pflicht (06_ §7a).
+ * enableRateLimit ist Pflicht (06_ §7a). Bei Binance-Standortsperre (HTTP 451)
+ * über den offiziellen Marktdaten-Spiegel (binance-public.ts) — gleiche Kerzen.
  */
 export async function backfillOhlcv(
   db: Db,
@@ -26,7 +27,17 @@ export async function backfillOhlcv(
   log: (msg: string) => void = () => {},
 ): Promise<BackfillResult> {
   const venue = opts.venue ?? 'binance';
-  const exchange = new ccxt.binance({ enableRateLimit: true });
+  // Bei 451 läuft alles noch einmal über den Spiegel — Inserts sind idempotent
+  return withBinancePublic((exchange) => runBackfill(db, exchange, venue, opts, log));
+}
+
+async function runBackfill(
+  db: Db,
+  exchange: { parseTimeframe(tf: string): number; fetchOHLCV(...a: unknown[]): Promise<unknown> },
+  venue: string,
+  opts: { symbol: string; timeframe: string; since: Date; until?: Date },
+  log: (msg: string) => void,
+): Promise<BackfillResult> {
   const tfMs = exchange.parseTimeframe(opts.timeframe) * 1000;
   const untilMs = (opts.until ?? new Date()).getTime();
 
