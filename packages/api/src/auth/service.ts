@@ -13,7 +13,7 @@ const { users, sessions, auditLog } = schema;
 
 export class AuthError extends Error {
   constructor(
-    public readonly code: 'INVALID_CREDENTIALS' | 'EMAIL_TAKEN' | 'INVALID_REFRESH' | 'REGISTRATION_CLOSED',
+    public readonly code: 'INVALID_CREDENTIALS' | 'EMAIL_TAKEN' | 'INVALID_REFRESH' | 'REGISTRATION_CLOSED' | 'WEAK_PASSWORD' | 'WRONG_PASSWORD',
     message: string,
   ) {
     super(message);
@@ -176,6 +176,68 @@ export async function autoLogin(db: Db, email: string, meta: RequestMeta = {}): 
   await audit(db, 'auth.autologin', user.id, meta);
   const tokens = await createSession(db, user.id, user.email, meta);
   return { user: toPublicUser(user), ...tokens };
+}
+
+export const MIN_PASSWORD_LENGTH = 10;
+
+function assertPasswordStrength(password: string): void {
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    throw new AuthError('WEAK_PASSWORD', `Passwort braucht mindestens ${MIN_PASSWORD_LENGTH} Zeichen.`);
+  }
+}
+
+/**
+ * Passwort ändern (Profil): das aktuelle Passwort ist Pflicht (ein offener
+ * Browser allein reicht nicht). Danach werden ALLE Sessions entwertet und eine
+ * frische für dieses Gerät ausgegeben — andere Geräte müssen sich neu anmelden.
+ */
+export async function changePassword(
+  db: Db,
+  userId: string,
+  input: { currentPassword: string; newPassword: string },
+  meta: RequestMeta = {},
+): Promise<TokenPair> {
+  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  if (!user) throw new AuthError('INVALID_CREDENTIALS', 'Nutzer existiert nicht mehr.');
+  if (!user.passwordHash || !(await bcrypt.compare(input.currentPassword, user.passwordHash))) {
+    await audit(db, 'auth.password_change.rejected', user.id, meta);
+    throw new AuthError('WRONG_PASSWORD', 'Aktuelles Passwort stimmt nicht.');
+  }
+  assertPasswordStrength(input.newPassword);
+  if (input.newPassword === input.currentPassword) {
+    throw new AuthError('WEAK_PASSWORD', 'Das neue Passwort muss sich vom alten unterscheiden.');
+  }
+  await setHashAndRevoke(db, user.id, input.newPassword);
+  await audit(db, 'auth.password_changed', user.id, meta);
+  return createSession(db, user.id, user.email, meta);
+}
+
+/**
+ * Passwort neu setzen ohne das alte — NUR für das Server-Skript
+ * (`npm run auth:set-password`, Shell-Zugang = Besitzer). Entwertet alle Sessions.
+ */
+export async function setPasswordByEmail(db: Db, email: string, newPassword: string): Promise<void> {
+  assertPasswordStrength(newPassword);
+  const [user] = await db.select().from(users).where(eq(users.email, email.trim().toLowerCase())).limit(1);
+  if (!user) throw new Error(`Nutzer ${email} nicht gefunden.`);
+  await setHashAndRevoke(db, user.id, newPassword);
+  await db.insert(auditLog).values({
+    actor: 'system',
+    action: 'auth.password_reset',
+    userId: user.id,
+    entityType: 'user',
+    entityId: user.id,
+    details: { via: 'server-script' },
+  });
+}
+
+async function setHashAndRevoke(db: Db, userId: string, newPassword: string): Promise<void> {
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  await db.update(users).set({ passwordHash }).where(eq(users.id, userId));
+  await db
+    .update(sessions)
+    .set({ revokedAt: new Date() })
+    .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
 }
 
 export async function logout(db: Db, refreshToken: string, meta: RequestMeta = {}): Promise<void> {

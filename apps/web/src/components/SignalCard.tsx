@@ -395,6 +395,8 @@ function ExperienceSuggestion({ preview, onApply }: { preview: ExecPreview; onAp
  * Einfach-Modus spricht Klartext („Verkaufe automatisch bei −x %"),
  * Profi sieht Rohwerte.
  */
+const fmtPct = (n: number, digits = 1) => `${n.toLocaleString('de-DE', { maximumFractionDigits: digits })} %`;
+
 function AdjustTicket({
   signal,
   onExecute,
@@ -656,6 +658,37 @@ function AdjustTicket({
           ⚠ {preview.gateReasons.join(' · ')}
           {dirty && <span style={{ color: 'var(--color-mut)' }}> {t('ticket.gateRecheck')}</span>}
         </p>
+      )}
+
+      {/* Risiko% vs. Exposure-Limit (enger Stop): Rechnung offenlegen + größten erlaubten Betrag anbieten */}
+      {!preview.exposureFit.fits && preview.exposureFit.stopPct > 0 && !dirty && (
+        <div className="mt-2 rounded border p-2 text-[11px] leading-relaxed" style={{ borderColor: 'rgba(245,182,66,0.4)', color: 'var(--color-mut)' }}>
+          <p>
+            {t('ticket.exposureExplain', {
+              risk: fmtPct(preview.exposureFit.riskPct, 2),
+              stop: fmtPct(preview.exposureFit.stopPct),
+              implied: fmtPct(preview.exposureFit.impliedExposurePct, 0),
+              limit: fmtPct(preview.exposureFit.limitPct, 0),
+            })}
+          </p>
+          {preview.exposureFit.maxNotional > 0 && rate !== null && minEur !== null && (
+            <button
+              type="button"
+              className="mt-1 rounded border px-2 py-0.5"
+              style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink)' }}
+              onClick={() => {
+                setAmountEur(Math.max(minEur, Math.floor(preview.exposureFit.maxNotional / rate)));
+                setDirty(true);
+              }}
+            >
+              {t('ticket.exposureApply', {
+                amount: num(Math.floor(preview.exposureFit.maxNotional / rate), '€'),
+                risk: fmtPct(preview.exposureFit.riskPctAtMax, 2),
+              })}
+            </button>
+          )}
+          <p className="mt-1">{t('ticket.exposureSettings')}</p>
+        </div>
       )}
 
       <div className="mt-3 flex items-center gap-2">

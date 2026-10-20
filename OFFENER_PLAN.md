@@ -45,7 +45,7 @@
 - [ ] **Live-Order-Pfad** über den bestehenden CCXT-Router (`packages/exchange/src/connections.ts`, `pickConnectionForSymbol`): Live-Adapter → Testnet-E2E → grüne Reconciliation → Freigabe-Phrase `LIVE-FREIGABE <venue>` (`venue_approvals`) → Kleinst-Trade-Probe. **Erst nach Patricks ausdrücklicher Freigabe beginnen.** Voraussetzung: Punkt 1 (Börse verbunden).
 - [x] Trailing-Stop am PositionMonitor + Position schließen/Teilschluss/SL-TP ändern (Session 9, PR #1).
 - [x] **Trailing als Strategie-Exit** (Session 10, PR #2) in Backtest-Engine + DSL — dieselbe `trailStep`-Funktion aus `packages/exchange/src/trailing.ts` nutzen (sonst Backtest ≠ Live).
-- [ ] **Default-Limits** (1 % Risiko + 20 % Exposure) blocken Stops < 5 % → hebelbewusste Exposure oder klarer Hinweis im Ticket.
+- [ ] **Default-Limits** (1 % Risiko + 20 % Exposure) blocken Stops < 5 % → hebelbewusste Exposure (Patricks Entscheidung, offen). ✓ Klarer Hinweis im Ticket gebaut (Session 12): Rechnung offengelegt + „Betrag auf X setzen (Risiko dann Y %)“.
 - [x] Backtest-Stops gap-realistisch + Robustheits-Gate (jüngste 30 %) (Session 10, PR #2); Walk-Forward mit Trailing/Funding/Warmup (PR #3).
 - [ ] **Orderbuch-Ansicht** (braucht Depth-Streaming, z. B. ccxt.pro `watchOrderBook`).
 - [x] **Reentry-/Hebel-Upgrade-Engine + Auto-Kill** (Blueprint `05_` §9) — PR #3; Hebel-Upgrade nur als Vorschlag.
@@ -69,15 +69,15 @@
 
 ## 5 · Aufräumen & Technik
 
-- [ ] Positions-Monitor in eigene Queue (läuft hinter RL/ML-Jobs).
-- [ ] CI gegen eigene Test-DB statt Live-DB.
-- [ ] Auto-Login absichern (Rate-Limit, Host-Allowlist) + echtes Passwort.
+- [x] Positions-Monitor in eigene Queue `gladiator-monitor` mit eigenem Worker (Session 12).
+- [x] CI gegen eigene Test-DB (Session 12, **Opt-in**): `TEST_DATABASE_URL` in der Server-`.env` setzen, z. B. `…@127.0.0.1:5433/gladiator_test` → wird angelegt, migriert, geseedet; Live-Migration erst nach grünen Tests. Achtung: Pine-/Signal-Scan-Tests brauchen echte Kerzen, ggf. erst ein Scan-Lauf gegen die Test-DB.
+- [x] Auto-Login abgesichert (nur localhost/Tailnet bzw. `AUTO_LOGIN_ALLOWED_CIDRS`, Auth-Rate-Limit) + Passwort ändern im Profil, Notfall-Reset `npm run auth:set-password -- <email>` (Session 12). Patrick: einmal ein echtes Passwort setzen.
 - [ ] Chart: Zeichenwerkzeuge, Upgrade lightweight-charts v5, Jesse-artige Trade-Ansicht.
 
 - [ ] `apps/web/src/views/Labor.tsx`: Binnentexte auf i18n (5 Sprachen, Paritätstest) und lokale Chart-Kopien auf `components/EquityChart.tsx` umstellen.
 - [ ] Workshop-Antworten streamen (SSE statt Ein-Turn-Antwort).
 - [x] Command-Palette/Navigation: Funktions-Registry `apps/web/src/lib/navigation.ts` (Session 9).
-- [ ] MacroPanels-Footprint-Slot auf `getCotSnapshot` umstellen.
+- [x] MacroPanels: COT-Slot nutzt bereits `intelligence.cotSnapshot` (`getCotSnapshot`) — erledigt (geprüft Session 12).
 - [ ] On-Chain-Quelle (DNA-Quadrant) — bleibt ehrlich „nicht verbunden", bis es eine freie, zuverlässige Quelle gibt.
 
 ## Empfohlene Reihenfolge

@@ -9,7 +9,7 @@ import {
   loadRiskContext,
   loadRiskSettings,
 } from '@gladiator/exchange';
-import { evaluateRisk } from '@gladiator/risk';
+import { evaluateRisk, exposureFit } from '@gladiator/risk';
 import { leverageUpgradeSchema, reentrySchema } from '@gladiator/core';
 import { formatEmergencyAlert, sendTelegram } from '@gladiator/jobs';
 import { getEurUsdRate } from '@gladiator/market-data';
@@ -272,6 +272,22 @@ export const signalsRouter = router({
         /** Echter EUR/USD-Kurs; null = Quelle nicht erreichbar (UI zeigt USD). */
         eurUsdRate: eurUsd,
         gateReasons: verdict.allowed ? [] : verdict.reasons,
+        /**
+         * Erklärung, falls Risiko% und Exposure-Limit kollidieren (enger Stop):
+         * Rechnung + größter erlaubter Betrag. Ändert nichts, nur Hinweis.
+         */
+        exposureFit: {
+          riskPct: settings.riskPctPerTrade,
+          limitPct: settings.maxExposurePctPerAsset,
+          ...exposureFit({
+          equity: state.equity,
+          riskPct: settings.riskPctPerTrade,
+          entry: Number(signal.entry),
+          stopLoss: Number(signal.stopLoss),
+          maxExposurePct: settings.maxExposurePctPerAsset,
+          existingExposurePct: state.exposureBySymbolPct[signal.symbol] ?? 0,
+          }),
+        },
         /** Optionaler Vorschlag aus echten Trades (Labor + Paper); null-Fall mit Grund. */
         experience,
       };

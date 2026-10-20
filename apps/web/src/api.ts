@@ -100,6 +100,12 @@ export async function tryAutoLogin(): Promise<boolean> {
   }
 }
 
+/** Passwort ändern: der Server entwertet alle Sessions und liefert eine neue für dieses Gerät. */
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  const res = await trpc.auth.changePassword.mutate({ currentPassword, newPassword });
+  setSession({ accessToken: res.accessToken, refreshToken: res.refreshToken });
+}
+
 const refreshLock = webLock('gladiator.session-refresh');
 
 export async function refreshSession(): Promise<RefreshOutcome> {
