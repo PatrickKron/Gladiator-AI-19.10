@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  CandlestickSeries,
   createChart,
+  createSeriesMarkers,
+  HistogramSeries,
+  LineSeries,
   CrosshairMode,
   LineStyle,
   type IChartApi,
@@ -569,7 +573,7 @@ export function AssetChart({
     const priceEl = priceRef.current;
     const price = createChart(priceEl, { width: priceEl.clientWidth, ...baseChartOptions(tf, 340) });
     charts.push(price);
-    const candle = price.addCandlestickSeries({
+    const candle = price.addSeries(CandlestickSeries, {
       upColor: C.green,
       downColor: C.red,
       borderUpColor: C.green,
@@ -689,7 +693,7 @@ export function AssetChart({
 
     // Volumen (Overlay unten)
     if (toggles.volume) {
-      const vol = price.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol' });
+      const vol = price.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: 'vol' });
       price.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
       vol.setData(data.volume as never);
     }
@@ -698,7 +702,7 @@ export function AssetChart({
     if (toggles.ema) {
       const addLine = (pts: { time: number; value: number }[], color: string) => {
         if (pts.length === 0) return;
-        const s = price.addLineSeries({ color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+        const s = price.addSeries(LineSeries, { color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
         s.setData(pts as never);
       };
       addLine(data.ema.e20, C.amber);
@@ -710,7 +714,7 @@ export function AssetChart({
     if (toggles.bollinger) {
       const addBand = (pts: { time: number; value: number }[], style: LineStyle) => {
         if (pts.length === 0) return;
-        const s = price.addLineSeries({ color: C.faint, lineWidth: 1, lineStyle: style, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+        const s = price.addSeries(LineSeries, { color: C.faint, lineWidth: 1, lineStyle: style, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
         s.setData(pts as never);
       };
       addBand(data.bollinger.upper, LineStyle.Dotted);
@@ -724,7 +728,7 @@ export function AssetChart({
     if (customSeries) {
       for (const m of customSeries.mas) {
         if (m.points.length === 0) continue;
-        const s = price.addLineSeries({
+        const s = price.addSeries(LineSeries, {
           color: m.color,
           lineWidth: 2,
           priceLineVisible: false,
@@ -737,7 +741,7 @@ export function AssetChart({
       if (customSeries.bollinger) {
         const addCustomBand = (pts: { time: number; value: number }[], style: LineStyle) => {
           if (pts.length === 0) return;
-          const s = price.addLineSeries({
+          const s = price.addSeries(LineSeries, {
             color: 'rgba(139,92,246,0.5)', // violett — unterscheidbar vom grauen Standard-Bollinger
             lineWidth: 1,
             lineStyle: style,
@@ -819,7 +823,7 @@ export function AssetChart({
     }
     if (markers.length > 0) {
       markers.sort((a, b) => (a.time as number) - (b.time as number));
-      candle.setMarkers(markers);
+      createSeriesMarkers(candle, markers);
     }
 
     // Zonen (Order Blocks / FVG) — aktive als farbige Level-Paare
@@ -874,7 +878,7 @@ export function AssetChart({
 
     if (toggles.rsi && rsiRef.current && data.rsi.length > 0) {
       buildPane(rsiRef.current, (c) => {
-        const s = c.addLineSeries({ color: C.cyan, lineWidth: 1, priceLineVisible: false, lastValueVisible: true });
+        const s = c.addSeries(LineSeries, { color: C.cyan, lineWidth: 1, priceLineVisible: false, lastValueVisible: true });
         s.setData(data.rsi as never);
         s.createPriceLine({ price: 70, color: 'rgba(255,92,108,0.4)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '70' });
         s.createPriceLine({ price: 30, color: 'rgba(61,220,151,0.4)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '30' });
@@ -882,17 +886,17 @@ export function AssetChart({
     }
     if (toggles.macd && macdRef.current && data.macd.line.length > 0) {
       buildPane(macdRef.current, (c) => {
-        const h = c.addHistogramSeries({ priceLineVisible: false, lastValueVisible: false });
+        const h = c.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false });
         h.setData(data.macd.histogram as never);
-        const line = c.addLineSeries({ color: C.cyan, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+        const line = c.addSeries(LineSeries, { color: C.cyan, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
         line.setData(data.macd.line as never);
-        const sig = c.addLineSeries({ color: C.amber, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+        const sig = c.addSeries(LineSeries, { color: C.amber, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
         sig.setData(data.macd.signal as never);
       });
     }
     if (toggles.atr && atrRef.current && data.atr.length > 0) {
       buildPane(atrRef.current, (c) => {
-        const s = c.addLineSeries({ color: C.violet, lineWidth: 1, priceLineVisible: false, lastValueVisible: true });
+        const s = c.addSeries(LineSeries, { color: C.violet, lineWidth: 1, priceLineVisible: false, lastValueVisible: true });
         s.setData(data.atr as never);
       });
     }
@@ -901,7 +905,7 @@ export function AssetChart({
     const custRsi = customSeries?.rsi ?? null;
     if (custRsi && custRsi.length > 0 && custRsiRef.current) {
       buildPane(custRsiRef.current, (c) => {
-        const s = c.addLineSeries({ color: '#e14ecf', lineWidth: 1, priceLineVisible: false, lastValueVisible: true });
+        const s = c.addSeries(LineSeries, { color: '#e14ecf', lineWidth: 1, priceLineVisible: false, lastValueVisible: true });
         s.setData(custRsi as never);
         s.createPriceLine({ price: 70, color: 'rgba(255,92,108,0.4)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '70' });
         s.createPriceLine({ price: 30, color: 'rgba(61,220,151,0.4)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '30' });
@@ -910,11 +914,11 @@ export function AssetChart({
     const custMacd = customSeries?.macd ?? null;
     if (custMacd && custMacd.line.length > 0 && custMacdRef.current) {
       buildPane(custMacdRef.current, (c) => {
-        const h = c.addHistogramSeries({ priceLineVisible: false, lastValueVisible: false });
+        const h = c.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false });
         h.setData(custMacd.histogram as never);
-        const line = c.addLineSeries({ color: C.cyan, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+        const line = c.addSeries(LineSeries, { color: C.cyan, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
         line.setData(custMacd.line as never);
-        const sig = c.addLineSeries({ color: C.amber, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+        const sig = c.addSeries(LineSeries, { color: C.amber, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
         sig.setData(custMacd.signal as never);
       });
     }

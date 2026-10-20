@@ -4,7 +4,7 @@ import { validateDrawingPoints, type DrawingKind, type DrawingPoint } from '@gla
  * Reine Logik der Chart-Zeichenwerkzeuge (Plan §5): Abbildung Zeit ↔ Kerzen-
  * Index, Platzier-Logik der Klicks und Treffer-Test fürs Löschen.
  *
- * WARUM Zeit ↔ „logischer Index" statt timeToCoordinate: lightweight-charts 4
+ * WARUM Zeit ↔ „logischer Index" statt timeToCoordinate: lightweight-charts (4 wie 5)
  * kennt nur Zeiten, die als Kerze existieren. Zeichnungen sind aber
  * Timeframe-unabhängig (z. B. 1h-Anker im 4h-Chart oder Anker außerhalb des
  * geladenen Fensters). Wir rechnen die Zeit deshalb in einen GEBROCHENEN
