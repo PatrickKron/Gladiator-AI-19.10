@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { de } from '../i18n/de.js';
-import { bpsLabel, fmtAmount, fmtUsd, pricePrecision, slippageChoices, swapReasonKey } from './swap-format.js';
+import { bpsLabel, fmtAmount, fmtUsd, pricePrecision, slippageChoices, swapReasonKey, poolAge } from './swap-format.js';
 
 describe('swap-format', () => {
   it('fmtUsd: normale Beträge, Meme-Preise, kompakt', () => {
@@ -41,5 +41,16 @@ describe('swap-format', () => {
     const reasons = ['recipient_not_owner', 'invalid_amount', 'trade_above_limit', 'slippage_above_limit', 'price_impact_above_limit', 'liquidity_below_limit', 'liquidity_unknown', 'token_unsafe', 'token_tax_above_limit'];
     const swap = (de as unknown as { swap: Record<string, string> }).swap;
     for (const r of reasons) expect(swap[swapReasonKey(r).slice('swap.'.length)]).toBeTruthy();
+  });
+});
+
+describe('poolAge', () => {
+  const now = Date.parse('2026-10-20T12:00:00Z');
+  it('Minuten, Stunden, Tage; unbekannt → —', () => {
+    expect(poolAge('2026-10-20T11:55:00Z', 'en', now)).toBe('5 min. ago');
+    expect(poolAge('2026-10-20T09:00:00Z', 'en', now)).toBe('3 hr. ago');
+    expect(poolAge('2026-10-17T12:00:00Z', 'en', now)).toBe('3 days ago');
+    expect(poolAge(null, 'en', now)).toBe('—');
+    expect(poolAge('kaputt', 'en', now)).toBe('—');
   });
 });

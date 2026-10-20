@@ -49,3 +49,14 @@ export function bpsLabel(bps: number, locale: string): string {
 export function swapReasonKey(reason: string): string {
   return `swap.reason_${reason}`;
 }
+
+/** Alter des Pools, grob („vor 3 Std.“) — Intl übernimmt die Sprache. */
+export function poolAge(iso: string | null, lang: string, now = Date.now()): string {
+  if (!iso) return '—';
+  const sec = Math.max(0, (now - new Date(iso).getTime()) / 1000);
+  if (!Number.isFinite(sec)) return '—';
+  const rtf = new Intl.RelativeTimeFormat(lang, { numeric: 'always', style: 'short' });
+  if (sec < 3600) return rtf.format(-Math.max(1, Math.round(sec / 60)), 'minute');
+  if (sec < 86_400) return rtf.format(-Math.round(sec / 3600), 'hour');
+  return rtf.format(-Math.round(sec / 86_400), 'day');
+}
