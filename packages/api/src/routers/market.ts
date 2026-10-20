@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { schema } from '@gladiator/db';
 import {
   fredConfigured,
@@ -44,7 +44,7 @@ import {
   macd,
   rsi,
 } from '@gladiator/strategy-engine';
-import { binanceStreamingBook, summarizeBook } from '@gladiator/exchange';
+import { binanceStreamingBook, COMPARE_VENUES, fetchVenueQuotes, rankVenueQuotes, summarizeBook, type VenueQuote } from '@gladiator/exchange';
 import { protectedProcedure, router } from '../trpc.js';
 
 /**
@@ -53,6 +53,10 @@ import { protectedProcedure, router } from '../trpc.js';
  * existieren (siehe availableTimeframes).
  */
 const timeframeEnum = z.enum(SUPPORTED_TIMEFRAMES);
+
+/** Börsen-Vergleich: 15-s-Cache je Symbol (öffentliche Endpunkte, ratelimit-freundlich). */
+const VENUE_QUOTE_TTL_MS = 15_000;
+const venueQuoteCache = new Map<string, { at: number; quotes: VenueQuote[] }>();
 
 /**
  * Kosten-Wächter für die News-Zusammenfassung — gleiche Budget-Logik wie im
@@ -400,6 +404,34 @@ export const marketRouter = router({
           message: err instanceof Error ? err.message : String(err),
         });
       }
+    }),
+
+  /**
+   * Börsen-Vergleich (Vision-Punkt 2): echte, öffentliche Kurse je Börse für
+   * ein Symbol, gerankt nach effektivem Preis inkl. Taker-Gebühr (Kauf: Ask,
+   * Verkauf: Bid). `connected` = du hast diese Börse in den Einstellungen
+   * angeschlossen. Nicht erreichbare Börsen bleiben sichtbar, nie geschätzt.
+   */
+  venueQuotes: protectedProcedure
+    .input(z.object({ symbol: z.string().min(3).max(30), side: z.enum(['buy', 'sell']).default('buy') }))
+    .query(async ({ ctx, input }) => {
+      const symbol = input.symbol.toUpperCase();
+      let cached = venueQuoteCache.get(symbol);
+      if (!cached || Date.now() - cached.at > VENUE_QUOTE_TTL_MS) {
+        cached = { at: Date.now(), quotes: await fetchVenueQuotes(symbol, COMPARE_VENUES) };
+        venueQuoteCache.set(symbol, cached);
+      }
+      const conns = await ctx.db
+        .select({ exchangeId: schema.exchangeConnections.exchangeId })
+        .from(schema.exchangeConnections)
+        .where(and(eq(schema.exchangeConnections.userId, ctx.user.id), eq(schema.exchangeConnections.status, 'active')));
+      const connected = new Set(conns.map((c) => c.exchangeId));
+      return {
+        symbol,
+        side: input.side,
+        fetchedAt: new Date(cached.at).toISOString(),
+        venues: rankVenueQuotes(cached.quotes, input.side).map((q) => ({ ...q, connected: connected.has(q.venue) })),
+      };
     }),
 
   /** Aktien-/ETF-Quotes (Yahoo, 5-min-Cache). Unbekannt ⇒ null (ehrlich kein Kurs). */

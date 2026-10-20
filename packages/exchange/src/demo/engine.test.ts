@@ -320,6 +320,35 @@ describe.skipIf(!hasDb)('Demo-Engine (echte DB, deterministisches Buch)', () => 
     }
   });
 
+  it('Börse wählbar: dieselbe Order füllt gegen das Buch DER gewählten Börse, Positionen getrennt je Börse', async () => {
+    const venueBooks: Record<string, OrderBookSnapshot> = {
+      binance: { symbol: 'ETH/USDT', ts: 0, bids: [{ price: 3_000, qty: 50 }], asks: [{ price: 3_001, qty: 50 }] },
+      bybit: { symbol: 'ETH/USDT', ts: 0, bids: [{ price: 2_998, qty: 50 }], asks: [{ price: 2_999, qty: 50 }] },
+    };
+    const multi: DemoBookSource = {
+      fetchBook: async (symbol, venue = 'binance') => ({ ...venueBooks[venue]!, symbol }),
+      marketRules: async () => ({ tickSize: 0.01, lotSize: 0.0001, minNotional: 5 }),
+    };
+    const a = await placeDemoOrder(db, multi, userId, { symbol: 'ETH/USDT', direction: 'long', type: 'market', qty: 1, venue: 'bybit' });
+    const b = await placeDemoOrder(db, multi, userId, { symbol: 'ETH/USDT', direction: 'long', type: 'market', qty: 1 });
+    expect(a.placed && a.avgFillPrice).toBe(2_999);
+    expect(b.placed && b.avgFillPrice).toBe(3_001);
+    const eth = await db
+      .select()
+      .from(demoPositions)
+      .where(and(eq(demoPositions.userId, userId), eq(demoPositions.symbol, 'ETH/USDT')));
+    expect(eth.map((p) => p.venue).sort()).toEqual(['binance', 'bybit']);
+    // Schließen läuft gegen das Buch der Börse der Position
+    const bybitPos = eth.find((p) => p.venue === 'bybit')!;
+    const closed = await closeDemoPositionNow(db, multi, userId, bybitPos.id);
+    expect(closed.exitPrice).toBe(2_998);
+    const [trade] = await db
+      .select()
+      .from(demoTrades)
+      .where(and(eq(demoTrades.userId, userId), eq(demoTrades.venue, 'bybit')));
+    expect(trade).toBeDefined();
+  });
+
   it('SICHERHEIT: der komplette Demo-Fluss hat orders/positions/executed_trades NICHT berührt', async () => {
     expect(await db.select().from(orders).where(eq(orders.userId, userId))).toHaveLength(0);
     expect(await db.select().from(positions).where(eq(positions.userId, userId))).toHaveLength(0);

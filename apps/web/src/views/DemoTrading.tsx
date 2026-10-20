@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { VENUE_NAMES, VenueCompare } from '../components/VenueCompare.js';
 import { trpc } from '../api.js';
 import { AssetSelect } from '../components/AssetSelect.js';
 import { EquityChart, MetricCard, fmt } from '../components/EquityChart.js';
@@ -22,6 +23,8 @@ type OpenOrder = Awaited<ReturnType<typeof trpc.demo.openOrders.query>>[number];
 type Trade = Awaited<ReturnType<typeof trpc.demo.history.query>>[number];
 type Perf = Awaited<ReturnType<typeof trpc.demo.performance.query>>;
 type Preview = Awaited<ReturnType<typeof trpc.demo.preview.mutate>>;
+/** Börsen, über die der Demo-Router ausführt (aus dem Router-Input abgeleitet). */
+type DemoVenue = NonNullable<Parameters<typeof trpc.demo.placeOrder.mutate>[0]['venue']>;
 
 const TABS = ['positions', 'orders', 'history', 'performance'] as const;
 type Tab = (typeof TABS)[number];
@@ -231,6 +234,8 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
   const [slPct, setSlPct] = useState(0); // 0 = keine Absicherung
   const [tpPct, setTpPct] = useState(0); // 0 = kein Gewinnziel
   const [leverage, setLeverage] = useState(1);
+  // Börse, gegen deren echtes Orderbuch ausgeführt wird (Vision-Punkt 2)
+  const [venue, setVenue] = useState<DemoVenue>('binance');
   // Obergrenze aus den Trading-Einstellungen (Einstellungen › Trading) — dort frei anpassbar
   const [maxLeverage, setMaxLeverage] = useState<number | null>(null);
   const [eurUsd, setEurUsd] = useState<number | null>(null);
@@ -314,6 +319,7 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
       stopLoss: slPrice,
       takeProfit: tpPrice,
       leverage,
+      venue,
     };
   }
 
@@ -337,7 +343,7 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
     // buildInput/valid sind aus denselben Feldern abgeleitet — Felder sind die Wahrheit.
     // livePrice ist bewusst KEINE Dependency: jeder Tick würde sonst das echte
     // Orderbuch neu abfragen; die Platzierung rechnet ohnehin zum Klick-Zeitpunkt.
-  }, [symbol, direction, type, amountMode, amountEur, qty, limitPrice, slPct, tpPct, eurUsd, leverage]);
+  }, [symbol, direction, type, amountMode, amountEur, qty, limitPrice, slPct, tpPct, eurUsd, leverage, venue]);
 
   async function place() {
     setBusy(true);
@@ -592,6 +598,10 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
         </div>
       </div>
 
+      <div className="mt-4">
+        <VenueCompare symbol={symbol} side={direction === 'long' ? 'buy' : 'sell'} selected={venue} onSelect={(v) => setVenue(v as DemoVenue)} />
+      </div>
+
       {error && (
         <p className="mt-3 text-xs" style={{ color: 'var(--color-neg)' }}>
           {error}
@@ -686,7 +696,12 @@ function PositionsPanel({ positions, onChanged }: { positions: Position[] | null
                 const dirty = protDrafts[p.id] !== undefined;
                 return (
                   <tr key={p.id} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
-                    <td className="py-1.5 pr-3">{p.symbol}</td>
+                    <td className="py-1.5 pr-3">
+                      {p.symbol}
+                      <span className="ml-1 text-[10px]" style={{ color: 'var(--color-mut)' }}>
+                        {VENUE_NAMES[p.venue] ?? p.venue}
+                      </span>
+                    </td>
                     <td className="py-1.5 pr-3" style={{ color: p.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>
                       {p.direction.toUpperCase()}
                     </td>

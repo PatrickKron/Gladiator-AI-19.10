@@ -19,7 +19,7 @@ import {
   simulateMarketFill,
   type FillResult,
 } from './fill-engine.js';
-import type { DemoBookSource } from './book-source.js';
+import { DEMO_DEFAULT_VENUE, type DemoBookSource } from './book-source.js';
 
 const { demoAccounts, demoOrders, demoPositions, demoTrades, auditLog } = schema;
 
@@ -78,19 +78,21 @@ export async function demoAccountOverview(db: Db, source: DemoBookSource, userId
   const positions = await db.select().from(demoPositions).where(eq(demoPositions.accountId, account.id));
   const resting = await openOrders(db, account.id);
 
+  // Mark je (Börse, Symbol): jede Position wird gegen das Buch IHRER Börse bewertet
   const marks = new Map<string, number | null>();
-  for (const symbol of new Set(positions.map((p) => p.symbol))) {
+  for (const key of new Set(positions.map((p) => `${p.venue}|${p.symbol}`))) {
+    const [venue, symbol] = key.split('|') as [string, string];
     try {
-      marks.set(symbol, midPrice(await source.fetchBook(symbol)));
+      marks.set(key, midPrice(await source.fetchBook(symbol, venue)));
     } catch {
-      marks.set(symbol, null);
+      marks.set(key, null);
     }
   }
 
   let unrealizedPnl = 0;
   let markMissing = false;
   for (const p of positions) {
-    const mark = marks.get(p.symbol) ?? null;
+    const mark = marks.get(`${p.venue}|${p.symbol}`) ?? null;
     if (mark === null) {
       markMissing = true;
       continue;
@@ -129,6 +131,8 @@ export type PlaceDemoOrderInput = {
   leverage?: number;
   /** Obergrenze aus den Trading-Einstellungen des Users (der Router lädt sie). */
   maxLeverage?: number;
+  /** Börse, gegen deren echtes Buch ausgeführt wird (Standard Binance). */
+  venue?: string;
 };
 
 type Rejection = { ok: false; reason: string };
@@ -163,13 +167,13 @@ async function validateDemoOrder(
 
   let rules;
   try {
-    rules = await source.marketRules(input.symbol);
+    rules = await source.marketRules(input.symbol, input.venue ?? DEMO_DEFAULT_VENUE);
   } catch {
     return { ok: false, reason: 'unknown_symbol' };
   }
   let book;
   try {
-    book = await source.fetchBook(input.symbol);
+    book = await source.fetchBook(input.symbol, input.venue ?? DEMO_DEFAULT_VENUE);
   } catch {
     return { ok: false, reason: 'no_orderbook' };
   }
@@ -202,7 +206,8 @@ async function validateDemoOrder(
 
   const positions = await db.select().from(demoPositions).where(eq(demoPositions.accountId, account.id));
   // Wie an der Börse: ein Hebel je Symbol und Richtung — Aufstocken nur mit demselben Hebel
-  const same = positions.find((p) => p.symbol === input.symbol && p.direction === input.direction);
+  const venue = input.venue ?? DEMO_DEFAULT_VENUE;
+  const same = positions.find((p) => p.venue === venue && p.symbol === input.symbol && p.direction === input.direction);
   if (same && Math.abs(Number(same.leverage) - leverage) > EPS) return { ok: false, reason: 'leverage_mismatch' };
 
   const resting = await openOrders(db, account.id);
@@ -262,7 +267,7 @@ export async function previewDemoOrder(db: Db, source: DemoBookSource, userId: s
 async function applyEntryFill(
   db: Db,
   account: DemoAccount,
-  input: { symbol: string; direction: 'long' | 'short'; stopLoss?: number; takeProfit?: number; leverage?: number },
+  input: { symbol: string; direction: 'long' | 'short'; stopLoss?: number; takeProfit?: number; leverage?: number; venue?: string },
   fill: FillResult,
 ): Promise<void> {
   const [existing] = await db
@@ -271,6 +276,7 @@ async function applyEntryFill(
     .where(
       and(
         eq(demoPositions.accountId, account.id),
+        eq(demoPositions.venue, input.venue ?? DEMO_DEFAULT_VENUE),
         eq(demoPositions.symbol, input.symbol),
         eq(demoPositions.direction, input.direction),
       ),
@@ -307,6 +313,7 @@ async function applyEntryFill(
       stopLoss: input.stopLoss !== undefined ? String(input.stopLoss) : null,
       takeProfit: input.takeProfit !== undefined ? String(input.takeProfit) : null,
       leverage: String(input.leverage ?? 1),
+      venue: input.venue ?? DEMO_DEFAULT_VENUE,
     });
   }
 
@@ -362,6 +369,7 @@ export async function placeDemoOrder(
         slippagePaid: String(fill.slippageVsMid),
         status: 'filled',
         leverage: String(v.leverage),
+        venue: input.venue ?? DEMO_DEFAULT_VENUE,
         note: partial ? 'partial_book_depth' : null,
       })
       .returning();
@@ -398,6 +406,7 @@ export async function placeDemoOrder(
       slippagePaid: String(r.fill?.slippageVsMid ?? 0),
       status,
       leverage: String(v.leverage),
+      venue: input.venue ?? DEMO_DEFAULT_VENUE,
       // SL/TP der ruhenden Order: beim späteren Fill an die Position anheften
       note:
         input.stopLoss !== undefined || input.takeProfit !== undefined
@@ -449,7 +458,7 @@ export async function setDemoProtection(
 
   let mark: number | null = null;
   try {
-    mark = midPrice(await source.fetchBook(pos.symbol));
+    mark = midPrice(await source.fetchBook(pos.symbol, pos.venue));
   } catch {
     return { ok: false, reason: 'no_orderbook' };
   }
@@ -495,7 +504,7 @@ export async function closeDemoPositionNow(
 
   let book;
   try {
-    book = await source.fetchBook(pos.symbol);
+    book = await source.fetchBook(pos.symbol, pos.venue);
   } catch {
     return { closed: false, reason: 'no_orderbook' };
   }
@@ -550,6 +559,7 @@ export async function closeDemoPositionNow(
     netPnl: String(n.netPnl),
     rMultiple: riskAmount !== null && riskAmount > 0 ? String(n.netPnl / riskAmount) : null,
     reason: opts.reason ?? 'manual',
+    venue: pos.venue,
   });
 
   // Balance realisieren: Entry-Fee wurde bereits beim Entry abgezogen
@@ -629,19 +639,22 @@ export async function monitorDemoTick(
     return { checkedOrders: 0, orderFills: 0, triggeredCloses: 0 };
   }
 
-  const symbols = new Set<string>([...resting.map((o) => o.symbol), ...protectedPositions.map((p) => p.symbol)]);
+  // Bücher je (Börse, Symbol): jede Order/Position läuft gegen das echte Buch IHRER Börse
+  const keyOf = (venue: string, symbol: string) => `${venue}|${symbol}`;
+  const keys = new Set<string>([...resting.map((o) => keyOf(o.venue, o.symbol)), ...protectedPositions.map((p) => keyOf(p.venue, p.symbol))]);
   const books = new Map<string, Awaited<ReturnType<DemoBookSource['fetchBook']>>>();
-  for (const symbol of symbols) {
+  for (const key of keys) {
+    const [venue, symbol] = key.split('|') as [string, string];
     try {
-      books.set(symbol, await source.fetchBook(symbol));
+      books.set(key, await source.fetchBook(symbol, venue));
     } catch (err) {
-      console.warn(`[demo-monitor] Orderbuch für ${symbol} nicht verfügbar: ${String(err)}`);
+      console.warn(`[demo-monitor] Orderbuch für ${symbol} auf ${venue} nicht verfügbar: ${String(err)}`);
     }
   }
 
   let orderFills = 0;
   for (const order of resting) {
-    const book = books.get(order.symbol);
+    const book = books.get(keyOf(order.venue, order.symbol));
     if (!book || order.limitPrice === null) continue;
     const remaining = Number(order.qty) - Number(order.filledQty);
     if (remaining <= EPS) continue;
@@ -666,7 +679,12 @@ export async function monitorDemoTick(
     }
 
     const direction: 'long' | 'short' = order.side === 'buy' ? 'long' : 'short';
-    await applyEntryFill(db, account, { symbol: order.symbol, direction, ...protection, leverage: Number(order.leverage) }, fill);
+    await applyEntryFill(
+      db,
+      account,
+      { symbol: order.symbol, direction, ...protection, leverage: Number(order.leverage), venue: order.venue },
+      fill,
+    );
 
     const newFilled = Number(order.filledQty) + fill.filledQty;
     const prevNotional = Number(order.filledQty) * Number(order.avgFillPrice ?? 0);
@@ -688,7 +706,7 @@ export async function monitorDemoTick(
 
   let triggeredCloses = 0;
   for (const pos of protectedPositions) {
-    const book = books.get(pos.symbol);
+    const book = books.get(keyOf(pos.venue, pos.symbol));
     if (!book) continue;
     // Konservativ wie planFills: greift der Stop, zählt NUR der Stop.
     if (pos.stopLoss !== null && checkTrigger(pos.direction, 'stop', Number(pos.stopLoss), book)) {

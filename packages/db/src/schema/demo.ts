@@ -54,6 +54,8 @@ export const demoOrders = pgTable(
     reduceOnly: boolean('reduce_only').notNull().default(false),
     /** Hebel der Entry-Order (Isolated Margin; 1 = ohne Hebel). Wird beim Fill an die Position übergeben. */
     leverage: numeric('leverage').notNull().default('1'),
+    /** Börse, deren ECHTES Orderbuch die Ausführung simuliert (Vision-Punkt 2). */
+    venue: text('venue').notNull().default('binance'),
     status: orderStatusEnum('status').notNull().default('open'),
     /** Ehrlicher Ablehnungs-/Info-Text (z. B. Buch leer, Limit-Regeln). */
     note: text('note'),
@@ -86,10 +88,12 @@ export const demoPositions = pgTable(
     takeProfit: numeric('take_profit'),
     /** Hebel (Isolated Margin): gebunden ist qty × entry / leverage; Liquidation aus fill-engine.liquidationPrice. */
     leverage: numeric('leverage').notNull().default('1'),
+    /** Börse der Position (Mark, SL/TP, Liquidation laufen gegen deren echtes Buch). */
+    venue: text('venue').notNull().default('binance'),
     openedAt: timestamp('opened_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('demo_positions_unique_idx').on(t.accountId, t.symbol, t.direction)],
+  (t) => [uniqueIndex('demo_positions_unique_idx').on(t.accountId, t.venue, t.symbol, t.direction)],
 );
 
 /**
@@ -122,6 +126,7 @@ export const demoTrades = pgTable(
     rMultiple: numeric('r_multiple'),
     /** Warum geschlossen: sl | tp | manual | order (reduzierende Limit/Market-Order) | liquidation. */
     reason: text('reason').notNull().default('manual'),
+    venue: text('venue').notNull().default('binance'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('demo_trades_user_idx').on(t.userId), index('demo_trades_exit_ts_idx').on(t.exitTs)],
