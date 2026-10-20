@@ -1,0 +1,1 @@
+ALTER TABLE "swap_wallets" ADD COLUMN "max_token_tax_pct" numeric DEFAULT '3' NOT NULL;

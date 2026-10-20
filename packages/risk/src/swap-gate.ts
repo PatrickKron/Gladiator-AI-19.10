@@ -14,6 +14,8 @@ export type SwapLimits = {
   maxPriceImpactPct: number;
   /** Mindest-Liquidität des Tokens (größter Pool) in USD; 0 = egal. */
   minLiquidityUsd: number;
+  /** Höchste Kauf-/Verkaufssteuer bzw. Transfergebühr des Tokens in %. */
+  maxTokenTaxPct: number;
 };
 
 export const SWAP_LIMIT_BOUNDS: Record<keyof SwapLimits, { min: number; max: number }> = {
@@ -21,19 +23,31 @@ export const SWAP_LIMIT_BOUNDS: Record<keyof SwapLimits, { min: number; max: num
   maxSlippageBps: { min: 1, max: 5_000 },
   maxPriceImpactPct: { min: 0.1, max: 50 },
   minLiquidityUsd: { min: 0, max: 100_000_000 },
+  maxTokenTaxPct: { min: 0, max: 100 },
 };
 
 export type SwapProfileId = 'vorsichtig' | 'standard' | 'meme';
 
 export const SWAP_PROFILES: { id: SwapProfileId; limits: SwapLimits }[] = [
-  { id: 'vorsichtig', limits: { maxTradeUsd: 250, maxSlippageBps: 50, maxPriceImpactPct: 1, minLiquidityUsd: 1_000_000 } },
-  { id: 'standard', limits: { maxTradeUsd: 1_000, maxSlippageBps: 100, maxPriceImpactPct: 3, minLiquidityUsd: 100_000 } },
-  { id: 'meme', limits: { maxTradeUsd: 500, maxSlippageBps: 1_500, maxPriceImpactPct: 15, minLiquidityUsd: 5_000 } },
+  { id: 'vorsichtig', limits: { maxTradeUsd: 250, maxSlippageBps: 50, maxPriceImpactPct: 1, minLiquidityUsd: 1_000_000, maxTokenTaxPct: 0 } },
+  { id: 'standard', limits: { maxTradeUsd: 1_000, maxSlippageBps: 100, maxPriceImpactPct: 3, minLiquidityUsd: 100_000, maxTokenTaxPct: 3 } },
+  { id: 'meme', limits: { maxTradeUsd: 500, maxSlippageBps: 1_500, maxPriceImpactPct: 15, minLiquidityUsd: 5_000, maxTokenTaxPct: 10 } },
 ];
 
 export const DEFAULT_SWAP_LIMITS: SwapLimits = SWAP_PROFILES.find((p) => p.id === 'standard')!.limits;
 
+/**
+ * Ergebnis des Token-Sicherheitschecks (Kette/GoPlus). `severe` = Befunde, bei
+ * denen man den Token nicht mehr (vollständig) verkaufen kann oder ihn
+ * verlieren kann — Käufe solcher Tokens blockiert das Gate IMMER.
+ */
+export type SwapTokenSafety = { severe: string[]; taxPct: number | null };
+
 export type SwapIntent = {
+  /** Kauf (native → Token) oder Verkauf. Verkäufe prüft das Gate nicht auf Liquidität/Sicherheit — raus muss immer gehen. */
+  side?: 'buy' | 'sell';
+  /** null = Check nicht verfügbar (nur Hinweis in der Oberfläche). */
+  safety?: SwapTokenSafety | null;
   owner: string;
   recipient: string;
   valueUsd: number;
@@ -50,7 +64,9 @@ export type SwapRejectReason =
   | 'slippage_above_limit'
   | 'price_impact_above_limit'
   | 'liquidity_below_limit'
-  | 'liquidity_unknown';
+  | 'liquidity_unknown'
+  | 'token_unsafe'
+  | 'token_tax_above_limit';
 
 export type SwapVerdict = { allowed: boolean; reasons: SwapRejectReason[] };
 
@@ -66,9 +82,14 @@ export function judgeSwap(intent: SwapIntent, limits: SwapLimits): SwapVerdict {
   else if (intent.valueUsd > limits.maxTradeUsd) reasons.push('trade_above_limit');
   if (!(intent.slippageBps > 0) || intent.slippageBps > limits.maxSlippageBps) reasons.push('slippage_above_limit');
   if (!(intent.priceImpactPct >= 0) || intent.priceImpactPct > limits.maxPriceImpactPct) reasons.push('price_impact_above_limit');
+  if (intent.side === 'sell') return { allowed: reasons.length === 0, reasons };
   if (limits.minLiquidityUsd > 0) {
     if (intent.liquidityUsd === null) reasons.push('liquidity_unknown');
     else if (intent.liquidityUsd < limits.minLiquidityUsd) reasons.push('liquidity_below_limit');
+  }
+  if (intent.safety) {
+    if (intent.safety.severe.length > 0) reasons.push('token_unsafe');
+    if (intent.safety.taxPct !== null && intent.safety.taxPct > limits.maxTokenTaxPct) reasons.push('token_tax_above_limit');
   }
   return { allowed: reasons.length === 0, reasons };
 }

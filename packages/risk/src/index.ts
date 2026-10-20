@@ -33,4 +33,5 @@ export {
   type SwapVerdict,
   type SwapRejectReason,
   type SwapProfileId,
+  type SwapTokenSafety,
 } from './swap-gate.js';

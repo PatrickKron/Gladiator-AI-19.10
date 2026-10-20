@@ -23,7 +23,7 @@ const createCaller = createCallerFactory(appRouter);
 const RUN = `${process.pid}-${Date.now()}`;
 const EMAIL = `swaplive-${RUN}@test.invalid`;
 const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
-const LIMITS = { maxTradeUsd: 1_000, maxSlippageBps: 300, maxPriceImpactPct: 5, minLiquidityUsd: 0 };
+const LIMITS = { maxTradeUsd: 1_000, maxSlippageBps: 300, maxPriceImpactPct: 5, minLiquidityUsd: 0, maxTokenTaxPct: 5 };
 
 /** Kette: 3 SOL Guthaben; nach dem Kauf hält die Wallet BONK. */
 let chainBonk = 0n;
@@ -45,6 +45,9 @@ const fakeNet = (async (url: string, init?: RequestInit) => {
   const body = JSON.parse(String(init?.body)) as { method: string; params: unknown[] };
   const ok = (result: unknown) => json({ jsonrpc: '2.0', id: 1, result });
   if (body.method === 'getTokenSupply') return ok({ value: { decimals: 5 } });
+  if (body.method === 'getAccountInfo') {
+    return ok({ value: { owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', data: { parsed: { type: 'mint', info: { mintAuthority: null, freezeAuthority: null } } } } });
+  }
   if (body.method === 'getBalance') return ok({ value: Number(chainLamports) });
   if (body.method === 'getTokenAccountsByOwner') {
     return ok({ value: chainBonk > 0n ? [{ account: { data: { parsed: { info: { tokenAmount: { amount: chainBonk.toString() } } } } } }] : [] });

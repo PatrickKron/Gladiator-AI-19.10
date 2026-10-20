@@ -29,6 +29,7 @@ export const swapWallets = pgTable(
     maxSlippageBps: integer('max_slippage_bps').notNull(),
     maxPriceImpactPct: numeric('max_price_impact_pct').notNull(),
     minLiquidityUsd: numeric('min_liquidity_usd').notNull(),
+    maxTokenTaxPct: numeric('max_token_tax_pct').notNull().default('3'),
     /** Standard-Slippage im Ticket (Bps). */
     slippageBps: integer('slippage_bps').notNull().default(100),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
