@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
+import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
 import { bpsLabel, fmtAmount, fmtPct, fmtUsd, slippageChoices, swapReasonKey } from '../lib/swap-format.js';
 
@@ -18,6 +19,8 @@ type Portfolio = Awaited<ReturnType<typeof trpc.swaps.portfolio.query>>;
 type TokenInfo = Awaited<ReturnType<typeof trpc.swaps.token.query>>;
 type Quote = Awaited<ReturnType<typeof trpc.swaps.quote.query>>;
 type Safety = Awaited<ReturnType<typeof trpc.swaps.safety.query>>;
+type Order = Awaited<ReturnType<typeof trpc.swaps.orders.query>>[number];
+type OrderKind = Order['kind'];
 type ChainId = Wallet['chain'];
 type Limits = Wallet['limits'];
 type SwapReq = { side: 'buy' | 'sell'; amount?: string; percent?: number };
@@ -192,6 +195,8 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const lang = i18n.language;
+
+  const [ordersVersion, setOrdersVersion] = useState(0);
 
   const loadPortfolio = useCallback(async () => {
     try {
@@ -421,6 +426,16 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
           </div>
         )}
         {msg && <p className="mt-2 text-xs" style={{ color: msg.ok ? 'var(--color-pos)' : 'var(--color-neg)' }}>{msg.text}</p>}
+        {token && token.priceUsd !== null && (
+          <OrderForm
+            wallet={wallet}
+            token={token}
+            nativeSymbol={chain.native.symbol}
+            held={held !== null}
+            slippageBps={slippage}
+            onCreated={() => setOrdersVersion((v) => v + 1)}
+          />
+        )}
       </Panel>
 
       <div className="space-y-4">
@@ -473,6 +488,8 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
             </>
           )}
         </Panel>
+
+        <OrdersPanel walletId={wallet.id} version={ordersVersion} onChanged={() => void loadPortfolio()} />
 
         <Panel label={t('swap.history')} stagger={3}>
           {portfolio && portfolio.trades.length === 0 && <Empty text={t('swap.noTrades')} />}
@@ -849,6 +866,223 @@ function LimitsPanel({ config, wallet, onSaved }: { config: Config; wallet: Wall
         {t('swap.saveLimits')}
       </button>
       {msg && <p className="mt-2 text-xs" style={{ color: msg.ok ? 'var(--color-pos)' : 'var(--color-neg)' }}>{msg.text}</p>}
+    </Panel>
+  );
+}
+
+const ORDER_KINDS: OrderKind[] = ['take_profit', 'stop_loss', 'trailing_stop', 'limit_buy'];
+
+/**
+ * Limit-Order / Auto-Sell zum gewählten Token anlegen. Ziel als Abstand zum
+ * aktuellen Preis (+50 % = Take-Profit bei 1,5 × Kurs); der Worker prüft jede Minute.
+ */
+function OrderForm({
+  wallet,
+  token,
+  nativeSymbol,
+  held,
+  slippageBps,
+  onCreated,
+}: {
+  wallet: Wallet;
+  token: TokenInfo;
+  nativeSymbol: string;
+  held: boolean;
+  slippageBps: number;
+  onCreated: () => void;
+}) {
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language;
+  const [kind, setKind] = useState<OrderKind>('take_profit');
+  const [offset, setOffset] = useState('50');
+  const [sellPercent, setSellPercent] = useState(100);
+  const [buyAmount, setBuyAmount] = useState('0.1');
+  const [confirmLive, setConfirmLive] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const price = token.priceUsd!;
+  const off = Number(offset.replace(',', '.'));
+  const sign = kind === 'take_profit' ? 1 : -1;
+  const trigger = kind === 'trailing_stop' ? null : price * (1 + (sign * off) / 100);
+  const needsHolding = kind !== 'limit_buy';
+  const valid = Number.isFinite(off) && off > 0 && (kind === 'take_profit' || off < 100) && (!needsHolding || held);
+
+  async function create() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      await trpc.swaps.createOrder.mutate({
+        walletId: wallet.id,
+        token: token.address,
+        kind,
+        triggerPriceUsd: trigger ?? undefined,
+        trailPct: kind === 'trailing_stop' ? off : undefined,
+        sellPercent: needsHolding ? sellPercent : undefined,
+        buyAmount: kind === 'limit_buy' ? buyAmount.replace(',', '.') : undefined,
+        slippageBps,
+        confirmLive: wallet.mode === 'live' ? confirmLive : undefined,
+      });
+      setMsg({ ok: true, text: t('swap.orderCreated') });
+      onCreated();
+    } catch (err) {
+      setMsg({ ok: false, text: errText(err, t('common.error')) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded border p-3" style={{ borderColor: 'var(--color-line)' }}>
+      <p className="label">{t('swap.ordersTitle')}</p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {ORDER_KINDS.map((k) => (
+          <button
+            key={k}
+            type="button"
+            className={chip}
+            style={{ borderColor: k === kind ? 'var(--color-cyan)' : 'var(--color-line)', color: k === kind ? 'var(--color-ink)' : 'var(--color-mut)' }}
+            onClick={() => {
+              setKind(k);
+              setOffset(k === 'take_profit' ? '50' : k === 'trailing_stop' ? '15' : '20');
+              setMsg(null);
+            }}
+          >
+            {t(`swap.kind_${k}`)}
+          </button>
+        ))}
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+        <label>
+          {kind === 'take_profit' ? t('swap.offsetUp') : kind === 'trailing_stop' ? t('swap.trailPct') : t('swap.offsetDown')}
+          <input className={field} value={offset} inputMode="decimal" onChange={(e) => setOffset(e.target.value)} />
+        </label>
+        {kind === 'limit_buy' ? (
+          <label>
+            {t('swap.buyAmount', { symbol: nativeSymbol })}
+            <input className={field} value={buyAmount} inputMode="decimal" onChange={(e) => setBuyAmount(e.target.value)} />
+          </label>
+        ) : (
+          <div>
+            {t('swap.sellShare')}
+            <div className="mt-1 flex gap-1.5">
+              {[25, 50, 100].map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className={chip}
+                  style={{ borderColor: p === sellPercent ? 'var(--color-cyan)' : 'var(--color-line)', color: p === sellPercent ? 'var(--color-ink)' : 'var(--color-mut)' }}
+                  onClick={() => setSellPercent(p)}
+                >
+                  {p} %
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      <p className="num mt-2 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+        {kind === 'trailing_stop'
+          ? t('swap.trailHint', { pct: fmtPct(Number.isFinite(off) ? off : 0, lang), price: fmtUsd(price, lang) })
+          : t('swap.triggerHint', { price: trigger !== null && Number.isFinite(trigger) ? fmtUsd(trigger, lang) : '—', now: fmtUsd(price, lang) })}
+      </p>
+      {needsHolding && !held && <p className="mt-1 text-[11px]" style={{ color: 'var(--color-warn)' }}>{t('swap.noHolding')}</p>}
+      {wallet.mode === 'live' && (
+        <label className="mt-2 flex items-center gap-2 text-[11px]" style={{ color: 'var(--color-warn)' }}>
+          <input type="checkbox" checked={confirmLive} onChange={(e) => setConfirmLive(e.target.checked)} />
+          {t('swap.orderConfirmLive')}
+        </label>
+      )}
+      <button
+        type="button"
+        className="btn mt-2 px-3 py-1.5 text-sm"
+        disabled={busy || !valid || (wallet.mode === 'live' && (!wallet.liveApproved || !confirmLive))}
+        onClick={() => void create()}
+      >
+        {t('swap.createOrder')}
+      </button>
+      {msg && <p className="mt-2 text-xs" style={{ color: msg.ok ? 'var(--color-pos)' : 'var(--color-neg)' }}>{msg.text}</p>}
+    </div>
+  );
+}
+
+const ORDER_STATUS_COLOR: Record<string, string> = {
+  open: 'var(--color-cyan)',
+  executing: 'var(--color-warn)',
+  filled: 'var(--color-pos)',
+  failed: 'var(--color-neg)',
+  cancelled: 'var(--color-mut)',
+};
+
+/** Offene + letzte Orders der Wallet; offene lassen sich stornieren. Aktualisiert alle 30 s (Worker-Takt 1 min). */
+function OrdersPanel({ walletId, version, onChanged }: { walletId: string; version: number; onChanged: () => void }) {
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language;
+  const [orders, setOrders] = useState<Order[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // Ref statt Abhängigkeit: der Aufrufer übergibt jedes Mal eine neue Funktion
+  const onChangedRef = useRef(onChanged);
+  onChangedRef.current = onChanged;
+
+  const load = useCallback(async () => {
+    try {
+      const next = await trpc.swaps.orders.query({ walletId });
+      setOrders((prev) => {
+        // eine Order ist inzwischen ausgeführt → Bestände neu laden
+        if (prev && next.some((o) => o.status === 'filled' && prev.find((p) => p.id === o.id)?.status !== 'filled')) onChangedRef.current();
+        return next;
+      });
+      setError(null);
+    } catch (err) {
+      setError(errText(err, t('common.error')));
+    }
+  }, [walletId, t]);
+
+  useEffect(() => {
+    void load();
+    const timer = setVisibleInterval(() => void load(), 30_000);
+    return () => clearVisibleInterval(timer);
+  }, [load, version]);
+
+  async function cancel(id: string) {
+    try {
+      await trpc.swaps.cancelOrder.mutate({ orderId: id });
+      await load();
+    } catch (err) {
+      setError(errText(err, t('common.error')));
+    }
+  }
+
+  return (
+    <Panel label={t('swap.ordersTitle')} stagger={2}>
+      {error && <ErrorBox message={error} />}
+      {orders && orders.length === 0 && <Empty text={t('swap.noOrders')} />}
+      <ul className="mt-2 space-y-1 text-xs">
+        {orders?.map((o) => (
+          <li key={o.id} className="num flex flex-wrap items-center justify-between gap-2 border-t pt-1" style={{ borderColor: 'var(--color-line)' }}>
+            <span>
+              <b>{t(`swap.kind_${o.kind}`)}</b> {o.symbol}{' '}
+              <span style={{ color: 'var(--color-mut)' }}>
+                {o.kind === 'trailing_stop'
+                  ? `−${fmtPct(o.trailPct ?? 0, lang)} ${t('swap.fromPeak')} ${o.peakPriceUsd !== null ? fmtUsd(o.peakPriceUsd, lang) : '—'}`
+                  : `@ ${o.triggerPriceUsd !== null ? fmtUsd(o.triggerPriceUsd, lang) : '—'}`}
+                {o.sellPercent !== null ? ` · ${o.sellPercent} %` : ''}
+                {o.buyAmount !== null ? ` · ${o.buyAmount}` : ''}
+              </span>
+            </span>
+            <span className="flex items-center gap-2">
+              <span style={{ color: ORDER_STATUS_COLOR[o.status] }} title={o.error ?? undefined}>
+                {t(`swap.status_${o.status}`)}
+              </span>
+              {o.status === 'open' && (
+                <button type="button" className={chip} style={{ borderColor: 'var(--color-line)' }} onClick={() => void cancel(o.id)}>
+                  {t('swap.cancelOrder')}
+                </button>
+              )}
+            </span>
+            {o.error && o.status !== 'open' && <span className="w-full" style={{ color: 'var(--color-mut)' }}>{o.error}</span>}
+          </li>
+        ))}
+      </ul>
     </Panel>
   );
 }
