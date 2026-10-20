@@ -432,4 +432,9 @@ Volle Suite: 1345 grün, 4 rot nur umgebungsbedingt (review, signal-scan „BASI
 - Showcase-Seite auf Version 5 aktualisiert (Nacht-Durchlauf, neue Bewertung, neue nächste Schritte).
 - **Ursache der abgelaufenen Signale:** keine Auto-Ausführung von Engine-Signalen (gewollt: Mensch im Loop); ohne Benachrichtigung laufen sie nach der TTL ab.
 - **„Was wäre passiert"** (`packages/backtest/src/hindsight.ts`, 10 Tests inkl. DB): Entry am Close der letzten geschlossenen Kerze vor dem Signal (kein Look-ahead), dann `runBacktest` (Stop zuerst, 50/30/20, Break-Even, Trailing, netto), max. 500 Kerzen, sonst „noch offen"; ohne Kerzen „ohne Daten" statt Schätzung. API `signals.hindsight`, Panel oben auf der Signale-Seite (lädt erst beim Aufklappen), i18n 5 Sprachen. Fließt NICHT in echte Statistiken/VDB.
+- PR #4 gemergt. Danach §5:
+  - **Monitor-Queue:** `gladiator-monitor` + eigener Worker (SL/TP, Trailing, Notfall, Preis-Alarme, Demo-Tick, Heartbeat); alter Takt in der Haupt-Queue wird beim Start entfernt. Lokal mit Redis geprüft.
+  - **Auto-Login:** nur localhost/Tailnet (100.64.0.0/10) oder `AUTO_LOGIN_ALLOWED_CIDRS`; Rate-Limit wie Login. `req.ip` = Socket-Adresse (kein trust proxy) — `tailscale serve` kommt als 127.0.0.1.
+  - **Passwort:** `auth.changePassword` (aktuelles Pflicht, alle Sessions entwertet), Profil-Panel, `npm run auth:set-password -- <email>` (stdin, Audit `auth.password_reset`).
+  - **CI-Test-DB:** Opt-in über `TEST_DATABASE_URL` (`scripts/ensure-test-db.mjs` mit Live-DB-Sperre).
 

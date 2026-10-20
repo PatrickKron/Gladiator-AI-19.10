@@ -69,9 +69,9 @@
 
 ## 5 · Aufräumen & Technik
 
-- [ ] Positions-Monitor in eigene Queue (läuft hinter RL/ML-Jobs).
-- [ ] CI gegen eigene Test-DB statt Live-DB.
-- [ ] Auto-Login absichern (Rate-Limit, Host-Allowlist) + echtes Passwort.
+- [x] Positions-Monitor in eigene Queue `gladiator-monitor` mit eigenem Worker (Session 12).
+- [x] CI gegen eigene Test-DB (Session 12, **Opt-in**): `TEST_DATABASE_URL` in der Server-`.env` setzen, z. B. `…@127.0.0.1:5433/gladiator_test` → wird angelegt, migriert, geseedet; Live-Migration erst nach grünen Tests. Achtung: Pine-/Signal-Scan-Tests brauchen echte Kerzen, ggf. erst ein Scan-Lauf gegen die Test-DB.
+- [x] Auto-Login abgesichert (nur localhost/Tailnet bzw. `AUTO_LOGIN_ALLOWED_CIDRS`, Auth-Rate-Limit) + Passwort ändern im Profil, Notfall-Reset `npm run auth:set-password -- <email>` (Session 12). Patrick: einmal ein echtes Passwort setzen.
 - [ ] Chart: Zeichenwerkzeuge, Upgrade lightweight-charts v5, Jesse-artige Trade-Ansicht.
 
 - [ ] `apps/web/src/views/Labor.tsx`: Binnentexte auf i18n (5 Sprachen, Paritätstest) und lokale Chart-Kopien auf `components/EquityChart.tsx` umstellen.
