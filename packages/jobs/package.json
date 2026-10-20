@@ -7,19 +7,24 @@
     ".": "./src/index.ts"
   },
   "scripts": {
+    "push:keys": "tsx src/scripts/push-keys.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@gladiator/agents": "*",
+    "@gladiator/backtest": "*",
     "@gladiator/core": "*",
     "@gladiator/db": "*",
+    "@gladiator/exchange": "*",
     "@gladiator/market-data": "*",
+    "@gladiator/ml": "*",
+    "@gladiator/risk": "*",
     "@gladiator/strategy-engine": "*",
     "bullmq": "^5.34.0",
     "ioredis": "^5.4.1",
-    "@gladiator/exchange": "*",
-    "@gladiator/agents": "*",
-    "@gladiator/risk": "*",
-    "@gladiator/ml": "*",
-    "@gladiator/backtest": "*"
+    "web-push": "3.6.7"
+  },
+  "devDependencies": {
+    "@types/web-push": "^3.6.4"
   }
 }

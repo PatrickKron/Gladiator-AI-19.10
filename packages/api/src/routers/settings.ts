@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema, type Db } from '@gladiator/db';
-import { formatKillSwitchAlert, sendTelegram } from '@gladiator/jobs';
+import { formatKillSwitchAlert, notifySafe, telegramHtmlToText } from '@gladiator/jobs';
 import { SETTINGS_BOUNDS } from '@gladiator/core/trading-settings';
 import { protectedProcedure, router } from '../trpc.js';
 
@@ -96,8 +96,17 @@ export const settingsRouter = router({
         details: { active: input.active },
         ip: ctx.ip,
       });
-      // Telegram-Warnung (Phase 7) — Versand-Fehler blockieren den Schalter nie.
-      void sendTelegram(formatKillSwitchAlert(input.active, ctx.user.email));
+      // Benachrichtigung (App + Push + optional Telegram) — Versand-Fehler blockieren den Schalter nie.
+      const killHtml = formatKillSwitchAlert(input.active, ctx.user.email);
+      void notifySafe(ctx.db, {
+        userId: ctx.user.id,
+        kind: 'kill_switch',
+        severity: input.active ? 'critical' : 'warn',
+        title: input.active ? 'Kill-Switch AKTIV' : 'Kill-Switch aus',
+        body: telegramHtmlToText(killHtml),
+        link: '#/einstellungen',
+        telegramHtml: killHtml,
+      });
       return { killSwitchActive: updated!.killSwitchActive };
     }),
 });

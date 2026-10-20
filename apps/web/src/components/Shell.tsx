@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { logout, trpc } from '../api.js';
+import { NotificationBell } from './NotificationBell.js';
 import { ensurePriceStream, getFeedState, onFeedState, type FeedState } from '../lib/prices.js';
 import { LANGUAGES, setLanguage, storedLanguage, type LanguageCode } from '../i18n/index.js';
 import { isDemoMode, onDemoModeChange } from '../lib/demo-mode.js';
@@ -336,6 +337,7 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
               <span className="hidden sm:inline">{t('palette.button')}</span>
               <span className="num label hidden md:inline">⌘K</span>
             </button>
+            <NotificationBell />
             <SessionBadge />
             <FeedBadge />
             <LanguageSwitch />

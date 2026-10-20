@@ -5,6 +5,7 @@ import { buildAccountState, loadRiskSettings } from '@gladiator/exchange';
 import { getMacroSnapshot, latestNews, upcomingEvents } from '@gladiator/market-data';
 import { CostGuard, envAnthropicProvider, guardedComplete } from '@gladiator/agents';
 import { escapeHtml, sendTelegram, telegramConfigured } from './telegram.js';
+import { notifySafe, telegramHtmlToText } from './notify.js';
 import { openOptimizationProposals, type OpenProposal } from './optimization.js';
 
 const { briefings, executedTrades, signals, signalReviews, riskGates, users } = schema;
@@ -240,6 +241,8 @@ export async function runNightPipeline(db: Db, now = new Date()): Promise<NightP
   const text = renderBriefing(data);
   const [row] = await db.insert(briefings).values({ day, content: data, text }).returning();
 
+  // In der App + per Push immer; Telegram wie bisher nur, wenn konfiguriert (sentAt = Telegram-Versand).
+  await notifySafe(db, { kind: 'briefing', title: `Morgen-Briefing ${day}`, body: telegramHtmlToText(text), link: '#/' });
   let sent = false;
   if (telegramConfigured()) {
     sent = await sendTelegram(text);
