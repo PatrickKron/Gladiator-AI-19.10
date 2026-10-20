@@ -95,11 +95,13 @@ export function WalletTrading() {
 
           {wallet && <WalletView key={wallet.id} config={config} wallet={wallet} onWalletChanged={loadWallets} />}
 
-          <Panel label={t('swap.liveTitle')} className="mt-4">
-            <p className="mt-2 text-sm" style={{ color: 'var(--color-mut)' }}>
-              {config.liveKeysAllowed ? t('swap.liveAllowedSoon') : t('swap.liveNotAllowed')}
-            </p>
-          </Panel>
+          <LiveWalletPanel
+            config={config}
+            onCreated={async (id) => {
+              await loadWallets();
+              setWalletId(id);
+            }}
+          />
         </>
       )}
     </div>
@@ -237,11 +239,19 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
     if (!token || !pending) return;
     setBusy(true);
     try {
-      const r = await trpc.swaps.execute.mutate({ walletId: wallet.id, token: token.address, slippageBps: slippage, ...pending });
+      const r = await trpc.swaps.execute.mutate({
+        walletId: wallet.id,
+        token: token.address,
+        slippageBps: slippage,
+        ...pending,
+        ...(wallet.mode === 'live' ? { confirmLive: true } : {}),
+      });
       const q = r.quote;
       setMsg({
         ok: true,
-        text: t('swap.done', { inAmount: fmtAmount(q.inAmount, lang), inSymbol: q.inSymbol, outAmount: fmtAmount(q.outAmount, lang), outSymbol: q.outSymbol }),
+        text:
+          t('swap.done', { inAmount: fmtAmount(q.inAmount, lang), inSymbol: q.inSymbol, outAmount: fmtAmount(q.outAmount, lang), outSymbol: q.outSymbol }) +
+          (r.trade.txHash ? ` · Tx ${r.trade.txHash.slice(0, 10)}…` : ''),
       });
       setQuote(null);
       setPending(null);
@@ -257,6 +267,8 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
   const nativeHolding = portfolio?.holdings.find((h) => h.native) ?? null;
 
   return (
+    <>
+    <WalletBar wallet={wallet} explorerTx={chain.explorerTx} chainOk={portfolio?.chainOk ?? null} onChanged={onWalletChanged} />
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
       <Panel label={t('swap.ticket')}>
         <label className="mt-3 block text-xs">
@@ -381,8 +393,14 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
               </ul>
             )}
             <div className="mt-3 flex gap-2">
-              <button type="button" className="btn px-3 py-1.5 text-sm" disabled={busy || !quote.verdict.allowed} onClick={() => void confirm()}>
-                {wallet.mode === 'paper' ? t('swap.confirmPaper') : t('swap.confirm')}
+              <button
+                type="button"
+                className="btn px-3 py-1.5 text-sm"
+                style={wallet.mode === 'live' ? { borderColor: 'var(--color-warn)' } : undefined}
+                disabled={busy || !quote.verdict.allowed || (wallet.mode === 'live' && !wallet.liveApproved)}
+                onClick={() => void confirm()}
+              >
+                {wallet.mode === 'paper' ? t('swap.confirmPaper') : t('swap.confirmLive')}
               </button>
               <button type="button" className={chip} style={{ borderColor: 'var(--color-line)' }} disabled={busy} onClick={() => pending && void requestQuote(pending)}>
                 {t('swap.refresh')}
@@ -474,6 +492,235 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
         <LimitsPanel config={config} wallet={wallet} onSaved={onWalletChanged} />
       </div>
     </div>
+    </>
+  );
+}
+
+/** Kopfzeile der gewählten Wallet: Adresse, Live-Freigabe, Entfernen. */
+function WalletBar({ wallet, explorerTx, chainOk, onChanged }: { wallet: Wallet; explorerTx: string; chainOk: boolean | null; onChanged: () => Promise<void> }) {
+  const { t } = useTranslation();
+  const [word, setWord] = useState('');
+  const [backedUp, setBackedUp] = useState(false);
+  const [removeArmed, setRemoveArmed] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const explorer = explorerTx.replace(/\/tx\/$/, wallet.chain === 'solana' ? '/account/' : '/address/');
+
+  async function run(fn: () => Promise<unknown>) {
+    setBusy(true);
+    setMsg(null);
+    try {
+      await fn();
+      await onChanged();
+    } catch (err) {
+      setMsg(errText(err, t('common.error')));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="glass mb-4 flex flex-wrap items-center gap-3 px-4 py-3 text-xs">
+      {wallet.mode === 'live' && wallet.address ? (
+        <>
+          <span style={{ color: 'var(--color-mut)' }}>{t('swap.address')}</span>
+          <a className="num" href={`${explorer}${wallet.address}`} target="_blank" rel="noreferrer noopener" style={{ color: 'var(--color-cyan)' }}>
+            {wallet.address.slice(0, 6)}…{wallet.address.slice(-6)} ↗
+          </a>
+          <button type="button" className={chip} style={{ borderColor: 'var(--color-line)' }} onClick={() => void navigator.clipboard?.writeText(wallet.address!)}>
+            {t('swap.copy')}
+          </button>
+          {chainOk === false && <span style={{ color: 'var(--color-warn)' }}>{t('swap.chainUnavailable')}</span>}
+          {wallet.liveApproved ? (
+            <>
+              <span style={{ color: 'var(--color-warn)' }}>● {t('swap.liveActive')}</span>
+              <button type="button" className={chip} style={{ borderColor: 'var(--color-line)' }} disabled={busy} onClick={() => void run(() => trpc.swaps.revokeLive.mutate({ walletId: wallet.id }))}>
+                {t('swap.revoke')}
+              </button>
+            </>
+          ) : (
+            <>
+              <span style={{ color: 'var(--color-mut)' }}>{t('swap.approveHint')}</span>
+              <input className="field num w-28 px-2 py-1 text-xs" value={word} placeholder="FREIGEBEN" onChange={(e) => setWord(e.target.value)} />
+              <button
+                type="button"
+                className={chip}
+                style={{ borderColor: 'var(--color-warn)' }}
+                disabled={busy || word !== 'FREIGEBEN'}
+                onClick={() => void run(() => trpc.swaps.approveLive.mutate({ walletId: wallet.id, confirm: 'FREIGEBEN' }))}
+              >
+                {t('swap.approve')}
+              </button>
+            </>
+          )}
+        </>
+      ) : (
+        <span style={{ color: 'var(--color-mut)' }}>{t('swap.paperHint')}</span>
+      )}
+      <span className="ml-auto flex items-center gap-2">
+        {removeArmed ? (
+          <>
+            {wallet.mode === 'live' && (
+              <label className="flex items-center gap-1">
+                <input type="checkbox" checked={backedUp} onChange={(e) => setBackedUp(e.target.checked)} />
+                {t('swap.keyBackedUp')}
+              </label>
+            )}
+            <button
+              type="button"
+              className={chip}
+              style={{ borderColor: 'var(--color-neg)', color: 'var(--color-neg)' }}
+              disabled={busy || (wallet.mode === 'live' && !backedUp)}
+              onClick={() => void run(() => trpc.swaps.archiveWallet.mutate({ walletId: wallet.id, confirmKeyBackedUp: wallet.mode === 'live' ? backedUp : undefined }))}
+            >
+              {t('swap.removeConfirm')}
+            </button>
+            <button type="button" className={chip} style={{ borderColor: 'var(--color-line)' }} onClick={() => setRemoveArmed(false)}>
+              {t('common.cancel')}
+            </button>
+          </>
+        ) : (
+          <button type="button" className={chip} style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }} onClick={() => setRemoveArmed(true)}>
+            {t('swap.remove')}
+          </button>
+        )}
+      </span>
+      {msg && <p className="w-full" style={{ color: 'var(--color-neg)' }}>{msg}</p>}
+    </div>
+  );
+}
+
+/**
+ * Eigene Trading-Wallet anlegen (nur wenn der Betreiber es erlaubt): neu erzeugen
+ * (empfohlen) oder importieren. Ein erzeugter Schlüssel erscheint GENAU EINMAL.
+ */
+function LiveWalletPanel({ config, onCreated }: { config: Config; onCreated: (id: string) => Promise<void> }) {
+  const { t } = useTranslation();
+  const [chain, setChain] = useState<ChainId>('solana');
+  const [label, setLabel] = useState('');
+  const [source, setSource] = useState<'generate' | 'import'>('generate');
+  const [secret, setSecret] = useState('');
+  const [profile, setProfile] = useState('standard');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [shown, setShown] = useState<{ id: string; address: string; secret: string } | null>(null);
+  const [saved, setSaved] = useState(false);
+  const c = config.chains.find((x) => x.id === chain)!;
+
+  async function create() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const limits = config.profiles.find((p) => p.id === profile)!.limits;
+      const r = await trpc.swaps.createLiveWallet.mutate({
+        chain,
+        label: label.trim() || `${c.name} Trading`,
+        source,
+        secret: source === 'import' ? secret.trim() : undefined,
+        limits,
+      });
+      setSecret('');
+      if (r.secretOnce) setShown({ id: r.wallet.id, address: r.wallet.address!, secret: r.secretOnce });
+      else await onCreated(r.wallet.id);
+    } catch (err) {
+      setMsg(errText(err, t('common.error')));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!config.liveKeysAllowed) {
+    return (
+      <Panel label={t('swap.liveTitle')} className="mt-4">
+        <p className="mt-2 text-sm" style={{ color: 'var(--color-mut)' }}>{t('swap.liveNotAllowed')}</p>
+      </Panel>
+    );
+  }
+
+  if (shown) {
+    return (
+      <Panel label={t('swap.secretTitle')} className="mt-4">
+        <p className="mt-2 text-sm" style={{ color: 'var(--color-warn)' }}>{t('swap.secretWarn')}</p>
+        <p className="mt-3 text-xs" style={{ color: 'var(--color-mut)' }}>{t('swap.address')}</p>
+        <p className="num break-all text-sm">{shown.address}</p>
+        <p className="mt-2 text-xs" style={{ color: 'var(--color-mut)' }}>{t('swap.secretKey')}</p>
+        <p className="num break-all rounded border p-2 text-sm" style={{ borderColor: 'var(--color-warn)' }}>{shown.secret}</p>
+        <p className="mt-2 text-xs" style={{ color: 'var(--color-mut)' }}>{t('swap.fundHint', { symbol: c.native.symbol })}</p>
+        <label className="mt-3 flex items-center gap-2 text-xs">
+          <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
+          {t('swap.secretSaved')}
+        </label>
+        <button
+          type="button"
+          className="btn mt-3 px-3 py-1.5 text-sm"
+          disabled={!saved}
+          onClick={() => {
+            const id = shown.id;
+            setShown(null);
+            setSaved(false);
+            void onCreated(id);
+          }}
+        >
+          {t('swap.done_close')}
+        </button>
+      </Panel>
+    );
+  }
+
+  return (
+    <Panel label={t('swap.liveTitle')} className="mt-4">
+      <p className="mt-2 text-xs" style={{ color: 'var(--color-mut)' }}>{t('swap.liveIntro')}</p>
+      <div className="mt-3 flex gap-1.5">
+        {(['generate', 'import'] as const).map((src) => (
+          <button
+            key={src}
+            type="button"
+            className={chip}
+            style={{ borderColor: source === src ? 'var(--color-cyan)' : 'var(--color-line)', color: source === src ? 'var(--color-ink)' : 'var(--color-mut)' }}
+            onClick={() => setSource(src)}
+          >
+            {t(`swap.source_${src}`)}
+          </button>
+        ))}
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <label className="text-xs">
+          {t('swap.chain')}
+          <select className={field} value={chain} onChange={(e) => setChain(e.target.value as ChainId)}>
+            {config.chains.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs">
+          {t('swap.label')}
+          <input className={field} value={label} maxLength={40} placeholder={`${c.name} Trading`} onChange={(e) => setLabel(e.target.value)} />
+        </label>
+        <label className="text-xs">
+          {t('swap.profile')}
+          <select className={field} value={profile} onChange={(e) => setProfile(e.target.value)}>
+            {config.profiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {t(`swap.profile_${p.id}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {source === 'import' && (
+        <label className="mt-3 block text-xs">
+          {t('swap.importKey')}
+          <input className={`${field} font-mono`} type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} />
+          <span className="mt-1 block" style={{ color: 'var(--color-warn)' }}>{t('swap.importWarn')}</span>
+        </label>
+      )}
+      <button type="button" className="btn mt-3 px-3 py-1.5 text-sm" disabled={busy || (source === 'import' && secret.trim().length < 32)} onClick={() => void create()}>
+        {busy ? t('common.loading') : source === 'generate' ? t('swap.generate') : t('swap.import')}
+      </button>
+      {msg && <p className="mt-2 text-xs" style={{ color: 'var(--color-neg)' }}>{msg}</p>}
+    </Panel>
   );
 }
 

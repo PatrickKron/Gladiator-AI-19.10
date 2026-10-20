@@ -71,8 +71,8 @@ describe.skipIf(!hasDb)('Schwarm-Review neuer Signale', () => {
       return;
     }
 
-    const res = await reviewNewSignals(db, new PaperVenue());
-    expect(res.reviewed).toBeGreaterThanOrEqual(1);
+    const res = await reviewNewSignals(db, new PaperVenue(), { signalIds: [signalId] });
+    expect(res.reviewed, `Fehler: ${res.errors.join(' | ')}`).toBe(1);
 
     const reviews = await db.select().from(signalReviews).where(eq(signalReviews.signalId, signalId));
     const agents = reviews.map((r) => r.agent).sort();
@@ -98,7 +98,7 @@ describe.skipIf(!hasDb)('Schwarm-Review neuer Signale', () => {
 
   it('zweiter Lauf reviewt dasselbe Signal nicht doppelt', async () => {
     const before = await db.select().from(signalReviews).where(eq(signalReviews.signalId, signalId));
-    await reviewNewSignals(db, new PaperVenue());
+    await reviewNewSignals(db, new PaperVenue(), { signalIds: [signalId] });
     const after = await db.select().from(signalReviews).where(eq(signalReviews.signalId, signalId));
     expect(after.length).toBe(before.length);
   });

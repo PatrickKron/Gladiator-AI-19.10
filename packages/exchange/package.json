@@ -17,6 +17,7 @@
     "@gladiator/strategy-engine": "*",
     "@noble/curves": "^2.2.0",
     "@noble/hashes": "^2.2.0",
-    "ccxt": "^4.4.0"
+    "ccxt": "^4.4.0",
+    "viem": "^2.57.7"
   }
 }

@@ -186,3 +186,92 @@ export async function fundPaperWallet(db: Db, walletId: string, chain: SwapChain
 export async function walletBalances(db: Db, walletId: string) {
   return db.select().from(swapBalances).where(and(eq(swapBalances.walletId, walletId), sql`${swapBalances.amountAtomic} > 0`));
 }
+
+/**
+ * Live-Wallets: Bestände von der Kette übernehmen (Menge), Einstand bleibt.
+ * Neue Tokens (z. B. gerade gekauft) brauchen Symbol/Nachkommastellen.
+ */
+export async function setWalletAmounts(
+  db: Db,
+  walletId: string,
+  amounts: { token: string; symbol: string; decimals: number; amountAtomic: bigint }[],
+): Promise<void> {
+  for (const a of amounts) {
+    await db
+      .insert(swapBalances)
+      .values({ walletId, token: a.token, symbol: a.symbol, decimals: a.decimals, amountAtomic: a.amountAtomic.toString(), costUsd: '0' })
+      .onConflictDoUpdate({ target: [swapBalances.walletId, swapBalances.token], set: { amountAtomic: a.amountAtomic.toString(), updatedAt: sql`now()` } });
+  }
+}
+
+/**
+ * Live-Swap verbuchen: Einstand/realisierte PnL wie beim Paper-Swap aus dem
+ * ausgeführten Angebot, Mengen danach aus der Kette (`onchain`, falls gelesen).
+ */
+export async function recordLiveSwap(
+  db: Db,
+  p: {
+    walletId: string;
+    side: 'buy' | 'sell';
+    quote: SwapQuote;
+    nativePriceUsd: number;
+    txHash: string | null;
+    status: 'filled' | 'failed';
+    error: string | null;
+    onchain: Map<string, bigint> | null;
+  },
+): Promise<typeof swapTrades.$inferSelect> {
+  return db.transaction(async (tx) => {
+    let plan: PaperSwapPlan | null = null;
+    if (p.status === 'filled') {
+      const rows = await tx.select().from(swapBalances).where(eq(swapBalances.walletId, p.walletId)).for('update');
+      const find = (token: string): BalanceRow | null => {
+        const r = rows.find((b) => b.token === token);
+        return r ? { token: r.token, symbol: r.symbol, decimals: r.decimals, amountAtomic: BigInt(r.amountAtomic), costUsd: Number(r.costUsd) } : null;
+      };
+      // Einstand rechnen; reicht der gespiegelte Bestand nicht (Kette war schneller), zählt die Kette
+      const inBal = find(p.quote.inToken.address);
+      const need = BigInt(p.quote.inAtomic) + (p.side === 'buy' ? networkFeeAtomic(p.quote, p.nativePriceUsd) : 0n);
+      const padded = inBal && inBal.amountAtomic < need ? { ...inBal, amountAtomic: need } : inBal;
+      plan = planPaperSwap({ side: p.side, quote: p.quote, nativePriceUsd: p.nativePriceUsd, inBalance: padded, outBalance: find(p.quote.outToken.address) });
+      for (const b of plan.balances) {
+        const chainAmount = p.onchain?.get(b.token);
+        const amount = chainAmount ?? (b.amountAtomic < 0n ? 0n : b.amountAtomic);
+        await tx
+          .insert(swapBalances)
+          .values({ walletId: p.walletId, token: b.token, symbol: b.symbol, decimals: b.decimals, amountAtomic: amount.toString(), costUsd: b.costUsd.toFixed(8) })
+          .onConflictDoUpdate({
+            target: [swapBalances.walletId, swapBalances.token],
+            set: { amountAtomic: amount.toString(), costUsd: b.costUsd.toFixed(8), updatedAt: sql`now()` },
+          });
+      }
+    }
+    const [trade] = await tx
+      .insert(swapTrades)
+      .values({
+        walletId: p.walletId,
+        side: p.side,
+        mode: 'live',
+        status: p.status,
+        aggregator: p.quote.aggregator,
+        inToken: p.quote.inToken.address,
+        inSymbol: p.quote.inToken.symbol,
+        inAtomic: p.quote.inAtomic,
+        inDecimals: p.quote.inToken.decimals,
+        outToken: p.quote.outToken.address,
+        outSymbol: p.quote.outToken.symbol,
+        outAtomic: p.quote.outAtomic,
+        outDecimals: p.quote.outToken.decimals,
+        valueUsd: plan ? plan.valueUsd.toFixed(8) : null,
+        feeUsd: plan ? plan.feeUsd.toFixed(8) : null,
+        realizedPnlUsd: plan?.realizedPnlUsd == null ? null : plan.realizedPnlUsd.toFixed(8),
+        priceImpactPct: Number.isFinite(p.quote.priceImpactPct) ? p.quote.priceImpactPct.toFixed(6) : null,
+        slippageBps: p.quote.slippageBps,
+        route: p.quote.route,
+        txHash: p.txHash,
+        error: p.error,
+      })
+      .returning();
+    return trade!;
+  });
+}

@@ -3,8 +3,17 @@ import { TRPCError } from '@trpc/server';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema, type Db } from '@gladiator/db';
+import { notifySafe } from '@gladiator/jobs';
 import {
+  decryptSecret,
+  encryptSecret,
+  executeLiveSwap,
   executePaperSwap,
+  fetchOnchainBalances,
+  generateWalletKey,
+  importWalletKey,
+  recordLiveSwap,
+  setWalletAmounts,
   fetchSwapQuote,
   fetchTokenInfo,
   fetchTokenPrices,
@@ -23,7 +32,10 @@ import {
 import { judgeSwap, SWAP_LIMIT_BOUNDS, SWAP_PROFILES, type SwapLimits, type SwapVerdict } from '@gladiator/risk';
 import { protectedProcedure, router } from '../trpc.js';
 
-const { swapWallets, swapTrades } = schema;
+const { swapWallets, swapTrades, auditLog } = schema;
+
+/** Betreiber-Schalter (Selbsthoster): ohne ihn nimmt die Instanz keine Wallet-Schlüssel an und führt nichts live aus. */
+const liveKeysAllowed = (): boolean => process.env.WALLET_KEYS_ENABLED === '1';
 
 /**
  * Wallet-Trading / Spot-Swaps (Vision-Punkt 5, „wie Trojan, für alle Wallets").
@@ -39,6 +51,13 @@ export function setSwapFetchForTests(f: typeof fetch | null): void {
   fetchOverride = f;
 }
 const net = (): typeof fetch => fetchOverride ?? fetch;
+
+/** Tests ersetzen die echte Ausführung (es wird nie etwas gesendet). */
+type LiveExecutor = typeof executeLiveSwap;
+let liveOverride: LiveExecutor | null = null;
+export function setLiveSwapExecutorForTests(f: LiveExecutor | null): void {
+  liveOverride = f;
+}
 
 const INFO_TTL_MS = 15_000;
 const infoCache = new Map<string, { at: number; info: TokenInfo }>();
@@ -110,10 +129,28 @@ const swapInput = z
     /** Verkauf: Anteil des Bestands in % */
     percent: z.number().min(0.01).max(100).optional(),
     slippageBps: z.number().int().min(1).max(5_000).optional(),
+    /** Live-Wallets: ausdrückliche Bestätigung genau dieses Swaps. */
+    confirmLive: z.boolean().optional(),
   })
   .refine((v) => (v.side === 'buy' ? v.amount !== undefined : v.percent !== undefined), {
     message: 'Kauf braucht einen Betrag, Verkauf einen Anteil in %.',
   });
+
+/** Live-Wallet: Mengen von der Kette übernehmen (native + bekannte Tokens + optional ein weiterer). */
+async function syncLive(db: Db, w: WalletRow, extra?: { address: string; symbol: string; decimals: number }): Promise<void> {
+  const chain = w.chain as SwapChainId;
+  const native = SWAP_CHAINS[chain].native;
+  const known = await walletBalances(db, w.id);
+  const tokens = new Map<string, { symbol: string; decimals: number }>([[native.address, native]]);
+  for (const b of known) tokens.set(b.token, { symbol: b.symbol, decimals: b.decimals });
+  if (extra) tokens.set(extra.address, extra);
+  const onchain = await fetchOnchainBalances(chain, w.address, [...tokens.keys()], net());
+  await setWalletAmounts(
+    db,
+    w.id,
+    [...tokens.entries()].map(([token, t]) => ({ token, symbol: t.symbol, decimals: t.decimals, amountAtomic: onchain.get(token) ?? 0n })),
+  );
+}
 
 type Prepared = {
   wallet: WalletRow;
@@ -141,6 +178,14 @@ async function prepareSwap(db: Db, userId: string, input: z.infer<typeof swapInp
   const nativePriceUsd = nativeInfo.priceUsd ?? Number.NaN;
   if (!(nativePriceUsd > 0)) throw new TRPCError({ code: 'BAD_GATEWAY', message: `Kein ${native.symbol}-Preis verfügbar — Swap nicht bewertbar.` });
   const token = { address: info.address, symbol: info.symbol, decimals: info.decimals };
+
+  if (wallet.mode === 'live') {
+    try {
+      await syncLive(db, wallet, token);
+    } catch (err) {
+      throw netError(err);
+    }
+  }
 
   let inAtomic: bigint;
   if (input.side === 'buy') {
@@ -200,6 +245,79 @@ function quoteView(p: Prepared) {
   };
 }
 
+type Ctx = { db: Db; user: { id: string }; ip: string | null };
+
+/**
+ * Live-Ausführung: Betreiber-Schalter, Freigabe der Wallet, Bestätigung genau
+ * dieses Swaps — dann Schlüssel entschlüsseln, Aggregator-Transaktion
+ * signieren/senden, Ergebnis verbuchen, auditieren, benachrichtigen.
+ */
+async function executeLive(ctx: Ctx, p: Prepared, input: z.infer<typeof swapInput>) {
+  const w = p.wallet;
+  if (!liveKeysAllowed()) throw new TRPCError({ code: 'FORBIDDEN', message: 'Live-Wallets sind auf dieser Instanz abgeschaltet (WALLET_KEYS_ENABLED).' });
+  if (!w.liveApprovedAt) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Diese Wallet ist noch nicht für Live-Swaps freigegeben.' });
+  if (input.confirmLive !== true) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Live-Swap bitte ausdrücklich bestätigen.' });
+  if (!w.encryptedKey) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Kein Schlüssel gespeichert.' });
+
+  const chain = w.chain as SwapChainId;
+  const nativeBal = (await walletBalances(ctx.db, w.id)).find((b) => b.token === SWAP_CHAINS[chain].native.address);
+  if (input.side === 'buy' && BigInt(nativeBal?.amountAtomic ?? '0') < BigInt(p.quote.inAtomic)) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: `Guthaben reicht nicht: ${p.quote.inAmount} ${p.quote.inToken.symbol} nötig, ${fromAtomic(nativeBal?.amountAtomic ?? '0', SWAP_CHAINS[chain].native.decimals)} vorhanden (plus Netzwerkgebühr).` });
+  }
+
+  await ctx.db.insert(auditLog).values({
+    actor: 'user',
+    userId: ctx.user.id,
+    action: 'swap.live_execute',
+    entityType: 'swap_wallet',
+    entityId: w.id,
+    details: { chain, side: input.side, token: p.info.address, inAmount: p.quote.inAmount, inSymbol: p.quote.inToken.symbol, valueUsd: p.valueUsd, slippageBps: p.quote.slippageBps },
+    ip: ctx.ip,
+  });
+
+  let result: Awaited<ReturnType<typeof executeLiveSwap>>;
+  try {
+    result = await (liveOverride ?? executeLiveSwap)({ quote: p.quote, address: w.address, secret: decryptSecret(w.encryptedKey) }, net());
+  } catch (err) {
+    // vor dem Senden abgebrochen (Route nicht baubar, Sicherheitsprüfung, Netz) — nichts on-chain
+    const msg = err instanceof Error ? err.message : String(err);
+    await recordLiveSwap(ctx.db, { walletId: w.id, side: input.side, quote: p.quote, nativePriceUsd: p.nativePriceUsd, txHash: null, status: 'failed', error: msg, onchain: null });
+    throw new TRPCError({ code: 'BAD_GATEWAY', message: msg });
+  }
+
+  let onchain: Map<string, bigint> | null = null;
+  if (result.status === 'filled') {
+    onchain = await fetchOnchainBalances(chain, w.address, [p.quote.inToken.address, p.quote.outToken.address], net()).catch(() => null);
+  }
+  const trade = await recordLiveSwap(ctx.db, {
+    walletId: w.id,
+    side: input.side,
+    quote: p.quote,
+    nativePriceUsd: p.nativePriceUsd,
+    txHash: result.txHash,
+    status: result.status,
+    error: result.error,
+    onchain,
+  });
+  const verb = input.side === 'buy' ? 'Kauf' : 'Verkauf';
+  await notifySafe(ctx.db, {
+    userId: ctx.user.id,
+    kind: 'system',
+    severity: result.status === 'filled' ? 'info' : 'warn',
+    title: result.status === 'filled' ? `${verb} ausgeführt: ${p.info.symbol}` : `${verb} fehlgeschlagen: ${p.info.symbol}`,
+    body:
+      result.status === 'filled'
+        ? `${p.quote.inAmount} ${p.quote.inToken.symbol} → ${p.quote.outAmount} ${p.quote.outToken.symbol} (${w.label}, ${SWAP_CHAINS[chain].name})`
+        : `${result.error ?? 'unbekannter Fehler'} (${w.label})`,
+    link: '#/wallet',
+  });
+  if (result.status !== 'filled') throw new TRPCError({ code: 'BAD_GATEWAY', message: `${result.error ?? 'Swap fehlgeschlagen'} (Tx ${result.txHash})` });
+  return {
+    trade: { id: trade.id, realizedPnlUsd: trade.realizedPnlUsd === null ? null : Number(trade.realizedPnlUsd), txHash: result.txHash },
+    quote: quoteView(p),
+  };
+}
+
 export const swapsRouter = router({
   /** Ketten, Profile, Grenzen und ob diese Instanz Wallet-Schlüssel überhaupt annimmt. */
   config: protectedProcedure.query(() => ({
@@ -209,7 +327,7 @@ export const swapsRouter = router({
     }),
     profiles: SWAP_PROFILES,
     bounds: SWAP_LIMIT_BOUNDS,
-    liveKeysAllowed: process.env.WALLET_KEYS_ENABLED === '1',
+    liveKeysAllowed: liveKeysAllowed(),
   })),
 
   wallets: protectedProcedure.query(async ({ ctx }) => {
@@ -260,6 +378,85 @@ export const swapsRouter = router({
       return walletView(w!);
     }),
 
+  /**
+   * Eigene Trading-Wallet (live) — nur wenn der Betreiber es erlaubt.
+   * `generate`: neue Wallet, Schlüssel wird GENAU EINMAL zurückgegeben (sichern!);
+   * `import`: vorhandene, eigens fürs Trading angelegte Wallet. Gespeichert wird
+   * der Schlüssel nur verschlüsselt (Vault, AES-256-GCM). Live erst nach Freigabe.
+   */
+  createLiveWallet: protectedProcedure
+    .input(
+      z.object({
+        chain: chainSchema,
+        label: z.string().trim().min(1).max(40),
+        source: z.enum(['generate', 'import']),
+        secret: z.string().min(32).max(1_000).optional(),
+        limits: limitsSchema,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!liveKeysAllowed()) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Diese Instanz nimmt keine Wallet-Schlüssel an (Betreiber: WALLET_KEYS_ENABLED=1, nur beim Selbsthosten).' });
+      }
+      const kind = SWAP_CHAINS[input.chain].kind;
+      let key: { address: string; secret: string };
+      try {
+        key = input.source === 'generate' ? generateWalletKey(kind) : importWalletKey(kind, input.secret ?? '');
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : String(err) });
+      }
+      const dup = await ctx.db
+        .select({ id: swapWallets.id })
+        .from(swapWallets)
+        .where(and(eq(swapWallets.userId, ctx.user.id), eq(swapWallets.chain, input.chain), eq(swapWallets.address, key.address), isNull(swapWallets.archivedAt)));
+      if (dup.length > 0) throw new TRPCError({ code: 'CONFLICT', message: 'Diese Wallet ist bereits verbunden.' });
+      const [w] = await ctx.db
+        .insert(swapWallets)
+        .values({
+          userId: ctx.user.id,
+          chain: input.chain,
+          label: input.label,
+          mode: 'live',
+          address: key.address,
+          encryptedKey: encryptSecret(key.secret),
+          maxTradeUsd: String(input.limits.maxTradeUsd),
+          maxSlippageBps: input.limits.maxSlippageBps,
+          maxPriceImpactPct: String(input.limits.maxPriceImpactPct),
+          minLiquidityUsd: String(input.limits.minLiquidityUsd),
+          slippageBps: Math.min(100, input.limits.maxSlippageBps),
+        })
+        .returning();
+      await ctx.db.insert(auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: 'swap.live_wallet_create',
+        entityType: 'swap_wallet',
+        entityId: w!.id,
+        details: { chain: input.chain, address: key.address, source: input.source },
+        ip: ctx.ip,
+      });
+      return { wallet: walletView(w!), secretOnce: input.source === 'generate' ? key.secret : null };
+    }),
+
+  /** Live-Freigabe je Wallet (Mensch im Loop): Bestätigungswort muss exakt stimmen. */
+  approveLive: protectedProcedure
+    .input(z.object({ walletId: z.string().uuid(), confirm: z.literal('FREIGEBEN') }))
+    .mutation(async ({ ctx, input }) => {
+      const w = await ownWallet(ctx.db, ctx.user.id, input.walletId);
+      if (w.mode !== 'live') throw new TRPCError({ code: 'BAD_REQUEST', message: 'Nur eigene Wallets (live) brauchen eine Freigabe.' });
+      if (!liveKeysAllowed()) throw new TRPCError({ code: 'FORBIDDEN', message: 'Live-Wallets sind auf dieser Instanz abgeschaltet.' });
+      const [row] = await ctx.db.update(swapWallets).set({ liveApprovedAt: new Date() }).where(eq(swapWallets.id, w.id)).returning();
+      await ctx.db.insert(auditLog).values({ actor: 'user', userId: ctx.user.id, action: 'swap.live_approve', entityType: 'swap_wallet', entityId: w.id, details: { chain: w.chain, address: w.address }, ip: ctx.ip });
+      return walletView(row!);
+    }),
+
+  revokeLive: protectedProcedure.input(z.object({ walletId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+    const w = await ownWallet(ctx.db, ctx.user.id, input.walletId);
+    const [row] = await ctx.db.update(swapWallets).set({ liveApprovedAt: null }).where(eq(swapWallets.id, w.id)).returning();
+    await ctx.db.insert(auditLog).values({ actor: 'user', userId: ctx.user.id, action: 'swap.live_revoke', entityType: 'swap_wallet', entityId: w.id, details: { chain: w.chain }, ip: ctx.ip });
+    return walletView(row!);
+  }),
+
   updateWallet: protectedProcedure
     .input(
       z.object({
@@ -291,11 +488,20 @@ export const swapsRouter = router({
       return walletView(row!);
     }),
 
-  archiveWallet: protectedProcedure.input(z.object({ walletId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
-    const w = await ownWallet(ctx.db, ctx.user.id, input.walletId);
-    await ctx.db.update(swapWallets).set({ archivedAt: new Date() }).where(eq(swapWallets.id, w.id));
-    return { ok: true };
-  }),
+  /** Entfernen: bei eigenen Wallets wird der gespeicherte Schlüssel gelöscht (Guthaben bleibt in der Wallet, Zugriff über die eigene Wallet-App). */
+  archiveWallet: protectedProcedure
+    .input(z.object({ walletId: z.string().uuid(), confirmKeyBackedUp: z.boolean().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const w = await ownWallet(ctx.db, ctx.user.id, input.walletId);
+      if (w.mode === 'live' && !input.confirmKeyBackedUp) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Erst bestätigen, dass der Schlüssel gesichert ist — er wird beim Entfernen gelöscht.' });
+      }
+      await ctx.db.update(swapWallets).set({ archivedAt: new Date(), encryptedKey: null, liveApprovedAt: null }).where(eq(swapWallets.id, w.id));
+      if (w.mode === 'live') {
+        await ctx.db.insert(auditLog).values({ actor: 'user', userId: ctx.user.id, action: 'swap.live_wallet_remove', entityType: 'swap_wallet', entityId: w.id, details: { chain: w.chain }, ip: ctx.ip });
+      }
+      return { ok: true };
+    }),
 
   /** Token-Infos (Preis, Liquidität, MCap, 24 h) — Grundlage für die Kaufentscheidung. */
   token: protectedProcedure.input(z.object({ chain: chainSchema, address: z.string().min(32).max(64) })).query(async ({ input }) => {
@@ -313,6 +519,13 @@ export const swapsRouter = router({
   portfolio: protectedProcedure.input(z.object({ walletId: z.string().uuid() })).query(async ({ ctx, input }) => {
     const w = await ownWallet(ctx.db, ctx.user.id, input.walletId);
     const chain = w.chain as SwapChainId;
+    let chainOk: boolean | null = null;
+    if (w.mode === 'live') {
+      chainOk = await syncLive(ctx.db, w).then(
+        () => true,
+        () => false,
+      );
+    }
     const balances = await walletBalances(ctx.db, w.id);
     let prices = new Map<string, number>();
     let pricesOk = true;
@@ -342,8 +555,11 @@ export const swapsRouter = router({
     return {
       wallet: walletView(w),
       pricesOk,
+      /** live: Bestände frisch von der Kette gelesen? (null = Paper) */
+      chainOk,
       holdings,
-      totalValueUsd: holdings.every((h) => h.valueUsd !== null) ? holdings.reduce((s, h) => s + (h.valueUsd ?? 0), 0) : null,
+      // ohne frische Kettendaten (live) oder ohne Kurse keine Summe — nie eine erfundene 0
+      totalValueUsd: chainOk !== false && holdings.every((h) => h.valueUsd !== null) ? holdings.reduce((s, h) => s + (h.valueUsd ?? 0), 0) : null,
       realizedPnlUsd: realized,
       trades: trades.map((t) => ({
         id: t.id,
@@ -373,12 +589,10 @@ export const swapsRouter = router({
     if (!p.verdict.allowed) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `Swap-Gate: ${p.verdict.reasons.join(', ')}` });
     }
-    if (p.wallet.mode !== 'paper') {
-      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Live-Swaps sind noch nicht freigeschaltet.' });
-    }
+    if (p.wallet.mode === 'live') return executeLive(ctx, p, input);
     try {
       const trade = await executePaperSwap(ctx.db, { walletId: p.wallet.id, side: input.side, quote: p.quote, nativePriceUsd: p.nativePriceUsd });
-      return { trade: { id: trade.id, realizedPnlUsd: trade.realizedPnlUsd === null ? null : Number(trade.realizedPnlUsd) }, quote: quoteView(p) };
+      return { trade: { id: trade.id, realizedPnlUsd: trade.realizedPnlUsd === null ? null : Number(trade.realizedPnlUsd), txHash: null as string | null }, quote: quoteView(p) };
     } catch (err) {
       throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : String(err) });
     }
