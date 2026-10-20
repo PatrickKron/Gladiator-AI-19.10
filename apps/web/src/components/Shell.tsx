@@ -302,7 +302,7 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
               </a>
             )}
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             {/* Einfach/Profi (Binance-Lite/Pro-Muster): verlustfrei, sofort reversibel */}
             <div
               className="flex overflow-hidden rounded-[0.625rem] border text-xs"
