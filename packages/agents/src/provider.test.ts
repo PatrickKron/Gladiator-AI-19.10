@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AnthropicProvider, CostGuard, guardedComplete, type LlmProvider } from './provider.js';
+import { AnthropicProvider, CostGuard, guardedComplete, guardedStream, type LlmProvider } from './provider.js';
 
 describe('Provider-Router & Kosten-Wächter (08_ §2)', () => {
   it('AnthropicProvider ohne Key: nicht konfiguriert, Aufruf wirft (kein stiller Fallback)', async () => {
@@ -53,4 +53,40 @@ describe('Provider-Router & Kosten-Wächter (08_ §2)', () => {
     await expect(guardedComplete(fake, g, { system: 's', prompt: 'c' }, day)).rejects.toThrow(/Tagesbudget/);
     expect(calls).toEqual(['a', 'b']); // dritter Call hat den Provider NIE erreicht
   });
+
+  it('guardedStream: reicht Text-Deltas in Reihenfolge durch, bucht Kosten, blockt bei leerem Budget', async () => {
+    const fake: LlmProvider = {
+      id: 'fake',
+      configured: true,
+      complete: async () => {
+        throw new Error('darf nicht aufgerufen werden');
+      },
+      stream: async (_opts, onText) => {
+        for (const d of ['Hal', 'lo ', 'Welt']) onText(d);
+        return { text: 'Hallo Welt', usage: { inputTokens: 10, outputTokens: 5 }, costUsd: 0.6 };
+      },
+    };
+    const g = new CostGuard({ dailyBudgetUsd: 1 });
+    const day = new Date('2026-07-03T10:00:00Z');
+    const seen: string[] = [];
+    const r = await guardedStream(fake, g, { system: 's', prompt: 'p' }, (d) => seen.push(d), day);
+    expect(seen).toEqual(['Hal', 'lo ', 'Welt']);
+    expect(r.text).toBe('Hallo Welt');
+    expect(g.spentUsd(day)).toBeCloseTo(0.6, 5);
+    await guardedStream(fake, g, { system: 's', prompt: 'p' }, () => {}, day); // 1.2 > 1
+    await expect(guardedStream(fake, g, { system: 's', prompt: 'p' }, () => {}, day)).rejects.toThrow(/Tagesbudget/);
+  });
+
+  it('guardedStream ohne Streaming-Fähigkeit: fällt auf complete zurück und liefert den Text als ein Delta', async () => {
+    const fake: LlmProvider = {
+      id: 'fake',
+      configured: true,
+      complete: async () => ({ text: 'komplett', usage: { inputTokens: 1, outputTokens: 1 }, costUsd: 0.01 }),
+    };
+    const seen: string[] = [];
+    const r = await guardedStream(fake, new CostGuard({ dailyBudgetUsd: 1 }), { system: 's', prompt: 'p' }, (d) => seen.push(d));
+    expect(seen).toEqual(['komplett']);
+    expect(r.text).toBe('komplett');
+  });
 });
+

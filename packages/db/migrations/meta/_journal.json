@@ -148,6 +148,13 @@
       "when": 1792441223597,
       "tag": "0020_steady_the_hood",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792473273332,
+      "tag": "0021_harsh_rockslide",
+      "breakpoints": true
     }
   ]
 }

@@ -5,7 +5,14 @@ import { PageHeader } from '../components/ui.js';
 import { BacktestChart } from '../components/BacktestChart.js';
 import { loadLabConfig, saveLabConfig, type LabConfig } from '../lib/lab-config.js';
 import { CHART_TFS, type ChartTf } from '../lib/chart-url.js';
-import { COMPARE_COLORS, EquityChart, MetricCard, MultiEquityChart, fmt } from '../components/EquityChart.js';
+import {
+  COMPARE_COLORS,
+  EquityChart,
+  MetricCard,
+  MultiEquityChart,
+  fmt,
+  type ComparableRun,
+} from '../components/EquityChart.js';
 import { OptimizationProposals } from '../components/OptimizationProposals.js';
 
 /** Schnellstart-Vorlagen (P1.6) — ein Klick füllt die Konfiguration. */
@@ -44,6 +51,7 @@ type GateRow = Awaited<ReturnType<typeof trpc.risk.gates.query>>[number];
 type Bucket = { trades: number; netPnl: number; winRate: number; expectancyR: number };
 
 function BucketTable({ title, rows }: { title: string; rows: [string, Bucket][] }) {
+  const { t } = useTranslation();
   if (rows.length === 0) return null;
   return (
     <div>
@@ -51,11 +59,11 @@ function BucketTable({ title, rows }: { title: string; rows: [string, Bucket][] 
       <table className="mt-2 w-full text-sm">
         <thead>
           <tr className="label text-left">
-            <th className="py-1 pr-3 font-normal">Bucket</th>
-            <th className="py-1 pr-3 text-right font-normal">Trades</th>
-            <th className="py-1 pr-3 text-right font-normal">WinRate</th>
-            <th className="py-1 pr-3 text-right font-normal">Expectancy R</th>
-            <th className="py-1 text-right font-normal">Netto $</th>
+            <th className="py-1 pr-3 font-normal">{t('labor.bucket')}</th>
+            <th className="py-1 pr-3 text-right font-normal">{t('labor.trades')}</th>
+            <th className="py-1 pr-3 text-right font-normal">{t('labor.winRate')}</th>
+            <th className="py-1 pr-3 text-right font-normal">{t('labor.expectancyR')}</th>
+            <th className="py-1 text-right font-normal">{t('labor.netUsd')}</th>
           </tr>
         </thead>
         <tbody className="num">
@@ -83,13 +91,24 @@ const TIMEFRAMES = CHART_TFS;
 const SETUPS = ['scalp', 'swing', 'position'] as const;
 
 /** Vergleichslauf im Labor: geteilte ComparableRun-Felder + Kennzahlen fürs Gitter. */
-type StrategyRun = {
-  key: string;
-  label: string;
-  color: string;
-  metrics: Metrics;
-  equityCurve: { ts: string; equity: number }[];
-};
+type StrategyRun = ComparableRun & { metrics: Metrics };
+
+/** Datenqualitäts-Hinweise (08_ §3b) — gleiche Box für Backtest und Walk-Forward. */
+function DataQualityWarnings({ warnings, as: Tag }: { warnings: string[]; as: 'section' | 'div' }) {
+  const { t } = useTranslation();
+  if (warnings.length === 0) return null;
+  return (
+    <Tag
+      className={`${Tag === 'section' ? 'mt-6' : 'mt-4'} rounded-[0.625rem] border p-4 text-sm`}
+      style={{ borderColor: 'var(--color-warn)', color: 'var(--color-warn)' }}
+    >
+      <p className="font-medium">{t('labor.dataQuality')}</p>
+      <ul className="mt-2 list-disc space-y-1 pl-5">
+        {warnings.map((w) => <li key={w}>{w}</li>)}
+      </ul>
+    </Tag>
+  );
+}
 
 export function Labor() {
   const { t } = useTranslation();
@@ -187,7 +206,7 @@ export function Labor() {
       setSelectedTrade(res.trades.length > 0 ? res.trades.length - 1 : null);
       await refreshLists();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Backtest fehlgeschlagen.');
+      setError(err instanceof Error ? err.message : t('labor.errBacktest'));
     } finally {
       setBusy(null);
     }
@@ -212,7 +231,7 @@ export function Labor() {
       });
       setWf(res);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Walk-Forward fehlgeschlagen.');
+      setError(err instanceof Error ? err.message : t('labor.errWf'));
     } finally {
       setBusy(null);
     }
@@ -232,7 +251,7 @@ export function Labor() {
       });
       await refreshLists();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Kalibrierung fehlgeschlagen.');
+      setError(err instanceof Error ? err.message : t('labor.errCalibrate'));
     } finally {
       setBusy(null);
     }
@@ -246,7 +265,7 @@ export function Labor() {
    */
   async function onCompareStrategies() {
     if (compareSel.length < 2) {
-      setCompareErr('Mindestens zwei Strategien auswählen.');
+      setCompareErr(t('labor.compareMinTwo'));
       return;
     }
     setBusyCompare(true);
@@ -280,7 +299,7 @@ export function Labor() {
           equityCurve: res.equityCurve,
         });
       } catch (err) {
-        errors.push(`${label}: ${err instanceof Error ? err.message : 'Fehler'}`);
+        errors.push(`${label}: ${err instanceof Error ? err.message : t('labor.errGeneric')}`);
       }
     }
     setStrategyRuns(results);
@@ -301,7 +320,7 @@ export function Labor() {
       await trpc.lab.saveVersion.mutate({ params: paramOverrides });
       await refreshLists();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen.');
+      setError(err instanceof Error ? err.message : t('labor.errSave'));
     } finally {
       setBusy(null);
     }
@@ -341,27 +360,30 @@ export function Labor() {
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const pct = (x: number | null) => (x === null ? '' : (x * 100).toFixed(2));
+    // Zahlen als String übergeben: i18next interpoliert dann exakt wie zuvor das Template-Literal.
+    const s = (v: number | null) => (v === null ? '' : String(v));
     const comments = [
-      `# Gladiator AI · Backtest-Export`,
-      `# Symbol: ${csvSymbol} · Timeframe: ${csvTf} · Zeitraum: ${from} bis ${to}`,
-      `# Netto-PnL $: ${m.netPnl} · Netto-Return %: ${m.netReturnPct} · Max-Drawdown %: ${m.maxDrawdownPct}`,
-      `# WinRate %: ${pct(m.winRate)} · Profit-Factor: ${m.profitFactor ?? ''} · Expectancy R: ${m.expectancy ?? ''}`,
-      `# Sharpe: ${m.sharpe ?? ''} · Sortino: ${m.sortino ?? ''} · Trades: ${m.tradeCount}`,
+      `# ${t('labor.csvTitle')}`,
+      `# ${t('labor.csvLine1', { symbol: csvSymbol, tf: csvTf, from, to })}`,
+      `# ${t('labor.csvLine2', { pnl: s(m.netPnl), ret: s(m.netReturnPct), dd: s(m.maxDrawdownPct) })}`,
+      `# ${t('labor.csvLine3', { wr: pct(m.winRate), pf: s(m.profitFactor), exp: s(m.expectancy) })}`,
+      `# ${t('labor.csvLine4', { sharpe: s(m.sharpe), sortino: s(m.sortino), n: s(m.tradeCount) })}`,
     ];
+    // Spaltennamen bewusst sprachunabhängig fest: CSV-Importe in andere Werkzeuge dürfen nicht brechen.
     const header = ['#', 'Entry-Zeit', 'Direction', 'Symbol', 'TF', 'R', 'Netto $', 'MFE R', 'MAE R', 'Kosten $', 'Exit-Zeit'];
-    const lines = tradeRows.map(({ t, i }) =>
+    const lines = tradeRows.map(({ t: tr, i }) =>
       [
         i + 1,
-        new Date(t.entryTs).toISOString(),
-        t.direction,
+        new Date(tr.entryTs).toISOString(),
+        tr.direction,
         csvSymbol,
         csvTf,
-        t.rMultiple,
-        t.netPnl,
-        t.mfeR,
-        t.maeR,
-        Math.round((t.fees + t.funding) * 100) / 100,
-        new Date(t.exitTs).toISOString(),
+        tr.rMultiple,
+        tr.netPnl,
+        tr.mfeR,
+        tr.maeR,
+        Math.round((tr.fees + tr.funding) * 100) / 100,
+        new Date(tr.exitTs).toISOString(),
       ]
         .map(esc)
         .join(','),
@@ -385,7 +407,7 @@ export function Labor() {
 
       {/* ── Lauf-Konfiguration ── */}
       <section className="glass reveal p-6" style={{ '--stagger': 1 } as React.CSSProperties}>
-        <h2 className="label">Backtest · netto nach Gebühren/Slippage/Funding</h2>
+        <h2 className="label">{t('labor.backtestTitle')}</h2>
 
         {/* Schnellstart-Vorlagen (P1.6): ein Klick füllt die Konfiguration */}
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -424,70 +446,70 @@ export function Labor() {
             </select>
           </label>
           <label className="text-sm" style={{ opacity: strategyId === 'builtin' ? 1 : 0.5 }}>
-            <span className="label">Symbol</span>
+            <span className="label">{t('labor.symbol')}</span>
             <select disabled={strategyId !== 'builtin'} value={symbol} onChange={(e) => setSymbol(e.target.value as typeof symbol)} className="field mt-1.5 w-full px-3 py-2">
               {universe.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </label>
           <label className="text-sm" style={{ opacity: strategyId === 'builtin' ? 1 : 0.5 }}>
-            <span className="label">Timeframe</span>
+            <span className="label">{t('labor.timeframe')}</span>
             <select disabled={strategyId !== 'builtin'} value={timeframe} onChange={(e) => setTimeframe(e.target.value as typeof timeframe)} className="field mt-1.5 w-full px-3 py-2">
-              {TIMEFRAMES.map((t) => <option key={t} value={t}>{t}</option>)}
+              {TIMEFRAMES.map((tf) => <option key={tf} value={tf}>{tf}</option>)}
             </select>
           </label>
           <label className="text-sm" style={{ opacity: strategyId === 'builtin' ? 1 : 0.5 }}>
-            <span className="label">Setup</span>
+            <span className="label">{t('labor.setup')}</span>
             <select disabled={strategyId !== 'builtin'} value={setupType} onChange={(e) => setSetupType(e.target.value as typeof setupType)} className="field mt-1.5 w-full px-3 py-2">
               {SETUPS.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </label>
           <label className="text-sm">
-            <span className="label">Risiko %/Trade</span>
+            <span className="label">{t('labor.riskPerTrade')}</span>
             <input type="number" min={0.1} max={5} step={0.1} value={riskPct} onChange={(e) => setRiskPct(Number(e.target.value))} className="field num mt-1.5 w-full px-3 py-2" />
           </label>
-          <label className="text-sm" title="Stop folgt dem besten Kurs im %-Abstand, nur enger (gleiche Logik wie live). Leer = aus. DSL-Strategien mit eigenem Trailing behalten ihren Wert.">
-            <span className="label">Trailing-Stop %</span>
+          <label className="text-sm" title={t('labor.trailHint')}>
+            <span className="label">{t('labor.trailLabel')}</span>
             <input
               id="lab-trail"
               type="number"
               min={0.1}
               max={50}
               step={0.1}
-              placeholder="aus"
+              placeholder={t('labor.off')}
               value={trailPctInput}
               onChange={(e) => setTrailPctInput(e.target.value)}
               className="field num mt-1.5 w-full px-3 py-2"
             />
           </label>
           <label className="text-sm">
-            <span className="label">Von</span>
+            <span className="label">{t('labor.from')}</span>
             <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="field num mt-1.5 w-full px-3 py-2" />
           </label>
           <label className="text-sm">
-            <span className="label">Bis</span>
+            <span className="label">{t('labor.to')}</span>
             <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="field num mt-1.5 w-full px-3 py-2" />
           </label>
           <label className="text-sm">
-            <span className="label">Gespeicherte Version</span>
+            <span className="label">{t('labor.savedVersion')}</span>
             <select value={versionId} onChange={(e) => setVersionId(e.target.value)} className="field mt-1.5 w-full px-3 py-2">
-              <option value="">v1 (Standard) + Overrides</option>
+              <option value="">{t('labor.defaultVersion')}</option>
               {versions.map((v) => <option key={v.id} value={v.id}>v{v.version} · {v.status}</option>)}
             </select>
           </label>
         </div>
 
-        <h3 className="label mt-6">Parameter-Experiment (Overrides)</h3>
+        <h3 className="label mt-6">{t('labor.paramExperiment')}</h3>
         <div className="mt-3 grid gap-4 md:grid-cols-3">
           <label className="text-sm">
-            <span className="label">RSI-Lookback (Bars)</span>
+            <span className="label">{t('labor.rsiLookback')}</span>
             <input type="number" min={1} max={20} value={rsiLookbackBars} onChange={(e) => setRsiLookback(Number(e.target.value))} className="field num mt-1.5 w-full px-3 py-2" />
           </label>
           <label className="text-sm">
-            <span className="label">Retest-Fenster (Bars)</span>
+            <span className="label">{t('labor.retestWindow')}</span>
             <input type="number" min={2} max={60} value={retestWindowBars} onChange={(e) => setRetestWindow(Number(e.target.value))} className="field num mt-1.5 w-full px-3 py-2" />
           </label>
           <label className="text-sm">
-            <span className="label">EMA-Nähe (%)</span>
+            <span className="label">{t('labor.emaProximity')}</span>
             <input type="number" min={0.1} max={10} step={0.1} value={emaProximityPct} onChange={(e) => setEmaProximity(Number(e.target.value))} className="field num mt-1.5 w-full px-3 py-2" />
           </label>
         </div>
@@ -496,13 +518,13 @@ export function Labor() {
 
         <div className="mt-5 flex flex-wrap gap-3">
           <button onClick={() => void onRun()} disabled={busy !== null} className="btn-primary px-5 py-2.5 text-sm">
-            {busy === 'bt' ? 'Backtest läuft …' : 'Backtest starten'}
+            {busy === 'bt' ? t('labor.runningBacktest') : t('labor.runBacktest')}
           </button>
           <button onClick={() => void onWalkForward()} disabled={busy !== null} className="btn-primary px-5 py-2.5 text-sm">
-            {busy === 'wf' ? 'Walk-Forward läuft …' : 'Walk-Forward (Grid 9)'}
+            {busy === 'wf' ? t('labor.runningWf') : t('labor.runWf')}
           </button>
           <button onClick={() => void onCalibrate()} disabled={busy !== null} className="btn-primary px-5 py-2.5 text-sm">
-            {busy === 'cal' ? 'Kalibriere …' : 'Risk-Engine kalibrieren'}
+            {busy === 'cal' ? t('labor.calibrating') : t('labor.calibrate')}
           </button>
           <button
             onClick={() => void onSaveVersion()}
@@ -510,7 +532,7 @@ export function Labor() {
             className="rounded-[0.625rem] border px-5 py-2.5 text-sm"
             style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
           >
-            {busy === 'save' ? 'Speichere …' : 'Als neue Version speichern'}
+            {busy === 'save' ? t('labor.saving') : t('labor.saveVersion')}
           </button>
         </div>
       </section>
@@ -519,42 +541,36 @@ export function Labor() {
       {run && m && (
         <>
           {/* Datenqualität (08_ §3b): Auffälligkeiten ehrlich VOR den Kennzahlen zeigen */}
-          {run.dataQuality.warnings.length > 0 && (
-            <section
-              className="mt-6 rounded-[0.625rem] border p-4 text-sm"
-              style={{ borderColor: 'var(--color-warn)', color: 'var(--color-warn)' }}
-            >
-              <p className="font-medium">Datenqualität · Ergebnis mit Vorsicht lesen</p>
-              <ul className="mt-2 list-disc space-y-1 pl-5">
-                {run.dataQuality.warnings.map((w) => <li key={w}>{w}</li>)}
-              </ul>
-            </section>
-          )}
+          <DataQualityWarnings warnings={run.dataQuality.warnings} as="section" />
 
           <section className="mt-6 grid gap-3 md:grid-cols-3 xl:grid-cols-5">
-            <MetricCard label="Netto-PnL" value={`${fmt(m.netPnl)} $`} tone={m.netPnl >= 0 ? 'pos' : 'neg'} />
-            <MetricCard label="Netto-Return" value={`${fmt(m.netReturnPct)} %`} tone={m.netReturnPct >= 0 ? 'pos' : 'neg'} />
-            <MetricCard label="Max-Drawdown" value={`${fmt(m.maxDrawdownPct)} %`} tone="neg" />
+            <MetricCard label={t('labor.netPnl')} value={`${fmt(m.netPnl)} $`} tone={m.netPnl >= 0 ? 'pos' : 'neg'} />
+            <MetricCard label={t('labor.netReturn')} value={`${fmt(m.netReturnPct)} %`} tone={m.netReturnPct >= 0 ? 'pos' : 'neg'} />
+            <MetricCard label={t('labor.maxDrawdown')} value={`${fmt(m.maxDrawdownPct)} %`} tone="neg" />
             <MetricCard label="Sharpe" value={fmt(m.sharpe)} />
             <MetricCard label="Sortino" value={fmt(m.sortino)} />
-            <MetricCard label="WinRate" value={m.winRate === null ? '—' : `${fmt(m.winRate * 100, 1)} %`} />
-            <MetricCard label="Profit-Factor" value={fmt(m.profitFactor)} />
-            <MetricCard label="Erwartungswert" value={m.expectancy === null ? '—' : `${fmt(m.expectancy)} R`} />
-            <MetricCard label="Trades" value={String(m.tradeCount)} />
-            <MetricCard label="Kerzen" value={fmt(run.candles, 0)} />
+            <MetricCard label={t('labor.winRate')} value={m.winRate === null ? '—' : `${fmt(m.winRate * 100, 1)} %`} />
+            <MetricCard label={t('labor.profitFactor')} value={fmt(m.profitFactor)} />
+            <MetricCard label={t('labor.expectedValue')} value={m.expectancy === null ? '—' : `${fmt(m.expectancy)} R`} />
+            <MetricCard label={t('labor.trades')} value={String(m.tradeCount)} />
+            <MetricCard label={t('labor.candles')} value={fmt(run.candles, 0)} />
           </section>
 
           {/* Kostenmodell inkl. Funding-Herkunft (08_ §3a) — historisch nur bei vollständigen echten Settlements */}
           <p className="mt-3 text-xs" style={{ color: 'var(--color-mut)' }}>
-            Kosten: Taker {fmt(run.costModel.takerFeeRate * 100, 3)} % · Slippage {fmt(run.costModel.slippageBps, 1)} bps · Funding:{' '}
-            {run.fundingSource === 'historical'
-              ? 'historisch (echte 8h-Settlements aus der DB)'
-              : `Modell (${fmt(run.costModel.fundingRatePer8h * 100, 3)} % je 8h, keine vollständige Funding-Historie)`}
+            {t('labor.costLine', {
+              taker: fmt(run.costModel.takerFeeRate * 100, 3),
+              slippage: fmt(run.costModel.slippageBps, 1),
+              funding:
+                run.fundingSource === 'historical'
+                  ? t('labor.fundingHistorical')
+                  : t('labor.fundingModelRate', { rate: fmt(run.costModel.fundingRatePer8h * 100, 3) }),
+            })}
           </p>
 
           <section className="glass mt-6 p-6">
-            <h2 className="label">Equity-Kurve · Start 10.000 $ · netto</h2>
-            <div className="mt-4"><EquityChart points={run.equityCurve} emptyText="Zu wenig Punkte." /></div>
+            <h2 className="label">{t('labor.equityTitle', { start: fmt(10000, 0) })}</h2>
+            <div className="mt-4"><EquityChart points={run.equityCurve} emptyText={t('labor.tooFewPoints')} /></div>
           </section>
 
           {runWindow && run.trades.length > 0 && (() => {
@@ -565,7 +581,7 @@ export function Labor() {
             const chartTf = parts[3] ?? timeframe;
             return (
               <section className="glass mt-6 p-6">
-                <h2 className="label">Visuelles Backtesting · {chartSymbol} · {chartTf} · Entry/Exit + SL/TP im Chart</h2>
+                <h2 className="label">{t('labor.visualTitle', { symbol: chartSymbol, tf: chartTf })}</h2>
                 <div className="mt-4">
                   <BacktestChart
                     symbol={chartSymbol}
@@ -582,12 +598,12 @@ export function Labor() {
           })()}
 
           <section className="glass mt-6 p-6">
-            <h2 className="label">RAPS-Gitter (Hebel × TP-Schema, 13_) · {run.raps.explanation}</h2>
+            <h2 className="label">{t('labor.rapsTitle', { explanation: run.raps.explanation })}</h2>
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-center text-sm">
                 <thead>
                   <tr className="label">
-                    <th className="py-1.5 text-left font-normal">Hebel</th>
+                    <th className="py-1.5 text-left font-normal">{t('labor.leverage')}</th>
                     {['A 50/30/20', 'B 60/30/10', 'C 100 % TP1', 'D Runner'].map((h) => <th key={h} className="py-1.5 font-normal">{h}</th>)}
                   </tr>
                 </thead>
@@ -607,7 +623,7 @@ export function Labor() {
                               opacity: cell?.excluded ? 0.5 : 1,
                               textShadow: isBest ? '0 0 12px rgba(61,220,151,0.6)' : 'none',
                             }}
-                            title={cell?.excluded ? `Liquidations-Quote ${(cell.liquidationRate * 100).toFixed(1)} %` : ''}
+                            title={cell?.excluded ? t('labor.liqRate', { pct: (cell.liquidationRate * 100).toFixed(1) }) : ''}
                           >
                             {cell ? fmt(cell.rapsScore, 3) : '—'}
                           </td>
@@ -621,29 +637,29 @@ export function Labor() {
           </section>
 
           <section className="glass mt-6 p-6">
-            <h2 className="label">Rundum-Analyse · Session / EMA200-Regime / Marktphase / Confluence</h2>
+            <h2 className="label">{t('labor.analysisTitle')}</h2>
             <div className="mt-4 grid gap-6 lg:grid-cols-2">
-              <BucketTable title="Nach Session (Asia · London · Overlap · NY · Off)" rows={Object.entries(run.analysis.bySession)} />
+              <BucketTable title={t('labor.bySession')} rows={Object.entries(run.analysis.bySession)} />
               <BucketTable
-                title="Richtung × EMA200-Regime (z. B. Longs unter EMA200)"
+                title={t('labor.byDirectionRegime')}
                 rows={Object.entries(run.analysis.byDirectionRegime).map(([k, v]) => [
-                  k.replace('|above', ' · über EMA200').replace('|below', ' · unter EMA200'),
+                  k.replace('|above', ` · ${t('labor.aboveEma200')}`).replace('|below', ` · ${t('labor.belowEma200')}`),
                   v,
                 ])}
               />
               <BucketTable
-                title="Nach Marktphase (Struktur bull/bear)"
+                title={t('labor.byPhase')}
                 rows={Object.entries(run.analysis.byPhase).filter((e): e is [string, Bucket] => e[1] !== undefined)}
               />
               <div>
-                <h3 className="label">Confluence-Faktoren einzeln (Δ Expectancy mit vs. ohne)</h3>
+                <h3 className="label">{t('labor.confluenceTitle')}</h3>
                 <table className="mt-2 w-full text-sm">
                   <thead>
                     <tr className="label text-left">
-                      <th className="py-1 pr-3 font-normal">Faktor</th>
-                      <th className="py-1 pr-3 text-right font-normal">mit (n)</th>
-                      <th className="py-1 pr-3 text-right font-normal">mit R</th>
-                      <th className="py-1 pr-3 text-right font-normal">ohne R</th>
+                      <th className="py-1 pr-3 font-normal">{t('labor.factor')}</th>
+                      <th className="py-1 pr-3 text-right font-normal">{t('labor.withN')}</th>
+                      <th className="py-1 pr-3 text-right font-normal">{t('labor.withR')}</th>
+                      <th className="py-1 pr-3 text-right font-normal">{t('labor.withoutR')}</th>
                       <th className="py-1 text-right font-normal">Δ R</th>
                     </tr>
                   </thead>
@@ -663,7 +679,7 @@ export function Labor() {
             </div>
             {run.turningPoints.length > 0 && (
               <div className="mt-6">
-                <h3 className="label">Letzte Trendwenden (CHoCH) & Fortsetzungen (BOS) im Zeitraum</h3>
+                <h3 className="label">{t('labor.turningPoints')}</h3>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {run.turningPoints.map((tp, i) => (
                     <span
@@ -684,7 +700,7 @@ export function Labor() {
 
           <section className="glass mt-6 p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="label">Trades ({run.trades.length}) · inkl. MFE/MAE in R · Zeile anklicken → im Chart fokussieren</h2>
+              <h2 className="label">{t('labor.tradesTitle', { n: run.trades.length })}</h2>
               <button
                 onClick={exportTradesCsv}
                 disabled={run.trades.length === 0}
@@ -699,12 +715,12 @@ export function Labor() {
                 <thead>
                   <tr className="label text-left">
                     <th className="py-1.5 pr-3 font-normal">#</th>
-                    <th className="py-1.5 pr-3 font-normal">Entry</th>
-                    <th className="py-1.5 pr-3 font-normal">Richtung</th>
+                    <th className="py-1.5 pr-3 font-normal">{t('labor.entry')}</th>
+                    <th className="py-1.5 pr-3 font-normal">{t('labor.direction')}</th>
                     {(
                       [
                         ['r', 'R'],
-                        ['net', 'Netto $'],
+                        ['net', t('labor.netUsd')],
                         ['mfe', 'MFE R'],
                         ['mae', 'MAE R'],
                       ] as [TradeSortKey, string][]
@@ -720,12 +736,12 @@ export function Labor() {
                         {sortArrow(key)}
                       </th>
                     ))}
-                    <th className="py-1.5 pr-3 text-right font-normal">Kosten $</th>
-                    <th className="py-1.5 font-normal">Exit</th>
+                    <th className="py-1.5 pr-3 text-right font-normal">{t('labor.costsUsd')}</th>
+                    <th className="py-1.5 font-normal">{t('labor.exit')}</th>
                   </tr>
                 </thead>
                 <tbody className="num">
-                  {tradeRows.map(({ t, i }) => (
+                  {tradeRows.map(({ t: tr, i }) => (
                     <tr
                       key={i}
                       onClick={() => setSelectedTrade(i === selectedTrade ? null : i)}
@@ -736,14 +752,14 @@ export function Labor() {
                       }}
                     >
                       <td className="py-1.5 pr-3" style={{ color: 'var(--color-mut)' }}>{i + 1}</td>
-                      <td className="py-1.5 pr-3">{new Date(t.entryTs).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}</td>
-                      <td className="py-1.5 pr-3" style={{ color: t.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>{t.direction}</td>
-                      <td className="py-1.5 pr-3 text-right" style={{ color: t.rMultiple >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>{fmt(t.rMultiple)}</td>
-                      <td className="py-1.5 pr-3 text-right">{fmt(t.netPnl)}</td>
-                      <td className="py-1.5 pr-3 text-right">{fmt(t.mfeR)}</td>
-                      <td className="py-1.5 pr-3 text-right">{fmt(t.maeR)}</td>
-                      <td className="py-1.5 pr-3 text-right">{fmt(t.fees + t.funding)}</td>
-                      <td className="py-1.5">{t.exitReason}</td>
+                      <td className="py-1.5 pr-3">{new Date(tr.entryTs).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                      <td className="py-1.5 pr-3" style={{ color: tr.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>{tr.direction}</td>
+                      <td className="py-1.5 pr-3 text-right" style={{ color: tr.rMultiple >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>{fmt(tr.rMultiple)}</td>
+                      <td className="py-1.5 pr-3 text-right">{fmt(tr.netPnl)}</td>
+                      <td className="py-1.5 pr-3 text-right">{fmt(tr.mfeR)}</td>
+                      <td className="py-1.5 pr-3 text-right">{fmt(tr.maeR)}</td>
+                      <td className="py-1.5 pr-3 text-right">{fmt(tr.fees + tr.funding)}</td>
+                      <td className="py-1.5">{tr.exitReason}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -757,15 +773,18 @@ export function Labor() {
       {wf && (
         <section className="glass mt-6 p-6">
           <h2 className="label">
-            Walk-Forward · OOS kombiniert: {fmt(wf.combinedOos.netPnl)} $ netto · {wf.combinedOos.tradeCount} Trades ·
-            Expectancy {fmt(wf.combinedOos.expectancy)} R
+            {t('labor.wfTitle', {
+              pnl: fmt(wf.combinedOos.netPnl),
+              trades: wf.combinedOos.tradeCount,
+              expectancy: fmt(wf.combinedOos.expectancy),
+            })}
           </h2>
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="label text-left">
-                  <th className="py-1.5 pr-3 font-normal">Fenster</th>
-                  <th className="py-1.5 pr-3 font-normal">Beste Parameter (IS)</th>
+                  <th className="py-1.5 pr-3 font-normal">{t('labor.wfWindow')}</th>
+                  <th className="py-1.5 pr-3 font-normal">{t('labor.wfBestParams')}</th>
                   <th className="py-1.5 pr-3 text-right font-normal">IS-PnL</th>
                   <th className="py-1.5 pr-3 text-right font-normal">OOS-PnL</th>
                   <th className="py-1.5 text-right font-normal">OOS-Trades</th>
@@ -774,7 +793,7 @@ export function Labor() {
               <tbody className="num">
                 {wf.windows.map((w, i) => (
                   <tr key={i} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
-                    <td className="py-1.5 pr-3">#{i + 1} · Bars {w.oosStart}–{w.oosEnd}</td>
+                    <td className="py-1.5 pr-3">{t('labor.wfWindowRow', { n: i + 1, start: w.oosStart, end: w.oosEnd })}</td>
                     <td className="py-1.5 pr-3">{JSON.stringify(w.bestParams)}</td>
                     <td className="py-1.5 pr-3 text-right">{fmt(w.isNetPnl)}</td>
                     <td className="py-1.5 pr-3 text-right" style={{ color: w.oosNetPnl >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>{fmt(w.oosNetPnl)}</td>
@@ -785,21 +804,12 @@ export function Labor() {
             </table>
           </div>
           {/* Datenqualität + Funding-Herkunft — dieselben Prüfungen wie beim Backtest (08_ §3a/§3b) */}
-          {wf.dataQuality.warnings.length > 0 && (
-            <div
-              className="mt-4 rounded-[0.625rem] border p-4 text-sm"
-              style={{ borderColor: 'var(--color-warn)', color: 'var(--color-warn)' }}
-            >
-              <p className="font-medium">Datenqualität · Ergebnis mit Vorsicht lesen</p>
-              <ul className="mt-2 list-disc space-y-1 pl-5">
-                {wf.dataQuality.warnings.map((w) => <li key={w}>{w}</li>)}
-              </ul>
-            </div>
-          )}
+          <DataQualityWarnings warnings={wf.dataQuality.warnings} as="div" />
           <p className="mt-3 text-xs" style={{ color: 'var(--color-mut)' }}>
-            In-Sample wird optimiert, Out-of-Sample nur validiert — eine Strategie zählt nur, wenn sie auf UNGESEHENEN Daten netto besteht (08_ §4).
-            Funding: {wf.fundingSource === 'historical' ? 'historisch (echte 8h-Settlements aus der DB)' : 'Modell (keine vollständige Funding-Historie)'}
-            {wf.trailPct !== null ? ` · Trailing-Stop ${fmt(wf.trailPct, 1)} %` : ''}.
+            {t('labor.wfNote', {
+              funding: wf.fundingSource === 'historical' ? t('labor.fundingHistorical') : t('labor.fundingModel'),
+              trail: wf.trailPct !== null ? ` · ${t('labor.trailSuffix', { pct: fmt(wf.trailPct, 1) })}` : '',
+            })}
           </p>
         </section>
       )}
@@ -809,10 +819,9 @@ export function Labor() {
 
       {/* ── Multi-Strategie-Vergleich (Feature 3) ── */}
       <section className="glass mt-6 p-6">
-        <h2 className="label">Multi-Strategie-Vergleich · gleiche Periode ({from} – {to}) · netto</h2>
+        <h2 className="label">{t('labor.compareTitle', { from, to })}</h2>
         <p className="mt-2 text-xs" style={{ color: 'var(--color-mut)' }}>
-          Strategien auswählen und über dasselbe Zeitfenster gegeneinander backtesten. Builtin SMC nutzt Symbol/Timeframe/Setup oben;
-          DSL-Strategien bringen ihr eigenes Symbol/Timeframe mit.
+          {t('labor.compareHint')}
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           {[{ id: 'builtin', slug: `SMC Core (${symbol} ${timeframe})` }, ...dslStrategies.map((d) => ({ id: d.id, slug: `DSL: ${d.slug}` }))].map((s) => {
@@ -835,7 +844,7 @@ export function Labor() {
         </div>
         <div className="mt-4">
           <button onClick={() => void onCompareStrategies()} disabled={busyCompare || compareSel.length < 2} className="btn-primary px-5 py-2.5 text-sm disabled:opacity-50">
-            {busyCompare ? 'Vergleiche …' : `${compareSel.length} Strategien vergleichen`}
+            {busyCompare ? t('labor.comparing') : t('labor.compareN', { n: compareSel.length })}
           </button>
         </div>
         {compareErr && <p className="mt-3 text-sm" style={{ color: 'var(--color-neg)' }}>{compareErr}</p>}
@@ -846,16 +855,16 @@ export function Labor() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="label text-left">
-                    <th className="py-1.5 pr-3 font-normal">Strategie</th>
-                    <th className="py-1.5 pr-3 text-right font-normal">Netto-PnL $</th>
-                    <th className="py-1.5 pr-3 text-right font-normal">Return %</th>
-                    <th className="py-1.5 pr-3 text-right font-normal">Max-DD %</th>
+                    <th className="py-1.5 pr-3 font-normal">{t('labor.strategy')}</th>
+                    <th className="py-1.5 pr-3 text-right font-normal">{t('labor.netPnlUsd')}</th>
+                    <th className="py-1.5 pr-3 text-right font-normal">{t('labor.returnPct')}</th>
+                    <th className="py-1.5 pr-3 text-right font-normal">{t('labor.maxDdPct')}</th>
                     <th className="py-1.5 pr-3 text-right font-normal">Sharpe</th>
                     <th className="py-1.5 pr-3 text-right font-normal">Sortino</th>
-                    <th className="py-1.5 pr-3 text-right font-normal">WinRate</th>
+                    <th className="py-1.5 pr-3 text-right font-normal">{t('labor.winRate')}</th>
                     <th className="py-1.5 pr-3 text-right font-normal">PF</th>
-                    <th className="py-1.5 pr-3 text-right font-normal">Expectancy R</th>
-                    <th className="py-1.5 text-right font-normal">Trades</th>
+                    <th className="py-1.5 pr-3 text-right font-normal">{t('labor.expectancyR')}</th>
+                    <th className="py-1.5 text-right font-normal">{t('labor.trades')}</th>
                   </tr>
                 </thead>
                 <tbody className="num">
@@ -880,8 +889,8 @@ export function Labor() {
               </table>
             </div>
             <div className="mt-6">
-              <h3 className="label">Equity-Overlay · %-Return ab Start · netto</h3>
-              <div className="mt-3"><MultiEquityChart runs={strategyRuns} emptyText="Zu wenig Punkte." /></div>
+              <h3 className="label">{t('labor.overlayTitle')}</h3>
+              <div className="mt-3"><MultiEquityChart runs={strategyRuns} emptyText={t('labor.tooFewPoints')} /></div>
             </div>
           </>
         )}
@@ -889,11 +898,10 @@ export function Labor() {
 
       {/* ── Adaptive Risk-Gates (Selbst-Kalibrierung) ── */}
       <section className="glass mt-6 p-6">
-        <h2 className="label">Adaptive Risk-Gates · nur verschärfend · jedes Gate abschaltbar (Mensch im Loop)</h2>
+        <h2 className="label">{t('labor.gatesTitle')}</h2>
         {gates.length === 0 ? (
           <p className="mt-3 text-sm" style={{ color: 'var(--color-mut)' }}>
-            Noch keine Gates. „Risk-Engine kalibrieren" leitet aus dem gewählten Zeitraum evidenzbasierte
-            Sperren ab (z. B. „keine Longs unter EMA200") — nur wenn ≥ 30 Trades sie belegen.
+            {t('labor.gatesEmpty')}
           </p>
         ) : (
           <ul className="mt-4 space-y-3">
@@ -902,8 +910,12 @@ export function Labor() {
                 <div>
                   <p className="text-sm">{g.reason}</p>
                   <p className="label mt-1">
-                    Scope: {g.symbol ?? 'alle'} · {g.timeframe ?? 'alle TF'} · Quelle: {g.source} ·{' '}
-                    {new Date(g.createdAt as unknown as string).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}
+                    {t('labor.gateScope', {
+                      symbol: g.symbol ?? t('labor.all'),
+                      tf: g.timeframe ?? t('labor.allTf'),
+                      source: g.source,
+                      date: new Date(g.createdAt as unknown as string).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }),
+                    })}
                   </p>
                 </div>
                 <button
@@ -914,7 +926,7 @@ export function Labor() {
                     color: g.isActive ? 'var(--color-pos)' : 'var(--color-mut)',
                   }}
                 >
-                  {g.isActive ? 'aktiv — klick zum Deaktivieren' : 'inaktiv — klick zum Aktivieren'}
+                  {g.isActive ? t('labor.gateActive') : t('labor.gateInactive')}
                 </button>
               </li>
             ))}
@@ -924,21 +936,21 @@ export function Labor() {
 
       {/* ── Lauf-Verlauf + Vergleich ── */}
       <section className="glass mt-6 p-6">
-        <h2 className="label">Lauf-Verlauf · zum Vergleich zwei Läufe anhaken</h2>
+        <h2 className="label">{t('labor.historyTitle')}</h2>
         {runs.length === 0 ? (
-          <p className="mt-3 text-sm" style={{ color: 'var(--color-mut)' }}>Noch keine Läufe.</p>
+          <p className="mt-3 text-sm" style={{ color: 'var(--color-mut)' }}>{t('labor.noRuns')}</p>
         ) : (
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="label text-left">
                   <th className="py-1.5 pr-3 font-normal"></th>
-                  <th className="py-1.5 pr-3 font-normal">Zeit</th>
-                  <th className="py-1.5 pr-3 font-normal">Lauf</th>
-                  <th className="py-1.5 pr-3 text-right font-normal">Return %</th>
-                  <th className="py-1.5 pr-3 text-right font-normal">MaxDD %</th>
+                  <th className="py-1.5 pr-3 font-normal">{t('labor.time')}</th>
+                  <th className="py-1.5 pr-3 font-normal">{t('labor.run')}</th>
+                  <th className="py-1.5 pr-3 text-right font-normal">{t('labor.returnPct')}</th>
+                  <th className="py-1.5 pr-3 text-right font-normal">{t('labor.maxDdPctShort')}</th>
                   <th className="py-1.5 pr-3 text-right font-normal">PF</th>
-                  <th className="py-1.5 text-right font-normal">Trades</th>
+                  <th className="py-1.5 text-right font-normal">{t('labor.trades')}</th>
                 </tr>
               </thead>
               <tbody className="num">
@@ -972,13 +984,13 @@ export function Labor() {
               <div key={r.id} className="rounded-xl border p-4" style={{ borderColor: 'var(--color-line)' }}>
                 <p className="label">v{r.version} · {r.symbol} {r.timeframe} · {new Date(r.createdAt).toLocaleDateString('de-DE')}</p>
                 <ul className="num mt-3 space-y-1.5 text-sm">
-                  <li className="flex justify-between"><span style={{ color: 'var(--color-mut)' }}>Netto-Return</span><span>{fmt(Number(r.netReturn))} %</span></li>
-                  <li className="flex justify-between"><span style={{ color: 'var(--color-mut)' }}>Max-Drawdown</span><span>{fmt(Number(r.maxDrawdown))} %</span></li>
+                  <li className="flex justify-between"><span style={{ color: 'var(--color-mut)' }}>{t('labor.netReturn')}</span><span>{fmt(Number(r.netReturn))} %</span></li>
+                  <li className="flex justify-between"><span style={{ color: 'var(--color-mut)' }}>{t('labor.maxDrawdown')}</span><span>{fmt(Number(r.maxDrawdown))} %</span></li>
                   <li className="flex justify-between"><span style={{ color: 'var(--color-mut)' }}>Sharpe</span><span>{r.sharpe === null ? '—' : fmt(Number(r.sharpe))}</span></li>
-                  <li className="flex justify-between"><span style={{ color: 'var(--color-mut)' }}>WinRate</span><span>{r.winRate === null ? '—' : `${fmt(Number(r.winRate) * 100, 1)} %`}</span></li>
-                  <li className="flex justify-between"><span style={{ color: 'var(--color-mut)' }}>Profit-Factor</span><span>{r.profitFactor === null ? '—' : fmt(Number(r.profitFactor))}</span></li>
-                  <li className="flex justify-between"><span style={{ color: 'var(--color-mut)' }}>Expectancy</span><span>{r.expectancy === null ? '—' : `${fmt(Number(r.expectancy))} R`}</span></li>
-                  <li className="flex justify-between"><span style={{ color: 'var(--color-mut)' }}>Trades</span><span>{fmt(Number(r.tradeCount), 0)}</span></li>
+                  <li className="flex justify-between"><span style={{ color: 'var(--color-mut)' }}>{t('labor.winRate')}</span><span>{r.winRate === null ? '—' : `${fmt(Number(r.winRate) * 100, 1)} %`}</span></li>
+                  <li className="flex justify-between"><span style={{ color: 'var(--color-mut)' }}>{t('labor.profitFactor')}</span><span>{r.profitFactor === null ? '—' : fmt(Number(r.profitFactor))}</span></li>
+                  <li className="flex justify-between"><span style={{ color: 'var(--color-mut)' }}>{t('labor.expectancy')}</span><span>{r.expectancy === null ? '—' : `${fmt(Number(r.expectancy))} R`}</span></li>
+                  <li className="flex justify-between"><span style={{ color: 'var(--color-mut)' }}>{t('labor.trades')}</span><span>{fmt(Number(r.tradeCount), 0)}</span></li>
                 </ul>
               </div>
             ))}
@@ -987,7 +999,7 @@ export function Labor() {
       </section>
 
       <footer className="mt-10 text-center text-xs" style={{ color: 'var(--color-mut)' }}>
-        Jede Kennzahl ist netto (Gebühren, Slippage, Funding) und stammt aus echten Binance-Kerzen der eigenen DB.
+        {t('labor.footer')}
       </footer>
     </div>
   );

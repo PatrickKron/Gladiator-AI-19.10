@@ -438,4 +438,7 @@ Volle Suite: 1345 grün, 4 rot nur umgebungsbedingt (review, signal-scan „BASI
   - **Passwort:** `auth.changePassword` (aktuelles Pflicht, alle Sessions entwertet), Profil-Panel, `npm run auth:set-password -- <email>` (stdin, Audit `auth.password_reset`).
   - **CI-Test-DB:** Opt-in über `TEST_DATABASE_URL` (`scripts/ensure-test-db.mjs` mit Live-DB-Sperre).
   - **Ticket-Hinweis Exposure (§2):** `exposureFit` in `@gladiator/risk` (5 Tests) → `signals.executionPreview.exposureFit`; das Ticket erklärt, warum 1 % Risiko bei engem Stop das 20-%-Limit sprengt, und bietet den größten erlaubten Betrag an. Limits selbst unverändert (Patricks Entscheidung).
+  - **Workshop-Streaming:** `messages.stream` im Provider (Modell unverändert claude-opus-4-8), `guardedStream`, gemeinsamer `performWorkshopChat`, SSE-Endpunkt mit Bearer-Auth; Client per fetch + SSE-Parser. Lokal geprüft: 401 ohne Login, 412 ohne API-Key.
+  - **Chart-Zeichenwerkzeuge (Agent):** Horizontale/Trend/Fibonacci, `chart_drawings` (Migration 0021), API `drawings.*`. Lokal per Playwright gezeichnet und nach Reload wieder da. Hinweis: zwei Klicks innerhalb ~300 ms wertet die Chart-Bibliothek als Doppelklick.
+  - **Labor i18n (Agent):** 144 Schlüssel in 5 Sprachen; CSV-Kopf bleibt fest.
 

@@ -11,6 +11,8 @@ export {
   type LlmCompletion,
   type LlmProvider,
   type LlmUsage,
+  guardedStream,
+  type LlmRequest,
 } from './provider.js';
 export { buildAgentPrompt, parseLlmVerdict, reviewLlmAgent } from './llm-agents.js';
 export { runSwarm, type SwarmInput, type SwarmResult } from './swarm.js';

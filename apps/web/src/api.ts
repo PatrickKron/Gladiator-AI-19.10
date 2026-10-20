@@ -1,3 +1,4 @@
+import { createSseParser } from './lib/sse-parse.js';
 import { createTRPCClient, httpBatchLink, TRPCClientError, type TRPCLink } from '@trpc/client';
 import { observable, type Unsubscribable } from '@trpc/server/observable';
 import type { AppRouter } from '@gladiator/api';
@@ -104,6 +105,46 @@ export async function tryAutoLogin(): Promise<boolean> {
 export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
   const res = await trpc.auth.changePassword.mutate({ currentPassword, newPassword });
   setSession({ accessToken: res.accessToken, refreshToken: res.refreshToken });
+}
+
+export type WorkshopStreamDone = Awaited<ReturnType<typeof trpc.workshop.chat.mutate>>;
+
+/**
+ * Workshop-Dialog als Stream (POST + SSE über fetch, weil EventSource keinen
+ * Authorization-Header kann). onDelta bekommt Text-Stücke, sobald sie da sind;
+ * das Ergebnis ist dieselbe gespeicherte Antwort wie bei workshop.chat.
+ * Abgelaufenes Access-Token → einmal erneuern und wiederholen.
+ */
+export async function streamWorkshopChat(sessionId: string, message: string, onDelta: (text: string) => void): Promise<WorkshopStreamDone> {
+  const post = () =>
+    fetch(`/api/workshop/${encodeURIComponent(sessionId)}/chat-stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}) },
+      body: JSON.stringify({ message }),
+    });
+  let res = await post();
+  if (res.status === 401 && (await refreshSession()) === 'ok') res = await post();
+  if (!res.ok || !res.body) {
+    const err = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(err?.error ?? `HTTP ${res.status}`);
+  }
+  let done: WorkshopStreamDone | null = null;
+  let failure: string | null = null;
+  const feed = createSseParser((event, data) => {
+    if (event === 'delta') onDelta((data as { text: string }).text);
+    else if (event === 'done') done = data as WorkshopStreamDone;
+    else if (event === 'error') failure = (data as { message: string }).message;
+  });
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  for (;;) {
+    const { value, done: end } = await reader.read();
+    if (end) break;
+    feed(decoder.decode(value, { stream: true }));
+  }
+  if (failure) throw new Error(failure);
+  if (!done) throw new Error('Stream ohne Abschluss beendet.');
+  return done;
 }
 
 const refreshLock = webLock('gladiator.session-refresh');
