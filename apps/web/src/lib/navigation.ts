@@ -63,7 +63,7 @@ export const PAGES = [
     icon: 'M4 19V5m0 14h16M8 14l3-3 2 2 4-5',
     keywords: ['kerzen', 'candles', 'indikator', 'indicator', 'asset', 'symbol', 'timeframe'],
     tabs: [
-      { id: 'chart', labelKey: 'asset.tab_chart', keywords: ['kerzen', 'indikatoren'] },
+      { id: 'chart', labelKey: 'asset.tab_chart', keywords: ['kerzen', 'indikatoren', 'orderbuch', 'order book', 'tiefe', 'zeichnen', 'trendlinie', 'fibonacci'] },
       { id: 'kontext', labelKey: 'asset.tab_kontext', keywords: ['rsi', 'atr', 'funding', 'struktur', 'regime'] },
     ],
   },

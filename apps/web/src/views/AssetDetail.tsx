@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { PageHeader, Panel } from '../components/ui.js';
 import { AssetSelect, getSelectedAsset, setSelectedAsset } from '../components/AssetSelect.js';
 import { AssetChart } from '../components/AssetChart.js';
+import { OrderBookPanel } from '../components/OrderBookPanel.js';
 import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
 import { MlInsights } from '../components/MlInsights.js';
 import { FavStarSymbol } from '../components/FavStar.js';
@@ -97,9 +98,12 @@ export function AssetDetail() {
       </div>
 
       {tab === 'chart' && (
-        <Panel label={asset} stagger={1}>
-          <AssetChart symbol={asset} timeframeOverride={linked.tf ?? undefined} />
-        </Panel>
+        <>
+          <Panel label={asset} stagger={1}>
+            <AssetChart symbol={asset} timeframeOverride={linked.tf ?? undefined} />
+          </Panel>
+          <OrderBookPanel symbol={asset} />
+        </>
       )}
       {tab === 'kontext' && (
         <Panel label={t('assetCtx.title', { symbol: asset })} stagger={1}>

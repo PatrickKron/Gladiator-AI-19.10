@@ -35,6 +35,7 @@ export {
   type FillResult,
 } from './demo/fill-engine.js';
 export { binanceBookSource, BinanceBookSource, type DemoBookSource } from './demo/book-source.js';
+export { summarizeBook, type BookView, type BookViewLevel } from './demo/book-view.js';
 export {
   getOrCreateDemoAccount,
   demoAccountOverview,
