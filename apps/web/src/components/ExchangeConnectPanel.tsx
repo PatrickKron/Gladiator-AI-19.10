@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { normalizeWalletAddress, walletAddressKind } from '@gladiator/core/wallet-address';
 import { trpc } from '../api.js';
 import { Panel } from './ui.js';
 import { fmt } from './EquityChart.js';
@@ -91,7 +92,7 @@ export function ExchangeConnectPanel() {
     }
   }
 
-  const walletAddressOk = /^0x[0-9a-fA-F]{40}$/.test(wallet.address.trim());
+  const walletAddressOk = normalizeWalletAddress(wallet.exchangeId, wallet.address) !== null;
 
   async function connectWallet() {
     if (!wallet.exchangeId || !walletAddressOk) return;
@@ -210,7 +211,7 @@ export function ExchangeConnectPanel() {
             </div>
             <div className="md:col-span-2">
               <label className="label mb-1 block">{t('exchanges.walletAddress')}</label>
-              <input className={`${field} num`} value={wallet.address} onChange={(e) => setWallet((w) => ({ ...w, address: e.target.value }))} placeholder="0x…" autoComplete="off" spellCheck={false} />
+              <input className={`${field} num`} value={wallet.address} onChange={(e) => setWallet((w) => ({ ...w, address: e.target.value }))} placeholder={walletAddressKind(wallet.exchangeId) === 'dydx' ? 'dydx1…' : '0x…'} autoComplete="off" spellCheck={false} />
             </div>
           </div>
           <p className="mt-2 text-xs" style={{ color: 'var(--color-warn)' }}>

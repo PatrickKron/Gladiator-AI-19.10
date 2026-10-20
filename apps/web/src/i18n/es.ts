@@ -91,7 +91,7 @@ export const es: Catalog = {
     viaApi: 'Clave API',
     viaWallet: 'Dirección de wallet',
     walletAddress: 'Dirección pública de la wallet',
-    walletHint: 'Solo la dirección pública (0x…) — nunca introduzcas la clave privada ni la frase semilla. Las conexiones de wallet son siempre de solo lectura.',
+    walletHint: 'Solo la dirección pública (0x…, o dydx1… en dYdX) — nunca introduzcas la clave privada ni la frase semilla. Las conexiones de wallet son siempre de solo lectura.',
     walletPick: 'Exchange con acceso por wallet ({{n}})',
     walletBadge: 'Wallet · solo lectura',
     detectedInChat: 'Detectado en tu chat:',

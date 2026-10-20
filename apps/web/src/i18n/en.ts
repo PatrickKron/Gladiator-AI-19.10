@@ -91,7 +91,7 @@ export const en: Catalog = {
     viaApi: 'API key',
     viaWallet: 'Wallet address',
     walletAddress: 'Public wallet address',
-    walletHint: 'Public address only (0x…) — never enter a private key or seed phrase. Wallet connections are always read-only.',
+    walletHint: 'Public address only (0x…, or dydx1… for dYdX) — never enter a private key or seed phrase. Wallet connections are always read-only.',
     walletPick: 'Exchange with wallet login ({{n}})',
     walletBadge: 'Wallet · read-only',
     detectedInChat: 'Detected in your chat:',

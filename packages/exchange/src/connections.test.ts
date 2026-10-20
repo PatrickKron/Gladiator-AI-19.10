@@ -101,6 +101,10 @@ describe('Wallet-Anschluss (nur lesend, öffentliche Adresse)', () => {
     expect(ids).toContain('hyperliquid');
     expect(ids).not.toContain('kraken');
   });
+
+  it('walletExchanges enthält dYdX (Konto über den öffentlichen Indexer per dydx1…-Adresse)', () => {
+    expect(walletExchanges().map((e) => e.id)).toContain('dydx');
+  });
 });
 
 describe('normalizeSymbol', () => {
@@ -285,6 +289,20 @@ describe.skipIf(!hasDb)('Börsen-Verbindung DB-Roundtrip', () => {
     expect(balances[0]?.currency).toBe('USDT');
     // ohne Signatur-Schlüssel kann eine Wallet-Verbindung nie handeln
     await expect(setConnectionMode(db, userId, dto.id, 'trading')).rejects.toThrow(/nur lesend/i);
+  });
+
+  it('dYdX-Wallet: dydx1…-Adresse wird geprüft und nur lesend gespeichert; 0x-Adresse dort abgelehnt', async () => {
+    const address = 'dydx1' + 'qpzry9x8gf2tvdw0s3jn54khce6mua7lqpzry9';
+    let seen: Record<string, string> | null = null;
+    const dto = await connectWallet(db, { userId, exchangeId: 'dydx', walletAddress: address }, (_id, creds) => {
+      seen = creds as unknown as Record<string, string>;
+      return fakeClient({ name: 'dYdX' });
+    });
+    createdIds.push(dto.id);
+    expect(seen).toEqual({ walletAddress: address });
+    expect(dto).toMatchObject({ exchangeId: 'dydx', mode: 'read_only', kind: 'wallet', keyMasked: `dydx1q…${address.slice(-4)}` });
+    await expect(setConnectionMode(db, userId, dto.id, 'trading')).rejects.toThrow(/nur lesend/i);
+    await expect(connectWallet(db, { userId, exchangeId: 'dydx', walletAddress: '0x' + 'a'.repeat(40) }, () => fakeClient())).rejects.toThrow(/Adresse/);
   });
 
   it('Wallet: ungültige Adresse / Börse ohne Wallet-Login wird abgelehnt, nichts gespeichert', async () => {
