@@ -55,8 +55,14 @@ Für den Dauerbetrieb Webserver und Worker getrennt laufen lassen, damit recheni
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Benachrichtigungen zusätzlich per Telegram |
 | `FRED_API_KEY` | weitere Makro-Datenreihen |
 | `HEALTHCHECKS_URL` | externer Ausfall-Alarm (Dead-Man-Switch) |
+| `WALLET_KEYS_ENABLED=1` | eigene Trading-Wallets mit Schlüssel für Spot-Swaps erlauben (nur beim Selbsthosten; Schlüssel verschlüsselt, keine Überweisungen/Abhebungen) |
+| `RPC_URL_SOLANA`, `RPC_URL_ETHEREUM`, `RPC_URL_BASE`, `RPC_URL_ARBITRUM`, `RPC_URL_BSC` | eigene RPC-Endpunkte statt der öffentlichen |
 
 Börsen- und Wallet-Zugänge trägst du nicht in die `.env` ein, sondern in der App unter Einstellungen › Börsen. Sie werden dort verschlüsselt gespeichert. Gladiator nimmt nie Abhebe-Rechte an.
+
+## Wallet-Trading (Spot-Swaps)
+
+Unter Handel & Vermögen › Wallet-Trading: Token-Adresse einfügen → Preis, Liquidität, Marktkapitalisierung (DexScreener) → Schnellkauf/-verkauf → echte Route über Jupiter (Solana) bzw. KyberSwap (Ethereum, Base, Arbitrum, BSC). Jeder Swap läuft durch das Swap-Gate mit den Grenzen der Wallet (Betrag, Slippage, Preis-Einfluss, Mindest-Liquidität — Profile von Vorsichtig bis Meme-Coins, frei änderbar). Paper-Wallets handeln virtuell zum echten Angebot inkl. Gebühren.
 
 ## Tests
 

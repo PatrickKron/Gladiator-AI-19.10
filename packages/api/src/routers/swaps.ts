@@ -52,8 +52,10 @@ async function tokenInfo(chain: SwapChainId, address: string): Promise<TokenInfo
   return info;
 }
 
+/** Netzfehler ehrlich mit Quelle melden (Aggregator, DexScreener oder RPC nicht erreichbar). */
 function netError(err: unknown): TRPCError {
-  return new TRPCError({ code: 'BAD_GATEWAY', message: err instanceof Error ? err.message : String(err) });
+  const detail = err instanceof Error ? err.message : String(err);
+  return new TRPCError({ code: 'BAD_GATEWAY', message: `Markt-/Kettendaten nicht erreichbar (DexScreener, RPC bzw. Aggregator): ${detail}` });
 }
 
 const chainSchema = z.enum(SWAP_CHAIN_IDS);

@@ -55,6 +55,7 @@ const Marktlage = lazyView(() => import('./views/Marktlage.js'), 'Marktlage');
 const Funktionen = lazyView(() => import('./views/Funktionen.js'), 'Funktionen');
 const Protokoll = lazyView(() => import('./views/Protokoll.js'), 'Protokoll');
 const DemoKonto = lazyView(() => import('./views/Trading.js'), 'DemoKonto');
+const WalletTrading = lazyView(() => import('./views/WalletTrading.js'), 'WalletTrading');
 
 type AuthState = 'restoring' | 'anonymous' | 'authenticated';
 
@@ -75,6 +76,7 @@ const ROUTES = {
   '#/magazine': Magazine,
   '#/trading': Trading,
   '#/demo': DemoKonto,
+  '#/wallet': WalletTrading,
   '#/vermoegen': Vermoegen,
   '#/agenten': Agenten,
   '#/strategien': Strategien,
