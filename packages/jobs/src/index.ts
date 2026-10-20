@@ -94,3 +94,4 @@ export {
   type OrderState,
   type SwapOrdersResult,
 } from './swap-orders.js';
+export { checkWatchedWallet, runWalletCopy, WATCH_INTERVAL_SECONDS, WATCH_TX_LIMIT, type WalletCopyResult } from './wallet-copy.js';

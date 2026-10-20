@@ -38,7 +38,26 @@ import {
 import { SWAP_LIMIT_BOUNDS, SWAP_PROFILES } from '@gladiator/risk';
 import { protectedProcedure, router } from '../trpc.js';
 
-const { swapWallets, swapTrades, swapOrders, auditLog } = schema;
+const MAX_WATCHED = 25;
+
+const copyInput = z.object({
+  copyMode: z.enum(['off', 'paper']),
+  copyWalletId: z.string().uuid().nullable(),
+  /** SOL je Kopie */
+  copyAmount: z.string().regex(/^\d+(\.\d+)?$/).refine((v) => Number(v) > 0 && Number(v) <= 1000, 'Betrag: über 0 bis 1000 SOL.').nullable(),
+});
+
+/** Copy-Ziel prüfen: nur eigene, aktive Solana-PAPER-Wallets (echtes Copy-Trading gibt es nicht). */
+async function checkCopyTarget(db: Db, userId: string, input: z.infer<typeof copyInput>): Promise<void> {
+  if (input.copyMode === 'off') return;
+  if (!input.copyWalletId || !input.copyAmount) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Zum Kopieren Ziel-Wallet und Betrag wählen.' });
+  const w = await ownWallet(db, userId, input.copyWalletId);
+  if (w.chain !== 'solana' || w.mode !== 'paper') {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'Kopiert wird nur in eine Solana-Paper-Wallet.' });
+  }
+}
+
+const { swapWallets, swapTrades, swapOrders, auditLog, watchedWallets, watchedWalletSwaps } = schema;
 
 /**
  * Wallet-Trading / Spot-Swaps (Vision-Punkt 5, „wie Trojan, für alle Wallets").
@@ -522,4 +541,97 @@ export const swapsRouter = router({
         return asTrpc(netError(err));
       }
     }),
+
+  /** Beobachtete Wallets (Copy-Trading, Solana). */
+  watched: protectedProcedure.query(async ({ ctx }) => {
+    return ctx.db.select().from(watchedWallets).where(eq(watchedWallets.userId, ctx.user.id)).orderBy(desc(watchedWallets.createdAt));
+  }),
+
+  addWatched: protectedProcedure
+    .input(z.object({ address: z.string().trim(), label: z.string().trim().min(1).max(40) }).merge(copyInput))
+    .mutation(async ({ ctx, input }) => {
+      if (!isTokenAddress('solana', input.address)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Keine gültige Solana-Adresse.' });
+      await checkCopyTarget(ctx.db, ctx.user.id, input);
+      const existing = await ctx.db.select({ id: watchedWallets.id, address: watchedWallets.address }).from(watchedWallets).where(eq(watchedWallets.userId, ctx.user.id));
+      if (existing.some((e) => e.address === input.address)) throw new TRPCError({ code: 'CONFLICT', message: 'Diese Wallet wird schon beobachtet.' });
+      if (existing.length >= MAX_WATCHED) throw new TRPCError({ code: 'BAD_REQUEST', message: `Höchstens ${MAX_WATCHED} beobachtete Wallets.` });
+      const [row] = await ctx.db
+        .insert(watchedWallets)
+        .values({
+          userId: ctx.user.id,
+          chain: 'solana',
+          address: input.address,
+          label: input.label,
+          copyMode: input.copyMode,
+          copyWalletId: input.copyMode === 'paper' ? input.copyWalletId : null,
+          copyAmount: input.copyMode === 'paper' ? input.copyAmount : null,
+        })
+        .returning();
+      return row!;
+    }),
+
+  updateWatched: protectedProcedure
+    .input(z.object({ id: z.string().uuid(), label: z.string().trim().min(1).max(40) }).merge(copyInput))
+    .mutation(async ({ ctx, input }) => {
+      await checkCopyTarget(ctx.db, ctx.user.id, input);
+      const rows = await ctx.db
+        .update(watchedWallets)
+        .set({
+          label: input.label,
+          copyMode: input.copyMode,
+          copyWalletId: input.copyMode === 'paper' ? input.copyWalletId : null,
+          copyAmount: input.copyMode === 'paper' ? input.copyAmount : null,
+        })
+        .where(and(eq(watchedWallets.id, input.id), eq(watchedWallets.userId, ctx.user.id)))
+        .returning();
+      if (rows.length === 0) throw new TRPCError({ code: 'NOT_FOUND', message: 'Beobachtete Wallet nicht gefunden.' });
+      return rows[0]!;
+    }),
+
+  removeWatched: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+    const rows = await ctx.db
+      .delete(watchedWallets)
+      .where(and(eq(watchedWallets.id, input.id), eq(watchedWallets.userId, ctx.user.id)))
+      .returning({ id: watchedWallets.id });
+    if (rows.length === 0) throw new TRPCError({ code: 'NOT_FOUND', message: 'Beobachtete Wallet nicht gefunden.' });
+    return { ok: true };
+  }),
+
+  /** Erkannte Swaps einer beobachteten Wallet (neueste zuerst) mit Symbol, Menge und Kopie-Ergebnis. */
+  watchedActivity: protectedProcedure.input(z.object({ id: z.string().uuid() })).query(async ({ ctx, input }) => {
+    const [w] = await ctx.db
+      .select({ id: watchedWallets.id })
+      .from(watchedWallets)
+      .where(and(eq(watchedWallets.id, input.id), eq(watchedWallets.userId, ctx.user.id)));
+    if (!w) throw new TRPCError({ code: 'NOT_FOUND', message: 'Beobachtete Wallet nicht gefunden.' });
+    const rows = await ctx.db
+      .select()
+      .from(watchedWalletSwaps)
+      .where(eq(watchedWalletSwaps.watchedId, w.id))
+      .orderBy(desc(watchedWalletSwaps.txTime), desc(watchedWalletSwaps.createdAt))
+      .limit(30);
+    const symbols = new Map<string, string>();
+    await Promise.all(
+      [...new Set(rows.map((r) => r.token))].map(async (t) => {
+        try {
+          symbols.set(t, (await cachedTokenInfo('solana', t)).symbol);
+        } catch {
+          // Symbol unbekannt → Adresse gekürzt anzeigen (nie geraten)
+        }
+      }),
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      signature: r.signature,
+      side: r.side,
+      token: r.token,
+      symbol: symbols.get(r.token) ?? null,
+      amount: fromAtomic(r.tokenAtomic, r.tokenDecimals),
+      sol: r.solLamports === null ? null : fromAtomic(r.solLamports, 9),
+      counterToken: r.counterToken,
+      txTime: r.txTime,
+      copyStatus: r.copyStatus,
+      copyNote: r.copyNote,
+    }));
+  }),
 });
