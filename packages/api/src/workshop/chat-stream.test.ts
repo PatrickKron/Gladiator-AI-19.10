@@ -14,6 +14,11 @@ import type pg from 'pg';
 import { signAccessToken } from '../auth/tokens.js';
 import { sseEvent, workshopChatStreamHandler } from './chat-stream.js';
 
+// Testkontrolliertes Secret wie in auth.test.ts (KEIN Laufzeit-Fallback — der Boot bricht ohne weiterhin ab).
+if (process.env.DATABASE_URL && !process.env.JWT_SECRET) {
+  process.env.JWT_SECRET = `test-secret-${Date.now()}-nicht-fuer-produktion`;
+}
+
 describe('sseEvent', () => {
   it('formatiert Event + JSON-Daten mit Leerzeile als Abschluss', () => {
     expect(sseEvent('delta', { text: 'Hi\nda' })).toBe('event: delta\ndata: {"text":"Hi\\nda"}\n\n');
