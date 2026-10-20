@@ -28,6 +28,9 @@ import {
 import { ChartIndicatorPanel, type PineStrategy } from './ChartIndicatorPanel.js';
 import { applyTick, liveBarSeconds, type Bar } from '../lib/live-candle.js';
 import { ensurePriceStream, onTick } from '../lib/prices.js';
+import { applyDrawingClick, pickDrawing, pointFromChart, type DrawingTool } from '../lib/chart-drawings.js';
+import type { DrawingPoint } from '@gladiator/core/drawings';
+import { DrawingsPrimitive, type ChartDrawing } from './chart-drawings-primitive.js';
 
 /**
  * Voll-Chart mit Indikatoren (Krypto-Charting):
@@ -218,6 +221,119 @@ export function AssetChart({
   const updateIndCfg = (next: IndicatorConfig) => {
     setIndCfg(next);
     saveIndicatorConfig(symbol, next);
+  };
+
+  // ── Zeichenwerkzeuge (Plan §5): pro Nutzer + Symbol in der DB, Timeframe-
+  // unabhängig (Zeit/Preis-Anker). Der Chart-Aufbau liest Werkzeug/Zeichnungen
+  // über Refs, damit ein Werkzeugwechsel den Chart NICHT neu aufbaut.
+  const [drawings, setDrawings] = useState<ChartDrawing[]>([]);
+  const [drawErr, setDrawErr] = useState<string | null>(null);
+  const [tool, setTool] = useState<DrawingTool>('none');
+  const drawingsRef = useRef<ChartDrawing[]>([]);
+  const toolRef = useRef<DrawingTool>('none');
+  const pendingRef = useRef<DrawingPoint | null>(null);
+  const primitiveRef = useRef<DrawingsPrimitive | null>(null);
+  const symbolRef = useRef(symbol);
+  symbolRef.current = symbol;
+
+  useEffect(() => {
+    let cancelled = false;
+    setDrawings([]);
+    setDrawErr(null);
+    pendingRef.current = null;
+    void trpc.drawings.list
+      .query({ symbol })
+      .then((rows) => {
+        if (!cancelled) setDrawings(rows as ChartDrawing[]);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setDrawErr(e instanceof Error ? e.message : String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol]);
+
+  useEffect(() => {
+    drawingsRef.current = drawings;
+    primitiveRef.current?.setDrawings(drawings);
+  }, [drawings]);
+
+  const selectTool = (next: DrawingTool) => {
+    const value = toolRef.current === next ? 'none' : next;
+    toolRef.current = value;
+    pendingRef.current = null;
+    primitiveRef.current?.setPreview(null);
+    setTool(value);
+  };
+
+  // Esc bricht das aktive Werkzeug bzw. den halben Zug ab.
+  useEffect(() => {
+    if (tool === 'none') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      toolRef.current = 'none';
+      pendingRef.current = null;
+      primitiveRef.current?.setPreview(null);
+      setTool('none');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [tool]);
+
+  const drawFail = (e: unknown) => setDrawErr(e instanceof Error ? e.message : String(e));
+
+  const createDrawing = (kind: ChartDrawing['kind'], points: DrawingPoint[]) => {
+    const forSymbol = symbolRef.current;
+    void trpc.drawings.create
+      .mutate({ symbol: forSymbol, kind, points })
+      .then((row) => {
+        if (symbolRef.current !== forSymbol) return;
+        setDrawErr(null);
+        setDrawings((prev) => [...prev, row as ChartDrawing]);
+      })
+      .catch(drawFail);
+  };
+
+  const deleteDrawing = (id: string) => {
+    void trpc.drawings.delete
+      .mutate({ id })
+      .then(() => {
+        setDrawErr(null);
+        setDrawings((prev) => prev.filter((d) => d.id !== id));
+      })
+      .catch(drawFail);
+  };
+
+  const clearDrawings = () => {
+    if (drawings.length === 0) return;
+    if (!window.confirm(t('chart.draw.clearConfirm', { count: drawings.length, symbol }))) return;
+    const forSymbol = symbol;
+    void trpc.drawings.clear
+      .mutate({ symbol: forSymbol })
+      .then(() => {
+        if (symbolRef.current !== forSymbol) return;
+        setDrawErr(null);
+        setDrawings([]);
+      })
+      .catch(drawFail);
+  };
+
+  // Klick-Handler des Charts über Ref (der Chart-Aufbau-Effekt hängt nicht davon ab).
+  const handleChartClickRef = useRef<(p: { x: number; y: number }, point: DrawingPoint | null) => void>(() => undefined);
+  handleChartClickRef.current = (px, point) => {
+    const current = toolRef.current;
+    if (current === 'none') return;
+    if (current === 'delete') {
+      const id = primitiveRef.current ? pickDrawing(primitiveRef.current.shapes(), px, 6) : null;
+      if (id) deleteDrawing(id);
+      return;
+    }
+    if (!point) return;
+    const res = applyDrawingClick(current, pendingRef.current, point);
+    pendingRef.current = res.pending;
+    primitiveRef.current?.setPreview(res.pending ? { kind: current, points: [res.pending] } : null);
+    if (res.create) createDrawing(res.create.kind, res.create.points);
   };
 
   // Pine-/DSL-Strategien für die Strategie-Marker (einmal laden; 'error' = ehrlich).
@@ -449,6 +565,37 @@ export function AssetChart({
     });
     candle.setData(data.candles as never);
 
+    // Zeichnungen (Plan §5): Primitive an die Kerzenserie hängen; sie rechnet
+    // Zeit/Preis-Anker bei jedem Neuzeichnen in Pixel um.
+    const barTimes = data.candles.map((c) => c.time as number);
+    const drawPrim = new DrawingsPrimitive();
+    drawPrim.setTimes(barTimes);
+    drawPrim.setDrawings(drawingsRef.current);
+    candle.attachPrimitive(drawPrim);
+    primitiveRef.current = drawPrim;
+    pendingRef.current = null;
+    cleanups.push(() => {
+      if (primitiveRef.current === drawPrim) primitiveRef.current = null;
+    });
+    const chartPointAt = (pt: { x: number; y: number }): DrawingPoint | null =>
+      pointFromChart(barTimes, price.timeScale().coordinateToLogical(pt.x), candle.coordinateToPrice(pt.y));
+    const onDrawClick = (param: Parameters<Parameters<typeof price.subscribeClick>[0]>[0]) => {
+      if (!param.point) return;
+      handleChartClickRef.current(param.point, chartPointAt(param.point));
+    };
+    price.subscribeClick(onDrawClick);
+    cleanups.push(() => price.unsubscribeClick(onDrawClick));
+    // Vorschau des zweiten Ankers (Trend/Fibonacci) unter dem Fadenkreuz
+    const onDrawMove = (param: Parameters<Parameters<typeof price.subscribeCrosshairMove>[0]>[0]) => {
+      const current = toolRef.current;
+      const start = pendingRef.current;
+      if (!start || (current !== 'trend' && current !== 'fib') || !param.point) return;
+      const p = chartPointAt(param.point);
+      drawPrim.setPreview({ kind: current, points: p ? [start, p] : [start] });
+    };
+    price.subscribeCrosshairMove(onDrawMove);
+    cleanups.push(() => price.unsubscribeCrosshairMove(onDrawMove));
+
     // Live: echte SSE-Ticks bewegen die letzte Kerze (wie TradingView) —
     // nur für Symbole im Live-Feed; ohne Ticks bleibt der geladene Stand.
     let lastBar = data.candles[data.candles.length - 1] as Bar | undefined;
@@ -462,6 +609,12 @@ export function AssetChart({
           if (!next) return;
           lastBar = next;
           candle.update(next as never);
+          // Neue Live-Kerze → Zeitachse der Zeichnungen mitführen
+          const nt = next.time as number;
+          if (nt > barTimes[barTimes.length - 1]!) {
+            barTimes.push(nt);
+            drawPrim.setTimes(barTimes);
+          }
         }),
       );
     }
@@ -740,6 +893,22 @@ export function AssetChart({
     </button>
   );
 
+  const toolChip = (key: Exclude<DrawingTool, 'none'>, label: string) => (
+    <button
+      key={key}
+      onClick={() => selectTool(key)}
+      aria-pressed={tool === key}
+      className="rounded border px-2 py-0.5 text-[11px] transition-colors"
+      style={{
+        borderColor: tool === key ? 'rgba(79,209,255,0.5)' : 'var(--color-line)',
+        color: tool === key ? 'var(--color-cyan)' : 'var(--color-mut)',
+        background: tool === key ? 'rgba(79,209,255,0.08)' : 'transparent',
+      }}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -786,7 +955,37 @@ export function AssetChart({
           ⚙ {t('chart.ind.button')}
           {activeCustomCount > 0 ? <span className="num"> ({activeCustomCount})</span> : null}
         </button>
+        <span className="mx-1 h-4 w-px" style={{ background: 'var(--color-line)' }} />
+        {/* Zeichenwerkzeuge (Plan §5) — gleicher Chip-Stil wie die Indikator-Schalter */}
+        <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t('chart.draw.title')}>
+          <span className="label mr-0.5">{t('chart.draw.title')}</span>
+          {toolChip('hline', `― ${t('chart.draw.hline')}`)}
+          {toolChip('trend', `╱ ${t('chart.draw.trend')}`)}
+          {toolChip('fib', `≡ ${t('chart.draw.fib')}`)}
+          {toolChip('delete', `✕ ${t('chart.draw.delete')}`)}
+          <button
+            onClick={clearDrawings}
+            disabled={drawings.length === 0}
+            className="rounded border px-2 py-0.5 text-[11px] transition-colors disabled:opacity-40"
+            style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
+            title={t('chart.draw.count', { count: drawings.length })}
+          >
+            {t('chart.draw.clear')}
+            {drawings.length > 0 ? <span className="num"> ({drawings.length})</span> : null}
+          </button>
+        </div>
       </div>
+
+      {tool !== 'none' && (
+        <p className="label mb-1.5 px-2" style={{ color: 'var(--color-cyan)' }}>
+          {tool === 'hline' ? t('chart.draw.hintHline') : tool === 'delete' ? t('chart.draw.hintDelete') : t('chart.draw.hintTwo')}
+        </p>
+      )}
+      {drawErr && (
+        <p className="label mb-1.5 px-2" style={{ color: 'var(--color-warn)' }}>
+          {t('chart.draw.error', { msg: drawErr })}
+        </p>
+      )}
 
       {showIndPanel && (
         <div className="mb-2">
