@@ -3,6 +3,7 @@ import { Redis } from 'ioredis';
 import { requireEnv, type Db } from '@gladiator/db';
 import { demoBookSource, monitorDemoTick, monitorOpenPositions, reconcile, type TradingVenue } from '@gladiator/exchange';
 import { failStuckSwapOrders, runSwapOrders } from './swap-orders.js';
+import { runWalletCopy } from './wallet-copy.js';
 import { fredConfigured, syncDerivatives, syncFredWatch, syncEconomicCalendar, syncFredSeries, syncMacroSeries, syncNews } from '@gladiator/market-data';
 import { runNightPipeline } from './briefing.js';
 import { runSignalScan } from './signal-scan.js';
@@ -447,6 +448,14 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
         for (const e of so.errors) console.warn('[swap-orders]', e);
       } catch (err) {
         console.warn('[swap-orders] Tick fehlgeschlagen:', String(err));
+      }
+      // Beobachtete Wallets + Copy-Trading (Paper) — fehlerisoliert.
+      try {
+        const wc = await runWalletCopy(db);
+        if (wc.detected > 0) console.log(`[wallet-copy] Wallets=${wc.checked} erkannt=${wc.detected} kopiert=${wc.copied} übersprungen=${wc.skipped} fehlgeschlagen=${wc.failed}`);
+        for (const e of wc.errors) console.warn('[wallet-copy]', e);
+      } catch (err) {
+        console.warn('[wallet-copy] Tick fehlgeschlagen:', String(err));
       }
       lastHeartbeat = new Date();
       // Heartbeat auch nach Redis — sichtbar für den getrennten Web-Prozess (/health).

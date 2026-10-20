@@ -142,3 +142,60 @@ export const swapOrders = pgTable(
     check('swap_orders_status_check', sql`${t.status} IN ('open', 'executing', 'filled', 'failed', 'cancelled')`),
   ],
 );
+
+/**
+ * Beobachtete Wallets + Copy-Trading (Vision-Punkt 5, „wie Trojan“): fremde
+ * Solana-Wallets, deren Swaps direkt von der Kette gelesen werden (ohne
+ * Schlüssel). Copy-Modus `paper` kauft jeden erkannten Kauf mit festem Betrag
+ * in einer Paper-Swap-Wallet nach und verkauft den ganzen Bestand, wenn die
+ * beobachtete Wallet verkauft. Echtes Copy-Trading gibt es bewusst nicht.
+ */
+export const watchedWallets = pgTable(
+  'watched_wallets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    chain: text('chain').notNull().default('solana'),
+    address: text('address').notNull(),
+    label: text('label').notNull(),
+    /** Neueste bereits verarbeitete Signatur — nichts wird doppelt kopiert. */
+    lastSignature: text('last_signature'),
+    copyMode: text('copy_mode').$type<'off' | 'paper'>().notNull().default('off'),
+    copyWalletId: uuid('copy_wallet_id').references(() => swapWallets.id, { onDelete: 'set null' }),
+    /** Betrag je Kopie in nativer Währung (Dezimal-String, z. B. „0.1“ SOL). */
+    copyAmount: text('copy_amount'),
+    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('watched_wallets_user_addr_uq').on(t.userId, t.chain, t.address),
+    check('watched_wallets_copy_check', sql`${t.copyMode} IN ('off', 'paper')`),
+  ],
+);
+
+/** Erkannte Swaps beobachteter Wallets (+ was die Kopie daraus gemacht hat). */
+export const watchedWalletSwaps = pgTable(
+  'watched_wallet_swaps',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    watchedId: uuid('watched_id')
+      .notNull()
+      .references(() => watchedWallets.id, { onDelete: 'cascade' }),
+    signature: text('signature').notNull(),
+    side: text('side').$type<'buy' | 'sell'>().notNull(),
+    token: text('token').notNull(),
+    tokenAtomic: numeric('token_atomic').notNull(),
+    tokenDecimals: integer('token_decimals').notNull(),
+    solLamports: numeric('sol_lamports'),
+    counterToken: text('counter_token'),
+    txTime: timestamp('tx_time', { withTimezone: true }),
+    copyStatus: text('copy_status').$type<'none' | 'filled' | 'skipped' | 'failed'>().notNull().default('none'),
+    copyTradeId: uuid('copy_trade_id'),
+    copyNote: text('copy_note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('watched_wallet_swaps_sig_uq').on(t.watchedId, t.signature), index('watched_wallet_swaps_created_idx').on(t.watchedId, t.createdAt)],
+);

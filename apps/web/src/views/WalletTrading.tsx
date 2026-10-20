@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { TokenChart } from '../components/TokenChart.js';
+import { WatchedWallets } from '../components/WatchedWallets.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
 import { bpsLabel, fmtAmount, fmtPct, fmtUsd, slippageChoices, swapReasonKey } from '../lib/swap-format.js';
@@ -99,6 +100,11 @@ export function WalletTrading() {
           )}
 
           {wallet && <WalletView key={wallet.id} config={config} wallet={wallet} onWalletChanged={loadWallets} />}
+
+          <WatchedWallets
+            paperWallets={wallets.filter((w) => w.chain === 'solana' && w.mode === 'paper').map((w) => ({ id: w.id, label: w.label }))}
+            onCopied={() => void loadWallets()}
+          />
 
           <LiveWalletPanel
             config={config}

@@ -7,3 +7,4 @@ export * from './solana-tx.js';
 export * from './live.js';
 export * from './token-safety.js';
 export * from './token-candles.js';
+export * from './wallet-activity.js';
