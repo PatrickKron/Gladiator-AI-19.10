@@ -4,16 +4,17 @@
  * historisches Funding, Trailing-Stop und Persistenz der Herkunft.
  * Eigene Test-Symbole, Aufräumen im afterAll.
  */
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, schema, type Db } from '@gladiator/db';
 import type pg from 'pg';
+import { SMC_CORE_DEFAULTS } from '@gladiator/strategy-engine';
 import { runLabWalkForward } from './lab.js';
 
 const hasDb = Boolean(process.env.DATABASE_URL);
 if (!hasDb) console.warn('[lab-walkforward.test] DATABASE_URL nicht gesetzt — übersprungen (Server-CI maßgeblich).');
 
-const { ohlcv, fundingRates, walkforwardRuns } = schema;
+const { ohlcv, fundingRates, walkforwardRuns, strategies, strategyVersions } = schema;
 const RUN = `${process.pid}${Date.now()}`.slice(-10);
 const SYMBOL = `LWF${RUN}/USDT`;
 const GAPPY = `LWFG${RUN}/USDT`;
@@ -50,6 +51,19 @@ describe.skipIf(!hasDb)('runLabWalkForward — gleiche Ehrlichkeit wie der Backt
 
   beforeAll(async () => {
     ({ db, pool } = createDb());
+    // SMC Core wie in Produktion registrieren (idempotent, wie ensureSmcCoreStrategy im Scan) —
+    // eine frische CI-DB hat noch keinen Scan-Lauf hinter sich. Bleibt stehen: kanonische Builtin-Zeile.
+    await db
+      .insert(strategies)
+      .values({ slug: 'smc-core', name: 'SMC Core (Pine-Referenz)', kind: 'builtin' })
+      .onConflictDoNothing({ target: strategies.slug });
+    const [smc] = await db.select().from(strategies).where(eq(strategies.slug, 'smc-core')).limit(1);
+    const [v1] = await db
+      .select()
+      .from(strategyVersions)
+      .where(and(eq(strategyVersions.strategyId, smc!.id), eq(strategyVersions.version, 1)))
+      .limit(1);
+    if (!v1) await db.insert(strategyVersions).values({ strategyId: smc!.id, version: 1, params: SMC_CORE_DEFAULTS, status: 'paper' }).onConflictDoNothing();
     const rows = [...waveRows(SYMBOL), ...waveRows(GAPPY, (k) => k % 10 === 3)]; // GAPPY: 10 % Lücken
     for (let k = 0; k < rows.length; k += 500) await db.insert(ohlcv).values(rows.slice(k, k + 500));
     // Vollständige Funding-Historie (Snapshot je 8h-Settlement) → „historisch"
