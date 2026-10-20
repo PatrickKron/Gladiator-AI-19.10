@@ -1010,9 +1010,6 @@ export const it: Catalog = {
     csvLine2: 'PnL netto $: {{pnl}} · Rendimento netto %: {{ret}} · Drawdown massimo %: {{dd}}',
     csvLine3: 'Win rate %: {{wr}} · Profit factor: {{pf}} · Expectancy R: {{exp}}',
     csvLine4: 'Sharpe: {{sharpe}} · Sortino: {{sortino}} · Trade: {{n}}',
-    csvEntryTime: 'Ora di entrata',
-    csvDirection: 'Direzione',
-    csvExitTime: 'Ora di uscita',
     proposals: {
       title: 'Proposte di ottimizzazione · walk-forward netto · decidi tu',
       scopeOpen: 'Aperte',

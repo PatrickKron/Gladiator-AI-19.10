@@ -75,8 +75,8 @@
 - [x] Chart: Zeichenwerkzeuge (Horizontale, Trendlinie, Fibonacci, Löschen/Alle löschen; DB `chart_drawings`, Migration 0021, API `drawings.*`, pro Nutzer + Symbol, TF-unabhängig).
 - [ ] Chart: Upgrade lightweight-charts v5, Jesse-artige Trade-Ansicht; Zeichnungen per Ziehen verschieben (API `drawings.update` steht bereit).
 
-- [ ] `apps/web/src/views/Labor.tsx`: Binnentexte auf i18n (5 Sprachen, Paritätstest) und lokale Chart-Kopien auf `components/EquityChart.tsx` umstellen.
-- [ ] Workshop-Antworten streamen (SSE statt Ein-Turn-Antwort).
+- [x] Labor + Optimierungs-Vorschläge vollständig in 5 Sprachen (144 Schlüssel, Session 12); Chart-Komponenten waren bereits geteilt. CSV-Spaltennamen bewusst fest (Importe).
+- [x] Workshop-Antworten streamen (Session 12): `POST /api/workshop/:id/chat-stream` (SSE), Antwort erscheint live.
 - [x] Command-Palette/Navigation: Funktions-Registry `apps/web/src/lib/navigation.ts` (Session 9).
 - [x] MacroPanels: COT-Slot nutzt bereits `intelligence.cotSnapshot` (`getCotSnapshot`) — erledigt (geprüft Session 12).
 - [ ] On-Chain-Quelle (DNA-Quadrant) — bleibt ehrlich „nicht verbunden", bis es eine freie, zuverlässige Quelle gibt.

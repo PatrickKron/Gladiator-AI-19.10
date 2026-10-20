@@ -369,19 +369,8 @@ export function Labor() {
       `# ${t('labor.csvLine3', { wr: pct(m.winRate), pf: s(m.profitFactor), exp: s(m.expectancy) })}`,
       `# ${t('labor.csvLine4', { sharpe: s(m.sharpe), sortino: s(m.sortino), n: s(m.tradeCount) })}`,
     ];
-    const header = [
-      '#',
-      t('labor.csvEntryTime'),
-      t('labor.csvDirection'),
-      t('labor.symbol'),
-      'TF',
-      'R',
-      t('labor.netUsd'),
-      'MFE R',
-      'MAE R',
-      t('labor.costsUsd'),
-      t('labor.csvExitTime'),
-    ];
+    // Spaltennamen bewusst sprachunabhängig fest: CSV-Importe in andere Werkzeuge dürfen nicht brechen.
+    const header = ['#', 'Entry-Zeit', 'Direction', 'Symbol', 'TF', 'R', 'Netto $', 'MFE R', 'MAE R', 'Kosten $', 'Exit-Zeit'];
     const lines = tradeRows.map(({ t: tr, i }) =>
       [
         i + 1,

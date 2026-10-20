@@ -1009,9 +1009,6 @@ export const de = {
     csvLine2: 'Netto-PnL $: {{pnl}} · Netto-Return %: {{ret}} · Max-Drawdown %: {{dd}}',
     csvLine3: 'WinRate %: {{wr}} · Profit-Factor: {{pf}} · Expectancy R: {{exp}}',
     csvLine4: 'Sharpe: {{sharpe}} · Sortino: {{sortino}} · Trades: {{n}}',
-    csvEntryTime: 'Entry-Zeit',
-    csvDirection: 'Direction',
-    csvExitTime: 'Exit-Zeit',
     proposals: {
       title: 'Optimierungs-Vorschläge · Walk-Forward netto · du entscheidest',
       scopeOpen: 'Offen',
