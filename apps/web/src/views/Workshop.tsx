@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { trpc } from '../api.js';
+import { streamWorkshopChat, trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
 import { COMPARE_COLORS, EquityChart, MetricCard, MultiEquityChart, fmt } from '../components/EquityChart.js';
 import { CHART_TFS } from '../lib/chart-url.js';
@@ -698,6 +698,8 @@ function ChatPanel({ session, messages, onChanged }: { session: SessionDetail['s
   const [applyBusy, setApplyBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exchangeHints, setExchangeHints] = useState<{ id: string; name: string }[]>([]);
+  /** Laufende Antwort (Streaming): Nutzer-Nachricht + bisher eingetroffener Coach-Text. */
+  const [live, setLive] = useState<{ user: string; reply: string } | null>(null);
 
   async function send() {
     const message = input.trim();
@@ -705,14 +707,19 @@ function ChatPanel({ session, messages, onChanged }: { session: SessionDetail['s
     setBusy(true);
     setError(null);
     try {
-      const res = await trpc.workshop.chat.mutate({ id: session.id, message });
+      setLive({ user: message, reply: '' });
       setInput('');
+      const res = await streamWorkshopChat(session.id, message, (text) =>
+        setLive((l) => (l ? { ...l, reply: l.reply + text } : l)),
+      );
       setExchangeHints(res.exchangeHints);
       if (res.dslErrors.length > 0) setError(`${t('sw.proposalInvalid')}: ${res.dslErrors.join(' · ')}`);
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.error'));
+      setInput(message); // nichts verlieren, wenn der Turn scheitert
     } finally {
+      setLive(null);
       setBusy(false);
     }
   }
@@ -757,7 +764,23 @@ function ChatPanel({ session, messages, onChanged }: { session: SessionDetail['s
             )}
           </div>
         ))}
-        {busy && <p className="label animate-pulse self-start">{t('sw.coachThinking')}</p>}
+        {live && (
+          <>
+            <div className="max-w-[85%] self-end">
+              <div className="rounded-[0.875rem] border px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap" style={{ borderColor: 'rgba(79,209,255,0.35)', background: 'rgba(46,124,246,0.12)' }}>
+                {live.user}
+              </div>
+            </div>
+            {live.reply && (
+              <div className="max-w-[85%] self-start">
+                <div className="rounded-[0.875rem] border px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap" style={{ borderColor: 'rgba(139,92,246,0.35)', background: 'rgba(139,92,246,0.08)' }}>
+                  {live.reply}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+        {busy && !live?.reply && <p className="label animate-pulse self-start">{t('sw.coachThinking')}</p>}
       </div>
       {error && (
         <div className="mt-3">

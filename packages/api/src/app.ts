@@ -6,6 +6,7 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { sql } from 'drizzle-orm';
+import { workshopChatStreamHandler } from './workshop/chat-stream.js';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import type { Db } from '@gladiator/db';
 import type { LivePriceFeed, Ticker } from '@gladiator/market-data';
@@ -175,6 +176,14 @@ export function createApp(db: Db, opts: AppOptions = {}): express.Express {
     rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: true, legacyHeaders: false }),
     express.raw({ type: '*/*', limit: '64kb' }),
     pineWebhookHandler(db),
+  );
+
+  /** Workshop-Dialog als Stream (SSE über POST); gleiche Logik wie workshop.chat. */
+  app.post(
+    '/api/workshop/:id/chat-stream',
+    rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: true, legacyHeaders: false }),
+    express.json({ limit: '32kb' }),
+    workshopChatStreamHandler(db),
   );
 
   app.use(

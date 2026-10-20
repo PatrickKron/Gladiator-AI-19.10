@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { guardedComplete, type CostGuard, type LlmProvider } from '@gladiator/agents';
+import { guardedComplete, guardedStream, type CostGuard, type LlmProvider } from '@gladiator/agents';
 import { DSL_LIMITS_DOC, DSL_SCHEMA_DOC, parseInstructionDsl, type InstructionDsl } from '@gladiator/strategy-engine';
 
 /**
@@ -215,5 +215,17 @@ export async function runChatTurn(
 ): Promise<ChatReply & { costUsd: number }> {
   const { system, prompt } = buildChatMessages(ctx);
   const res = await guardedComplete(provider, guard, { system, prompt, maxTokens: 2048 });
+  return { ...parseChatReply(res.text), costUsd: res.costUsd };
+}
+
+/** Wie runChatTurn, aber die Antwort kommt als Text-Deltas (Workshop-Streaming). */
+export async function runChatTurnStreaming(
+  provider: LlmProvider,
+  guard: CostGuard,
+  ctx: WorkshopChatContext,
+  onText: (delta: string) => void,
+): Promise<ChatReply & { costUsd: number }> {
+  const { system, prompt } = buildChatMessages(ctx);
+  const res = await guardedStream(provider, guard, { system, prompt, maxTokens: 2048 }, onText);
   return { ...parseChatReply(res.text), costUsd: res.costUsd };
 }

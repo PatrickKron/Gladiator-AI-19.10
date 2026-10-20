@@ -3,13 +3,13 @@ import { and, asc, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
-import { CostGuard, envAnthropicProvider } from '@gladiator/agents';
+import { envAnthropicProvider } from '@gladiator/agents';
 import { parseInstructionDsl, evaluateDslAt, type InstructionDsl } from '@gladiator/strategy-engine';
 import { DEFAULT_COSTS, runBacktest, type CostModel } from '@gladiator/backtest';
 import { getOhlcv, BARS_PER_YEAR, SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
-import { detectExchangeMentions, listConnections, listSupportedExchanges } from '@gladiator/exchange';
 import { protectedProcedure, router } from '../trpc.js';
-import { analyzePine, runChatTurn } from '../workshop/llm.js';
+import { analyzePine } from '../workshop/llm.js';
+import { performWorkshopChat, WorkshopNotFoundError, workshopLlmGuard } from '../workshop/chat-service.js';
 
 const { workshopSessions, workshopMessages, workshopBacktests, strategies, strategyVersions, auditLog } = schema;
 
@@ -26,7 +26,6 @@ const { workshopSessions, workshopMessages, workshopBacktests, strategies, strat
  * UND expliziter Übernahme (applyProposal/updateDraft) zum Entwurf.
  */
 
-const llmGuard = new CostGuard({ dailyBudgetUsd: Number(process.env.LLM_DAILY_BUDGET_USD ?? 5) });
 
 const timeframeSchema = z.enum(SUPPORTED_TIMEFRAMES);
 
@@ -179,7 +178,7 @@ export const workshopRouter = router({
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Kein Pine-Script in der Sitzung — erst einfügen.' });
     }
     const provider = requireLlm();
-    const result = await analyzePine(provider, llmGuard, session.pineSource);
+    const result = await analyzePine(provider, workshopLlmGuard, session.pineSource);
     if (!result.ok) {
       // Ehrlich zurückgeben (kein Throw): UI zeigt die Fehler, Nutzer kann erneut analysieren.
       return { ok: false as const, errors: result.errors, raw: result.raw, costUsd: result.costUsd ?? null };
@@ -220,59 +219,16 @@ export const workshopRouter = router({
   chat: protectedProcedure
     .input(z.object({ id: z.string().uuid(), message: z.string().min(1).max(8000) }))
     .mutation(async ({ ctx, input }) => {
-      const session = await ownedSession(ctx.db, ctx.user.id, input.id);
       const provider = requireLlm();
-
-      const history = await ctx.db
-        .select({ role: workshopMessages.role, content: workshopMessages.content })
-        .from(workshopMessages)
-        .where(eq(workshopMessages.sessionId, session.id))
-        .orderBy(asc(workshopMessages.createdAt));
-
-      await ctx.db.insert(workshopMessages).values({ sessionId: session.id, role: 'user', content: input.message });
-
-      let reply;
       try {
-        reply = await runChatTurn(provider, llmGuard, {
-          pineSource: session.pineSource,
-          analysis: session.analysis,
-          draftDsl: session.draftDsl,
-          instructions: session.instructions,
-          history,
-          userMessage: input.message,
-        });
+        return await performWorkshopChat(ctx.db, ctx.user.id, input.id, input.message, provider);
       } catch (err) {
+        if (err instanceof WorkshopNotFoundError) throw new TRPCError({ code: 'NOT_FOUND', message: err.message });
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: err instanceof Error ? err.message : 'LLM-Dialog fehlgeschlagen.',
         });
       }
-
-      const [assistantMsg] = await ctx.db
-        .insert(workshopMessages)
-        .values({
-          sessionId: session.id,
-          role: 'assistant',
-          content: reply.content,
-          proposedDsl: reply.proposedDsl,
-          costUsd: String(reply.costUsd),
-        })
-        .returning();
-      await ctx.db.update(workshopSessions).set({ updatedAt: new Date() }).where(eq(workshopSessions.id, session.id));
-
-      // Börsen-Erkennung: erwähnte, noch nicht verbundene Börsen als Hinweis (nie Auto-Aktion)
-      const mentioned = detectExchangeMentions(input.message, listSupportedExchanges());
-      const connectedIds = new Set((await listConnections(ctx.db, ctx.user.id)).map((c) => c.exchangeId));
-      const exchangeHints = mentioned.filter((m) => !connectedIds.has(m.id));
-
-      return {
-        messageId: assistantMsg!.id,
-        exchangeHints,
-        content: reply.content,
-        proposedDsl: reply.proposedDsl,
-        dslErrors: reply.dslErrors,
-        costUsd: reply.costUsd,
-      };
     }),
 
   /** Vorschlag aus einer Coach-Nachricht als Entwurf übernehmen (explizit, Mensch im Loop). */

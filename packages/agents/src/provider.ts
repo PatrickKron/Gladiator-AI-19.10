@@ -13,10 +13,14 @@ export type LlmUsage = { inputTokens: number; outputTokens: number };
 
 export type LlmCompletion = { text: string; usage: LlmUsage; costUsd: number };
 
+export type LlmRequest = { system: string; prompt: string; maxTokens?: number };
+
 export interface LlmProvider {
   readonly id: string;
   readonly configured: boolean;
-  complete(opts: { system: string; prompt: string; maxTokens?: number }): Promise<LlmCompletion>;
+  complete(opts: LlmRequest): Promise<LlmCompletion>;
+  /** Optional: Antwort als Text-Deltas (z. B. Workshop-Dialog), Ergebnis wie complete(). */
+  stream?(opts: LlmRequest, onText: (delta: string) => void): Promise<LlmCompletion>;
 }
 
 /** Preise Claude Opus 4.8 (USD je Token): $5/MTok Input, $25/MTok Output. */
@@ -36,7 +40,7 @@ export class AnthropicProvider implements LlmProvider {
     return this.client !== null;
   }
 
-  async complete(opts: { system: string; prompt: string; maxTokens?: number }): Promise<LlmCompletion> {
+  async complete(opts: LlmRequest): Promise<LlmCompletion> {
     if (!this.client) throw new Error('Anthropic-Provider nicht konfiguriert (ANTHROPIC_API_KEY fehlt).');
     const response = await this.client.messages.create({
       model: MODEL,
@@ -45,20 +49,40 @@ export class AnthropicProvider implements LlmProvider {
       system: opts.system,
       messages: [{ role: 'user', content: opts.prompt }],
     });
-    const text = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map((b) => b.text)
-      .join('\n');
-    const usage: LlmUsage = {
-      inputTokens: response.usage.input_tokens,
-      outputTokens: response.usage.output_tokens,
-    };
-    return {
-      text,
-      usage,
-      costUsd: usage.inputTokens * OPUS_INPUT_USD + usage.outputTokens * OPUS_OUTPUT_USD,
-    };
+    return toCompletion(response);
   }
+
+  /** Streaming (messages.stream): Text-Deltas sofort weiterreichen, Kosten aus der finalen Usage. */
+  async stream(opts: LlmRequest, onText: (delta: string) => void): Promise<LlmCompletion> {
+    if (!this.client) throw new Error('Anthropic-Provider nicht konfiguriert (ANTHROPIC_API_KEY fehlt).');
+    const stream = this.client.messages.stream({
+      model: MODEL,
+      max_tokens: opts.maxTokens ?? 4096,
+      thinking: { type: 'adaptive' },
+      system: opts.system,
+      messages: [{ role: 'user', content: opts.prompt }],
+    });
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') onText(event.delta.text);
+    }
+    return toCompletion(await stream.finalMessage());
+  }
+}
+
+function toCompletion(response: Anthropic.Message): LlmCompletion {
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('\n');
+  const usage: LlmUsage = {
+    inputTokens: response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
+  };
+  return {
+    text,
+    usage,
+    costUsd: usage.inputTokens * OPUS_INPUT_USD + usage.outputTokens * OPUS_OUTPUT_USD,
+  };
 }
 
 /** Tagesbudget-Wächter (UTC). In-Memory je Prozess; jede Buchung wird zusätzlich auditiert (Aufrufer). */
@@ -112,6 +136,33 @@ export async function guardedComplete(
     );
   }
   const result = await provider.complete(opts);
+  guard.record(result.costUsd, now);
+  return result;
+}
+
+/**
+ * Wie guardedComplete, aber mit Text-Deltas. Provider ohne Streaming fallen
+ * ehrlich auf complete() zurück (der ganze Text kommt dann als ein Delta).
+ */
+export async function guardedStream(
+  provider: LlmProvider,
+  guard: CostGuard,
+  opts: LlmRequest,
+  onText: (delta: string) => void,
+  now: Date = new Date(),
+): Promise<LlmCompletion> {
+  if (!guard.allow(now)) {
+    throw new Error(
+      `LLM-Tagesbudget erschöpft (${guard.spentUsd(now).toFixed(2)} / ${guard.budgetUsd.toFixed(2)} USD) — Aufruf blockiert.`,
+    );
+  }
+  let result: LlmCompletion;
+  if (provider.stream) {
+    result = await provider.stream(opts, onText);
+  } else {
+    result = await provider.complete(opts);
+    if (result.text) onText(result.text);
+  }
   guard.record(result.costUsd, now);
   return result;
 }
