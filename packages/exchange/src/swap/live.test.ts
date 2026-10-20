@@ -231,7 +231,8 @@ describe('echte Daten: Aggregatoren bauen für eine leere Wallet (nichts wird ge
   it('On-chain-Bestände lesen (Solana + Base)', async () => {
     const sol = await fetchOnchainBalances('solana', '11111111111111111111111111111111', [USDC_SOL]);
     expect(typeof sol.get(SWAP_CHAINS.solana.native.address)).toBe('bigint');
-    expect(sol.get(USDC_SOL)).toBe(0n);
+    // (an das System-Programm wurden tatsächlich schon USDC geschickt — nur Typ/Vorzeichen prüfen)
+    expect(sol.get(USDC_SOL)! >= 0n).toBe(true);
     const b = await fetchOnchainBalances('base', '0x000000000000000000000000000000000000dEaD', [USDC_BASE]);
     expect(b.get(EVM_NATIVE)! >= 0n).toBe(true);
     expect(typeof b.get(USDC_BASE)).toBe('bigint');

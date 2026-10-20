@@ -1,4 +1,4 @@
-import { asc, desc, eq, notExists, and } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, notExists } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import {
@@ -113,7 +113,8 @@ export async function buildDevilEvidence(db: Db, facts: SignalFacts): Promise<De
 
 export type ReviewResult = { reviewed: number; skipped: number; errors: string[] };
 
-export async function reviewNewSignals(db: Db, venue: TradingVenue): Promise<ReviewResult> {
+/** `opts.signalIds`: nur diese Signale prüfen (Tests — parallel angelegte Signale anderer Testdateien stören sonst). */
+export async function reviewNewSignals(db: Db, venue: TradingVenue, opts: { signalIds?: string[] } = {}): Promise<ReviewResult> {
   const result: ReviewResult = { reviewed: 0, skipped: 0, errors: [] };
 
   // Ein User-Typ (Patrick): ältester Account ist der Kontext für die Risk-Vorschau.
@@ -130,6 +131,7 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue): Promise<Rev
       and(
         eq(signals.status, 'new'),
         notExists(db.select().from(signalReviews).where(eq(signalReviews.signalId, signals.id))),
+        opts.signalIds ? inArray(signals.id, opts.signalIds) : undefined,
       ),
     )
     .orderBy(desc(signals.createdAt))
