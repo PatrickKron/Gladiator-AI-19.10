@@ -8,3 +8,6 @@ dist/
 packages/db/seed/data/
 .DS_Store
 *.tsbuildinfo
+
+# Arbeitskopien von Hintergrund-Agenten (Claude Code)
+.claude/worktrees/
