@@ -251,7 +251,8 @@ export const de = {
     qty: 'Menge',
     total: 'Summe',
     mid: 'Mitte',
-    source: 'Binance, Stand {{time}} · aktualisiert alle 3 s',
+    source: 'Binance per REST, Stand {{time}} · Live-Stream verbindet oder ist nicht verfügbar',
+    sourceLive: 'Binance Live-Stream, Stand {{time}}',
     stale: 'letzte Aktualisierung fehlgeschlagen',
   },
   ia: {

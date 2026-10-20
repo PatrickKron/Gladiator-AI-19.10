@@ -5,7 +5,8 @@ import { NotConnected, Panel, fmtNum } from './ui.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 
 /**
- * Orderbuch (Chart-Seite): echtes Binance-Buch, alle 3 s neu, optional gebündelt.
+ * Orderbuch (Chart-Seite): echtes Binance-Buch (serverseitig per Websocket-Stream
+ * warm gehalten, sonst REST), jede Sekunde abgefragt, optional gebündelt.
  * Tiefenbalken = kumulierte Menge. Nicht erreichbar ⇒ „nicht verbunden", nie erfunden.
  */
 type Book = Awaited<ReturnType<typeof trpc.market.orderBook.query>>;
@@ -58,7 +59,7 @@ export function OrderBookPanel({ symbol }: { symbol: string }) {
           if (!cancelled) setError(err instanceof Error ? err.message : t('common.error'));
         });
     void load();
-    const timer = setVisibleInterval(() => void load(), 3_000);
+    const timer = setVisibleInterval(() => void load(), 1_000);
     return () => {
       cancelled = true;
       clearVisibleInterval(timer);
@@ -130,7 +131,7 @@ export function OrderBookPanel({ symbol }: { symbol: string }) {
           </div>
           <div>{book.bids.map((l) => row('bid', l))}</div>
           <p className="mt-2 text-[11px]" style={{ color: 'var(--color-mut)' }}>
-            {t('orderbook.source', { time: new Date(book.ts).toLocaleTimeString() })}
+            {t(book.live ? 'orderbook.sourceLive' : 'orderbook.source', { time: new Date(book.ts).toLocaleTimeString() })}
             {error && <span style={{ color: 'var(--color-warn)' }}> · {t('orderbook.stale')}</span>}
           </p>
         </>
