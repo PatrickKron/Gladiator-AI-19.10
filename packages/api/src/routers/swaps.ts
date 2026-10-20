@@ -23,6 +23,9 @@ import {
   generateWalletKey,
   importWalletKey,
   fetchTokenCandles,
+  fetchTokenDiscovery,
+  DISCOVERY_KINDS,
+  type DiscoveredToken,
   fetchTokenPrices,
   TOKEN_CHART_TIMEFRAMES,
   type TokenCandle,
@@ -69,6 +72,7 @@ export { setSwapFetchForTests, setLiveSwapExecutorForTests } from '@gladiator/jo
 
 const CANDLE_TTL_MS = 60_000;
 const candleCache = new Map<string, { at: number; candles: TokenCandle[] }>();
+const discoveryCache = new Map<string, { at: number; tokens: DiscoveredToken[] }>();
 
 /** SwapError des Dienstes → tRPC-Fehler (gleicher Code, gleiche Meldung). */
 function asTrpc(err: unknown): never {
@@ -541,6 +545,20 @@ export const swapsRouter = router({
         return asTrpc(netError(err));
       }
     }),
+
+  /** Token entdecken: Trend-Pools / neue Pools je Kette (GeckoTerminal), 60 s gecacht. Kein Kaufsignal — Check + Gate im Ticket. */
+  discover: protectedProcedure.input(z.object({ chain: chainSchema, kind: z.enum(DISCOVERY_KINDS) })).query(async ({ input }) => {
+    const key = `${input.chain}:${input.kind}`;
+    const hit = discoveryCache.get(key);
+    if (hit && Date.now() - hit.at < CANDLE_TTL_MS) return hit.tokens;
+    try {
+      const tokens = await fetchTokenDiscovery(input.chain, input.kind, swapNet());
+      discoveryCache.set(key, { at: Date.now(), tokens });
+      return tokens;
+    } catch (err) {
+      return asTrpc(netError(err));
+    }
+  }),
 
   /** Beobachtete Wallets (Copy-Trading, Solana). */
   watched: protectedProcedure.query(async ({ ctx }) => {

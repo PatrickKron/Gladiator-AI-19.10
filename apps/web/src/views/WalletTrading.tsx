@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { TokenChart } from '../components/TokenChart.js';
+import { TokenDiscovery } from '../components/TokenDiscovery.js';
 import { WatchedWallets } from '../components/WatchedWallets.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
@@ -204,6 +205,7 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
   const lang = i18n.language;
 
   const [ordersVersion, setOrdersVersion] = useState(0);
+  const ticketRef = useRef<HTMLDivElement>(null);
 
   const loadPortfolio = useCallback(async () => {
     try {
@@ -290,6 +292,8 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
     <>
     <WalletBar wallet={wallet} explorerTx={chain.explorerTx} chainOk={portfolio?.chainOk ?? null} onChanged={onWalletChanged} />
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+      <div className="space-y-4">
+      <div ref={ticketRef}>
       <Panel label={t('swap.ticket')}>
         <label className="mt-3 block text-xs">
           {t('swap.tokenAddress', { chain: chain.name })}
@@ -445,6 +449,15 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
           />
         )}
       </Panel>
+      </div>
+      <TokenDiscovery
+        chain={wallet.chain}
+        onPick={(a) => {
+          void lookup(a);
+          ticketRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }}
+      />
+      </div>
 
       <div className="space-y-4">
         <Panel label={t('swap.holdings')} stagger={2}>

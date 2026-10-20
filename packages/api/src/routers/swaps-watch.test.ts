@@ -22,9 +22,18 @@ const RUN = `${process.pid}-${Date.now()}`;
 const WHALE = '5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1';
 const LIMITS = { maxTradeUsd: 1_000, maxSlippageBps: 100, maxPriceImpactPct: 3, minLiquidityUsd: 0, maxTokenTaxPct: 3 };
 /** Netz injiziert: Preise (DexScreener) + Nachkommastellen (RPC). */
+let geckoCalls = 0;
 const fakeNet = (async (url: string) => {
   const u = String(url);
   const json = (b: unknown) => new Response(JSON.stringify(b));
+  if (u.includes('geckoterminal')) {
+    geckoCalls++;
+    const bonk = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+    return json({
+      data: [{ attributes: { address: 'PoolBonk', base_token_price_usd: '0.00002', reserve_in_usd: '500000' }, relationships: { base_token: { data: { id: `solana_${bonk}` } } } }],
+      included: [{ id: `solana_${bonk}`, type: 'token', attributes: { address: bonk, symbol: 'Bonk', name: 'Bonk' } }],
+    });
+  }
   if (u.includes('dexscreener')) {
     const addrs = u.split('/').pop()!.split(',');
     return json(addrs.map((a) => ({ chainId: u.includes('/base/') ? 'base' : 'solana', baseToken: { address: a, symbol: 'Bonk' }, priceUsd: '0.00002', liquidity: { usd: 1e6 } })));
@@ -110,5 +119,13 @@ describe.skipIf(!hasDb)('Beobachtete Wallets (API)', () => {
 
     await a.swaps.removeWatched({ id: w!.id });
     expect(await a.swaps.watched()).toEqual([]);
+  });
+
+  it('Token entdecken: echte Felder durchgereicht, 60 s gecacht', async () => {
+    const r = await a.swaps.discover({ chain: 'solana', kind: 'trending' });
+    expect(r).toEqual([expect.objectContaining({ symbol: 'Bonk', pool: 'PoolBonk', priceUsd: 0.00002, liquidityUsd: 500000, volume24hUsd: null })]);
+    const before = geckoCalls;
+    await b.swaps.discover({ chain: 'solana', kind: 'trending' });
+    expect(geckoCalls).toBe(before);
   });
 });
