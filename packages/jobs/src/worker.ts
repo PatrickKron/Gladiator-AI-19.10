@@ -2,10 +2,11 @@ import { Queue, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { requireEnv, type Db } from '@gladiator/db';
 import { binanceBookSource, monitorDemoTick, monitorOpenPositions, reconcile, type TradingVenue } from '@gladiator/exchange';
-import { fredConfigured, syncDerivatives, syncEconomicCalendar, syncFredSeries, syncMacroSeries, syncNews } from '@gladiator/market-data';
+import { fredConfigured, syncDerivatives, syncFredWatch, syncEconomicCalendar, syncFredSeries, syncMacroSeries, syncNews } from '@gladiator/market-data';
 import { runNightPipeline } from './briefing.js';
 import { runSignalScan } from './signal-scan.js';
 import { runDslScan } from './dsl-scan.js';
+import { runSignalLifecycle } from './signal-lifecycle.js';
 import { reviewNewSignals } from './review.js';
 import { checkPriceAlerts } from './alerts.js';
 import { runSubAgents } from './sub-agent-runner.js';
@@ -13,11 +14,15 @@ import { computeAllFeatures, autoLabelSignals, retrainModel } from './ml-pipelin
 import { runRlEpisodes, aggregateRlPerformance, rebalanceRlWeights } from './rl-pipeline.js';
 import { detectAllRegimes, runSelfEvaluation, runModelComparison, createPerformanceSnapshots } from './self-improve-pipeline.js';
 import { snapshotAccountValues } from './portfolio-snapshot.js';
+import { recomputeStudyClusters } from '@gladiator/backtest';
+import { runStrategyOptimization } from './optimization.js';
 
 /**
  * BullMQ-Worker (04_ §2: robuste Jobs statt loser Loops — der v1-Fehler).
  * signal-scan 5 min · position-monitor 1 min · macro-sync 30 min ·
- * calendar-sync 60 min · news-sync 15 min · derivatives-sync 30 min.
+ * calendar-sync 60 min · news-sync 15 min · derivatives-sync 30 min ·
+ * signal-lifecycle 1 min (05_ §9: Auto-Kill, Reentry, Leverage-Upgrade).
+ * strategy-optimize So 03:00 UTC (nur Vorschläge, Mensch promotet).
  */
 
 const QUEUE_NAME = 'gladiator-jobs';
@@ -40,6 +45,9 @@ const SELF_EVAL_JOB = 'self-evaluate';
 const MODEL_COMPARE_JOB = 'model-compare';
 const PERF_SNAPSHOT_JOB = 'perf-snapshot';
 const PORTFOLIO_SNAPSHOT_JOB = 'portfolio-snapshot';
+const SIGNAL_LIFECYCLE_JOB = 'signal-lifecycle';
+const STUDY_CLUSTER_JOB = 'study-clusters';
+const OPTIMIZE_JOB = 'strategy-optimize';
 
 /**
  * Worker-Heartbeat (Phase 7): /health prüft das Alter; der Monitor-Job pingt
@@ -119,10 +127,21 @@ const SCHEDULES: [string, number][] = [
   [RL_EPISODE_JOB, 30 * 60_000],       // RL-Episoden alle 30 min
   [REGIME_JOB, 15 * 60_000],            // Regime-Erkennung alle 15 min
   [PORTFOLIO_SNAPSHOT_JOB, 60 * 60_000], // Vermögens-Snapshot stündlich (Zeitverlauf „Vermögen")
+  [SIGNAL_LIFECYCLE_JOB, 60_000],        // 05_ §9: Auto-Kill/Reentry/Leverage-Upgrade je Minute (echte Preise)
+  // VDB2-Batch (13_ §4) wöchentlich: study_clusters aus study_trades (Labor + Paper) neu rechnen.
+  // Zusatzläufe (Neustart) sind unschädlich: die Hebel-Stufengrenze bezieht sich auf die Vorwoche.
+  [STUDY_CLUSTER_JOB, 7 * 24 * 60 * 60_000],
 ];
 
 /** Nacht-Pipeline: täglich 03:30 UTC (08_ §5) — Cron statt Intervall. */
 const NIGHT_CRON = '30 3 * * *';
+/**
+ * Strategie-Optimierung → Vorschläge (08_ §4/§5): sonntags 03:00 UTC — wöchentlich,
+ * weil sich das Ergebnis eines 1000/250-Bar-Walk-Forwards über einen Tag kaum
+ * ändert (täglich wären es nur Doppel-Vorschläge), und VOR dem Briefing um 03:30,
+ * das offene Vorschläge nennt. Erzeugt NUR Vorschläge, schaltet nichts scharf.
+ */
+const OPTIMIZE_CRON = '0 3 * * 0';
 /** ML-Retraining: wöchentlich sonntags 04:00 UTC — genug Labels sammeln vor Neutraining. */
 const ML_RETRAIN_CRON = '0 4 * * 0';
 /** RL-Performance-Aggregation: täglich 23:55 UTC — Tages-Rollup der Agenten-Metriken. */
@@ -153,6 +172,7 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
     await queue.upsertJobScheduler(name, { every }, { name });
   }
   await queue.upsertJobScheduler(NIGHT_JOB, { pattern: NIGHT_CRON }, { name: NIGHT_JOB });
+  await queue.upsertJobScheduler(OPTIMIZE_JOB, { pattern: OPTIMIZE_CRON }, { name: OPTIMIZE_JOB });
   await queue.upsertJobScheduler(ML_RETRAIN_JOB, { pattern: ML_RETRAIN_CRON }, { name: ML_RETRAIN_JOB });
   await queue.upsertJobScheduler(RL_PERF_JOB, { pattern: RL_PERF_CRON }, { name: RL_PERF_JOB });
   await queue.upsertJobScheduler(RL_REBALANCE_JOB, { pattern: RL_REBALANCE_CRON }, { name: RL_REBALANCE_JOB });
@@ -224,6 +244,16 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           console.log(`[night-pipeline] ${res.day} erstellt=${res.created} versendet=${res.sent}`);
           return res;
         }
+        case OPTIMIZE_JOB: {
+          const res = await runStrategyOptimization(db);
+          console.log(
+            `[strategy-optimize] bewertet=${res.evaluated} Vorschläge=${res.proposals.length} übersprungen=${res.skipped.length} Fehler=${res.errors.length}`,
+          );
+          for (const p of res.proposals) console.log(`[strategy-optimize] Vorschlag für ${p.strategy} v${p.baseVersion} (${p.optimizationId})`);
+          for (const s of res.skipped) console.log(`[strategy-optimize] ${s.target}: ${s.reason}`);
+          for (const e of res.errors) console.warn('[strategy-optimize]', e);
+          return res;
+        }
         case MACRO_JOB: {
           const res = await syncMacroSeries(db);
           console.log(
@@ -235,6 +265,10 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
             const fred = await syncFredSeries(db);
             console.log(`[macro-sync] FRED: ${fred.synced.join(',') || 'nichts'}`);
           }
+          // Daten-Assistent: vom Nutzer hinzugefügte FRED-Serien (offizielle CSV, kein Key)
+          const watch = await syncFredWatch(db);
+          if (watch.synced.length || watch.errors.length) console.log(`[macro-sync] Watchlist: ${watch.synced.join(',') || '—'} Fehler=${watch.errors.length}`);
+          for (const e of watch.errors) console.warn('[macro-sync] Watchlist', e);
           return res;
         }
         case CALENDAR_JOB: {
@@ -254,6 +288,18 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           const res = await syncDerivatives(db);
           console.log(`[derivatives-sync] funding=${res.funding} oi=${res.openInterest} Fehler=${res.errors.length}`);
           for (const e of res.errors) console.warn('[derivatives-sync]', e);
+          return res;
+        }
+        case SIGNAL_LIFECYCLE_JOB: {
+          // Nur Vorschläge/Entwertungen — platziert NIE eine Order, ändert NIE einen Hebel.
+          const res = await runSignalLifecycle(db, { priceOf: (symbol) => venue.markPrice(symbol) });
+          if (res.killed > 0 || res.reentries > 0 || res.upgrades > 0 || res.errors.length > 0) {
+            console.log(
+              `[signal-lifecycle] geprüft=${res.checked} auto-kill=${res.killed} reentry=${res.reentries} ` +
+                `hebel-vorschläge=${res.upgrades} Fehler=${res.errors.length}`,
+            );
+            for (const e of res.errors) console.warn('[signal-lifecycle]', e);
+          }
           return res;
         }
         case PORTFOLIO_SNAPSHOT_JOB: {
@@ -358,6 +404,14 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
             console.log(`[perf-snapshot] typ=${snapshotType} erstellt=${res.snapshots} Fehler=${res.errors.length}`);
             for (const e of res.errors) console.warn('[perf-snapshot]', e);
           }
+          return res;
+        }
+        case STUDY_CLUSTER_JOB: {
+          const res = await recomputeStudyClusters(db);
+          console.log(
+            `[study-clusters] Cluster=${res.clusters} mit Vorschlag=${res.recommended} ` +
+              `Trades=${res.rowsUsed} verworfen=${res.rowsSkipped}`,
+          );
           return res;
         }
         default:

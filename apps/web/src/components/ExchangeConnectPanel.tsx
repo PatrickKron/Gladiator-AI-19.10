@@ -16,10 +16,21 @@ import { fmt } from './EquityChart.js';
 type Supported = Awaited<ReturnType<typeof trpc.exchanges.supported.query>>;
 type Connection = Awaited<ReturnType<typeof trpc.exchanges.list.query>>[number];
 type Balances = Awaited<ReturnType<typeof trpc.exchanges.balances.query>>;
+type Preferred = Awaited<ReturnType<typeof trpc.exchanges.preferred.query>>[number];
+
+/** Vorauswahl aus dem Chat-Hinweis: '#/einstellungen?tab=boersen&ex=bybit' → 'bybit'. */
+function exchangeFromHash(): string | null {
+  const q = window.location.hash.indexOf('?');
+  return q < 0 ? null : new URLSearchParams(window.location.hash.slice(q + 1)).get('ex');
+}
 
 export function ExchangeConnectPanel() {
   const { t } = useTranslation();
   const [supported, setSupported] = useState<Supported>([]);
+  const [walletSupported, setWalletSupported] = useState<Supported>([]);
+  const [via, setVia] = useState<'api' | 'wallet'>('api');
+  const [wallet, setWallet] = useState({ exchangeId: '', label: '', address: '' });
+  const [preferred, setPreferred] = useState<Preferred[]>([]);
   const [connections, setConnections] = useState<Connection[] | null>(null);
   const [form, setForm] = useState({ exchangeId: '', label: '', apiKey: '', secret: '', password: '', mode: 'read_only' as 'read_only' | 'trading' });
   const [busy, setBusy] = useState(false);
@@ -38,6 +49,10 @@ export function ExchangeConnectPanel() {
   useEffect(() => {
     void load();
     trpc.exchanges.supported.query().then(setSupported).catch(() => setSupported([]));
+    trpc.exchanges.walletSupported.query().then(setWalletSupported).catch(() => setWalletSupported([]));
+    trpc.exchanges.preferred.query().then(setPreferred).catch(() => setPreferred([]));
+    const ex = exchangeFromHash();
+    if (ex) pick(ex, false);
   }, []);
 
   async function connect() {
@@ -57,6 +72,39 @@ export function ExchangeConnectPanel() {
       });
       setMessage({ ok: true, text: t('exchanges.connected', { name: dto.exchangeName, n: dto.marketsSummary?.symbolCount ?? 0 }) });
       setForm({ exchangeId: '', label: '', apiKey: '', secret: '', password: '', mode: 'read_only' });
+      await load();
+    } catch (err) {
+      setMessage({ ok: false, text: err instanceof Error ? err.message : t('common.error') });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Börse vorauswählen — Wallet-Login-Börsen (Hyperliquid & Co.) landen im Wallet-Formular. */
+  function pick(exchangeId: string, walletLogin: boolean) {
+    if (walletLogin || exchangeId === 'hyperliquid') {
+      setVia('wallet');
+      setWallet((w) => ({ ...w, exchangeId }));
+    } else {
+      setVia('api');
+      setForm((f) => ({ ...f, exchangeId }));
+    }
+  }
+
+  const walletAddressOk = /^0x[0-9a-fA-F]{40}$/.test(wallet.address.trim());
+
+  async function connectWallet() {
+    if (!wallet.exchangeId || !walletAddressOk) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const dto = await trpc.exchanges.connectWallet.mutate({
+        exchangeId: wallet.exchangeId,
+        walletAddress: wallet.address.trim(),
+        label: wallet.label || undefined,
+      });
+      setMessage({ ok: true, text: t('exchanges.connected', { name: dto.exchangeName, n: dto.marketsSummary?.symbolCount ?? 0 }) });
+      setWallet({ exchangeId: '', label: '', address: '' });
       await load();
     } catch (err) {
       setMessage({ ok: false, text: err instanceof Error ? err.message : t('common.error') });
@@ -102,7 +150,78 @@ export function ExchangeConnectPanel() {
         {t('exchanges.subtitle')}
       </p>
 
-      {/* Verbinden-Formular */}
+      {/* Aus dem Chat erkannte, noch nicht verbundene Börsen → ein Klick wählt sie vor */}
+      {preferred.some((p) => !p.connected) && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--color-mut)' }}>
+          <span>{t('exchanges.detectedInChat')}</span>
+          {preferred
+            .filter((p) => !p.connected)
+            .map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className="rounded border px-2 py-1"
+                style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink)' }}
+                title={t('exchanges.mentionedTimes', { n: p.mentions })}
+                onClick={() => pick(p.id, p.walletLogin)}
+              >
+                {p.name}
+              </button>
+            ))}
+        </div>
+      )}
+
+      {/* Anschluss-Art: klassische API-Keys oder (nur lesend) öffentliche Wallet-Adresse */}
+      <div className="mb-3 flex w-fit overflow-hidden rounded-[0.625rem] border text-xs" style={{ borderColor: 'var(--color-line)' }}>
+        {(['api', 'wallet'] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => setVia(v)}
+            className="px-3 py-2 transition-colors"
+            style={
+              via === v
+                ? { background: 'linear-gradient(92deg, rgba(46,124,246,0.25), rgba(139,92,246,0.2))', color: 'var(--color-ink)' }
+                : { color: 'var(--color-mut)' }
+            }
+          >
+            {t(v === 'api' ? 'exchanges.viaApi' : 'exchanges.viaWallet')}
+          </button>
+        ))}
+      </div>
+
+      {via === 'wallet' ? (
+        <>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <label className="label mb-1 block">{t('exchanges.exchange')}</label>
+              <select className={field} value={wallet.exchangeId} onChange={(e) => setWallet((w) => ({ ...w, exchangeId: e.target.value }))}>
+                <option value="">{t('exchanges.walletPick', { n: walletSupported.length })}</option>
+                {walletSupported.map((ex) => (
+                  <option key={ex.id} value={ex.id}>
+                    {ex.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label mb-1 block">{t('exchanges.label')}</label>
+              <input className={field} value={wallet.label} onChange={(e) => setWallet((w) => ({ ...w, label: e.target.value }))} placeholder={t('exchanges.labelPlaceholder')} />
+            </div>
+            <div className="md:col-span-2">
+              <label className="label mb-1 block">{t('exchanges.walletAddress')}</label>
+              <input className={`${field} num`} value={wallet.address} onChange={(e) => setWallet((w) => ({ ...w, address: e.target.value }))} placeholder="0x…" autoComplete="off" spellCheck={false} />
+            </div>
+          </div>
+          <p className="mt-2 text-xs" style={{ color: 'var(--color-warn)' }}>
+            {t('exchanges.walletHint')}
+          </p>
+          <button className="btn mt-3" disabled={busy || !wallet.exchangeId || !walletAddressOk} onClick={() => void connectWallet()}>
+            {busy ? t('exchanges.connecting') : t('exchanges.connectBtn')}
+          </button>
+        </>
+      ) : (
+      <>
       <div className="grid gap-3 md:grid-cols-2">
         <div>
           <label className="label mb-1 block">{t('exchanges.exchange')}</label>
@@ -159,6 +278,8 @@ export function ExchangeConnectPanel() {
       <button className="btn mt-3" disabled={busy || !form.exchangeId || !form.apiKey || !form.secret} onClick={() => void connect()}>
         {busy ? t('exchanges.connecting') : t('exchanges.connectBtn')}
       </button>
+      </>
+      )}
       {message && (
         <p className="mt-2 text-sm" style={{ color: message.ok ? 'var(--color-pos)' : 'var(--color-neg)' }}>
           {message.text}
@@ -190,6 +311,11 @@ export function ExchangeConnectPanel() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
+                    {conn.kind === 'wallet' ? (
+                      <span className="rounded border px-2 py-1 text-xs" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+                        {t('exchanges.walletBadge')}
+                      </span>
+                    ) : (
                     <button
                       className="rounded border px-2 py-1 text-xs"
                       style={
@@ -202,6 +328,7 @@ export function ExchangeConnectPanel() {
                     >
                       {t(conn.mode === 'trading' ? 'exchanges.trading' : 'exchanges.readOnly')}
                     </button>
+                    )}
                     <button className="rounded border px-2 py-1 text-xs" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }} onClick={() => void loadBalances(conn.id)}>
                       {t('exchanges.showBalances')}
                     </button>

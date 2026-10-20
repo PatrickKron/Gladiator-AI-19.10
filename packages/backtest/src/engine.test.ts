@@ -7,8 +7,11 @@ function c(ts: number, open: number, high: number, low: number, close: number): 
 }
 
 /** Deterministischer Test-Evaluator (nur im Test — injiziert ein bekanntes Setup). */
-function setupAt(bar: number, partial?: Partial<SetupCandidate>) {
-  return (candles: Candle[], i: number): SetupCandidate[] => {
+/** Setup-Erweiterungen aus der DSL (TP-Gewichte, Break-Even-Schalter). */
+type SetupExtras = { tpWeights?: number[]; breakEvenAfterTp1?: boolean };
+
+function setupAt(bar: number, partial?: Partial<SetupCandidate> & SetupExtras) {
+  return (candles: Candle[], i: number): (SetupCandidate & SetupExtras)[] => {
     if (i !== bar) return [];
     return [
       {
@@ -394,3 +397,62 @@ describe('Backtest-Engine: Trailing-Stop (dieselbe trailStep-Funktion wie live)'
   });
 });
 
+describe('Backtest-Engine: TP-Gewichte je Setup + Break-Even-Schalter (DSL)', () => {
+  const allTps = [
+    c(0, 100, 101, 99, 100), c(1, 100, 101, 99, 100), c(2, 100, 101, 99, 100), // Signal @2
+    c(3, 100, 112, 100, 111), // TP1 110
+    c(4, 111, 122, 110, 121), // TP2 120
+    c(5, 121, 132, 120, 131), // TP3 130
+    c(6, 131, 132, 130, 131),
+  ];
+
+  it('Setup-Gewichte haben Vorrang vor config.tpWeights (Teil-Exits exakt handgerechnet)', () => {
+    // qty 10; 20 % @110, 30 % @120, 50 % @130 → 10×(0.2×10 + 0.3×20 + 0.5×30) = 230
+    const res = runBacktest(allTps, { ...BASE, evaluate: setupAt(2, { tpWeights: [0.2, 0.3, 0.5] }) });
+    expect(res.trades[0]!.netPnl).toBeCloseTo(230, 6);
+    // Ohne Setup-Gewichte: Config-Schema 50/30/20 → 170 (unverändert)
+    expect(runBacktest(allTps, { ...BASE, evaluate: setupAt(2) }).trades[0]!.netPnl).toBeCloseTo(170, 6);
+  });
+
+  it('Setup-Gewichte bei 2 TPs: 70/30', () => {
+    const res = runBacktest(allTps, { ...BASE, evaluate: setupAt(2, { takeProfits: [110, 120], tpWeights: [0.7, 0.3] }) });
+    // 10×(0.7×10 + 0.3×20) = 130
+    expect(res.trades[0]!.netPnl).toBeCloseTo(130, 6);
+    expect(res.trades[0]!.exitReason).toBe('tp');
+  });
+
+  const tp1ThenCrash = [
+    c(0, 100, 101, 99, 100), c(1, 100, 101, 99, 100), c(2, 100, 101, 99, 100),
+    c(3, 100, 112, 98, 111), // TP1 110 (50 %)
+    c(4, 111, 111, 95, 96), // fällt durch Entry 100, aber nicht bis SL 90
+    c(5, 96, 97, 85, 86), // SL 90 gerissen
+  ];
+
+  it('breakEvenAfterTp1=false: Stop bleibt nach TP1 am Original-SL (kein BE-Exit)', () => {
+    const res = runBacktest(tp1ThenCrash, { ...BASE, evaluate: setupAt(2, { breakEvenAfterTp1: false }) });
+    const t = res.trades[0]!;
+    // 5 × (+10) + 5 × (90 − 100) = 50 − 50 = 0; Exit am Original-Stop
+    expect(t.netPnl).toBeCloseTo(0, 6);
+    expect(t.exitReason).toBe('sl');
+    expect(t.exitPrice).toBe(90);
+    // Gegenprobe Default: BE nach TP1 → Rest bei 100 raus (+50), exitReason be
+    const def = runBacktest(tp1ThenCrash, { ...BASE, evaluate: setupAt(2) }).trades[0]!;
+    expect(def.netPnl).toBeCloseTo(50, 6);
+    expect(def.exitReason).toBe('be');
+  });
+
+  it('breakEvenAfterTp1=false: TP-Schema-Simulationen rechnen den Rest mit −1R statt 0R', () => {
+    const t = runBacktest(tp1ThenCrash, { ...BASE, evaluate: setupAt(2, { breakEvenAfterTp1: false }) }).trades[0]!;
+    // Schema A: 0.5×1R + 0.5×(−1R) = 0
+    expect(t.pnlRTpA).toBeCloseTo(0, 6);
+    const def = runBacktest(tp1ThenCrash, { ...BASE, evaluate: setupAt(2) }).trades[0]!;
+    expect(def.pnlRTpA).toBeCloseTo(0.5, 6);
+  });
+
+  it('breakEvenAfterTp1=true verhält sich wie ohne Angabe', () => {
+    const a = runBacktest(tp1ThenCrash, { ...BASE, evaluate: setupAt(2, { breakEvenAfterTp1: true }) }).trades[0]!;
+    const b = runBacktest(tp1ThenCrash, { ...BASE, evaluate: setupAt(2) }).trades[0]!;
+    expect(a.netPnl).toBeCloseTo(b.netPnl, 9);
+    expect(a.exitReason).toBe(b.exitReason);
+  });
+});

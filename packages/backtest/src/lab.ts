@@ -2,21 +2,23 @@ import { and, asc, desc, eq, gt, lte } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { getOhlcv, BARS_PER_YEAR, TIMEFRAME_MS, type SupportedTimeframe } from '@gladiator/market-data';
-import { detectStructure, evaluateDslAt, evaluateSmcCoreAt, parseInstructionDsl, SMC_CORE_DEFAULTS, type InstructionDsl, type SmcCoreParams } from '@gladiator/strategy-engine';
+import { buildClusterKey, detectStructure, evaluateDslAt, evaluateSmcCoreAt, parseInstructionDsl, SMC_CORE_DEFAULTS, type InstructionDsl, type SmcCoreParams } from '@gladiator/strategy-engine';
 import { DEFAULT_COSTS, runBacktest, type BacktestResult, type CostModel } from './engine.js';
 import { runWalkForward, type WalkForwardResult } from './walkforward.js';
 import { explainRapsChoice, rapsGrid, type RapsResult } from './raps.js';
+import { labStudyRow } from './study-rows.js';
+import { recomputeStudyClusters } from './study-clusters.js';
 import { analyzeTrades, type TradeAnalysis } from './analysis.js';
 import { holdoutMetrics } from './validity.js';
 import { assertDataQuality, assessDataQuality, fundingSettlements, type DataQualityReport, type FundingPoint } from './data-quality.js';
 
-const { backtests, walkforwardRuns, strategies, strategyVersions, studyTrades, studyClusters, fundingRates } = schema;
+const { backtests, walkforwardRuns, strategies, strategyVersions, studyTrades, fundingRates } = schema;
 
 /**
  * Labor-Läufe: verbinden Engine ↔ echte DB-Kerzen ↔ Persistenz.
  * Jeder Lauf speichert Config + PFLICHT-Kostenmodell + Netto-Kennzahlen in
- * `backtests`; Trades fließen als VDB1-Zeilen in `study_trades`, das
- * RAPS-Ergebnis als VDB2-Upsert in `study_clusters` (13_).
+ * `backtests`; Trades fließen als VDB1-Zeilen in `study_trades`; VDB2
+ * (`study_clusters`) rechnet danach der gemeinsame Batch-Pfad neu (13_).
  */
 
 /** Bars/Jahr je Timeframe (Annualisierung) — kanonisch aus @gladiator/market-data. */
@@ -134,6 +136,65 @@ async function resolveDslStrategy(db: Db, strategyId: string): Promise<{ dsl: In
   return { dsl: parsed.dsl, versionId: version.id, slug: strategy.slug };
 }
 
+/** Indikator-Historie je Walk-Forward-Fenster (≥ EMA200 der SMC-/DSL-Evaluatoren). */
+export const WF_WARMUP_BARS = 250;
+
+export type LabMarketData = {
+  candles: Awaited<ReturnType<typeof getOhlcv>>;
+  dataQuality: DataQualityReport;
+  fundingSeries: FundingPoint[] | null;
+  fundingSource: 'historical' | 'model';
+};
+
+/**
+ * EINE Wahrheit für Labor-Backtest, Labor-Walk-Forward und Nacht-Optimierung:
+ * echte Kerzen laden → Mindestmenge prüfen → Datenqualität (08_ §3b, zu viele
+ * Lücken → Abbruch) → historisches Funding (sonst flaches Modell, sichtbar markiert).
+ */
+export async function loadLabMarketData(
+  db: Db,
+  opts: { symbol: string; timeframe: SupportedTimeframe; from: Date; to: Date; minCandles: number; minCandlesMessage?: (n: number) => string },
+): Promise<LabMarketData> {
+  const candles = await getOhlcv(db, {
+    symbol: opts.symbol,
+    timeframe: opts.timeframe,
+    since: opts.from,
+    until: opts.to,
+  });
+  if (candles.length < opts.minCandles) {
+    throw new Error(
+      opts.minCandlesMessage?.(candles.length) ??
+        `Zu wenig echte Kerzen im Zeitraum (${candles.length} < ${opts.minCandles}) für ${opts.symbol}@${opts.timeframe}.`,
+    );
+  }
+
+  // ── Datenqualität (08_ §3b): zu viele Lücken → Abbruch; sonst Warnungen ans UI ──
+  const tfMs = TIMEFRAME_MS[opts.timeframe];
+  const dataQuality = assessDataQuality(candles, tfMs);
+  assertDataQuality(dataQuality);
+  const firstTs = candles[0]!.ts;
+  const lastTs = candles[candles.length - 1]!.ts;
+  if (firstTs.getTime() - opts.from.getTime() > tfMs) {
+    dataQuality.warnings.push(
+      `Kerzen beginnen erst am ${firstTs.toISOString().slice(0, 10)} (angefragt ab ${opts.from.toISOString().slice(0, 10)}) — Zeitraum ist kürzer als gewählt.`,
+    );
+    dataQuality.ok = false;
+  }
+
+  // ── Funding: echte Settlements, falls vollständig vorhanden — sonst flaches Modell ──
+  const funding = await loadFundingSeries(db, opts.symbol, firstTs, lastTs);
+  if (funding.warning) {
+    dataQuality.warnings.push(funding.warning);
+    dataQuality.ok = false;
+  }
+  return {
+    candles,
+    dataQuality,
+    fundingSeries: funding.series,
+    fundingSource: funding.series ? 'historical' : 'model',
+  };
+}
+
 export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRunOutput> {
   const { defaultVersionId } = await smcCoreIds(db);
   const versionParams = input.versionId ? await resolveVersion(db, input.versionId) : {};
@@ -147,36 +208,14 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
   const runTimeframe = dslResolved ? dslResolved.dsl.timeframe : input.timeframe;
   const runSetupType = dslResolved ? dslResolved.dsl.setupType : input.setupType;
 
-  const candles = await getOhlcv(db, {
+  const { candles, dataQuality, fundingSeries, fundingSource } = await loadLabMarketData(db, {
     symbol: runSymbol,
     timeframe: runTimeframe,
-    since: input.from,
-    until: input.to,
+    from: input.from,
+    to: input.to,
+    minCandles: 250,
+    minCandlesMessage: (n) => `Zu wenig echte Kerzen im Zeitraum (${n}) für ${runSymbol}@${runTimeframe} — Backtest wäre nicht belastbar.`,
   });
-  if (candles.length < 250) {
-    throw new Error(`Zu wenig echte Kerzen im Zeitraum (${candles.length}) für ${runSymbol}@${runTimeframe} — Backtest wäre nicht belastbar.`);
-  }
-
-  // ── Datenqualität (08_ §3b): zu viele Lücken → Abbruch; sonst Warnungen ans UI ──
-  const tfMs = TIMEFRAME_MS[runTimeframe];
-  const dataQuality = assessDataQuality(candles, tfMs);
-  assertDataQuality(dataQuality);
-  const firstTs = candles[0]!.ts;
-  const lastTs = candles[candles.length - 1]!.ts;
-  if (firstTs.getTime() - input.from.getTime() > tfMs) {
-    dataQuality.warnings.push(
-      `Kerzen beginnen erst am ${firstTs.toISOString().slice(0, 10)} (angefragt ab ${input.from.toISOString().slice(0, 10)}) — Zeitraum ist kürzer als gewählt.`,
-    );
-    dataQuality.ok = false;
-  }
-
-  // ── Funding: echte Settlements, falls vollständig vorhanden — sonst flaches Modell ──
-  const funding = await loadFundingSeries(db, runSymbol, firstTs, lastTs);
-  const fundingSource: LabRunOutput['fundingSource'] = funding.series ? 'historical' : 'model';
-  if (funding.warning) {
-    dataQuality.warnings.push(funding.warning);
-    dataQuality.ok = false;
-  }
 
   const result = runBacktest(candles, {
     evaluate: dslResolved
@@ -192,7 +231,7 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
     tpWeights: [0.5, 0.3, 0.2],
     setupType: runSetupType,
     ...(input.trailPct !== undefined ? { trailPct: input.trailPct } : {}),
-    ...(funding.series ? { fundingSeries: funding.series } : {}),
+    ...(fundingSeries ? { fundingSeries } : {}),
   });
 
   const m = result.metrics;
@@ -224,65 +263,26 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
     .returning();
 
   // ── VDB1: Trades als study_trades (Quelle: echter Backtest, 13_ §3) ──
-  const clusterKey = `${dslResolved ? dslResolved.slug : 'smc-core'}|${runSymbol}|${runSetupType}|${runTimeframe}|all|all`;
-  for (const t of result.trades) {
-    await db.insert(studyTrades).values({
-      clusterKey,
-      direction: t.direction,
-      entryTs: t.entryTs,
-      exitTs: t.exitTs,
-      mfeBps: String(Math.round(t.mfeR * 10_000) / 100),
-      maeBps: String(Math.round(t.maeR * 10_000) / 100),
-      rMultiple: String(t.rMultiple),
-      session: t.session,
-      fees: String(t.fees),
-      funding: String(t.funding),
-      slippage: String(t.slippage),
-      netPnl: String(t.netPnl),
-      liquidationFlag: false,
-      pnlRTpA: String(t.pnlRTpA),
-      pnlRTpB: String(t.pnlRTpB),
-      pnlRTpC: String(t.pnlRTpC),
-      pnlRTpD: String(t.pnlRTpD),
-    });
+  // Voller Cluster-Key je Trade (Session + Struktur) über den gemeinsamen Builder.
+  const studyCtx = {
+    strategy: dslResolved ? dslResolved.slug : 'smc-core',
+    symbol: runSymbol,
+    setupType: runSetupType,
+    timeframe: runTimeframe,
+  };
+  const studyRows = result.trades.map((t) => labStudyRow(t, studyCtx));
+  for (let k = 0; k < studyRows.length; k += 500) {
+    await db.insert(studyTrades).values(studyRows.slice(k, k + 500));
   }
 
-  // ── VDB2: RAPS-Gitter + Upsert study_clusters ──
+  // ── RAPS dieses Laufs (Anzeige im Labor) + VDB2 über den EINEN Batch-Pfad ──
+  // Basis-Cluster des Laufs (Session/Struktur = all). study_clusters schreibt
+  // ausschließlich recomputeStudyClusters (Fenster, Holdout, Min-Stichprobe) —
+  // kein zweiter, abweichender Schreibpfad mehr.
+  const clusterKey = buildClusterKey(studyCtx);
   const raps = rapsGrid(result.trades, { now: input.to });
   const explanation = explainRapsChoice(raps, clusterKey);
-  await db
-    .insert(studyClusters)
-    .values({
-      clusterKey,
-      optimalLeverage: raps.best ? String(raps.best.leverage) : null,
-      optimalTpSchemaId: raps.best?.tpSchema ?? null,
-      optimalRiskPct: String(riskPct),
-      rapsScore: raps.best ? String(raps.best.rapsScore) : null,
-      sharpe: m.sharpe === null ? null : String(m.sharpe),
-      sortino: m.sortino === null ? null : String(m.sortino),
-      winrate: m.winRate === null ? null : String(m.winRate),
-      profitFactor: m.profitFactor === null ? null : String(m.profitFactor),
-      expectancy: m.expectancy === null ? null : String(m.expectancy),
-      tradeCount: raps.tradeCount,
-      dataWindowDays: Math.round((input.to.getTime() - input.from.getTime()) / 86_400_000),
-      lambdaTimeDecay: String(raps.lambdaTimeDecay),
-      isLowSampleSize: raps.isLowSampleSize,
-      causalityExplanation: explanation,
-      changelog: [{ at: new Date().toISOString(), backtestId: row!.id, note: 'Labor-Backtest' }],
-      updatedAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: studyClusters.clusterKey,
-      set: {
-        optimalLeverage: raps.best ? String(raps.best.leverage) : null,
-        optimalTpSchemaId: raps.best?.tpSchema ?? null,
-        rapsScore: raps.best ? String(raps.best.rapsScore) : null,
-        tradeCount: raps.tradeCount,
-        isLowSampleSize: raps.isLowSampleSize,
-        causalityExplanation: explanation,
-        updatedAt: new Date(),
-      },
-    });
+  await recomputeStudyClusters(db, { keyPrefix: clusterKey.split('|').slice(0, 4).join('|') + '|' });
 
   // Rundum-Analyse + Trendwende-Punkte (aus der Marktstruktur des Zeitraums)
   const analysis = analyzeTrades(result.trades);
@@ -324,26 +324,38 @@ export type LabWalkForwardInput = {
   grid: Partial<SmcCoreParams>[];
   riskPctPerTrade?: number;
   costModel?: CostModel;
+  /** Trailing-Stop in % für alle Trades (wie runLabBacktest). */
+  trailPct?: number;
 };
 
-export async function runLabWalkForward(
-  db: Db,
-  input: LabWalkForwardInput,
-): Promise<{ runId: string; wf: WalkForwardResult<Partial<SmcCoreParams>> }> {
+export type LabWalkForwardOutput = {
+  runId: string;
+  wf: WalkForwardResult<Partial<SmcCoreParams>>;
+  /** Woher das Funding stammt: echte Settlements aus `funding_rates` oder flaches Modell. */
+  fundingSource: 'historical' | 'model';
+  /** Datenqualität der Kerzen (08_ §3b) — dieselbe Prüfung wie im Backtest. */
+  dataQuality: DataQualityReport;
+};
+
+/**
+ * Walk-Forward im Labor — Parität zu runLabBacktest: dieselbe Datenqualitäts-
+ * Prüfung, historisches Funding, optionaler Trailing-Stop; zusätzlich Warmup je
+ * Fenster, damit EMA200 & Co. auch am OOS-Fensteranfang definiert sind.
+ */
+export async function runLabWalkForward(db: Db, input: LabWalkForwardInput): Promise<LabWalkForwardOutput> {
   const { defaultVersionId } = await smcCoreIds(db);
   const costModel = input.costModel ?? DEFAULT_COSTS;
-  const candles = await getOhlcv(db, {
-    symbol: input.symbol,
-    timeframe: input.timeframe,
-    since: input.from,
-    until: input.to,
-  });
-  if (candles.length < input.isBars + input.oosBars) {
-    throw new Error(`Zu wenig Kerzen (${candles.length}) für IS ${input.isBars} + OOS ${input.oosBars}.`);
-  }
   if (input.grid.length === 0 || input.grid.length > 64) {
     throw new Error('Parameter-Grid muss 1–64 Kombinationen haben.');
   }
+  const { candles, dataQuality, fundingSeries, fundingSource } = await loadLabMarketData(db, {
+    symbol: input.symbol,
+    timeframe: input.timeframe,
+    from: input.from,
+    to: input.to,
+    minCandles: input.isBars + input.oosBars,
+    minCandlesMessage: (n) => `Zu wenig Kerzen (${n}) für IS ${input.isBars} + OOS ${input.oosBars}.`,
+  });
 
   const wf = runWalkForward(candles, {
     paramGrid: input.grid,
@@ -353,6 +365,7 @@ export async function runLabWalkForward(
     },
     isBars: input.isBars,
     oosBars: input.oosBars,
+    warmupBars: WF_WARMUP_BARS,
     base: {
       initialEquity: 10_000,
       riskPctPerTrade: input.riskPctPerTrade ?? 1,
@@ -360,6 +373,8 @@ export async function runLabWalkForward(
       barsPerYear: BARS_PER_YEAR[input.timeframe]!,
       tpWeights: [0.5, 0.3, 0.2],
       setupType: input.setupType,
+      ...(input.trailPct !== undefined ? { trailPct: input.trailPct } : {}),
+      ...(fundingSeries ? { fundingSeries } : {}),
     },
   });
 
@@ -375,8 +390,12 @@ export async function runLabWalkForward(
         to: input.to.toISOString(),
         isBars: input.isBars,
         oosBars: input.oosBars,
+        warmupBars: WF_WARMUP_BARS,
         grid: input.grid,
         costModel,
+        trailPct: input.trailPct ?? null,
+        fundingSource,
+        dataWarnings: dataQuality.warnings,
       },
       windows: wf.windows.map((w) => ({
         isStart: w.isStart,
@@ -393,5 +412,5 @@ export async function runLabWalkForward(
     })
     .returning();
 
-  return { runId: row!.id, wf };
+  return { runId: row!.id, wf, fundingSource, dataQuality };
 }

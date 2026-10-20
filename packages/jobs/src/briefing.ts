@@ -5,6 +5,7 @@ import { buildAccountState, loadRiskSettings } from '@gladiator/exchange';
 import { getMacroSnapshot, latestNews, upcomingEvents } from '@gladiator/market-data';
 import { CostGuard, envAnthropicProvider, guardedComplete } from '@gladiator/agents';
 import { escapeHtml, sendTelegram, telegramConfigured } from './telegram.js';
+import { openOptimizationProposals, type OpenProposal } from './optimization.js';
 
 const { briefings, executedTrades, signals, signalReviews, riskGates, users } = schema;
 
@@ -27,6 +28,8 @@ export type BriefingData = {
   killSwitchActive: boolean;
   news: { source: string; title: string }[];
   llmInsight: string | null;
+  /** Offene Optimierungs-Vorschläge (08_ §5 Schritt 7) — Patrick übernimmt/verwirft im Labor. */
+  openProposals: OpenProposal[];
 };
 
 const pct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(2)} %`;
@@ -83,6 +86,15 @@ export function renderBriefing(d: BriefingData): string {
 
   if (d.news.length > 0) {
     lines.push('📰 ' + d.news.slice(0, 3).map((n) => escapeHtml(n.title)).join(' · '));
+  }
+
+  if (d.openProposals.length > 0) {
+    const n = d.openProposals.length;
+    const r = (x: number | null) => (x === null ? '—' : x.toFixed(2));
+    lines.push(`🧪 ${n} Optimierungs-Vorschl${n === 1 ? 'ag' : 'äge'} offen (Labor › Optimierungs-Vorschläge — du entscheidest):`);
+    for (const p of d.openProposals.slice(0, 3)) {
+      lines.push(`  • ${escapeHtml(p.strategy)} v${p.baseVersion}: OOS-Erwartung ${r(p.expectancyBefore)} → ${r(p.expectancyAfter)} R`);
+    }
   }
 
   if (d.llmInsight) {
@@ -148,6 +160,7 @@ export async function buildBriefing(db: Db, now = new Date()): Promise<BriefingD
 
   const gates = await db.select().from(riskGates).where(eq(riskGates.isActive, true));
   const news = (await latestNews(db, 3)).map((n) => ({ source: n.source, title: n.title }));
+  const openProposals = await openOptimizationProposals(db, 5);
 
   // Optionale LLM-Erkenntnis (08_ §5 Schritt 5) — NUR mit Provider, sonst null.
   let llmInsight: string | null = null;
@@ -203,6 +216,7 @@ export async function buildBriefing(db: Db, now = new Date()): Promise<BriefingD
     killSwitchActive: settings.killSwitchActive,
     news,
     llmInsight,
+    openProposals,
   };
 }
 

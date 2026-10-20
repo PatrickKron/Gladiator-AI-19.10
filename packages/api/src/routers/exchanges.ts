@@ -3,14 +3,17 @@ import { z } from 'zod';
 import { schema } from '@gladiator/db';
 import {
   connectExchange,
+  connectWallet,
   fetchConnectionBalances,
   listConnections,
   listSupportedExchanges,
+  loadPreferredExchanges,
   loadRoutingConnections,
   pickConnectionForSymbol,
   refreshConnectionMarkets,
   revokeConnection,
   setConnectionMode,
+  walletExchanges,
 } from '@gladiator/exchange';
 import { protectedProcedure, router } from '../trpc.js';
 
@@ -40,7 +43,43 @@ export const exchangesRouter = router({
   /** Alle unterstützten CCXT-Börsen für das Dropdown. */
   supported: protectedProcedure.query(() => listSupportedExchanges()),
 
+  /** Börsen mit Wallet-Login (Hyperliquid & Co.) — per öffentlicher Adresse nur lesend anschließbar. */
+  walletSupported: protectedProcedure.query(() => walletExchanges()),
+
   list: protectedProcedure.query(({ ctx }) => listConnections(ctx.db, ctx.user.id)),
+
+  /** Aus Patricks eigenen Chat-Nachrichten erkannte Börsen (Vorschlag, nie Auto-Aktion). */
+  preferred: protectedProcedure.query(async ({ ctx }) =>
+    (await loadPreferredExchanges(ctx.db, ctx.user.id)).map((p) => ({ ...p, lastMentionedAt: p.lastMentionedAt.toISOString() })),
+  ),
+
+  /** Wallet anschließen: nur die ÖFFENTLICHE Adresse, nie ein Private Key — immer read_only. */
+  connectWallet: protectedProcedure
+    .input(
+      z.object({
+        exchangeId: z.string().min(2).max(40),
+        walletAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'Ungültige Wallet-Adresse.'),
+        label: z.string().max(80).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      let dto;
+      try {
+        dto = await connectWallet(ctx.db, { userId: ctx.user.id, ...input });
+      } catch (err) {
+        throw asBadRequest(err);
+      }
+      await ctx.db.insert(auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: 'exchange.connect_wallet',
+        entityType: 'exchange_connection',
+        entityId: dto.id,
+        details: { exchangeId: dto.exchangeId, mode: dto.mode, address: dto.keyMasked },
+        ip: ctx.ip,
+      });
+      return dto;
+    }),
 
   connect: protectedProcedure
     .input(

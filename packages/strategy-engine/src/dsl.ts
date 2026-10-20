@@ -4,7 +4,11 @@ import { adx, stochastic, supertrend } from './indicators-extra.js';
 import { detectStructure } from './structure.js';
 import { riskClassOf, type RiskClass, type TradingSession } from './scoring.js';
 import { sessionOf } from './session.js';
+import { MAX_LIVE_TAKE_PROFITS } from './tp-weights.js';
 import type { Candle } from './types.js';
+
+/** Toleranz für die Summe der TP-Gewichte (Gleitkomma: 0.1 + 0.2 ≠ 0.3). */
+const TP_WEIGHT_SUM_TOLERANCE = 1e-6;
 
 /**
  * Anweisungs-DSL (07_ §3): kleine, typisierte Strategie-Beschreibung, in die
@@ -146,9 +150,19 @@ export const instructionDslSchema = z
     when: z
       .object({
         session: z.enum(['asia', 'london', 'overlap', 'newyork', 'off']).optional(),
-        all: z.array(conditionSchema).min(1).max(10),
+        /** UND-Liste: jede Bedingung muss erfüllt sein (darf leer sein, wenn `any` gesetzt ist). */
+        all: z.array(conditionSchema).max(10).default([]),
+        /**
+         * ODER-Gruppen: Liste von UND-Listen — mindestens EINE Teilliste muss
+         * vollständig erfüllt sein (zusätzlich zu `all`). Fehlt = nur UND.
+         */
+        any: z.array(z.array(conditionSchema).min(1).max(10)).min(1).max(5).optional(),
       })
-      .strict(),
+      .strict()
+      .refine((w) => w.all.length > 0 || w.any !== undefined, {
+        message: 'when: mindestens eine Bedingung in "all" oder eine ODER-Gruppe in "any" nötig.',
+        path: ['all'],
+      }),
     entry: z
       .union([z.literal('market'), z.string().regex(/^retest@EMA\d{1,3}$/, 'entry: "market" oder "retest@EMA<n>"')])
       .default('market'),
@@ -156,9 +170,46 @@ export const instructionDslSchema = z
       z.object({ type: z.literal('ATR'), mult: z.number().positive().max(10) }).strict(),
       z.object({ type: z.literal('pct'), pct: z.number().positive().max(50) }).strict(),
     ]),
-    takeProfits: z.array(z.object({ rr: z.number().positive().max(20) }).strict()).min(1).max(5),
+    takeProfits: z
+      .array(
+        z
+          .object({
+            rr: z.number().positive().max(20),
+            /** Teil-Exit-Anteil dieses TPs (0 < w ≤ 1); fehlt überall = Schema A 50/30/20. */
+            weight: z.number().gt(0).max(1).optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(5)
+      .superRefine((tps, ctx) => {
+        const withWeight = tps.filter((tp) => tp.weight !== undefined).length;
+        if (withWeight === 0) return;
+        if (withWeight !== tps.length) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'takeProfits: weight an JEDEM TP angeben oder an keinem.' });
+          return;
+        }
+        // Live platziert höchstens MAX_LIVE_TAKE_PROFITS TP-Orders — mehr gewichtete TPs
+        // wären nur im Backtest ausführbar (Backtest ≠ Live) und werden daher abgelehnt.
+        if (tps.length > MAX_LIVE_TAKE_PROFITS) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `takeProfits: mit Gewichten höchstens ${MAX_LIVE_TAKE_PROFITS} TPs (Live-Ausführung).`,
+          });
+          return;
+        }
+        const sum = tps.reduce((a, tp) => a + (tp.weight ?? 0), 0);
+        if (Math.abs(sum - 1) > TP_WEIGHT_SUM_TOLERANCE) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: `takeProfits: Gewichte müssen in Summe 1 ergeben (ist ${sum}).` });
+        }
+      }),
     /** Optionaler Trailing-Stop: folgt dem besten Kurs im %-Abstand, nur verschärfen (Backtest UND Live). */
     trailingStop: z.object({ pct: z.number().min(0.1).max(50) }).strict().optional(),
+    /**
+     * Stop nach TP1 auf Break-Even ziehen (Default true = bisheriges Verhalten).
+     * false → Backtest UND Live-Monitor lassen den Stop nach TP1 stehen.
+     */
+    breakEvenAfterTp1: z.boolean().optional(),
     risk: z
       .object({
         maxLeveragePerTrade: z.number().min(1).max(25),
@@ -199,7 +250,27 @@ export type DslSetup = {
   leverageSuggested: number;
   /** Trailing-Stop-Abstand in % (aus dsl.trailingStop); fehlt = statischer Stop. */
   trailPct?: number;
+  /** Teil-Exit-Gewichte je TP (aus takeProfits[].weight); fehlt = Schema A 50/30/20. */
+  tpWeights?: number[];
+  /** Nur gesetzt, wenn die DSL Break-Even nach TP1 ABSCHALTET (false); fehlt = BE aktiv. */
+  breakEvenAfterTp1?: boolean;
 };
+
+/** Ausführungs-Plan einer DSL für die Live-Ausführung — gleiche Quelle wie das Setup im Backtest. */
+export type DslExecutionPlan = {
+  /** null = Default-Schema (50/30/20). */
+  tpWeights: number[] | null;
+  breakEvenAfterTp1: boolean;
+};
+
+/** TP-Gewichte + Break-Even-Schalter einer (validierten) DSL. */
+export function dslExecutionPlan(dsl: InstructionDsl): DslExecutionPlan {
+  const hasWeights = dsl.takeProfits.every((tp) => tp.weight !== undefined);
+  return {
+    tpWeights: hasWeights ? dsl.takeProfits.map((tp) => tp.weight!) : null,
+    breakEvenAfterTp1: dsl.breakEvenAfterTp1 ?? true,
+  };
+}
 
 /** Wie viele Bars zurück ein BOS/CHoCH-Ereignis für die signal-Bedingung zählt. */
 const STRUCTURE_WINDOW_BARS = 12;
@@ -230,6 +301,102 @@ function crossedWithin(
   return false;
 }
 
+/** Kontext einer Bar-Auswertung (alles nur bis Bar i — look-ahead-frei). */
+type CondContext = {
+  candles: Candle[];
+  closes: number[];
+  bar: Candle;
+  i: number;
+  ema200: number;
+  events: ReturnType<typeof detectStructure>;
+  direction: 'long' | 'short';
+};
+
+/** Prüft EINE Bedingung am Bar i: Confluence-Tag bei Erfüllung, sonst null. */
+function evaluateCondition(cond: DslCondition, ctx: CondContext): string | null {
+  const { candles, closes, bar, i, ema200, events } = ctx;
+  if ('signal' in cond) {
+    const wantDirection = ctx.direction === 'long' ? 'bullish' : 'bearish';
+    const hit = events.some(
+      (e) => e.kind === cond.signal && e.direction === wantDirection && i - e.index <= STRUCTURE_WINDOW_BARS && e.index <= i,
+    );
+    if (!hit) return null;
+    return `dsl:${cond.signal}`;
+  } else if ('indicator' in cond) {
+    const value = rsi(closes, cond.period)[i];
+    if (value == null) return null;
+    if (cond.lt !== undefined && !(value < cond.lt)) return null;
+    if (cond.gt !== undefined && !(value > cond.gt)) return null;
+    return `dsl:RSI${cond.lt !== undefined ? `<${cond.lt}` : ''}${cond.gt !== undefined ? `>${cond.gt}` : ''}`;
+  } else if ('maCross' in cond) {
+    const c = cond.maCross;
+    const maFn = c.kind === 'EMA' ? ema : sma;
+    const fast = maFn(closes, c.fast);
+    const slow = maFn(closes, c.slow);
+    if (!crossedWithin(fast, slow, i, c.withinBars, c.cross)) return null;
+    return `dsl:maCross:${c.kind}${c.fast}/${c.slow}:${c.cross}`;
+  } else if ('priceVs' in cond) {
+    const c = cond.priceVs;
+    const value = (c.kind === 'EMA' ? ema : sma)(closes, c.period)[i];
+    if (value == null) return null;
+    if (c.is === 'above' && !(bar.close > value)) return null;
+    if (c.is === 'below' && !(bar.close < value)) return null;
+    return `dsl:priceVs:${c.kind}${c.period}:${c.is}`;
+  } else if ('macd' in cond) {
+    const c = cond.macd;
+    const m = macd(closes, c.fast, c.slow, c.signal);
+    if (c.event === 'histogram_positive' || c.event === 'histogram_negative') {
+      const h = m.histogram[i];
+      if (h == null) return null;
+      if (c.event === 'histogram_positive' && !(h > 0)) return null;
+      if (c.event === 'histogram_negative' && !(h < 0)) return null;
+    } else {
+      const dir = c.event === 'bullish_cross' ? 'bullish' : 'bearish';
+      if (!crossedWithin(m.macd, m.signal, i, c.withinBars, dir)) return null;
+    }
+    return `dsl:macd:${c.event}`;
+  } else if ('bollinger' in cond) {
+    const c = cond.bollinger;
+    const b = bollinger(closes, c.period, c.mult);
+    const upper = b.upper[i];
+    const middle = b.middle[i];
+    const lower = b.lower[i];
+    if (upper == null || middle == null || lower == null) return null;
+    if (c.event === 'close_below_lower' && !(bar.close < lower)) return null;
+    if (c.event === 'close_above_upper' && !(bar.close > upper)) return null;
+    if (c.event === 'close_above_middle' && !(bar.close > middle)) return null;
+    if (c.event === 'close_below_middle' && !(bar.close < middle)) return null;
+    return `dsl:bollinger:${c.event}`;
+  } else if ('stochastic' in cond) {
+    const c = cond.stochastic;
+    const s = stochastic(candles, c.kPeriod, c.dPeriod, c.smoothK);
+    const k = s.k[i];
+    if (k == null) return null;
+    if (c.kLt !== undefined && !(k < c.kLt)) return null;
+    if (c.kGt !== undefined && !(k > c.kGt)) return null;
+    if (c.cross !== undefined && !crossedWithin(s.k, s.d, i, c.withinBars, c.cross)) return null;
+    return `dsl:stochastic${c.cross ? `:${c.cross}` : ''}`;
+  } else if ('adx' in cond) {
+    const c = cond.adx;
+    const value = adx(candles, c.period).adx[i];
+    if (value == null) return null;
+    if (c.gt !== undefined && !(value > c.gt)) return null;
+    if (c.lt !== undefined && !(value < c.lt)) return null;
+    return `dsl:adx${c.gt !== undefined ? `>${c.gt}` : ''}${c.lt !== undefined ? `<${c.lt}` : ''}`;
+  } else if ('supertrend' in cond) {
+    const c = cond.supertrend;
+    const point = supertrend(candles, c.period, c.mult)[i];
+    if (point == null) return null;
+    if (point.direction !== c.direction) return null;
+    return `dsl:supertrend:${c.direction}`;
+  } else {
+    const up = bar.close >= ema200;
+    if (cond.trend === 'EMA200_up' && !up) return null;
+    if (cond.trend === 'EMA200_down' && up) return null;
+    return `dsl:${cond.trend}`;
+  }
+}
+
 /**
  * Wertet die DSL GENAU am Bar `i` aus — nur Daten bis i (look-ahead-frei).
  * Nicht erfüllte Bedingungen oder undefinierte Indikatoren ⇒ ehrlich null.
@@ -251,87 +418,28 @@ export function evaluateDslAt(allCandles: Candle[], i: number, dsl: InstructionD
   const matched: string[] = [];
   const events = detectStructure(candles);
 
+  const ctx: CondContext = { candles, closes, bar, i, ema200, events, direction: dsl.direction };
+  // UND-Teil: jede Bedingung muss erfüllt sein
   for (const cond of dsl.when.all) {
-    if ('signal' in cond) {
-      const wantDirection = dsl.direction === 'long' ? 'bullish' : 'bearish';
-      const hit = events.some(
-        (e) => e.kind === cond.signal && e.direction === wantDirection && i - e.index <= STRUCTURE_WINDOW_BARS && e.index <= i,
-      );
-      if (!hit) return null;
-      matched.push(`dsl:${cond.signal}`);
-    } else if ('indicator' in cond) {
-      const value = rsi(closes, cond.period)[i];
-      if (value == null) return null;
-      if (cond.lt !== undefined && !(value < cond.lt)) return null;
-      if (cond.gt !== undefined && !(value > cond.gt)) return null;
-      matched.push(`dsl:RSI${cond.lt !== undefined ? `<${cond.lt}` : ''}${cond.gt !== undefined ? `>${cond.gt}` : ''}`);
-    } else if ('maCross' in cond) {
-      const c = cond.maCross;
-      const maFn = c.kind === 'EMA' ? ema : sma;
-      const fast = maFn(closes, c.fast);
-      const slow = maFn(closes, c.slow);
-      if (!crossedWithin(fast, slow, i, c.withinBars, c.cross)) return null;
-      matched.push(`dsl:maCross:${c.kind}${c.fast}/${c.slow}:${c.cross}`);
-    } else if ('priceVs' in cond) {
-      const c = cond.priceVs;
-      const value = (c.kind === 'EMA' ? ema : sma)(closes, c.period)[i];
-      if (value == null) return null;
-      if (c.is === 'above' && !(bar.close > value)) return null;
-      if (c.is === 'below' && !(bar.close < value)) return null;
-      matched.push(`dsl:priceVs:${c.kind}${c.period}:${c.is}`);
-    } else if ('macd' in cond) {
-      const c = cond.macd;
-      const m = macd(closes, c.fast, c.slow, c.signal);
-      if (c.event === 'histogram_positive' || c.event === 'histogram_negative') {
-        const h = m.histogram[i];
-        if (h == null) return null;
-        if (c.event === 'histogram_positive' && !(h > 0)) return null;
-        if (c.event === 'histogram_negative' && !(h < 0)) return null;
-      } else {
-        const dir = c.event === 'bullish_cross' ? 'bullish' : 'bearish';
-        if (!crossedWithin(m.macd, m.signal, i, c.withinBars, dir)) return null;
+    const tag = evaluateCondition(cond, ctx);
+    if (tag === null) return null;
+    matched.push(tag);
+  }
+  // ODER-Gruppen: der ERSTE vollständig erfüllte Zweig zählt (deterministisch);
+  // Confluence zeigt den Zweig (dsl:any#k, 1-basiert) und seine Bedingungen.
+  if (dsl.when.any) {
+    let branchTags: string[] | null = null;
+    for (let k = 0; k < dsl.when.any.length && branchTags === null; k++) {
+      const tags: string[] = [];
+      for (const cond of dsl.when.any[k]!) {
+        const tag = evaluateCondition(cond, ctx);
+        if (tag === null) break;
+        tags.push(tag);
       }
-      matched.push(`dsl:macd:${c.event}`);
-    } else if ('bollinger' in cond) {
-      const c = cond.bollinger;
-      const b = bollinger(closes, c.period, c.mult);
-      const upper = b.upper[i];
-      const middle = b.middle[i];
-      const lower = b.lower[i];
-      if (upper == null || middle == null || lower == null) return null;
-      if (c.event === 'close_below_lower' && !(bar.close < lower)) return null;
-      if (c.event === 'close_above_upper' && !(bar.close > upper)) return null;
-      if (c.event === 'close_above_middle' && !(bar.close > middle)) return null;
-      if (c.event === 'close_below_middle' && !(bar.close < middle)) return null;
-      matched.push(`dsl:bollinger:${c.event}`);
-    } else if ('stochastic' in cond) {
-      const c = cond.stochastic;
-      const s = stochastic(candles, c.kPeriod, c.dPeriod, c.smoothK);
-      const k = s.k[i];
-      if (k == null) return null;
-      if (c.kLt !== undefined && !(k < c.kLt)) return null;
-      if (c.kGt !== undefined && !(k > c.kGt)) return null;
-      if (c.cross !== undefined && !crossedWithin(s.k, s.d, i, c.withinBars, c.cross)) return null;
-      matched.push(`dsl:stochastic${c.cross ? `:${c.cross}` : ''}`);
-    } else if ('adx' in cond) {
-      const c = cond.adx;
-      const value = adx(candles, c.period).adx[i];
-      if (value == null) return null;
-      if (c.gt !== undefined && !(value > c.gt)) return null;
-      if (c.lt !== undefined && !(value < c.lt)) return null;
-      matched.push(`dsl:adx${c.gt !== undefined ? `>${c.gt}` : ''}${c.lt !== undefined ? `<${c.lt}` : ''}`);
-    } else if ('supertrend' in cond) {
-      const c = cond.supertrend;
-      const point = supertrend(candles, c.period, c.mult)[i];
-      if (point == null) return null;
-      if (point.direction !== c.direction) return null;
-      matched.push(`dsl:supertrend:${c.direction}`);
-    } else {
-      const up = bar.close >= ema200;
-      if (cond.trend === 'EMA200_up' && !up) return null;
-      if (cond.trend === 'EMA200_down' && up) return null;
-      matched.push(`dsl:${cond.trend}`);
+      if (tags.length === dsl.when.any[k]!.length) branchTags = [`dsl:any#${k + 1}`, ...tags];
     }
+    if (branchTags === null) return null;
+    matched.push(...branchTags);
   }
 
   // Entry: market oder Retest an EMA<n>
@@ -374,6 +482,7 @@ export function evaluateDslAt(allCandles: Candle[], i: number, dsl: InstructionD
   const score = Math.min(10, Math.round(rr1 * 30) / 10);
 
   const lastEvent = events[events.length - 1];
+  const plan = dslExecutionPlan(dsl);
   return {
     direction: dsl.direction,
     setupType: dsl.setupType,
@@ -388,5 +497,8 @@ export function evaluateDslAt(allCandles: Candle[], i: number, dsl: InstructionD
     marketPhase: lastEvent ? (lastEvent.direction === 'bullish' ? 'bull' : 'bear') : bar.close >= ema200 ? 'bull' : 'bear',
     leverageSuggested: dsl.risk.maxLeveragePerTrade,
     ...(dsl.trailingStop ? { trailPct: dsl.trailingStop.pct } : {}),
+    // Ausführungs-Plan (Backtest liest ihn hier, Live über dslExecutionPlan aus derselben DSL-Version)
+    ...(plan.tpWeights ? { tpWeights: plan.tpWeights } : {}),
+    ...(plan.breakEvenAfterTp1 ? {} : { breakEvenAfterTp1: false }),
   };
 }

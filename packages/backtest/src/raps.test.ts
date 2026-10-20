@@ -65,4 +65,19 @@ describe('RAPS-Hebel×TP-Gitter (13_ §4/§5)', () => {
     expect(res.best).toBeNull();
     expect(res.isLowSampleSize).toBe(true);
   });
+  it('fehlende Schema-Werte (z. B. Paper: nur Schema A bekannt) → Schema ausgeschlossen, nie geraten', () => {
+    const trades: RapsTrade[] = Array.from({ length: 60 }, (_, k) => ({
+      ...trade(k, 0.6, 0.01),
+      pnlRTpB: k === 3 ? null : 5, // ein einziger fehlender Wert sperrt B
+      pnlRTpC: null,
+      pnlRTpD: null,
+    }));
+    const res = rapsGrid(trades, { now: NOW });
+    for (const s of ['B', 'C', 'D'] as const) {
+      const cells = res.grid.filter((g) => g.tpSchema === s);
+      expect(cells.every((c) => c.excluded && c.incomplete)).toBe(true);
+    }
+    expect(res.best!.tpSchema).toBe('A');
+    expect(res.grid.find((g) => g.tpSchema === 'A')!.incomplete).toBe(false);
+  });
 });

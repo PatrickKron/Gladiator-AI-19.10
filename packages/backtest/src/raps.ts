@@ -11,14 +11,18 @@
  * - Constraint: Liquidations-Quote — vereinfachtes Modell (dokumentiert):
  *   isolierte Margin = Notional/L ⇒ liquidiert, wenn MAE% × L ≥ 100 %.
  * - Low-Sample-Schutz: unter minTrades wird das Ergebnis als unsicher markiert.
+ * - Fehlende Schema-Werte (null, z. B. Paper-Trades: nur das ausgeführte
+ *   Schema A ist bekannt) sperren das Schema für das GANZE Gitter — ein
+ *   Schema wird nie auf einer Teilmenge gegen andere verglichen oder geraten.
  */
 
 export type RapsTrade = {
   exitTs: Date;
-  pnlRTpA: number;
-  pnlRTpB: number;
-  pnlRTpC: number;
-  pnlRTpD: number;
+  /** R je TP-Schema; null = für diesen Trade ehrlich nicht rekonstruierbar. */
+  pnlRTpA: number | null;
+  pnlRTpB: number | null;
+  pnlRTpC: number | null;
+  pnlRTpD: number | null;
   maePct: number;
 };
 
@@ -35,6 +39,8 @@ export type RapsCell = {
   rapsScore: number;
   liquidationRate: number;
   excluded: boolean;
+  /** true = mindestens ein Trade ohne Wert für dieses Schema → nicht bewertbar. */
+  incomplete: boolean;
 };
 
 export type RapsResult = {
@@ -54,7 +60,7 @@ export type RapsOptions = {
   maxLiquidationRate?: number;
 };
 
-function schemaRof(t: RapsTrade, s: TpSchemaId): number {
+function schemaRof(t: RapsTrade, s: TpSchemaId): number | null {
   return s === 'A' ? t.pnlRTpA : s === 'B' ? t.pnlRTpB : s === 'C' ? t.pnlRTpC : t.pnlRTpD;
 }
 
@@ -75,7 +81,11 @@ export function rapsGrid(trades: RapsTrade[], opts: RapsOptions = {}): RapsResul
   for (const leverage of LEVERAGE_CANDIDATES) {
     for (const tpSchema of TP_SCHEMA_IDS) {
       if (sorted.length === 0) {
-        grid.push({ leverage, tpSchema, muWeighted: 0, maxDrawdownR: 0, rapsScore: 0, liquidationRate: 0, excluded: true });
+        grid.push({ leverage, tpSchema, muWeighted: 0, maxDrawdownR: 0, rapsScore: 0, liquidationRate: 0, excluded: true, incomplete: false });
+        continue;
+      }
+      if (sorted.some((t) => schemaRof(t, tpSchema) === null)) {
+        grid.push({ leverage, tpSchema, muWeighted: 0, maxDrawdownR: 0, rapsScore: 0, liquidationRate: 0, excluded: true, incomplete: true });
         continue;
       }
 
@@ -88,7 +98,7 @@ export function rapsGrid(trades: RapsTrade[], opts: RapsOptions = {}): RapsResul
         const liquidated = t.maePct * leverage >= 1;
         if (liquidated) liq++;
         // Liquidation: Verlust der isolierten Margin ⇒ −1R × L als Näherung des Totalverlusts
-        const r = liquidated ? -1 * leverage : schemaRof(t, tpSchema) * leverage;
+        const r = liquidated ? -1 * leverage : schemaRof(t, tpSchema)! * leverage;
         muNum += weights[k]! * r;
         cum += r;
         peak = Math.max(peak, cum);
@@ -107,6 +117,7 @@ export function rapsGrid(trades: RapsTrade[], opts: RapsOptions = {}): RapsResul
         rapsScore,
         liquidationRate,
         excluded: liquidationRate > maxLiq,
+        incomplete: false,
       });
     }
   }

@@ -10,8 +10,11 @@ import {
   loadRiskSettings,
 } from '@gladiator/exchange';
 import { evaluateRisk } from '@gladiator/risk';
+import { leverageUpgradeSchema, reentrySchema } from '@gladiator/core';
 import { formatEmergencyAlert, sendTelegram } from '@gladiator/jobs';
 import { getEurUsdRate } from '@gladiator/market-data';
+import { getOptimalParams, MIN_TRADES_PER_CLUSTER, type OptimalParams } from '@gladiator/backtest';
+import { buildClusterKey } from '@gladiator/strategy-engine';
 import { protectedProcedure, router } from '../trpc.js';
 
 const { signals, signalReviews, strategies, auditLog, assetFavorites, assets } = schema;
@@ -30,6 +33,9 @@ type SignalReviewDto = {
   reason: string;
   refs: unknown;
 };
+
+/** Auto-Kill-Ereignis (05_ §9) für die Karte: Grund + Score vorher/nachher. */
+type AutoKillDto = { reason: string; score: number | null; rescored: number | null; at: string };
 
 export const signalsRouter = router({
   list: protectedProcedure
@@ -64,6 +70,8 @@ export const signalsRouter = router({
           status: signals.status,
           source: signals.source,
           strategySlug: strategies.slug,
+          reentryRaw: signals.reentry,
+          leverageUpgradeRaw: signals.leverageUpgrade,
         })
         .from(signals)
         .innerJoin(strategies, eq(strategies.id, signals.strategyId))
@@ -92,14 +100,46 @@ export const signalsRouter = router({
           .filter((x): x is string => Boolean(x))
           .map((x) => (x.endsWith('USDT') ? x.slice(0, -4) + '/USDT' : x.endsWith('USDC') ? x.slice(0, -4) + '/USDC' : x)),
       );
-      let filtered = rows.map((r) => ({ ...r, isFavorite: favSymbols.has(r.symbol) }));
+      // 05_ §9: Pläne/Vorschläge aus den jsonb-Spalten — validiert über das EINE Schema (@gladiator/core).
+      let filtered = rows.map(({ reentryRaw, leverageUpgradeRaw, ...r }) => {
+        const re = reentrySchema.safeParse(reentryRaw);
+        const lu = leverageUpgradeSchema.safeParse(leverageUpgradeRaw);
+        return {
+          ...r,
+          reentry: re.success ? re.data : null,
+          leverageUpgrade: lu.success ? lu.data : null,
+          isFavorite: favSymbols.has(r.symbol),
+        };
+      });
       if (input.favoritesOnly) filtered = filtered.filter((r) => r.isFavorite);
       // Favoriten zuerst, dann Zeit
       filtered.sort((a, b) => Number(b.isFavorite) - Number(a.isFavorite) || b.createdAt.getTime() - a.createdAt.getTime());
       const rowsOut = filtered;
 
       // Schwarm-Urteile (Phase 5) in EINEM Batch dazuladen — transparent auf der Karte.
-      if (rowsOut.length === 0) return rowsOut.map((r) => ({ ...r, reviews: [] as SignalReviewDto[] }));
+      if (rowsOut.length === 0) {
+        return rowsOut.map((r) => ({ ...r, reviews: [] as SignalReviewDto[], autoKill: null as AutoKillDto | null }));
+      }
+      // Auto-Kill-Grund (05_ §9) aus dem Audit-Log — eine Batch-Abfrage, nur entwertete Signale.
+      const expiredIds = rowsOut.filter((r) => r.status === 'expired').map((r) => r.id);
+      const killRows =
+        expiredIds.length === 0
+          ? []
+          : await ctx.db
+              .select({ entityId: auditLog.entityId, ts: auditLog.ts, details: auditLog.details })
+              .from(auditLog)
+              .where(and(eq(auditLog.action, 'signal.auto_killed'), inArray(auditLog.entityId, expiredIds)));
+      const killBySignal = new Map<string, AutoKillDto>();
+      for (const k of killRows) {
+        const d = (k.details ?? {}) as { reason?: string; score?: number; rescored?: number | null };
+        if (!k.entityId || !d.reason) continue;
+        killBySignal.set(k.entityId, {
+          reason: d.reason,
+          score: typeof d.score === 'number' ? d.score : null,
+          rescored: typeof d.rescored === 'number' ? d.rescored : null,
+          at: k.ts.toISOString(),
+        });
+      }
       const reviewRows = await ctx.db
         .select({
           signalId: signalReviews.signalId,
@@ -122,7 +162,7 @@ export const signalsRouter = router({
         list.push({ agent: r.agent, vote: r.vote, confidence: Number(r.confidence), reason: r.reason, refs: r.refs });
         bySignal.set(r.signalId, list);
       }
-      return rowsOut.map((r) => ({ ...r, reviews: bySignal.get(r.id) ?? [] }));
+      return rowsOut.map((r) => ({ ...r, reviews: bySignal.get(r.id) ?? [], autoKill: killBySignal.get(r.id) ?? null }));
     }),
 
   /**
@@ -163,6 +203,33 @@ export const signalsRouter = router({
       );
       const eurUsd = await getEurUsdRate();
       const suggestedNotionalUsd = verdict.sizing?.notional ?? null;
+
+      // Vorschlag aus Erfahrung (13_ §7): VDB2-Cluster des Signals, gedeckelt
+      // durch die Risk-Settings. Nur Vorschlag — angewendet wird nichts
+      // automatisch, das Risk-Gate prüft beim Ausführen erneut.
+      let experience: OptimalParams | { available: false; reason: 'error'; tradeCount: 0; minTrades: number };
+      try {
+        const [strategy] = await ctx.db
+          .select({ slug: strategies.slug })
+          .from(strategies)
+          .where(eq(strategies.id, signal.strategyId))
+          .limit(1);
+        const clusterKey = buildClusterKey({
+          strategy: strategy?.slug ?? '',
+          symbol: signal.symbol,
+          setupType: signal.setupType,
+          timeframe: signal.timeframe,
+          session: signal.session,
+          emaRegime: signal.emaRegime === 'above' || signal.emaRegime === 'below' ? signal.emaRegime : null,
+          marketPhase: signal.marketPhase === 'bull' || signal.marketPhase === 'bear' ? signal.marketPhase : null,
+        });
+        experience = strategy
+          ? await getOptimalParams(ctx.db, clusterKey, { maxLeverage: settings.maxLeverage, riskPctPerTrade: settings.riskPctPerTrade })
+          : { available: false, reason: 'no_data', tradeCount: 0, minTrades: MIN_TRADES_PER_CLUSTER };
+      } catch (err) {
+        console.warn(`[executionPreview] Erfahrungs-Vorschlag nicht ladbar: ${String(err)}`);
+        experience = { available: false, reason: 'error', tradeCount: 0, minTrades: MIN_TRADES_PER_CLUSTER };
+      }
       return {
         // Strategie-Vorschlag (Referenz fürs Ticket)
         suggested: {
@@ -187,6 +254,8 @@ export const signalsRouter = router({
         /** Echter EUR/USD-Kurs; null = Quelle nicht erreichbar (UI zeigt USD). */
         eurUsdRate: eurUsd,
         gateReasons: verdict.allowed ? [] : verdict.reasons,
+        /** Optionaler Vorschlag aus echten Trades (Labor + Paper); null-Fall mit Grund. */
+        experience,
       };
     }),
 

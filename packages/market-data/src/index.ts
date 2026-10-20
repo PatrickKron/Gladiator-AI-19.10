@@ -146,3 +146,17 @@ export {
 export { eurToUsd, getEurUsdRate, resetFxCache, usdToEur, type FetchLike } from './fx.js';
 
 export { valueBalancesUsd, type ValuedBalances } from './valuation.js';
+export {
+  FRED_CATALOG,
+  FRED_USER_SOURCE,
+  addFredWatch,
+  listFredWatch,
+  normalizeFredId,
+  readFredWatchSeries,
+  removeFredWatch,
+  suggestFredSeries,
+  syncFredWatch,
+  type FredCatalogEntry,
+  type FredFetcher,
+  type FredWatchEntry,
+} from './fred-watchlist.js';

@@ -25,6 +25,11 @@ import {
   YAHOO_VENUE,
   SUPPORTED_TIMEFRAMES,
   orderTimeframes,
+  addFredWatch,
+  listFredWatch,
+  readFredWatchSeries,
+  removeFredWatch,
+  suggestFredSeries,
 } from '@gladiator/market-data';
 import { noTradeWindowFor } from '@gladiator/risk';
 import { scanUniverse } from '@gladiator/jobs';
@@ -171,6 +176,49 @@ export const marketRouter = router({
         us10y: snap.series.us10y.slice(-90),
       },
     };
+  }),
+
+  /**
+   * Daten-Assistent: eigene offizielle FRED-Serien. `dataSuggest` übersetzt
+   * Klartext („Geldmenge", „Zinskurve") in echte FRED-IDs; `dataAdd` prüft die
+   * Serie gegen FRED und speichert nur echte Punkte; der macro-sync zieht nach.
+   */
+  dataSuggest: protectedProcedure
+    .input(z.object({ query: z.string().max(80) }))
+    .query(({ input }) => suggestFredSeries(input.query)),
+
+  dataWatchlist: protectedProcedure.query(async ({ ctx }) => {
+    const list = await listFredWatch(ctx.db);
+    return Promise.all(
+      list.map(async (w) => ({
+        ...w,
+        latestTs: w.latestTs.toISOString(),
+        series: (await readFredWatchSeries(ctx.db, w.seriesId, 120)).map((p) => ({ ts: p.ts.toISOString(), value: p.value })),
+      })),
+    );
+  }),
+
+  dataAdd: protectedProcedure.input(z.object({ seriesId: z.string().min(1).max(30) })).mutation(async ({ ctx, input }) => {
+    try {
+      const res = await addFredWatch(ctx.db, input.seriesId);
+      await ctx.db.insert(schema.auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: 'data.watch.add',
+        entityType: 'macro_series',
+        entityId: null,
+        details: { source: 'fred-user', seriesId: res.seriesId, points: res.points },
+        ip: ctx.ip,
+      });
+      return { ...res, latestTs: res.latestTs.toISOString() };
+    } catch (err) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : String(err) });
+    }
+  }),
+
+  dataRemove: protectedProcedure.input(z.object({ seriesId: z.string().min(1).max(30) })).mutation(async ({ ctx, input }) => {
+    await removeFredWatch(ctx.db, input.seriesId);
+    return { ok: true };
   }),
 
   /**

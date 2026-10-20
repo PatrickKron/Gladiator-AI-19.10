@@ -25,6 +25,11 @@
 - **Keine Betriebs-Keys hinterlegt** (`app_secrets` leer), **keine Börse verbunden** (`exchange_connections` leer).
 - Signale: 306 erzeugt — 304 `expired`, 2 `filled`. 3 Strategie-Versionen im Status `paper`.
 
+## Stand nach Session 10/11 (2026-10-19, Cloud, PR #2 gemergt · PR #3 offen)
+
+- PR #3 (`claude/focused-darwin-51s9k3`, **nicht gemergt**, wartet auf Patrick): Wallet nur lesend, Daten-Assistent (FRED), Börsen aus dem Chat, PWA, Signal-Lebenszyklus 05 §9, VDB1/VDB2, Nacht-Optimierung, DSL-Erweiterungen. Details `WORKOVER.md` Session 11.
+- **Live-Order-Verdrahtung blockiert** durch die Sicherheitsfilterung der Cloud-Umgebung (trotz Patricks Go) → nur per Berechtigungsregel in Claude-Code-Einstellungen oder gemeinsam lokal. `CcxtLiveVenue` + Binance-Demo-Trading fertig, nicht verdrahtet.
+
 ## 1 · Patrick-Schritte (blockieren am meisten — Claude kann sie nicht erledigen)
 
 - [ ] **Auto-Deploy GitHub → Server einmalig installieren** (`deploy/install-github-sync.sh` auf dem Server + read-only Deploy-Key bei GitHub eintragen). Bis dahin deployt eine lokale Sitzung: `git pull origin main && git push server main`. Damit geht auch PR #1 live.
@@ -39,16 +44,20 @@
 
 - [ ] **Live-Order-Pfad** über den bestehenden CCXT-Router (`packages/exchange/src/connections.ts`, `pickConnectionForSymbol`): Live-Adapter → Testnet-E2E → grüne Reconciliation → Freigabe-Phrase `LIVE-FREIGABE <venue>` (`venue_approvals`) → Kleinst-Trade-Probe. **Erst nach Patricks ausdrücklicher Freigabe beginnen.** Voraussetzung: Punkt 1 (Börse verbunden).
 - [x] Trailing-Stop am PositionMonitor + Position schließen/Teilschluss/SL-TP ändern (Session 9, PR #1).
-- [ ] **Trailing als Strategie-Exit** in Backtest-Engine + DSL — dieselbe `trailStep`-Funktion aus `packages/exchange/src/trailing.ts` nutzen (sonst Backtest ≠ Live).
+- [x] **Trailing als Strategie-Exit** (Session 10, PR #2) in Backtest-Engine + DSL — dieselbe `trailStep`-Funktion aus `packages/exchange/src/trailing.ts` nutzen (sonst Backtest ≠ Live).
 - [ ] **Default-Limits** (1 % Risiko + 20 % Exposure) blocken Stops < 5 % → hebelbewusste Exposure oder klarer Hinweis im Ticket.
-- [ ] Backtest-Stops gap-realistisch + Out-of-Sample-Gate.
+- [x] Backtest-Stops gap-realistisch + Robustheits-Gate (jüngste 30 %) (Session 10, PR #2); Walk-Forward mit Trailing/Funding/Warmup (PR #3).
 - [ ] **Orderbuch-Ansicht** (braucht Depth-Streaming, z. B. ccxt.pro `watchOrderBook`).
-- [ ] **Reentry-/Hebel-Upgrade-Engine** (Blueprint `05_` §9, Rest aus Phase 2).
+- [x] **Reentry-/Hebel-Upgrade-Engine + Auto-Kill** (Blueprint `05_` §9) — PR #3; Hebel-Upgrade nur als Vorschlag.
+- [x] Wallet-Anschluss nur lesend (Hyperliquid/Paradex/Derive/Aftermath) — PR #3. Offen: eigenes Wallet, dYdX/Lighter.
 
 ## 3 · Signale, die auch genutzt werden
 
 - [ ] **304 von 306 Signalen sind unbearbeitet abgelaufen.** Ursache klären (fehlende Benachrichtigung? zu kurze Gültigkeit?) und eine „Was wäre passiert"-Auswertung abgelaufener Signale bauen (echte Kerzen nach Ablauf → hypothetisches Ergebnis netto).
 - [ ] **Strategie-Katalog:** Aktivierung braucht ≥ 250 echte Kerzen je Symbol/Timeframe — 15m-Historie für Scalp-Presets ggf. nachfüllen.
+
+- [x] Nacht-Optimierung → Vorschlag (08 §5) und VDB1/VDB2-Erfahrungsvorschlag im Ticket (13) — PR #3.
+- [x] Handy-Nutzung: PWA + `deploy/MOBILE.md` (`tailscale serve`, einmalig auf dem Server ausführen) — PR #3.
 
 ## 4 · Oberfläche — Wellen 3–5 des UI-Konzepts (erst nach Patricks Feedback)
 

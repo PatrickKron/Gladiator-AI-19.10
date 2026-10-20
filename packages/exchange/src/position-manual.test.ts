@@ -126,6 +126,7 @@ describe.skipIf(!hasDb)('Agenten-Konto: Position schließen & SL/TP ändern (ech
 
   afterAll(async () => {
     for (const id of [userId, otherUserId]) {
+      await db.execute(sql`DELETE FROM study_trades WHERE executed_trade_id IN (SELECT id FROM executed_trades WHERE user_id = ${id})`);
       await db.execute(sql`DELETE FROM executed_trades WHERE user_id = ${id}`);
       await db.execute(sql`DELETE FROM positions WHERE user_id = ${id}`);
       await db.execute(sql`DELETE FROM orders WHERE user_id = ${id}`);

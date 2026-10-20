@@ -65,4 +65,32 @@ describe('kanonisches Signal-Schema', () => {
     expect(() => signalSchema.parse({ ...validLong, venueType: 'otc' })).toThrow();
     expect(() => signalSchema.parse({ ...validLong, session: 'tokyo' })).toThrow();
   });
+
+  it('Reentry-/Leverage-Upgrade-Plan (05_ §9): flaches Modell inkl. Herkunft und Vorschlag', () => {
+    const parsed = signalSchema.parse({
+      ...validLong,
+      reentry: {
+        enabled: false, minPullbackPct: 1.5, maxPullbackPct: 2.5, zoneLow: 97_500, zoneHigh: 98_500,
+        maxReentries: 1, generation: 1, parentSignalId: validLong.id, rootSignalId: validLong.id,
+      },
+      leverageUpgrade: {
+        triggerPct: 5, multiplier: 1.5, maxLeverage: 10,
+        suggestion: { suggested: 3, from: 2, movePct: 5.2, reason: 'x', at: '2026-07-02T13:00:00.000Z', positionId: validLong.id, price: 105_200 },
+      },
+    });
+    expect(parsed.reentry?.generation).toBe(1);
+    expect(parsed.leverageUpgrade?.suggestion?.suggested).toBe(3);
+  });
+
+  it('Alt-Format ohne Zusatzfelder bleibt gültig (abwärtskompatibel)', () => {
+    expect(() =>
+      signalSchema.parse({ ...validLong, reentry: { enabled: true, minPullbackPct: 1.5, maxPullbackPct: 2 }, leverageUpgrade: { triggerPct: 2, maxLeverage: 20 } }),
+    ).not.toThrow();
+  });
+
+  it('lehnt negative Reentry-Generation ab', () => {
+    expect(() =>
+      signalSchema.parse({ ...validLong, reentry: { enabled: true, minPullbackPct: 1.5, maxPullbackPct: 2, generation: -1 } }),
+    ).toThrow();
+  });
 });

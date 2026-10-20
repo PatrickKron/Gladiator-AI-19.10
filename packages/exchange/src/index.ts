@@ -4,6 +4,7 @@ export { CcxtLiveVenue, formatClientOrderId, type CcxtLiveClient, type CcxtOrder
 export { PaperVenue } from './paper-venue.js';
 export { BinanceTestnetVenue } from './binance-venue.js';
 export { planFills, type OpenProtectionOrder, type PlannedFill } from './lifecycle.js';
+export { paperStudyRow, recordPaperStudyTrade, type PaperStudyInput } from './study-record.js';
 export {
   executeConfirmedSignal,
   closePositionNow,
@@ -49,6 +50,9 @@ export {
 } from './demo/engine.js';
 export {
   connectExchange,
+  connectWallet,
+  isValidEvmAddress,
+  walletExchanges,
   defaultCreateClient,
   fetchConnectionBalances,
   isSupportedExchange,
@@ -67,6 +71,9 @@ export {
   type ConnectionForRouting,
   type CreateClient,
   type ExchangeCredentialsInput,
+  type WalletCredentials,
+  type StoredCredentials,
+  type ConnectWalletInput,
   type MarketsSummary,
   type SupportedExchange,
 } from './connections.js';
@@ -84,3 +91,11 @@ export {
   type SecretKey,
   type SecretStatus,
 } from './secrets.js';
+export {
+  detectExchangeMentions,
+  loadPreferredExchanges,
+  rankPreferredExchanges,
+  type ExchangeMention,
+  type PreferredExchange,
+  type PreferredExchangeView,
+} from './exchange-mentions.js';

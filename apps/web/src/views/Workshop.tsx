@@ -55,12 +55,16 @@ type Dsl = {
   venueType: 'cex' | 'dex';
   direction: 'long' | 'short';
   setupType: 'scalp' | 'swing' | 'position';
-  when: { session?: 'asia' | 'london' | 'overlap' | 'newyork' | 'off'; all: Cond[] };
+  /** any = ODER-Gruppen (Liste von UND-Listen) — im Formular nur angezeigt, Bearbeitung im JSON-Modus. */
+  when: { session?: 'asia' | 'london' | 'overlap' | 'newyork' | 'off'; all: Cond[]; any?: Cond[][] };
   entry: string;
   stopLoss: { type: 'ATR'; mult: number } | { type: 'pct'; pct: number };
-  takeProfits: { rr: number }[];
+  /** weight = Teil-Exit-Anteil (0–1); an allen TPs oder an keinem (dann 50/30/20). */
+  takeProfits: { rr: number; weight?: number }[];
   /** Optional: Trailing-Stop im %-Abstand (gleiche Logik in Backtest und Live). */
   trailingStop?: { pct: number };
+  /** Default true: Stop nach TP1 auf Einstand (Backtest und Live identisch). */
+  breakEvenAfterTp1?: boolean;
   risk: { maxLeveragePerTrade: number; riskPctPerTrade: number };
 };
 
@@ -391,6 +395,10 @@ function DraftEditor({ sessionId, draft, universe, onSaved }: { sessionId: strin
             >
               + {t('sw.addCondition')}
             </button>
+            {/* ODER-Gruppen: bewusst nur im JSON-Modus editierbar (verschachtelte Listen im Formular wären unübersichtlich) */}
+            <p className="mt-2 text-[11px]" style={{ color: d.when.any?.length ? 'var(--color-violet)' : 'var(--color-mut)' }}>
+              {d.when.any?.length ? t('sw.anyGroups', { count: d.when.any.length }) : t('sw.anyGroupsHint')}
+            </p>
           </div>
 
           <div className="mt-5 grid gap-4 md:grid-cols-3">
@@ -431,13 +439,28 @@ function DraftEditor({ sessionId, draft, universe, onSaved }: { sessionId: strin
             </div>
             <div className="flex flex-wrap items-end gap-3">
               {d.takeProfits.map((tp, i) => (
-                <NumBox
-                  key={i}
-                  label={`TP${i + 1} (R)`}
-                  step={0.1}
-                  value={tp.rr}
-                  onChange={(v) => set({ takeProfits: d.takeProfits.map((x, j) => (j === i ? { rr: v ?? 1 } : x)) })}
-                />
+                <div key={i} className="flex items-end gap-1">
+                  <NumBox
+                    label={`TP${i + 1} (R)`}
+                    step={0.1}
+                    value={tp.rr}
+                    onChange={(v) => set({ takeProfits: d.takeProfits.map((x, j) => (j === i ? { ...x, rr: v ?? 1 } : x)) })}
+                    className="w-20"
+                  />
+                  <NumBox
+                    label={t('sw.tpWeight')}
+                    step={5}
+                    value={tp.weight === undefined ? undefined : Math.round(tp.weight * 10_000) / 100}
+                    onChange={(v) =>
+                      set({
+                        takeProfits: d.takeProfits.map((x, j) =>
+                          j === i ? (v === undefined ? { rr: x.rr } : { ...x, weight: v / 100 }) : x,
+                        ),
+                      })
+                    }
+                    className="w-20"
+                  />
+                </div>
               ))}
               <button
                 onClick={() => set({ takeProfits: [...d.takeProfits, { rr: (d.takeProfits[d.takeProfits.length - 1]?.rr ?? 1) + 1 }] })}
@@ -456,6 +479,28 @@ function DraftEditor({ sessionId, draft, universe, onSaved }: { sessionId: strin
                 −TP
               </button>
             </div>
+          </div>
+
+          <div className="mt-3 flex flex-col gap-2">
+            <p className="text-[11px] leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+              {t('sw.tpWeightHint')}
+              {d.takeProfits.some((tp) => tp.weight !== undefined) && (
+                <span className="num ml-2">
+                  {t('sw.tpWeightSum', {
+                    sum: Math.round(d.takeProfits.reduce((a, tp) => a + (tp.weight ?? 0), 0) * 10_000) / 100,
+                  })}
+                </span>
+              )}
+            </p>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={d.breakEvenAfterTp1 !== false}
+                // Default (an) wird nicht ins JSON geschrieben — bestehende Entwürfe bleiben unverändert.
+                onChange={(e) => set({ breakEvenAfterTp1: e.target.checked ? undefined : false })}
+              />
+              {t('sw.breakEven')}
+            </label>
           </div>
 
           <div className="mt-5 flex flex-wrap items-end gap-3">
@@ -652,6 +697,7 @@ function ChatPanel({ session, messages, onChanged }: { session: SessionDetail['s
   const [busy, setBusy] = useState(false);
   const [applyBusy, setApplyBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [exchangeHints, setExchangeHints] = useState<{ id: string; name: string }[]>([]);
 
   async function send() {
     const message = input.trim();
@@ -661,6 +707,7 @@ function ChatPanel({ session, messages, onChanged }: { session: SessionDetail['s
     try {
       const res = await trpc.workshop.chat.mutate({ id: session.id, message });
       setInput('');
+      setExchangeHints(res.exchangeHints);
       if (res.dslErrors.length > 0) setError(`${t('sw.proposalInvalid')}: ${res.dslErrors.join(' · ')}`);
       onChanged();
     } catch (err) {
@@ -715,6 +762,21 @@ function ChatPanel({ session, messages, onChanged }: { session: SessionDetail['s
       {error && (
         <div className="mt-3">
           <ErrorBox message={error} />
+        </div>
+      )}
+      {exchangeHints.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--color-mut)' }}>
+          <span>{t('exchanges.detectedInChat')}</span>
+          {exchangeHints.map((h) => (
+            <a
+              key={h.id}
+              className="rounded border px-2 py-1"
+              style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink)' }}
+              href={`#/einstellungen?tab=boersen&ex=${encodeURIComponent(h.id)}`}
+            >
+              {t('exchanges.connectNamed', { name: h.name })}
+            </a>
+          ))}
         </div>
       )}
       <div className="mt-4 flex gap-2">

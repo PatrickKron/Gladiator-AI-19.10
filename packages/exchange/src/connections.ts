@@ -30,6 +30,11 @@ export type ExchangeCredentialsInput = {
   uid?: string;
 };
 
+/** Wallet-Login (Hyperliquid & Co.): nur die ÖFFENTLICHE Adresse — nie ein Private Key. */
+export type WalletCredentials = { walletAddress: string };
+
+export type StoredCredentials = ExchangeCredentialsInput | WalletCredentials;
+
 export type CcxtMarket = {
   symbol: string;
   base: string;
@@ -45,7 +50,7 @@ export type CcxtLikeClient = {
   fetchBalance(): Promise<{ total?: Record<string, number>; free?: Record<string, number>; used?: Record<string, number> }>;
 };
 
-export type CreateClient = (exchangeId: string, creds: ExchangeCredentialsInput) => CcxtLikeClient;
+export type CreateClient = (exchangeId: string, creds: StoredCredentials) => CcxtLikeClient;
 
 type CcxtConstructor = new (config: Record<string, unknown>) => CcxtLikeClient & { name?: string };
 type CcxtModule = { exchanges: string[] } & Record<string, unknown>;
@@ -56,6 +61,7 @@ const ccxtModule = ccxt as unknown as CcxtModule;
 export const defaultCreateClient: CreateClient = (exchangeId, creds) => {
   const Ctor = ccxtModule[exchangeId] as CcxtConstructor | undefined;
   if (!Ctor) throw new Error(`Börse "${exchangeId}" ist in CCXT nicht verfügbar.`);
+  if ('walletAddress' in creds) return new Ctor({ walletAddress: creds.walletAddress, enableRateLimit: true });
   return new Ctor({
     apiKey: creds.apiKey,
     secret: creds.secret,
@@ -89,6 +95,40 @@ export function listSupportedExchanges(): SupportedExchange[] {
 
 export function isSupportedExchange(exchangeId: string): boolean {
   return ccxtModule.exchanges.includes(exchangeId);
+}
+
+/** EVM-Adresse: 0x + 40 Hex-Zeichen (Checksumme wird nicht verlangt, Vergleich klein geschrieben). */
+export function isValidEvmAddress(address: string): boolean {
+  return /^0x[0-9a-fA-F]{40}$/.test(address.trim());
+}
+
+let walletCache: SupportedExchange[] | null = null;
+
+/**
+ * Börsen, deren Konto an einer Wallet-Adresse statt an einem API-Key hängt
+ * (laut CCXT requiredCredentials.walletAddress, z. B. Hyperliquid). Nur diese
+ * lassen sich per öffentlicher Adresse NUR LESEND anschließen.
+ */
+export function walletExchanges(): SupportedExchange[] {
+  if (walletCache) return walletCache;
+  const out: SupportedExchange[] = [];
+  for (const id of ccxtModule.exchanges) {
+    const Ctor = ccxtModule[id] as CcxtConstructor | undefined;
+    if (!Ctor) continue;
+    try {
+      const instance = new Ctor({}) as { name?: string; requiredCredentials?: Record<string, boolean> };
+      const req = instance.requiredCredentials ?? {};
+      if (req.walletAddress && !req.apiKey) out.push({ id, name: instance.name || id });
+    } catch {
+      // ohne parameterlosen Konstruktor ehrlich auslassen
+    }
+  }
+  walletCache = out.sort((a, b) => a.name.localeCompare(b.name));
+  return walletCache;
+}
+
+function maskAddress(address: string): string {
+  return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
 
 export type MarketsSummary = {
@@ -181,6 +221,8 @@ export type ConnectionDto = {
   label: string | null;
   mode: 'read_only' | 'trading';
   status: 'active' | 'error' | 'revoked';
+  /** api_key = klassische Börsen-Keys; wallet = nur öffentliche Adresse (immer read_only). */
+  kind: 'api_key' | 'wallet';
   keyMasked: string;
   lastError: string | null;
   lastValidatedAt: Date | null;
@@ -189,7 +231,13 @@ export type ConnectionDto = {
   maxLeverage: number | null;
 };
 
+/** Wallet-Verbindungen speichern statt last4 die maskierte Adresse ('0xabcd…1234'). */
+function isWalletRow(row: { keyLast4: string }): boolean {
+  return row.keyLast4.startsWith('0x');
+}
+
 function toDto(row: typeof exchangeConnections.$inferSelect): ConnectionDto {
+  const wallet = isWalletRow(row);
   return {
     id: row.id,
     exchangeId: row.exchangeId,
@@ -197,7 +245,8 @@ function toDto(row: typeof exchangeConnections.$inferSelect): ConnectionDto {
     label: row.label,
     mode: row.mode,
     status: row.status,
-    keyMasked: `••••••••${row.keyLast4}`,
+    kind: wallet ? 'wallet' : 'api_key',
+    keyMasked: wallet ? row.keyLast4 : `••••••••${row.keyLast4}`,
     lastError: row.lastError,
     lastValidatedAt: row.lastValidatedAt,
     createdAt: row.createdAt,
@@ -257,6 +306,63 @@ export async function connectExchange(
   return toDto(row!);
 }
 
+export type ConnectWalletInput = {
+  userId: string;
+  exchangeId: string;
+  walletAddress: string;
+  label?: string;
+};
+
+/**
+ * Wallet anschließen (nur lesend): die öffentliche Adresse wird SOFORT gegen
+ * die echte Börse geprüft (loadMarkets + fetchBalance für genau diese Adresse).
+ * Es wird nie ein Private Key angenommen oder gespeichert — eine Wallet-
+ * Verbindung kann daher technisch keine Orders und keine Transfers auslösen.
+ */
+export async function connectWallet(
+  db: Db,
+  input: ConnectWalletInput,
+  createClient: CreateClient = defaultCreateClient,
+): Promise<ConnectionDto> {
+  const exchangeId = input.exchangeId.trim().toLowerCase();
+  if (!walletExchanges().some((e) => e.id === exchangeId)) {
+    throw new Error(`"${exchangeId}" unterstützt keinen Wallet-Anschluss — bitte API-Keys verwenden.`);
+  }
+  if (!isValidEvmAddress(input.walletAddress)) {
+    throw new Error('Ungültige Wallet-Adresse — erwartet 0x gefolgt von 40 Hex-Zeichen.');
+  }
+  const walletAddress = input.walletAddress.trim().toLowerCase();
+  const client = createClient(exchangeId, { walletAddress });
+  let markets: Record<string, CcxtMarket>;
+  let name = exchangeId;
+  try {
+    markets = await client.loadMarkets();
+    await client.fetchBalance(); // Beweis: die Adresse hat dort wirklich ein Konto
+    const clientName = (client as { name?: string }).name;
+    if (typeof clientName === 'string' && clientName.length > 0) name = clientName;
+  } catch (err) {
+    throw new Error(`Wallet-Prüfung bei ${exchangeId} fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const summary = summarizeMarkets(markets);
+  const [row] = await db
+    .insert(exchangeConnections)
+    .values({
+      userId: input.userId,
+      exchangeId,
+      exchangeName: name,
+      label: input.label?.trim() || null,
+      encryptedPayload: encryptCredentials({ walletAddress }),
+      keyLast4: maskAddress(walletAddress),
+      mode: 'read_only',
+      status: 'active',
+      lastValidatedAt: new Date(),
+      marketsSummary: summary,
+      maxLeverage: summary.maxLeverage === null ? null : String(summary.maxLeverage),
+    })
+    .returning();
+  return toDto(row!);
+}
+
 export async function listConnections(db: Db, userId: string): Promise<ConnectionDto[]> {
   const rows = await db
     .select()
@@ -289,7 +395,7 @@ export async function fetchConnectionBalances(
   createClient: CreateClient = defaultCreateClient,
 ): Promise<ConnectionBalance[]> {
   const row = await loadOwnConnection(db, userId, connectionId);
-  const creds = decryptCredentials(row.encryptedPayload) as ExchangeCredentialsInput;
+  const creds = decryptCredentials(row.encryptedPayload) as unknown as StoredCredentials;
   const client = createClient(row.exchangeId, creds);
   try {
     const balance = await client.fetchBalance();
@@ -328,7 +434,7 @@ export async function refreshConnectionMarkets(
   createClient: CreateClient = defaultCreateClient,
 ): Promise<MarketsSummary> {
   const row = await loadOwnConnection(db, userId, connectionId);
-  const creds = decryptCredentials(row.encryptedPayload) as ExchangeCredentialsInput;
+  const creds = decryptCredentials(row.encryptedPayload) as unknown as StoredCredentials;
   const client = createClient(row.exchangeId, creds);
   const summary = summarizeMarkets(await client.loadMarkets());
   await db
@@ -349,6 +455,9 @@ export async function setConnectionMode(
   mode: 'read_only' | 'trading',
 ): Promise<ConnectionDto> {
   const row = await loadOwnConnection(db, userId, connectionId);
+  if (mode === 'trading' && isWalletRow(row)) {
+    throw new Error('Wallet-Verbindungen sind nur lesend — ohne Signatur-Schlüssel sind keine Orders möglich.');
+  }
   const [updated] = await db
     .update(exchangeConnections)
     .set({ mode, updatedAt: new Date() })

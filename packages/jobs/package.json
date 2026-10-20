@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@gladiator/core": "*",
     "@gladiator/db": "*",
     "@gladiator/market-data": "*",
     "@gladiator/strategy-engine": "*",
@@ -18,6 +19,7 @@
     "@gladiator/exchange": "*",
     "@gladiator/agents": "*",
     "@gladiator/risk": "*",
-    "@gladiator/ml": "*"
+    "@gladiator/ml": "*",
+    "@gladiator/backtest": "*"
   }
 }

@@ -9,10 +9,12 @@ export { sessionOf, isActiveSession } from './session.js';
 export { evaluateSmcCoreAt, SMC_CORE_DEFAULTS, type SmcCoreParams, type SetupCandidate, type SmcContext } from './smc-core.js';
 export {
   evaluateDslAt,
+  dslExecutionPlan,
   instructionDslSchema,
   parseInstructionDsl,
   DSL_TIMEFRAMES,
   type DslCondition,
+  type DslExecutionPlan,
   type DslParseResult,
   type DslSetup,
   type DslTimeframe,
@@ -42,3 +44,36 @@ export { analyzePineScript, type PineAnalysis, type PineInput } from './pine-ana
 
 export { presetBySlug, STRATEGY_PRESETS, type PresetCategory, type StrategyPreset } from './strategy-presets.js';
 export { trailStep, type TrailInput } from './trailing.js';
+export { DEFAULT_TP_WEIGHTS, MAX_LIVE_TAKE_PROFITS, tpFractions } from './tp-weights.js';
+export {
+  AUTO_KILL_SCORE_THRESHOLD,
+  MAX_REENTRIES,
+  SETUP_LIFECYCLE_RULES,
+  assessOpenSignal,
+  deriveLeverageUpgradePlan,
+  deriveLifecyclePlans,
+  deriveReentryPlan,
+  evaluateLeverageUpgrade,
+  evaluateReentry,
+  reentryZone,
+  rescoreSignal,
+  structureBrokenSince,
+  type AutoKillReason,
+  type LeverageUpgradePlan,
+  type LeverageUpgradeSuggestion,
+  type OpenSignalAssessment,
+  type ReentryDecision,
+  type ReentryPlan,
+} from './signal-lifecycle.js';
+export {
+  buildClusterKey,
+  parseClusterKey,
+  clusterKeyLevels,
+  isLegacyClusterKey,
+  marketStructureOf,
+  CLUSTER_ALL,
+  type ClusterKeyInput,
+  type ClusterKeyParts,
+  type ClusterLevel,
+  type MarketStructure,
+} from './study-cluster.js';

@@ -6,6 +6,7 @@ import { BacktestChart } from '../components/BacktestChart.js';
 import { loadLabConfig, saveLabConfig, type LabConfig } from '../lib/lab-config.js';
 import { CHART_TFS, type ChartTf } from '../lib/chart-url.js';
 import { COMPARE_COLORS, EquityChart, MetricCard, MultiEquityChart, fmt } from '../components/EquityChart.js';
+import { OptimizationProposals } from '../components/OptimizationProposals.js';
 
 /** Schnellstart-Vorlagen (P1.6) — ein Klick füllt die Konfiguration. */
 const QUICK_TEMPLATES: { symbol: string; timeframe: ChartTf; setupType: 'scalp' | 'swing' | 'position'; riskPct: number }[] = [
@@ -207,6 +208,7 @@ export function Labor() {
         oosBars: ['5m', '15m'].includes(timeframe) ? 1000 : ['30m', '1h'].includes(timeframe) ? 500 : 200,
         grid,
         riskPctPerTrade: riskPct,
+        ...(trailPct !== undefined ? { trailPct } : {}),
       });
       setWf(res);
     } catch (err) {
@@ -782,11 +784,28 @@ export function Labor() {
               </tbody>
             </table>
           </div>
+          {/* Datenqualität + Funding-Herkunft — dieselben Prüfungen wie beim Backtest (08_ §3a/§3b) */}
+          {wf.dataQuality.warnings.length > 0 && (
+            <div
+              className="mt-4 rounded-[0.625rem] border p-4 text-sm"
+              style={{ borderColor: 'var(--color-warn)', color: 'var(--color-warn)' }}
+            >
+              <p className="font-medium">Datenqualität · Ergebnis mit Vorsicht lesen</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {wf.dataQuality.warnings.map((w) => <li key={w}>{w}</li>)}
+              </ul>
+            </div>
+          )}
           <p className="mt-3 text-xs" style={{ color: 'var(--color-mut)' }}>
             In-Sample wird optimiert, Out-of-Sample nur validiert — eine Strategie zählt nur, wenn sie auf UNGESEHENEN Daten netto besteht (08_ §4).
+            Funding: {wf.fundingSource === 'historical' ? 'historisch (echte 8h-Settlements aus der DB)' : 'Modell (keine vollständige Funding-Historie)'}
+            {wf.trailPct !== null ? ` · Trailing-Stop ${fmt(wf.trailPct, 1)} %` : ''}.
           </p>
         </section>
       )}
+
+      {/* ── Optimierungs-Vorschläge der Nacht-Optimierung (08_ §5, Mensch im Loop) ── */}
+      <OptimizationProposals />
 
       {/* ── Multi-Strategie-Vergleich (Feature 3) ── */}
       <section className="glass mt-6 p-6">

@@ -7,6 +7,7 @@ import { CostGuard, envAnthropicProvider } from '@gladiator/agents';
 import { parseInstructionDsl, evaluateDslAt, type InstructionDsl } from '@gladiator/strategy-engine';
 import { DEFAULT_COSTS, runBacktest, type CostModel } from '@gladiator/backtest';
 import { getOhlcv, BARS_PER_YEAR, SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
+import { detectExchangeMentions, listConnections, listSupportedExchanges } from '@gladiator/exchange';
 import { protectedProcedure, router } from '../trpc.js';
 import { analyzePine, runChatTurn } from '../workshop/llm.js';
 
@@ -259,8 +260,14 @@ export const workshopRouter = router({
         .returning();
       await ctx.db.update(workshopSessions).set({ updatedAt: new Date() }).where(eq(workshopSessions.id, session.id));
 
+      // Börsen-Erkennung: erwähnte, noch nicht verbundene Börsen als Hinweis (nie Auto-Aktion)
+      const mentioned = detectExchangeMentions(input.message, listSupportedExchanges());
+      const connectedIds = new Set((await listConnections(ctx.db, ctx.user.id)).map((c) => c.exchangeId));
+      const exchangeHints = mentioned.filter((m) => !connectedIds.has(m.id));
+
       return {
         messageId: assistantMsg!.id,
+        exchangeHints,
         content: reply.content,
         proposedDsl: reply.proposedDsl,
         dslErrors: reply.dslErrors,

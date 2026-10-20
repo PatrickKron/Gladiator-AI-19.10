@@ -11,7 +11,10 @@ import { schema } from '@gladiator/db';
 import type pg from 'pg';
 import {
   connectExchange,
+  connectWallet,
   fetchConnectionBalances,
+  isValidEvmAddress,
+  walletExchanges,
   isSupportedExchange,
   listConnections,
   listSupportedExchanges,
@@ -81,6 +84,22 @@ describe('summarizeMarkets (automatische Asset-Erkennung)', () => {
     const s = summarizeMarkets({ 'BTC/EUR': { symbol: 'BTC/EUR', base: 'BTC', quote: 'EUR', active: true } });
     expect(s.hasFutures).toBe(false);
     expect(s.maxLeverage).toBeNull();
+  });
+});
+
+describe('Wallet-Anschluss (nur lesend, öffentliche Adresse)', () => {
+  it('isValidEvmAddress akzeptiert nur 0x + 40 Hex-Zeichen', () => {
+    expect(isValidEvmAddress('0x' + 'a'.repeat(40))).toBe(true);
+    expect(isValidEvmAddress('0x' + 'A1'.repeat(20))).toBe(true);
+    expect(isValidEvmAddress('0x' + 'a'.repeat(39))).toBe(false);
+    expect(isValidEvmAddress('a'.repeat(42))).toBe(false);
+    expect(isValidEvmAddress('0x' + 'g'.repeat(40))).toBe(false);
+  });
+
+  it('walletExchanges = CCXT-Börsen, die eine Wallet-Adresse statt API-Key nutzen (Hyperliquid)', () => {
+    const ids = walletExchanges().map((e) => e.id);
+    expect(ids).toContain('hyperliquid');
+    expect(ids).not.toContain('kraken');
   });
 });
 
@@ -246,6 +265,38 @@ describe.skipIf(!hasDb)('Börsen-Verbindung DB-Roundtrip', () => {
     expect(row!.encryptedPayload).toBe('revoked');
     // Folgeoperationen auf getrennter Verbindung → ehrlicher Fehler
     await expect(fetchConnectionBalances(db, userId, createdIds[0]!, () => fakeClient())).rejects.toThrow(/getrennt/);
+  });
+
+  it('Wallet verbinden: Adresse wird gegen die echte Börse geprüft, immer read_only, kein Schlüssel', async () => {
+    const address = '0x' + 'ab'.repeat(18) + 'cd12';
+    let seen: Record<string, string> | null = null;
+    const dto = await connectWallet(db, { userId, exchangeId: 'hyperliquid', walletAddress: address, label: 'Mein HL' }, (_id, creds) => {
+      seen = creds as unknown as Record<string, string>;
+      return fakeClient({ name: 'Hyperliquid' });
+    });
+    createdIds.push(dto.id);
+    expect(seen).toEqual({ walletAddress: address.toLowerCase() });
+    expect(dto).toMatchObject({ exchangeId: 'hyperliquid', mode: 'read_only', kind: 'wallet', keyMasked: '0xabab…cd12' });
+    // Balances laufen über dieselbe Adresse
+    const balances = await fetchConnectionBalances(db, userId, dto.id, (_id, creds) => {
+      expect((creds as { walletAddress?: string }).walletAddress).toBe(address.toLowerCase());
+      return fakeClient();
+    });
+    expect(balances[0]?.currency).toBe('USDT');
+    // ohne Signatur-Schlüssel kann eine Wallet-Verbindung nie handeln
+    await expect(setConnectionMode(db, userId, dto.id, 'trading')).rejects.toThrow(/nur lesend/i);
+  });
+
+  it('Wallet: ungültige Adresse / Börse ohne Wallet-Login wird abgelehnt, nichts gespeichert', async () => {
+    const before = (await listConnections(db, userId)).length;
+    await expect(connectWallet(db, { userId, exchangeId: 'hyperliquid', walletAddress: '0x123' }, () => fakeClient())).rejects.toThrow(/Adresse/);
+    await expect(connectWallet(db, { userId, exchangeId: 'kraken', walletAddress: '0x' + 'a'.repeat(40) }, () => fakeClient())).rejects.toThrow(/Wallet/);
+    await expect(
+      connectWallet(db, { userId, exchangeId: 'hyperliquid', walletAddress: '0x' + 'a'.repeat(40) }, () =>
+        fakeClient({ fetchBalance: async () => { throw new Error('user not found'); } }),
+      ),
+    ).rejects.toThrow(/fehlgeschlagen/);
+    expect((await listConnections(db, userId)).length).toBe(before);
   });
 
   it('fremde userId sieht die Verbindung nicht (Scoping)', async () => {

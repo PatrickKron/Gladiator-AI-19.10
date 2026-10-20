@@ -2,7 +2,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { getOhlcv } from '@gladiator/market-data';
-import { evaluateDslAt, parseInstructionDsl } from '@gladiator/strategy-engine';
+import { deriveLifecyclePlans, evaluateDslAt, parseInstructionDsl } from '@gladiator/strategy-engine';
 
 const { strategies, strategyVersions, signals } = schema;
 
@@ -72,6 +72,9 @@ export async function runDslScan(db: Db): Promise<DslScanResult> {
     await db.insert(signals).values({
       source: 'instruction',
       strategyId: row.strategyId,
+      // Die Version ist zugleich der Transportweg für TP-Gewichte und den
+      // Break-Even-Schalter: der Executor liest sie aus DERSELBEN (unveränderlichen)
+      // DSL dieser Version (loadExecutionPlan) — Backtest = Live, ohne Extra-Spalte.
       strategyVersionId: row.versionId,
       symbol: dsl.symbol,
       timeframe: dsl.timeframe,
@@ -89,6 +92,8 @@ export async function runDslScan(db: Db): Promise<DslScanResult> {
       riskClass: setup.riskClass,
       confluence: setup.confluence,
       session: setup.session,
+      // 05_ §9: Reentry-/Leverage-Upgrade-Plan je Setup-Typ (dieselbe Ableitung wie die Engine).
+      ...deriveLifecyclePlans(setup),
       emaRegime: setup.emaRegime,
       marketPhase: setup.marketPhase,
       status: 'new',
