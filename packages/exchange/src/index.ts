@@ -26,6 +26,7 @@ export {
   type ExecutionResult,
 } from './executor.js';
 export { HyperliquidTestnetVenue } from './hyperliquid-venue.js';
+export { addressFromPrivateKey, judgeAgentRole, verifyAgentWallet, type AgentCheck } from './hyperliquid-agent.js';
 export {
   DEMO_MAKER_FEE,
   DEMO_TAKER_FEE,
