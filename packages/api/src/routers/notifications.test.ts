@@ -53,7 +53,7 @@ describe.skipIf(!hasDb)('Benachrichtigungen: Glocke, Scoping, Push-Abo', () => {
   // Andere Testdateien laufen parallel gegen dieselbe DB und senden System-Benachrichtigungen
   // an ALLE User (Signal-Review, Briefing) — deshalb prüfen die Tests ihre eigenen Einträge
   // (per Id/Titel) statt absoluter Zählerstände.
-  const own = (list: { title: string }[], title: string) => list.filter((n) => n.title === title);
+  const own = <T extends { title: string }>(list: T[], title: string): T[] => list.filter((n) => n.title === title);
 
   it('neue Benachrichtigung erscheint nur beim Empfänger, Ungelesen-Zähler zählt sie', async () => {
     const title = `Preis-Alarm BTC ${RUN}`;
