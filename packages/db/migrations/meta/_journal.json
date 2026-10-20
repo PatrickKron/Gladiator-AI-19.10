@@ -155,6 +155,13 @@
       "when": 1792473273332,
       "tag": "0021_harsh_rockslide",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1792511422833,
+      "tag": "0022_remarkable_skrulls",
+      "breakpoints": true
     }
   ]
 }

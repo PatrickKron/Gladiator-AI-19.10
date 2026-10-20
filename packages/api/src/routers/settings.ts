@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema, type Db } from '@gladiator/db';
 import { formatKillSwitchAlert, sendTelegram } from '@gladiator/jobs';
+import { SETTINGS_BOUNDS } from '@gladiator/core/trading-settings';
 import { protectedProcedure, router } from '../trpc.js';
 
 const { tradingSettings, auditLog } = schema;
@@ -12,14 +13,16 @@ const { tradingSettings, auditLog } = schema;
  * Modus bleibt hart 'paper' (Live-Freigabe erst Phase 7, pro Börse).
  */
 
+// Grenzen aus @gladiator/core (eine Quelle mit den Profilen der Oberfläche)
+const b = SETTINGS_BOUNDS;
 const settingsInput = z.object({
-  riskPctPerTrade: z.number().positive().max(5),
-  maxLeverage: z.number().min(1).max(25),
-  maxOpenPositions: z.number().int().min(1).max(20),
-  maxExposurePctPerAsset: z.number().positive().max(100),
-  dailyLossLimitPct: z.number().positive().max(20),
-  weeklyLossLimitPct: z.number().positive().max(40),
-  maxDrawdownPct: z.number().positive().max(60),
+  riskPctPerTrade: z.number().min(b.riskPctPerTrade.min).max(b.riskPctPerTrade.max),
+  maxLeverage: z.number().min(b.maxLeverage.min).max(b.maxLeverage.max),
+  maxOpenPositions: z.number().int().min(b.maxOpenPositions.min).max(b.maxOpenPositions.max),
+  maxExposurePctPerAsset: z.number().min(b.maxExposurePctPerAsset.min).max(b.maxExposurePctPerAsset.max),
+  dailyLossLimitPct: z.number().min(b.dailyLossLimitPct.min).max(b.dailyLossLimitPct.max),
+  weeklyLossLimitPct: z.number().min(b.weeklyLossLimitPct.min).max(b.weeklyLossLimitPct.max),
+  maxDrawdownPct: z.number().min(b.maxDrawdownPct.min).max(b.maxDrawdownPct.max),
 });
 
 async function ensureRow(ctx: { db: Db; user: { id: string } }) {

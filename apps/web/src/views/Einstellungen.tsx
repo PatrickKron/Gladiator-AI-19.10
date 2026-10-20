@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { RISK_PROFILES, SETTINGS_BOUNDS, matchRiskProfile, type TradingLimits } from '@gladiator/core/trading-settings';
 import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel, TabBar } from '../components/ui.js';
 import { useHashTab } from '../lib/use-hash-tab.js';
@@ -429,6 +430,10 @@ export function Einstellungen() {
     }
   }
 
+  // Aktives Profil aus den Formularwerten (null = eigene Werte)
+  const formNumbers = form ? (Object.fromEntries(Object.entries(form).map(([k, v]) => [k, Number(v.replace(',', '.'))])) as TradingLimits) : null;
+  const currentProfile = formNumbers ? matchRiskProfile(formNumbers) : null;
+
   async function toggleGate(gate: Gate) {
     try {
       await trpc.risk.toggleGate.mutate({ id: gate.id, active: !gate.isActive });
@@ -461,6 +466,39 @@ export function Einstellungen() {
           <Loading />
         ) : (
           <>
+            {/* Risiko-Profile: füllen nur das Formular vor — gespeichert wird erst mit „Speichern" */}
+            <div className="mb-5">
+              <p className="label">{t('settings.profilesTitle')}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {RISK_PROFILES.map((p) => {
+                  const active = currentProfile === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setForm(Object.fromEntries(Object.entries(p.limits).map(([k, v]) => [k, String(v)])))}
+                      className="rounded-[0.625rem] border px-3 py-1.5 text-sm"
+                      style={{
+                        borderColor: active ? 'var(--color-cyan)' : 'var(--color-line)',
+                        color: active ? 'var(--color-ink)' : 'var(--color-mut)',
+                        background: active ? 'rgba(79,209,255,0.08)' : 'transparent',
+                      }}
+                      title={t(`settings.profile_${p.id}_hint`)}
+                    >
+                      {t(`settings.profile_${p.id}`)}
+                    </button>
+                  );
+                })}
+                <span className="self-center text-xs" style={{ color: 'var(--color-mut)' }}>
+                  {currentProfile === null ? t('settings.profileCustom') : t(`settings.profile_${currentProfile}_hint`)}
+                </span>
+              </div>
+              {(currentProfile === 'aggressiv' || currentProfile === 'hochrisiko') && (
+                <p className="mt-2 text-xs" style={{ color: 'var(--color-warn)' }}>
+                  {t('settings.profileWarn')}
+                </p>
+              )}
+            </div>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {FIELDS.map((f) => (
                 <label key={f.name} className="flex flex-col gap-1.5">
@@ -468,10 +506,16 @@ export function Einstellungen() {
                   <input
                     type="number"
                     step={f.step}
+                    min={SETTINGS_BOUNDS[f.name].min}
+                    max={SETTINGS_BOUNDS[f.name].max}
                     value={form[f.name] ?? ''}
                     onChange={(e) => setForm({ ...form, [f.name]: e.target.value })}
                     className="field num px-3 py-2 text-sm"
                   />
+                  <span className="text-[11px]" style={{ color: 'var(--color-mut)' }}>
+                    {SETTINGS_BOUNDS[f.name].min} – {SETTINGS_BOUNDS[f.name].max.toLocaleString()}
+                    {f.name === 'maxExposurePctPerAsset' && <> · {t('settings.exposureHint')}</>}
+                  </span>
                 </label>
               ))}
               <label className="flex flex-col gap-1.5">

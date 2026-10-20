@@ -170,9 +170,46 @@ export function computeCloseNumbers(input: {
   return { grossPnl, funding, netPnl: grossPnl - input.entryFee - input.exitFee - funding };
 }
 
-/** Verfügbar = Balance − gebundene Notional (offene Positionen + ruhende Entry-Orders), nie negativ. */
-export function availableBalance(balance: number, openPositionsNotional: number, restingEntryNotional: number): number {
-  return Math.max(0, balance - openPositionsNotional - restingEntryNotional);
+/** Verfügbar = Balance − gebundene Margin (offene Positionen + ruhende Entry-Orders), nie negativ. */
+export function availableBalance(balance: number, openPositionsMargin: number, restingEntryMargin: number): number {
+  return Math.max(0, balance - openPositionsMargin - restingEntryMargin);
+}
+
+/**
+ * Hebel im Demo-Konto (Isolated Margin, wie Perps an Binance/Bybit/Hyperliquid):
+ * gebunden wird nur Notional / Hebel; Gebühren und Funding laufen weiter auf
+ * das volle Notional. Wartungsmarge vereinfacht als fester Satz.
+ */
+export const DEMO_MAINTENANCE_MARGIN = 0.005;
+
+export function marginFor(notional: number, leverage: number): number {
+  return notional / Math.max(1, leverage);
+}
+
+/** Isolated-Liquidationspreis; 1× Long ist voll gedeckt → null (keine Liquidation). */
+export function liquidationPrice(direction: 'long' | 'short', entryPrice: number, leverage: number): number | null {
+  const lev = Math.max(1, leverage);
+  if (direction === 'long') {
+    if (lev <= 1) return null;
+    return entryPrice * (1 - 1 / lev + DEMO_MAINTENANCE_MARGIN);
+  }
+  return entryPrice * (1 + 1 / lev - DEMO_MAINTENANCE_MARGIN);
+}
+
+/** Erreicht der AUSFÜHRBARE Preis (Long: Bid, Short: Ask) den Liquidationspreis? */
+export function liquidationHit(direction: 'long' | 'short', liqPrice: number | null, book: OrderBookSnapshot): boolean {
+  if (liqPrice === null) return false;
+  if (direction === 'long') {
+    const bid = book.bids[0]?.price;
+    return bid !== undefined && bid <= liqPrice;
+  }
+  const ask = book.asks[0]?.price;
+  return ask !== undefined && ask >= liqPrice;
+}
+
+/** Bei Liquidation verliert man höchstens die eingesetzte Margin (Rest = Versicherungsfonds der Börse). */
+export function capLiquidationLoss(grossPnl: number, margin: number): number {
+  return Math.max(grossPnl, -margin);
 }
 
 /** Volumengewichtetes Mitteln beim Aufstocken einer Position. */

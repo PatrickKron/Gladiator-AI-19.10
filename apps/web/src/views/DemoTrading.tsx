@@ -30,6 +30,9 @@ function num(v: string): number {
   return Number(v.replace(',', '.'));
 }
 
+/** Hebel-Schnellwahl (Perp-üblich); angezeigt wird nur, was die eigene Obergrenze erlaubt. */
+const LEVERAGE_STEPS = [1, 2, 3, 5, 10, 20, 25, 50, 75, 100, 125];
+
 /** demo:<reason>-Fehler des Routers in übersetzte Meldungen mappen. */
 function reasonText(t: (k: string) => string, err: unknown): string {
   const msg = err instanceof Error ? err.message : '';
@@ -227,6 +230,9 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
   const [limitPrice, setLimitPrice] = useState('');
   const [slPct, setSlPct] = useState(0); // 0 = keine Absicherung
   const [tpPct, setTpPct] = useState(0); // 0 = kein Gewinnziel
+  const [leverage, setLeverage] = useState(1);
+  // Obergrenze aus den Trading-Einstellungen (Einstellungen › Trading) — dort frei anpassbar
+  const [maxLeverage, setMaxLeverage] = useState<number | null>(null);
   const [eurUsd, setEurUsd] = useState<number | null>(null);
   const [livePrice, setLivePrice] = useState<number | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -235,6 +241,13 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const debounce = useRef<number | null>(null);
+
+  useEffect(() => {
+    trpc.settings.get
+      .query()
+      .then((s) => setMaxLeverage(s.maxLeverage))
+      .catch(() => setMaxLeverage(null));
+  }, []);
 
   // Echter EUR/USD-Kurs (Server, Binance EURUSDT) — ohne Kurs ehrlich kein €-Modus.
   useEffect(() => {
@@ -264,13 +277,14 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
     });
   }, [symbol]);
 
-  // €-Modus: Stückzahl aus Betrag × Kurs ÷ Preis (nur echte Zahlen, sonst null).
+  // €-Modus: der Betrag ist der EINSATZ (Margin); Position = Einsatz × Hebel → Stückzahl
+  // = Einsatz × Hebel × Kurs ÷ Preis (nur echte Zahlen, sonst null).
   const previewFill = preview && preview.ok ? preview.estFillPrice : null;
   const refPrice = type === 'limit' && num(limitPrice) > 0 ? num(limitPrice) : (livePrice ?? previewFill);
   const eurAmount = num(amountEur);
   const derivedQty =
     amountMode === 'eur' && eurUsd !== null && refPrice !== null && typeof refPrice === 'number' && refPrice > 0 && eurAmount > 0
-      ? (eurAmount * eurUsd) / refPrice
+      ? (eurAmount * eurUsd * leverage) / refPrice
       : null;
   const effQty = amountMode === 'eur' ? (derivedQty ?? 0) : num(qty);
 
@@ -299,6 +313,7 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
       limitPrice: type === 'limit' ? num(limitPrice) : undefined,
       stopLoss: slPrice,
       takeProfit: tpPrice,
+      leverage,
     };
   }
 
@@ -322,7 +337,7 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
     // buildInput/valid sind aus denselben Feldern abgeleitet — Felder sind die Wahrheit.
     // livePrice ist bewusst KEINE Dependency: jeder Tick würde sonst das echte
     // Orderbuch neu abfragen; die Platzierung rechnet ohnehin zum Klick-Zeitpunkt.
-  }, [symbol, direction, type, amountMode, amountEur, qty, limitPrice, slPct, tpPct, eurUsd]);
+  }, [symbol, direction, type, amountMode, amountEur, qty, limitPrice, slPct, tpPct, eurUsd, leverage]);
 
   async function place() {
     setBusy(true);
@@ -398,10 +413,40 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
               </div>
             </div>
           </div>
+          {/* Hebel (Isolated Margin): Schnellwahl bis zur Obergrenze aus den Einstellungen */}
+          <div className="flex flex-col gap-1 sm:col-span-2">
+            <div className="flex items-center justify-between">
+              <span className="label">
+                {t('demo.leverage')}
+                <span className="ml-1 cursor-help" title={t('demo.leverageHint')} style={{ color: 'var(--color-mut)' }}>ⓘ</span>
+              </span>
+              <span className="num text-sm">{leverage}×</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {LEVERAGE_STEPS.filter((v) => v <= (maxLeverage ?? 1)).map((v) => (
+                <button key={v} onClick={() => setLeverage(v)} className="rounded border px-2 py-1 text-xs" style={seg(leverage === v)}>
+                  {v}×
+                </button>
+              ))}
+              <input
+                type="number"
+                min={1}
+                max={maxLeverage ?? 1}
+                step={1}
+                value={leverage}
+                onChange={(e) => setLeverage(Math.max(1, Math.min(maxLeverage ?? 1, Math.round(num(e.target.value)) || 1)))}
+                className="field num w-20 px-2.5 py-1.5 text-sm"
+                aria-label={t('demo.leverage')}
+              />
+            </div>
+            <p className="text-[11px]" style={{ color: 'var(--color-mut)' }}>
+              {maxLeverage === null ? t('demo.leverageNoLimit') : t('demo.leverageLimit', { max: maxLeverage })}
+            </p>
+          </div>
           {/* Betrag in € (Standard) oder Stückzahl (Profi-Umschalter) */}
           <div className="flex flex-col gap-1 sm:col-span-2">
             <div className="flex items-center justify-between">
-              <span className="label">{t('demo.amount')}</span>
+              <span className="label">{amountMode === 'qty' ? t('demo.qty') : t('demo.amount')}</span>
               <div className="flex overflow-hidden rounded-[0.625rem] border text-xs" style={{ borderColor: 'var(--color-line)' }}>
                 {(['eur', 'qty'] as const).map((m) => (
                   <button key={m} onClick={() => setAmountMode(m)} className="px-2 py-1" style={seg(amountMode === m)}>
@@ -432,6 +477,7 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
                   <p className="text-[11px]" style={{ color: 'var(--color-warn)' }}>{t('demo.noEurRate')}</p>
                 ) : derivedQty !== null ? (
                   <p className="num text-[11px]" style={{ color: 'var(--color-mut)' }}>
+                    {leverage > 1 && <>{t('demo.positionSize', { eur: fmt(eurAmount * leverage, 0), lev: leverage })} · </>}
                     ≈ {fmt(derivedQty, 6)} {symbol.split('/')[0]} · {t('demo.rateUsed', { rate: fmt(eurUsd, 4) })}
                   </p>
                 ) : eurAmount > 0 ? (
@@ -525,6 +571,16 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
                 <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewNotional')}</span>
                 <span>{fmt(preview.estNotional)} $</span>
               </li>
+              <li className="flex justify-between gap-3">
+                <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewMargin', { lev: preview.leverage })}</span>
+                <span>{fmt(preview.margin)} $</span>
+              </li>
+              <li className="flex justify-between gap-3">
+                <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewLiquidation')}</span>
+                <span style={preview.liquidationPrice !== null ? { color: 'var(--color-warn)' } : undefined}>
+                  {preview.liquidationPrice !== null ? fmt(preview.liquidationPrice) : t('demo.noLiquidation')}
+                </span>
+              </li>
               {preview.estRestingQty > 0 && (
                 <li className="flex justify-between gap-3">
                   <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewResting')}</span>
@@ -617,6 +673,8 @@ function PositionsPanel({ positions, onChanged }: { positions: Position[] | null
                 <th className="py-1.5 pr-3 text-right font-normal">{t('demo.qty')}</th>
                 <th className="py-1.5 pr-3 text-right font-normal">Entry</th>
                 <th className="py-1.5 pr-3 text-right font-normal">Mark</th>
+                <th className="py-1.5 pr-3 text-right font-normal">{t('demo.levCol')}</th>
+                <th className="py-1.5 pr-3 text-right font-normal">{t('demo.liqCol')}</th>
                 <th className="py-1.5 pr-3 text-right font-normal">uPnL $</th>
                 <th className="py-1.5 pr-3 font-normal">SL / TP</th>
                 <th className="py-1.5 font-normal" />
@@ -635,6 +693,10 @@ function PositionsPanel({ positions, onChanged }: { positions: Position[] | null
                     <td className="py-1.5 pr-3 text-right">{fmt(p.qty, 6)}</td>
                     <td className="py-1.5 pr-3 text-right">{fmt(p.entryPrice)}</td>
                     <td className="py-1.5 pr-3 text-right">{fmt(p.markPrice)}</td>
+                    <td className="py-1.5 pr-3 text-right">{p.leverage}×</td>
+                    <td className="py-1.5 pr-3 text-right" style={p.liquidationPrice !== null ? { color: 'var(--color-warn)' } : undefined}>
+                      {p.liquidationPrice !== null ? fmt(p.liquidationPrice) : '—'}
+                    </td>
                     <td className="py-1.5 pr-3 text-right" style={{ color: (p.unrealizedPnl ?? 0) >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
                       {fmt(p.unrealizedPnl)}
                     </td>

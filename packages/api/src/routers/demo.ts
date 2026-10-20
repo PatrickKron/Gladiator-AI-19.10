@@ -13,6 +13,9 @@ import {
   resetDemoAccount,
   setDemoProtection,
   getOrCreateDemoAccount,
+  liquidationPrice,
+  loadRiskSettings,
+  marginFor,
   type DemoBookSource,
 } from '@gladiator/exchange';
 import { computeMetrics } from '@gladiator/backtest';
@@ -44,10 +47,14 @@ const orderInput = z.object({
   limitPrice: z.number().positive().optional(),
   stopLoss: z.number().positive().optional(),
   takeProfit: z.number().positive().optional(),
+  /** Hebel (Isolated Margin); Obergrenze kommt aus den Trading-Einstellungen. */
+  leverage: z.number().min(1).max(125).optional(),
 });
 
-function normalized(input: z.infer<typeof orderInput>) {
-  return { ...input, symbol: input.symbol.toUpperCase() };
+/** Symbol normalisieren + Hebel-Obergrenze aus den Trading-Einstellungen des Users anhängen. */
+async function normalized(ctx: { db: Parameters<typeof loadRiskSettings>[0]; user: { id: string } }, input: z.infer<typeof orderInput>) {
+  const settings = await loadRiskSettings(ctx.db, ctx.user.id);
+  return { ...input, symbol: input.symbol.toUpperCase(), maxLeverage: settings.maxLeverage };
 }
 
 export const demoRouter = router({
@@ -57,10 +64,10 @@ export const demoRouter = router({
   /** Kosten-Vorschau aus dem ECHTEN Orderbuch (Spread/Slippage/Fee sichtbar vor dem Klick). */
   preview: protectedProcedure
     .input(orderInput)
-    .mutation(({ ctx, input }) => previewDemoOrder(ctx.db, books(), ctx.user.id, normalized(input))),
+    .mutation(async ({ ctx, input }) => previewDemoOrder(ctx.db, books(), ctx.user.id, await normalized(ctx, input))),
 
   placeOrder: protectedProcedure.input(orderInput).mutation(async ({ ctx, input }) => {
-    const r = await placeDemoOrder(ctx.db, books(), ctx.user.id, normalized(input));
+    const r = await placeDemoOrder(ctx.db, books(), ctx.user.id, await normalized(ctx, input));
     if (!r.placed) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `demo:${r.reason}` });
     }
@@ -124,6 +131,9 @@ export const demoRouter = router({
         entryFee: Number(p.entryFee),
         stopLoss: p.stopLoss === null ? null : Number(p.stopLoss),
         takeProfit: p.takeProfit === null ? null : Number(p.takeProfit),
+        leverage: Number(p.leverage),
+        margin: marginFor(entry * qty, Number(p.leverage)),
+        liquidationPrice: liquidationPrice(p.direction, entry, Number(p.leverage)),
         markPrice: mark,
         unrealizedPnl: mark === null ? null : (mark - entry) * qty * sign,
         openedAt: p.openedAt.toISOString(),

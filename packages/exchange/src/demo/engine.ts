@@ -6,8 +6,12 @@ import {
   DEMO_TAKER_FEE,
   addToPosition,
   availableBalance,
+  capLiquidationLoss,
   checkTrigger,
   computeCloseNumbers,
+  liquidationHit,
+  liquidationPrice,
+  marginFor,
   midPrice,
   restingLimitFill,
   roundToStep,
@@ -50,16 +54,20 @@ async function openOrders(db: Db, accountId: string): Promise<DemoOrder[]> {
     .where(and(eq(demoOrders.accountId, accountId), inArray(demoOrders.status, ['open', 'partially_filled'])));
 }
 
-/** Durch ruhende Entry-Orders gebundene Notional (Rest-Menge × Limit). */
-function restingEntryNotional(orders: DemoOrder[]): number {
+/** Durch ruhende Entry-Orders gebundene Margin (Rest-Menge × Limit / Hebel). */
+function restingEntryMargin(orders: DemoOrder[]): number {
   return orders
     .filter((o) => !o.reduceOnly && o.type === 'limit' && o.limitPrice !== null)
-    .reduce((a, o) => a + (Number(o.qty) - Number(o.filledQty)) * Number(o.limitPrice), 0);
+    .reduce((a, o) => a + marginFor((Number(o.qty) - Number(o.filledQty)) * Number(o.limitPrice), Number(o.leverage)), 0);
 }
 
-function positionsNotional(positions: DemoPosition[]): number {
-  return positions.reduce((a, p) => a + Number(p.qty) * Number(p.entryPrice), 0);
+/** Durch offene Positionen gebundene Margin (Isolated: Notional beim Einstieg / Hebel). */
+function positionsMargin(positions: DemoPosition[]): number {
+  return positions.reduce((a, p) => a + marginFor(Number(p.qty) * Number(p.entryPrice), Number(p.leverage)), 0);
 }
+
+/** Obergrenze ohne Einstellung (größter Hebel gängiger Perp-Börsen). */
+export const DEMO_MAX_LEVERAGE = 125;
 
 /**
  * Konto-Übersicht mit echten Mark-Preisen (Buch-Mid je Symbol; nicht
@@ -99,7 +107,8 @@ export async function demoAccountOverview(db: Db, source: DemoBookSource, userId
     unrealizedPnl,
     /** true = mind. ein Positions-Preis fehlt gerade → Equity unvollständig. */
     markIncomplete: markMissing,
-    available: availableBalance(balance, positionsNotional(positions), restingEntryNotional(resting)),
+    available: availableBalance(balance, positionsMargin(positions), restingEntryMargin(resting)),
+    usedMargin: positionsMargin(positions),
     openPositions: positions.length,
     openOrders: resting.length,
     resetCount: account.resetCount,
@@ -116,6 +125,10 @@ export type PlaceDemoOrderInput = {
   limitPrice?: number;
   stopLoss?: number;
   takeProfit?: number;
+  /** Hebel (Isolated Margin), Standard 1×. */
+  leverage?: number;
+  /** Obergrenze aus den Trading-Einstellungen des Users (der Router lädt sie). */
+  maxLeverage?: number;
 };
 
 type Rejection = { ok: false; reason: string };
@@ -138,8 +151,16 @@ async function validateDemoOrder(
       book: Awaited<ReturnType<DemoBookSource['fetchBook']>>;
       estNotional: number;
       available: number;
+      leverage: number;
+      margin: number;
     }
 > {
+  const leverage = input.leverage ?? 1;
+  if (!Number.isFinite(leverage) || leverage < 1) return { ok: false, reason: 'invalid_leverage' };
+  if (leverage > Math.min(input.maxLeverage ?? DEMO_MAX_LEVERAGE, DEMO_MAX_LEVERAGE)) {
+    return { ok: false, reason: 'leverage_above_limit' };
+  }
+
   let rules;
   try {
     rules = await source.marketRules(input.symbol);
@@ -180,12 +201,18 @@ async function validateDemoOrder(
   }
 
   const positions = await db.select().from(demoPositions).where(eq(demoPositions.accountId, account.id));
-  const resting = await openOrders(db, account.id);
-  const available = availableBalance(Number(account.balance), positionsNotional(positions), restingEntryNotional(resting));
-  const feeRate = input.type === 'market' ? DEMO_TAKER_FEE : DEMO_MAKER_FEE;
-  if (estNotional * (1 + feeRate) > available + EPS) return { ok: false, reason: 'insufficient_balance' };
+  // Wie an der Börse: ein Hebel je Symbol und Richtung — Aufstocken nur mit demselben Hebel
+  const same = positions.find((p) => p.symbol === input.symbol && p.direction === input.direction);
+  if (same && Math.abs(Number(same.leverage) - leverage) > EPS) return { ok: false, reason: 'leverage_mismatch' };
 
-  return { ok: true, qty, limitPrice, book, estNotional, available };
+  const resting = await openOrders(db, account.id);
+  const available = availableBalance(Number(account.balance), positionsMargin(positions), restingEntryMargin(resting));
+  const feeRate = input.type === 'market' ? DEMO_TAKER_FEE : DEMO_MAKER_FEE;
+  const margin = marginFor(estNotional, leverage);
+  // Gebühr läuft auf das volle Notional, gebunden wird nur die Margin
+  if (margin + estNotional * feeRate > available + EPS) return { ok: false, reason: 'insufficient_balance' };
+
+  return { ok: true, qty, limitPrice, book, estNotional, available, leverage, margin };
 }
 
 /** Kosten-Vorschau aus dem ECHTEN Buch — gleicher Validierungspfad wie die Order. */
@@ -225,6 +252,9 @@ export async function previewDemoOrder(db: Db, source: DemoBookSource, userId: s
     estSlippage: est?.slippageVsMid ?? 0,
     estNotional: est?.notional ?? v.estNotional,
     available: v.available,
+    leverage: v.leverage,
+    margin: marginFor(est?.notional ?? v.estNotional, v.leverage),
+    liquidationPrice: liquidationPrice(input.direction, est?.avgPrice ?? v.limitPrice ?? mid ?? 0, v.leverage),
   };
 }
 
@@ -232,7 +262,7 @@ export async function previewDemoOrder(db: Db, source: DemoBookSource, userId: s
 async function applyEntryFill(
   db: Db,
   account: DemoAccount,
-  input: { symbol: string; direction: 'long' | 'short'; stopLoss?: number; takeProfit?: number },
+  input: { symbol: string; direction: 'long' | 'short'; stopLoss?: number; takeProfit?: number; leverage?: number },
   fill: FillResult,
 ): Promise<void> {
   const [existing] = await db
@@ -276,6 +306,7 @@ async function applyEntryFill(
       entrySlippage: String(fill.slippageVsMid),
       stopLoss: input.stopLoss !== undefined ? String(input.stopLoss) : null,
       takeProfit: input.takeProfit !== undefined ? String(input.takeProfit) : null,
+      leverage: String(input.leverage ?? 1),
     });
   }
 
@@ -314,7 +345,7 @@ export async function placeDemoOrder(
   if (input.type === 'market') {
     const fill = simulateMarketFill(v.book, side, v.qty);
     if (!fill) return { placed: false, reason: 'no_orderbook' };
-    await applyEntryFill(db, account, input, fill);
+    await applyEntryFill(db, account, { ...input, leverage: v.leverage }, fill);
     const partial = fill.filledQty < v.qty - EPS;
     const [row] = await db
       .insert(demoOrders)
@@ -330,6 +361,7 @@ export async function placeDemoOrder(
         feePaid: String(fill.fee),
         slippagePaid: String(fill.slippageVsMid),
         status: 'filled',
+        leverage: String(v.leverage),
         note: partial ? 'partial_book_depth' : null,
       })
       .returning();
@@ -347,7 +379,7 @@ export async function placeDemoOrder(
 
   // Limit: sofortiger Taker-Anteil (falls das Buch kreuzt) + ruhender Rest
   const r = simulateLimitPlacement(v.book, side, v.qty, v.limitPrice!);
-  if (r.fill) await applyEntryFill(db, account, input, r.fill);
+  if (r.fill) await applyEntryFill(db, account, { ...input, leverage: v.leverage }, r.fill);
   const status: 'filled' | 'open' | 'partially_filled' =
     r.restingQty <= EPS ? 'filled' : r.fill ? 'partially_filled' : 'open';
   const [row] = await db
@@ -365,6 +397,7 @@ export async function placeDemoOrder(
       feePaid: String(r.fill?.fee ?? 0),
       slippagePaid: String(r.fill?.slippageVsMid ?? 0),
       status,
+      leverage: String(v.leverage),
       // SL/TP der ruhenden Order: beim späteren Fill an die Position anheften
       note:
         input.stopLoss !== undefined || input.takeProfit !== undefined
@@ -451,7 +484,7 @@ export async function closeDemoPositionNow(
   source: DemoBookSource,
   userId: string,
   positionId: string,
-  opts: { qty?: number; reason?: 'sl' | 'tp' | 'manual' } = {},
+  opts: { qty?: number; reason?: 'sl' | 'tp' | 'manual' | 'liquidation' } = {},
 ): Promise<{ closed: boolean; reason?: string; exitPrice?: number; closedQty?: number; netPnl?: number }> {
   const [pos] = await db
     .select()
@@ -488,6 +521,13 @@ export async function closeDemoPositionNow(
     exitFee: fill.fee,
     hoursHeld,
   });
+  if (opts.reason === 'liquidation') {
+    // Isolated: mehr als die eingesetzte Margin kann eine Liquidation nicht kosten
+    const margin = marginFor(Number(pos.entryPrice) * fill.filledQty, Number(pos.leverage));
+    const capped = capLiquidationLoss(n.grossPnl, margin);
+    n.netPnl += capped - n.grossPnl;
+    n.grossPnl = capped;
+  }
 
   // R-Multiple nur, wenn ein Stop gesetzt war (ehrlich: sonst kein definiertes Risiko)
   const riskPerUnit = pos.stopLoss !== null ? Math.abs(Number(pos.entryPrice) - Number(pos.stopLoss)) : null;
@@ -580,7 +620,10 @@ export async function monitorDemoTick(
   const allPositions = opts.accountId
     ? await db.select().from(demoPositions).where(eq(demoPositions.accountId, opts.accountId))
     : await db.select().from(demoPositions);
-  const protectedPositions = allPositions.filter((p) => p.stopLoss !== null || p.takeProfit !== null);
+  // Überwacht werden Positionen mit SL/TP UND jede Position mit Liquidationspreis
+  const protectedPositions = allPositions.filter(
+    (p) => p.stopLoss !== null || p.takeProfit !== null || liquidationPrice(p.direction, Number(p.entryPrice), Number(p.leverage)) !== null,
+  );
 
   if (resting.length === 0 && protectedPositions.length === 0) {
     return { checkedOrders: 0, orderFills: 0, triggeredCloses: 0 };
@@ -623,7 +666,7 @@ export async function monitorDemoTick(
     }
 
     const direction: 'long' | 'short' = order.side === 'buy' ? 'long' : 'short';
-    await applyEntryFill(db, account, { symbol: order.symbol, direction, ...protection }, fill);
+    await applyEntryFill(db, account, { symbol: order.symbol, direction, ...protection, leverage: Number(order.leverage) }, fill);
 
     const newFilled = Number(order.filledQty) + fill.filledQty;
     const prevNotional = Number(order.filledQty) * Number(order.avgFillPrice ?? 0);
@@ -650,6 +693,12 @@ export async function monitorDemoTick(
     // Konservativ wie planFills: greift der Stop, zählt NUR der Stop.
     if (pos.stopLoss !== null && checkTrigger(pos.direction, 'stop', Number(pos.stopLoss), book)) {
       const r = await closeDemoPositionNow(db, source, pos.userId, pos.id, { reason: 'sl' });
+      if (r.closed) triggeredCloses++;
+      continue;
+    }
+    // Liquidation nach dem Stop: ein gesetzter Stop liegt vor dem Liquidationspreis und greift im echten Verlauf zuerst
+    if (liquidationHit(pos.direction, liquidationPrice(pos.direction, Number(pos.entryPrice), Number(pos.leverage)), book)) {
+      const r = await closeDemoPositionNow(db, source, pos.userId, pos.id, { reason: 'liquidation' });
       if (r.closed) triggeredCloses++;
       continue;
     }
