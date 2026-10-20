@@ -52,7 +52,7 @@ type RowAsset = { id: number; ticker: string; name: string; assetType: string; p
  */
 function startDemoTrade(pair: string): void {
   setPendingTradeSymbol(pair);
-  window.location.hash = '#/demo';
+  window.location.hash = '#/traden?tab=demo';
 }
 
 /**

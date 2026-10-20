@@ -326,6 +326,8 @@ export const fr: Catalog = {
     desc_news: "Dernières actualités de tes marchés, résumées par l'IA si tu veux.",
     desc_trade: "Le compte paper de tes agents : positions, historique, risque, alertes et performance.",
     desc_demo: "Trade toi-même avec de l'argent fictif contre le vrai carnet d'ordres — market, limit, SL/TP.",
+    page_tradeHub: "Trader",
+    desc_tradeHub: "Un seul endroit pour trader : compte démo (argent fictif, carnets réels), compte agents (paper) et wallets (swaps spot) — bascule en haut.",
     page_wallet: "Trading wallet",
     desc_wallet: "Acheter et vendre des tokens par adresse (Solana, Ethereum, Base, Arbitrum, BSC) — route réelle, tes propres limites, paper d'abord.",
     desc_wealth: "Patrimoine total sur tous les comptes et exchanges connectés, avec historique.",
@@ -2052,5 +2054,14 @@ export const fr: Catalog = {
     reason_price_impact_above_limit: "Impact prix trop élevé (pas assez de profondeur pour ce montant).",
     reason_liquidity_below_limit: "Liquidité sous ton minimum.",
     reason_liquidity_unknown: "Liquidité inconnue — pas de swap tant qu'une liquidité minimale est exigée.",
+  },
+  trade: {
+    accountLabel: "Compte",
+    account_demo: "Compte démo",
+    account_agent: "Compte agents",
+    account_wallet: "Wallets",
+    hint_demo: "Trade toi-même avec de l'argent fictif sur de vrais carnets — avec levier et comparaison des exchanges.",
+    hint_agent: "Compte paper de tes agents : positions, historique, risque, alertes.",
+    hint_wallet: "Achète et vends des tokens par adresse (Solana, EVM) — paper ou ta propre wallet.",
   },
 };

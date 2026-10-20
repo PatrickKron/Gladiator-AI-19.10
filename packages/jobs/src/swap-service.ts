@@ -334,7 +334,7 @@ async function executeLive(db: Db, p: PreparedSwap, side: 'buy' | 'sell', ctx: E
       result.status === 'filled'
         ? `${p.quote.inAmount} ${p.quote.inToken.symbol} → ${p.quote.outAmount} ${p.quote.outToken.symbol} (${w.label}, ${SWAP_CHAINS[chain].name})`
         : `${result.error ?? 'unbekannter Fehler'} (${w.label})`,
-    link: '#/wallet',
+    link: '#/traden?tab=wallet',
   });
   if (result.status !== 'filled') throw new SwapError('BAD_GATEWAY', `${result.error ?? 'Swap fehlgeschlagen'} (Tx ${result.txHash})`);
   return { tradeId: trade.id, realizedPnlUsd: trade.realizedPnlUsd === null ? null : Number(trade.realizedPnlUsd), txHash: result.txHash };

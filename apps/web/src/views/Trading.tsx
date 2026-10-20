@@ -414,42 +414,8 @@ function LiveApprovals() {
 }
 
 /**
- * Offensichtlicher Modus-Schalter (Session 5): Agenten-Konto (Paper) vs.
- * Demo-Konto (manuell üben). Der Schalter wechselt NUR die Ansicht — die
- * Trennung selbst ist serverseitig (eigener demo-Router, eigene Tabellen).
- */
-function ModeSwitch({ demo, onChange }: { demo: boolean; onChange: (on: boolean) => void }) {
-  const { t } = useTranslation();
-  return (
-    <div
-      className="flex rounded-[0.625rem] border p-1"
-      style={{ borderColor: demo ? 'rgba(225,78,207,0.5)' : 'var(--color-line)' }}
-      role="group"
-      aria-label={t('demo.switchLabel')}
-    >
-      <button
-        onClick={() => onChange(false)}
-        className="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
-        style={!demo ? { background: 'rgba(79,209,255,0.14)', color: 'var(--color-cyan)' } : { color: 'var(--color-mut)' }}
-      >
-        {t('demo.switchAgents')}
-      </button>
-      <button
-        onClick={() => onChange(true)}
-        className="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
-        style={demo ? { background: 'rgba(225,78,207,0.16)', color: 'var(--color-magenta)' } : { color: 'var(--color-mut)' }}
-      >
-        {demo ? '✓ ' : ''}
-        {t('demo.switchDemo')}
-      </button>
-    </div>
-  );
-}
-
-/**
- * Demo-Konto als eigene Seite (#/demo, Sidebar „Demo-Konto"). Vorher war es
- * nur ein localStorage-Schalter INNERHALB von #/trading und dadurch kaum zu
- * finden. Der Demo-Merker bleibt für das Topbar-Badge erhalten.
+ * Demo-Konto (seit Welle 3 unter #/traden?tab=demo, Konto-Schalter oben).
+ * Der Demo-Merker bleibt für das Topbar-Badge erhalten.
  */
 export function DemoKonto() {
   return <Trading account="demo" />;
@@ -472,7 +438,7 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
 
   function changeTab(tb: string) {
     setTab(tb);
-    window.history.replaceState(null, '', buildTabHash('#/trading', tb));
+    window.history.replaceState(null, '', buildTabHash('#/traden', tb));
   }
 
   async function saveNote(tradeId: string) {
@@ -532,17 +498,12 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
     if (isDemoMode() !== demo) setDemoMode(demo);
   }, [demo]);
 
-  function switchMode(on: boolean) {
-    window.location.hash = on ? '#/demo' : '#/trading';
-  }
-
   if (demo) {
     return (
       <div>
         <PageHeader
           title={t('demo.title')}
           subtitle={t('demo.subtitle')}
-          right={<ModeSwitch demo onChange={switchMode} />}
         />
         <DemoTrading />
       </div>
@@ -554,7 +515,6 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
       <PageHeader
         title={t('trading.title')}
         subtitle={t('trading.subtitle')}
-        right={<ModeSwitch demo={false} onChange={switchMode} />}
       />
       {error && <ErrorBox message={error} />}
 

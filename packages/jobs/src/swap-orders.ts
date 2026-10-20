@@ -108,7 +108,7 @@ async function fireOrder(db: Db, o: OrderRow, w: SwapWalletRow, priceUsd: number
         kind: 'system',
         title: `${label} ausgeführt: ${o.symbol}`,
         body: `${p.quote.inAmount} ${p.quote.inToken.symbol} → ${p.quote.outAmount} ${p.quote.outToken.symbol} bei ${priceUsd.toPrecision(4)} $ (${w.label}, Paper)`,
-        link: '#/wallet',
+        link: '#/traden?tab=wallet',
       });
     }
     if (side === 'sell') {
@@ -134,7 +134,7 @@ async function fireOrder(db: Db, o: OrderRow, w: SwapWalletRow, priceUsd: number
       severity: 'warn',
       title: `${label} nicht ausgeführt: ${o.symbol}`,
       body: `${msg} (${w.label})`,
-      link: '#/wallet',
+      link: '#/traden?tab=wallet',
     });
   }
 }

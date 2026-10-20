@@ -37,7 +37,6 @@ const lazyView = <T extends string>(load: () => Promise<Record<T, ComponentType>
 const Dashboard = lazyView(() => import('./views/Dashboard.js'), 'Dashboard');
 const Signals = lazyView(() => import('./views/Signals.js'), 'Signals');
 const Labor = lazyView(() => import('./views/Labor.js'), 'Labor');
-const Trading = lazyView(() => import('./views/Trading.js'), 'Trading');
 const AssetDetail = lazyView(() => import('./views/AssetDetail.js'), 'AssetDetail');
 const Pakete = lazyView(() => import('./views/Pakete.js'), 'Pakete');
 const Magazine = lazyView(() => import('./views/Magazine.js'), 'Magazine');
@@ -54,8 +53,7 @@ const Vermoegen = lazyView(() => import('./views/Vermoegen.js'), 'Vermoegen');
 const Marktlage = lazyView(() => import('./views/Marktlage.js'), 'Marktlage');
 const Funktionen = lazyView(() => import('./views/Funktionen.js'), 'Funktionen');
 const Protokoll = lazyView(() => import('./views/Protokoll.js'), 'Protokoll');
-const DemoKonto = lazyView(() => import('./views/Trading.js'), 'DemoKonto');
-const WalletTrading = lazyView(() => import('./views/WalletTrading.js'), 'WalletTrading');
+const Traden = lazyView(() => import('./views/Traden.js'), 'Traden');
 
 type AuthState = 'restoring' | 'anonymous' | 'authenticated';
 
@@ -74,9 +72,7 @@ const ROUTES = {
   '#/pakete': Pakete,
   '#/kalender': Kalender,
   '#/magazine': Magazine,
-  '#/trading': Trading,
-  '#/demo': DemoKonto,
-  '#/wallet': WalletTrading,
+  '#/traden': Traden,
   '#/vermoegen': Vermoegen,
   '#/agenten': Agenten,
   '#/strategien': Strategien,

@@ -326,6 +326,8 @@ export const it: Catalog = {
     desc_news: "Ultime notizie sui tuoi mercati, se vuoi riassunte dall’IA.",
     desc_trade: "Il conto paper dei tuoi agenti: posizioni, storico, rischio, avvisi e performance.",
     desc_demo: "Fai trading da solo con denaro virtuale sul vero order book — market, limit, SL/TP.",
+    page_tradeHub: "Trading",
+    desc_tradeHub: "Un unico posto per fare trading: conto demo (denaro virtuale, order book reali), conto agenti (paper) e wallet (swap spot) — cambia in alto.",
     page_wallet: "Trading con wallet",
     desc_wallet: "Compra e vendi token per indirizzo (Solana, Ethereum, Base, Arbitrum, BSC) — percorso reale, i tuoi limiti, prima paper.",
     desc_wealth: "Patrimonio totale su tutti i conti e gli exchange collegati, con storico.",
@@ -2052,5 +2054,14 @@ export const it: Catalog = {
     reason_price_impact_above_limit: "Impatto sul prezzo troppo alto (profondità insufficiente per l'importo).",
     reason_liquidity_below_limit: "Liquidità sotto il tuo minimo.",
     reason_liquidity_unknown: "Liquidità sconosciuta — nessuno swap finché è richiesta una liquidità minima.",
+  },
+  trade: {
+    accountLabel: "Conto",
+    account_demo: "Conto demo",
+    account_agent: "Conto agenti",
+    account_wallet: "Wallet",
+    hint_demo: "Fai trading da solo con denaro virtuale su order book reali — con leva e confronto exchange.",
+    hint_agent: "Conto paper dei tuoi agenti: posizioni, storico, rischio, avvisi.",
+    hint_wallet: "Compra e vendi token per indirizzo (Solana, EVM) — paper o il tuo wallet.",
   },
 };

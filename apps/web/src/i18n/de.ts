@@ -325,6 +325,8 @@ export const de = {
     desc_news: 'Aktuelle Nachrichten zu deinen Märkten, auf Wunsch per KI zusammengefasst.',
     desc_trade: 'Das Paper-Konto deiner Agenten: Positionen, Historie, Risiko, Alarme und Performance.',
     desc_demo: 'Selbst handeln mit Spielgeld gegen das echte Orderbuch — Market, Limit, SL/TP.',
+    page_tradeHub: "Traden",
+    desc_tradeHub: "Ein Ort fürs Handeln: Demo-Konto (Spielgeld, echte Orderbücher), Agenten-Konto (Paper) und Wallets (Spot-Swaps) — oben umschalten.",
     page_wallet: "Wallet-Trading",
     desc_wallet: "Token per Adresse kaufen und verkaufen (Solana, Ethereum, Base, Arbitrum, BSC) — echte Route, eigene Grenzen, Paper zuerst.",
     desc_wealth: 'Gesamtvermögen über alle Konten und verbundenen Börsen, mit Verlauf.',
@@ -2051,6 +2053,15 @@ export const de = {
     reason_price_impact_above_limit: "Preis-Einfluss zu hoch (zu wenig Tiefe für diesen Betrag).",
     reason_liquidity_below_limit: "Liquidität unter deinem Minimum.",
     reason_liquidity_unknown: "Liquidität unbekannt — bei verlangter Mindest-Liquidität kein Swap.",
+  },
+  trade: {
+    accountLabel: "Konto",
+    account_demo: "Demo-Konto",
+    account_agent: "Agenten-Konto",
+    account_wallet: "Wallets",
+    hint_demo: "Selbst handeln mit Spielgeld gegen echte Orderbücher — mit Hebel und Börsenvergleich.",
+    hint_agent: "Paper-Konto deiner Agenten: Positionen, Historie, Risiko, Alarme.",
+    hint_wallet: "Token per Adresse kaufen und verkaufen (Solana, EVM) — Paper oder eigene Wallet.",
   },
 };
 
