@@ -167,4 +167,18 @@ describe.skipIf(!process.env.DATABASE_URL)('runWalletCopy (echte DB, Paper)', ()
     expect(after.lastError).toMatch(/HTTP 503/);
     expect(after.lastSignature).toBe(before.lastSignature);
   });
+
+  it('Zeitbudget: höchstens eine Wallet, wenn das Budget erschöpft ist — der Rest bleibt fällig', async () => {
+    const [extra] = await db.insert(schema.watchedWallets).values({ userId, address: 'Zweite1111111111111111111111111111111111111', label: 'Zweite' }).returning();
+    await backdate();
+    chainTxs = [];
+    const r = await runWalletCopy(db, -1);
+    expect(r.checked).toBe(1);
+    expect(r.deferred).toBeGreaterThanOrEqual(1);
+    // die vertagten kommen in den nächsten Takten dran (parallele Testdateien können eigene Wallets einreihen)
+    const ownChecked = async () => (await db.select().from(schema.watchedWallets).where(eq(schema.watchedWallets.userId, userId))).every((x) => x.lastCheckedAt !== null);
+    for (let i = 0; i < 10 && !(await ownChecked()); i++) expect((await runWalletCopy(db, -1)).checked).toBe(1);
+    expect(await ownChecked()).toBe(true);
+    await db.delete(schema.watchedWallets).where(eq(schema.watchedWallets.id, extra!.id));
+  });
 });

@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { schema, type Db } from '@gladiator/db';
 import { fetchSolanaWalletSwaps, walletBalances, type ObservedSwap } from '@gladiator/exchange';
 import { notifySafe } from './notify.js';
@@ -19,8 +19,14 @@ const { watchedWallets, watchedWalletSwaps, swapWallets } = schema;
 export const WATCH_INTERVAL_SECONDS = 45;
 /** Je Takt höchstens so viele neue Transaktionen je Wallet (öffentliche RPCs drosseln). */
 export const WATCH_TX_LIMIT = 10;
+/**
+ * Zeitbudget je Worker-Takt: Der schnelle Takt überwacht auch offene
+ * Positionen (Stops) — langsame RPCs dürfen ihn nicht minutenlang blockieren.
+ * Nicht geprüfte Wallets bleiben fällig und kommen im nächsten Takt zuerst.
+ */
+export const WATCH_BUDGET_MS = 20_000;
 
-export type WalletCopyResult = { checked: number; detected: number; copied: number; skipped: number; failed: number; errors: string[] };
+export type WalletCopyResult = { checked: number; deferred: number; detected: number; copied: number; skipped: number; failed: number; errors: string[] };
 
 type WatchedRow = typeof watchedWallets.$inferSelect;
 
@@ -131,8 +137,9 @@ export async function checkWatchedWallet(db: Db, w: WatchedRow, out: WalletCopyR
 }
 
 /** Worker-Takt: fällige beobachtete Wallets prüfen (je Wallet höchstens alle 45 s). */
-export async function runWalletCopy(db: Db): Promise<WalletCopyResult> {
-  const out: WalletCopyResult = { checked: 0, detected: 0, copied: 0, skipped: 0, failed: 0, errors: [] };
+export async function runWalletCopy(db: Db, budgetMs = WATCH_BUDGET_MS): Promise<WalletCopyResult> {
+  const started = Date.now();
+  const out: WalletCopyResult = { checked: 0, deferred: 0, detected: 0, copied: 0, skipped: 0, failed: 0, errors: [] };
   const due = await db
     .select()
     .from(watchedWallets)
@@ -142,8 +149,15 @@ export async function runWalletCopy(db: Db): Promise<WalletCopyResult> {
         or(isNull(watchedWallets.lastCheckedAt), sql`${watchedWallets.lastCheckedAt} < now() - ${sql.raw(`interval '${WATCH_INTERVAL_SECONDS} seconds'`)}`),
       ),
     )
-    .orderBy(asc(watchedWallets.lastCheckedAt));
-  for (const w of due) await checkWatchedWallet(db, w, out);
+    // nie geprüfte zuerst, dann die am längsten wartenden
+    .orderBy(sql`${watchedWallets.lastCheckedAt} ASC NULLS FIRST`);
+  for (const w of due) {
+    if (out.checked > 0 && Date.now() - started > budgetMs) {
+      out.deferred = due.length - out.checked;
+      break;
+    }
+    await checkWatchedWallet(db, w, out);
+  }
   return out;
 }
 
