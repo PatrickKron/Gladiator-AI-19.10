@@ -2,6 +2,7 @@ import { Queue, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { requireEnv, type Db } from '@gladiator/db';
 import { demoBookSource, monitorDemoTick, monitorOpenPositions, reconcile, type TradingVenue } from '@gladiator/exchange';
+import { failStuckSwapOrders, runSwapOrders } from './swap-orders.js';
 import { fredConfigured, syncDerivatives, syncFredWatch, syncEconomicCalendar, syncFredSeries, syncMacroSeries, syncNews } from '@gladiator/market-data';
 import { runNightPipeline } from './briefing.js';
 import { runSignalScan } from './signal-scan.js';
@@ -437,6 +438,15 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
         }
       } catch (err) {
         console.warn('[demo-monitor] Tick fehlgeschlagen:', String(err));
+      }
+      // Wallet-Trading (Vision-Punkt 5e): Limit-Orders + Auto-Sell — fehlerisoliert wie der Demo-Takt.
+      try {
+        await failStuckSwapOrders(db);
+        const so = await runSwapOrders(db);
+        if (so.triggered > 0) console.log(`[swap-orders] ausgelöst=${so.triggered} ausgeführt=${so.filled} fehlgeschlagen=${so.failed}`);
+        for (const e of so.errors) console.warn('[swap-orders]', e);
+      } catch (err) {
+        console.warn('[swap-orders] Tick fehlgeschlagen:', String(err));
       }
       lastHeartbeat = new Date();
       // Heartbeat auch nach Redis — sichtbar für den getrennten Web-Prozess (/health).

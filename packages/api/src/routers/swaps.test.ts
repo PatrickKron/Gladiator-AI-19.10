@@ -158,6 +158,22 @@ describe.skipIf(!hasDb)('Wallet-Trading: Paper-Swaps über das Swap-Gate', () =>
     await expect(a.swaps.updateWallet({ walletId, slippageBps: 500 })).rejects.toThrow(/Obergrenze/);
   });
 
+  it('Orders: Plausibilität, Anlegen, Liste, Stornieren; fremde Orders unantastbar', async () => {
+    // BONK kostet hier 0,00002 $
+    await expect(a.swaps.createOrder({ walletId, token: BONK, kind: 'take_profit', triggerPriceUsd: 0.00001, sellPercent: 50 })).rejects.toThrow(/über dem aktuellen/);
+    await expect(a.swaps.createOrder({ walletId, token: BONK, kind: 'stop_loss', triggerPriceUsd: 0.00003, sellPercent: 50 })).rejects.toThrow(/unter dem aktuellen/);
+    await expect(a.swaps.createOrder({ walletId, token: RUG, kind: 'stop_loss', triggerPriceUsd: 0.00001 })).rejects.toThrow(/Kein .*-Bestand/);
+    await expect(a.swaps.createOrder({ walletId, token: BONK, kind: 'limit_buy', triggerPriceUsd: 0.00001 })).rejects.toThrow(/Betrag/);
+    const tp = await a.swaps.createOrder({ walletId, token: BONK, kind: 'take_profit', triggerPriceUsd: 0.00004, sellPercent: 50 });
+    await a.swaps.createOrder({ walletId, token: BONK, kind: 'trailing_stop', trailPct: 15 });
+    const list = await a.swaps.orders({ walletId });
+    expect(list.map((o) => o.kind).sort()).toEqual(['take_profit', 'trailing_stop']);
+    expect(list.find((o) => o.kind === 'trailing_stop')).toMatchObject({ peakPriceUsd: 0.00002, sellPercent: 100, status: 'open' });
+    await expect(b.swaps.cancelOrder({ orderId: tp.id })).rejects.toThrow(/nicht gefunden/);
+    await a.swaps.cancelOrder({ orderId: tp.id });
+    await expect(a.swaps.cancelOrder({ orderId: tp.id })).rejects.toThrow(/nicht mehr offen/);
+  });
+
   it('fremde Wallets sind unsichtbar', async () => {
     expect(await b.swaps.wallets()).toEqual([]);
     await expect(b.swaps.portfolio({ walletId })).rejects.toThrow(/nicht gefunden/);

@@ -1,0 +1,153 @@
+/**
+ * Limit-Orders + Auto-Sell (Vision-Punkt 5e): reine Auslöse-Logik und der
+ * Worker-Lauf gegen die ECHTE DB (Paper-Wallet). Netz (DexScreener, RPC,
+ * Jupiter) injiziert; der Kurs wird pro Lauf gesetzt.
+ */
+import { eq, sql } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createDb, schema, type Db } from '@gladiator/db';
+import { fundPaperWallet, SOL_MINT, walletBalances } from '@gladiator/exchange';
+import type pg from 'pg';
+import { evaluateSwapOrder, failStuckSwapOrders, runSwapOrders, validateNewOrder } from './swap-orders.js';
+import { setSwapFetchForTests } from './swap-service.js';
+
+describe('evaluateSwapOrder', () => {
+  it('Take-Profit ab Ziel, Stop-Loss und Limit-Kauf ab Unterschreiten', () => {
+    expect(evaluateSwapOrder({ kind: 'take_profit', triggerPriceUsd: 2, trailPct: null, peakPriceUsd: null }, 1.99).trigger).toBe(false);
+    expect(evaluateSwapOrder({ kind: 'take_profit', triggerPriceUsd: 2, trailPct: null, peakPriceUsd: null }, 2).trigger).toBe(true);
+    expect(evaluateSwapOrder({ kind: 'stop_loss', triggerPriceUsd: 1, trailPct: null, peakPriceUsd: null }, 1.01).trigger).toBe(false);
+    expect(evaluateSwapOrder({ kind: 'stop_loss', triggerPriceUsd: 1, trailPct: null, peakPriceUsd: null }, 0.5).trigger).toBe(true);
+    expect(evaluateSwapOrder({ kind: 'limit_buy', triggerPriceUsd: 1, trailPct: null, peakPriceUsd: null }, 0.9).trigger).toBe(true);
+  });
+
+  it('Trailing: Höchstkurs zieht nach, Auslösung erst beim Abstand vom Hoch', () => {
+    let s = { kind: 'trailing_stop' as const, triggerPriceUsd: null, trailPct: 10, peakPriceUsd: null as number | null };
+    let r = evaluateSwapOrder(s, 100);
+    expect(r).toEqual({ trigger: false, peakPriceUsd: 100 });
+    s = { ...s, peakPriceUsd: r.peakPriceUsd };
+    r = evaluateSwapOrder(s, 150);
+    expect(r).toEqual({ trigger: false, peakPriceUsd: 150 });
+    s = { ...s, peakPriceUsd: r.peakPriceUsd };
+    expect(evaluateSwapOrder(s, 136).trigger).toBe(false);
+    expect(evaluateSwapOrder(s, 135).trigger).toBe(true);
+  });
+
+  it('ohne gültigen Preis nie auslösen', () => {
+    expect(evaluateSwapOrder({ kind: 'stop_loss', triggerPriceUsd: 1, trailPct: null, peakPriceUsd: null }, Number.NaN).trigger).toBe(false);
+    expect(evaluateSwapOrder({ kind: 'stop_loss', triggerPriceUsd: 1, trailPct: null, peakPriceUsd: null }, 0).trigger).toBe(false);
+  });
+});
+
+describe('validateNewOrder', () => {
+  it('lehnt Orders ab, die sofort auslösen würden', () => {
+    expect(validateNewOrder({ kind: 'take_profit', triggerPriceUsd: 0.9, trailPct: null, peakPriceUsd: null }, 1)).toMatch(/über dem aktuellen/);
+    expect(validateNewOrder({ kind: 'stop_loss', triggerPriceUsd: 1.1, trailPct: null, peakPriceUsd: null }, 1)).toMatch(/unter dem aktuellen/);
+    expect(validateNewOrder({ kind: 'limit_buy', triggerPriceUsd: 1, trailPct: null, peakPriceUsd: null }, 1)).toMatch(/unter dem aktuellen/);
+    expect(validateNewOrder({ kind: 'trailing_stop', triggerPriceUsd: null, trailPct: 0.1, peakPriceUsd: null }, 1)).toMatch(/0,5 bis 90/);
+    expect(validateNewOrder({ kind: 'take_profit', triggerPriceUsd: 1.5, trailPct: null, peakPriceUsd: null }, 1)).toBeNull();
+  });
+});
+
+const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+let bonkUsd = 0.00002;
+const fakeNet = (async (url: string, init?: RequestInit) => {
+  const u = String(url);
+  const json = (b: unknown) => new Response(JSON.stringify(b));
+  if (u.includes('dexscreener')) {
+    const addrs = u.split('/').pop()!.split(',');
+    return json(addrs.map((a) => ({ chainId: 'solana', baseToken: { address: a, symbol: a === SOL_MINT ? 'SOL' : 'Bonk' }, priceUsd: String(a === SOL_MINT ? 150 : bonkUsd), liquidity: { usd: 1e8 } })));
+  }
+  if (u.includes('jup.ag')) {
+    const q = new URL(u).searchParams;
+    const amount = BigInt(q.get('amount')!);
+    // Kurs folgt bonkUsd: BONK-Atome je Lamport = (150 / bonkUsd) / 1e4
+    const perLamport = 150 / bonkUsd / 10_000;
+    const out = q.get('inputMint') === SOL_MINT ? BigInt(Math.floor(Number(amount) * perLamport)) : BigInt(Math.floor(Number(amount) / perLamport));
+    return json({ inAmount: amount.toString(), outAmount: out.toString(), priceImpactPct: '0.001', routePlan: [{ swapInfo: { label: 'Raydium' } }] });
+  }
+  const body = JSON.parse(String(init?.body)) as { method: string };
+  if (body.method === 'getTokenSupply') return json({ jsonrpc: '2.0', id: 1, result: { value: { decimals: 5 } } });
+  if (body.method === 'getAccountInfo') {
+    return json({ jsonrpc: '2.0', id: 1, result: { value: { owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', data: { parsed: { type: 'mint', info: { mintAuthority: null, freezeAuthority: null } } } } } });
+  }
+  return new Response('?', { status: 404 });
+}) as unknown as typeof fetch;
+
+describe.skipIf(!process.env.DATABASE_URL)('runSwapOrders (echte DB, Paper)', () => {
+  let db: Db;
+  let pool: pg.Pool;
+  let walletId: string;
+  let userId: string;
+  const RUN = `${process.pid}-${Date.now()}`;
+
+  async function addOrder(values: Partial<typeof schema.swapOrders.$inferInsert> & { kind: typeof schema.swapOrders.$inferInsert.kind }) {
+    const [o] = await db.insert(schema.swapOrders).values({ walletId, token: BONK, symbol: 'Bonk', ...values }).returning();
+    return o!;
+  }
+  const status = async (id: string) => (await db.select().from(schema.swapOrders).where(eq(schema.swapOrders.id, id)))[0]!;
+
+  beforeAll(async () => {
+    setSwapFetchForTests(fakeNet);
+    ({ db, pool } = createDb());
+    const [u] = await db.insert(schema.users).values({ email: `swaporders-${RUN}@test.invalid` }).returning();
+    userId = u!.id;
+    const [w] = await db
+      .insert(schema.swapWallets)
+      .values({ userId, chain: 'solana', label: 'Orders', address: `paper:${RUN}`, maxTradeUsd: '10000', maxSlippageBps: 500, maxPriceImpactPct: '5', minLiquidityUsd: '0', maxTokenTaxPct: '5' })
+      .returning();
+    walletId = w!.id;
+    await fundPaperWallet(db, walletId, 'solana', '10', 150);
+  });
+
+  afterAll(async () => {
+    setSwapFetchForTests(null);
+    await db.execute(sql`DELETE FROM users WHERE id = ${userId}`);
+    await pool.end();
+  });
+
+  it('Limit-Kauf löst erst unter dem Zielpreis aus und kauft zum echten Angebot', async () => {
+    const o = await addOrder({ kind: 'limit_buy', triggerPriceUsd: '0.000015', buyAmount: '1' });
+    bonkUsd = 0.000018;
+    expect((await runSwapOrders(db)).triggered).toBe(0);
+    expect((await status(o.id)).status).toBe('open');
+    bonkUsd = 0.000015;
+    const r = await runSwapOrders(db);
+    expect(r).toMatchObject({ triggered: 1, filled: 1, failed: 0 });
+    const done = await status(o.id);
+    expect(done.status).toBe('filled');
+    expect(done.tradeId).not.toBeNull();
+    const bonk = (await walletBalances(db, walletId)).find((b) => b.token === BONK)!;
+    expect(BigInt(bonk.amountAtomic)).toBeGreaterThan(0n);
+  });
+
+  it('Take-Profit + Stop-Loss (je 100 %): TP feuert, SL wird danach als gegenstandslos storniert (OCO)', async () => {
+    const tp = await addOrder({ kind: 'take_profit', triggerPriceUsd: '0.00002', sellPercent: '100' });
+    const sl = await addOrder({ kind: 'stop_loss', triggerPriceUsd: '0.00001', sellPercent: '100' });
+    bonkUsd = 0.000021;
+    const r = await runSwapOrders(db);
+    expect(r).toMatchObject({ triggered: 1, filled: 1 });
+    expect((await status(tp.id)).status).toBe('filled');
+    expect(await status(sl.id)).toMatchObject({ status: 'cancelled', error: 'Bestand verkauft' });
+    const trades = await db.select().from(schema.swapTrades).where(eq(schema.swapTrades.walletId, walletId));
+    const sell = trades.find((t) => t.side === 'sell')!;
+    expect(Number(sell.realizedPnlUsd)).toBeGreaterThan(0); // bei 0,000015 gekauft, bei 0,000021 verkauft
+    const notes = await db.select().from(schema.notifications).where(eq(schema.notifications.userId, userId));
+    expect(notes.map((n) => n.title)).toContain('Take-Profit ausgeführt: Bonk');
+  });
+
+  it('Verkauf ohne Bestand → fehlgeschlagen mit Grund + Meldung, nie doppelt ausgeführt', async () => {
+    const o = await addOrder({ kind: 'trailing_stop', trailPct: '10', sellPercent: '50', peakPriceUsd: '0.00003' });
+    bonkUsd = 0.00002;
+    const r = await runSwapOrders(db);
+    expect(r).toMatchObject({ triggered: 1, failed: 1 });
+    expect((await status(o.id)).error).toMatch(/Kein Bonk-Bestand/);
+    expect((await runSwapOrders(db)).triggered).toBe(0);
+  });
+
+  it('hängende Ausführung (Absturz) wird nach 10 min als fehlgeschlagen markiert', async () => {
+    const o = await addOrder({ kind: 'stop_loss', triggerPriceUsd: '0.000001', sellPercent: '100' });
+    await db.execute(sql`UPDATE swap_orders SET status = 'executing', triggered_at = now() - interval '11 minutes' WHERE id = ${o.id}`);
+    expect(await failStuckSwapOrders(db)).toBeGreaterThanOrEqual(1);
+    expect((await status(o.id)).status).toBe('failed');
+  });
+});

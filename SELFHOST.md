@@ -62,7 +62,7 @@ Börsen- und Wallet-Zugänge trägst du nicht in die `.env` ein, sondern in der 
 
 ## Wallet-Trading (Spot-Swaps)
 
-Unter Handel & Vermögen › Wallet-Trading: Token-Adresse einfügen → Preis, Liquidität, Marktkapitalisierung (DexScreener) → Schnellkauf/-verkauf → echte Route über Jupiter (Solana) bzw. KyberSwap (Ethereum, Base, Arbitrum, BSC). Jeder Swap läuft durch das Swap-Gate mit den Grenzen der Wallet (Betrag, Slippage, Preis-Einfluss, Mindest-Liquidität — Profile von Vorsichtig bis Meme-Coins, frei änderbar). Paper-Wallets handeln virtuell zum echten Angebot inkl. Gebühren.
+Unter Handel & Vermögen › Wallet-Trading: Token-Adresse einfügen → Preis, Liquidität, Marktkapitalisierung (DexScreener) → Schnellkauf/-verkauf → echte Route über Jupiter (Solana) bzw. KyberSwap (Ethereum, Base, Arbitrum, BSC). Jeder Swap läuft durch das Swap-Gate mit den Grenzen der Wallet (Betrag, Slippage, Preis-Einfluss, Mindest-Liquidität — Profile von Vorsichtig bis Meme-Coins, frei änderbar). Paper-Wallets handeln virtuell zum echten Angebot inkl. Gebühren. Vor jedem Kauf prüft Gladiator den Token (Solana: Mint-/Freeze-Recht und Token-2022-Risiken direkt von der Kette; EVM: Honeypot und Steuern über GoPlus). Unter „Limit-Orders & Auto-Sell“ legst du Take-Profit, Stop-Loss, Trailing-Stop oder Limit-Kauf an; der Worker prüft jede Minute.
 
 **Eigene Trading-Wallet (echte Swaps)** — nur wenn du als Betreiber `WALLET_KEYS_ENABLED=1` in die `.env` setzt:
 1. Wallet-Trading › „Eigene Wallet (live)“ → **Neue Wallet erzeugen** (empfohlen) oder eine eigens fürs Trading angelegte Wallet importieren. Nie die Haupt-Wallet.

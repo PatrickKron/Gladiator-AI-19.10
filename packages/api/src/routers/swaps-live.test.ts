@@ -64,6 +64,7 @@ describe.skipIf(!hasDb)('Eigene Trading-Wallet (live)', () => {
   let secretOnce: string;
   const executed: { address: string; secret: string; inAtomic: string }[] = [];
   let nextStatus: 'filled' | 'failed' = 'filled';
+  let liveOrderId = '';
   const savedFlag = process.env.WALLET_KEYS_ENABLED;
   const savedKey = process.env.ENCRYPTION_KEY;
 
@@ -154,6 +155,16 @@ describe.skipIf(!hasDb)('Eigene Trading-Wallet (live)', () => {
     expect(notes.some((n) => n.title === 'Kauf ausgeführt: Bonk')).toBe(true);
   });
 
+  it('Live-Order: nur mit ausdrücklicher Bestätigung; Freigabe zurückziehen storniert offene Orders', async () => {
+    await expect(a.swaps.createOrder({ walletId, token: BONK, kind: 'take_profit', triggerPriceUsd: 0.0001, sellPercent: 50 })).rejects.toThrow(/ausdrücklich bestätigen/);
+    const o = await a.swaps.createOrder({ walletId, token: BONK, kind: 'take_profit', triggerPriceUsd: 0.0001, sellPercent: 50, confirmLive: true });
+    const [row] = await db.select().from(schema.swapOrders).where(eq(schema.swapOrders.id, o.id));
+    expect(row!.confirmedLive).toBe(true);
+    const audit = await db.select().from(schema.auditLog).where(and(eq(schema.auditLog.userId, userId), eq(schema.auditLog.action, 'swap.live_order_create')));
+    expect(audit).toHaveLength(1);
+    liveOrderId = o.id;
+  });
+
   it('mehr als das Guthaben → abgelehnt, bevor etwas gebaut wird', async () => {
     await expect(a.swaps.execute({ walletId, side: 'buy', token: BONK, amount: '5', confirmLive: true })).rejects.toThrow(/Guthaben reicht nicht/);
     expect(executed).toHaveLength(1);
@@ -169,6 +180,8 @@ describe.skipIf(!hasDb)('Eigene Trading-Wallet (live)', () => {
 
   it('Freigabe zurückziehen sperrt sofort; Entfernen löscht den Schlüssel erst nach Bestätigung', async () => {
     await a.swaps.revokeLive({ walletId });
+    const [order] = await db.select().from(schema.swapOrders).where(eq(schema.swapOrders.id, liveOrderId));
+    expect(order).toMatchObject({ status: 'cancelled', error: 'Live-Freigabe zurückgezogen' });
     await expect(a.swaps.execute({ walletId, side: 'buy', token: BONK, amount: '0.1', confirmLive: true })).rejects.toThrow(/nicht für Live-Swaps freigegeben/);
     await expect(a.swaps.archiveWallet({ walletId })).rejects.toThrow(/Schlüssel gesichert/);
     await a.swaps.archiveWallet({ walletId, confirmKeyBackedUp: true });

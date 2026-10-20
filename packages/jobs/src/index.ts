@@ -62,3 +62,33 @@ export {
   type OptimizationRunSummary,
   type OpenProposal,
 } from './optimization.js';
+export {
+  SwapError,
+  netError,
+  liveKeysAllowed,
+  setSwapFetchForTests,
+  setLiveSwapExecutorForTests,
+  swapNet,
+  cachedTokenInfo,
+  cachedTokenSafety,
+  limitsOf,
+  syncLiveBalances,
+  prepareSwap,
+  quoteView,
+  executePreparedSwap,
+  type SwapRequest,
+  type PreparedSwap,
+  type SwapWalletRow,
+  type ExecuteContext,
+  type ExecuteResult,
+} from './swap-service.js';
+export {
+  evaluateSwapOrder,
+  validateNewOrder,
+  runSwapOrders,
+  failStuckSwapOrders,
+  SWAP_ORDER_LABEL,
+  type SwapOrderKind,
+  type OrderState,
+  type SwapOrdersResult,
+} from './swap-orders.js';

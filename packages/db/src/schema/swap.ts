@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { users } from './auth.js';
 
 /**
@@ -96,5 +96,49 @@ export const swapTrades = pgTable(
     index('swap_trades_wallet_created_idx').on(t.walletId, t.createdAt),
     check('swap_trades_side_check', sql`${t.side} IN ('buy', 'sell')`),
     check('swap_trades_status_check', sql`${t.status} IN ('filled', 'pending', 'failed')`),
+  ],
+);
+
+/**
+ * Limit-Orders + Auto-Sell (Vision-Punkt 5e, „wie Trojan“): Take-Profit,
+ * Stop-Loss, Trailing-Stop (Verkauf eines Anteils) und Limit-Kauf. Der Worker
+ * prüft die Kurse jede Minute; ausgelöst wird über denselben Swap-Pfad wie das
+ * Ticket (Gate, Paper/Live). Live nur, wenn beim Anlegen bestätigt.
+ */
+export const swapOrders = pgTable(
+  'swap_orders',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    walletId: uuid('wallet_id')
+      .notNull()
+      .references(() => swapWallets.id, { onDelete: 'cascade' }),
+    token: text('token').notNull(),
+    symbol: text('symbol').notNull(),
+    kind: text('kind').$type<'take_profit' | 'stop_loss' | 'trailing_stop' | 'limit_buy'>().notNull(),
+    /** Auslösepreis (USD) für Take-Profit, Stop-Loss, Limit-Kauf */
+    triggerPriceUsd: numeric('trigger_price_usd'),
+    /** Trailing-Stop: Abstand vom Höchstkurs in % */
+    trailPct: numeric('trail_pct'),
+    /** Trailing-Stop: bisheriger Höchstkurs (USD) */
+    peakPriceUsd: numeric('peak_price_usd'),
+    /** Verkäufe: Anteil des Bestands beim Auslösen in % */
+    sellPercent: numeric('sell_percent'),
+    /** Limit-Kauf: Betrag in nativer Währung (Dezimal-String) */
+    buyAmount: text('buy_amount'),
+    slippageBps: integer('slippage_bps'),
+    /** Live-Wallet: beim Anlegen ausdrücklich bestätigt (ersetzt die Bestätigung im Moment des Auslösens) */
+    confirmedLive: boolean('confirmed_live').notNull().default(false),
+    status: text('status').$type<'open' | 'executing' | 'filled' | 'failed' | 'cancelled'>().notNull().default('open'),
+    tradeId: uuid('trade_id'),
+    error: text('error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    triggeredAt: timestamp('triggered_at', { withTimezone: true }),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+  },
+  (t) => [
+    index('swap_orders_status_idx').on(t.status),
+    index('swap_orders_wallet_idx').on(t.walletId, t.createdAt),
+    check('swap_orders_kind_check', sql`${t.kind} IN ('take_profit', 'stop_loss', 'trailing_stop', 'limit_buy')`),
+    check('swap_orders_status_check', sql`${t.status} IN ('open', 'executing', 'filled', 'failed', 'cancelled')`),
   ],
 );
