@@ -101,6 +101,9 @@ export const es: Catalog = {
     disconnectConfirm: '¿Desconectar de verdad?',
   },
   ticket: {
+    exposureExplain: 'Con {{risk}} de riesgo por operación y una distancia de stop de {{stop}}, la posición sería {{implied}} de tu cuenta; el límite por activo es {{limit}}. Por eso bloquea el control de riesgo.',
+    exposureApply: 'Fijar importe en {{amount}} (riesgo entonces {{risk}})',
+    exposureSettings: 'O ajusta el límite de exposición o el riesgo por operación en Ajustes › Riesgo y límites; tú decides.',
     suggestionRef: 'La estrategia sugiere: {{amount}} con apalancamiento {{lev}}×, protección {{sl}}.',
     reset: 'Restablecer',
     amount: 'Importe',

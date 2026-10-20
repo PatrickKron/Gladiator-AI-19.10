@@ -101,6 +101,9 @@ export const it: Catalog = {
     disconnectConfirm: 'Scollegare davvero?',
   },
   ticket: {
+    exposureExplain: 'Con {{risk}} di rischio per trade e uno stop a {{stop}}, la posizione sarebbe {{implied}} del tuo conto — il limite per asset è {{limit}}. Per questo il controllo del rischio blocca.',
+    exposureApply: 'Imposta l’importo a {{amount}} (rischio allora {{risk}})',
+    exposureSettings: 'Oppure modifica il limite di esposizione o il rischio per trade in Impostazioni › Rischio e limiti — decidi tu.',
     suggestionRef: 'La strategia suggerisce: {{amount}} con leva {{lev}}×, protezione {{sl}}.',
     reset: 'Ripristina',
     amount: 'Importo',

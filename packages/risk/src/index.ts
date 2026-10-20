@@ -22,3 +22,4 @@ export {
   timeframeToMs,
   type OhlcLike,
 } from './safe.js';
+export { exposureFit, type ExposureFit, type ExposureFitInput } from './exposure-fit.js';

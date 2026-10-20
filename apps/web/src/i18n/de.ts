@@ -100,6 +100,9 @@ export const de = {
     disconnectConfirm: 'Wirklich trennen?',
   },
   ticket: {
+    exposureExplain: 'Mit {{risk}} Risiko je Trade und {{stop}} Stop-Abstand wäre die Position {{implied}} deines Kontos — das Limit je Asset liegt bei {{limit}}. Deshalb blockt das Risk-Gate.',
+    exposureApply: 'Betrag auf {{amount}} setzen (Risiko dann {{risk}})',
+    exposureSettings: 'Oder in Einstellungen › Risiko & Limits das Exposure-Limit bzw. Risiko je Trade anpassen — das entscheidest du.',
     suggestionRef: 'Strategie empfiehlt: {{amount}} bei {{lev}}× Hebel, Absicherung {{sl}}.',
     reset: 'Zurücksetzen',
     amount: 'Betrag',

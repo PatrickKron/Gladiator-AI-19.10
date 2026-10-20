@@ -101,6 +101,9 @@ export const en: Catalog = {
     disconnectConfirm: 'Really disconnect?',
   },
   ticket: {
+    exposureExplain: 'With {{risk}} risk per trade and a {{stop}} stop distance, the position would be {{implied}} of your account — the per-asset limit is {{limit}}. That is why the risk gate blocks.',
+    exposureApply: 'Set amount to {{amount}} (risk then {{risk}})',
+    exposureSettings: 'Or adjust the exposure limit or risk per trade in Settings › Risk & limits — your call.',
     suggestionRef: 'Strategy suggests: {{amount}} at {{lev}}× leverage, protection {{sl}}.',
     reset: 'Reset',
     amount: 'Amount',

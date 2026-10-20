@@ -437,4 +437,5 @@ Volle Suite: 1345 grün, 4 rot nur umgebungsbedingt (review, signal-scan „BASI
   - **Auto-Login:** nur localhost/Tailnet (100.64.0.0/10) oder `AUTO_LOGIN_ALLOWED_CIDRS`; Rate-Limit wie Login. `req.ip` = Socket-Adresse (kein trust proxy) — `tailscale serve` kommt als 127.0.0.1.
   - **Passwort:** `auth.changePassword` (aktuelles Pflicht, alle Sessions entwertet), Profil-Panel, `npm run auth:set-password -- <email>` (stdin, Audit `auth.password_reset`).
   - **CI-Test-DB:** Opt-in über `TEST_DATABASE_URL` (`scripts/ensure-test-db.mjs` mit Live-DB-Sperre).
+  - **Ticket-Hinweis Exposure (§2):** `exposureFit` in `@gladiator/risk` (5 Tests) → `signals.executionPreview.exposureFit`; das Ticket erklärt, warum 1 % Risiko bei engem Stop das 20-%-Limit sprengt, und bietet den größten erlaubten Betrag an. Limits selbst unverändert (Patricks Entscheidung).
 

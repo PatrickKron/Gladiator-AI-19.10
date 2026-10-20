@@ -101,6 +101,9 @@ export const fr: Catalog = {
     disconnectConfirm: 'Vraiment déconnecter ?',
   },
   ticket: {
+    exposureExplain: 'Avec {{risk}} de risque par trade et un stop à {{stop}}, la position représenterait {{implied}} de votre compte — la limite par actif est de {{limit}}. C’est pourquoi le contrôle de risque bloque.',
+    exposureApply: 'Fixer le montant à {{amount}} (risque alors {{risk}})',
+    exposureSettings: 'Ou ajustez la limite d’exposition ou le risque par trade dans Paramètres › Risque et limites — à vous de décider.',
     suggestionRef: 'La stratégie suggère : {{amount}} avec levier {{lev}}×, protection {{sl}}.',
     reset: 'Réinitialiser',
     amount: 'Montant',
