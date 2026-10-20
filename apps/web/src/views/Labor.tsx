@@ -570,7 +570,7 @@ export function Labor() {
 
           <section className="glass mt-6 p-6">
             <h2 className="label">{t('labor.equityTitle', { start: fmt(10000, 0) })}</h2>
-            <div className="mt-4"><EquityChart points={run.equityCurve} emptyText={t('labor.tooFewPoints')} /></div>
+            <div className="mt-4"><EquityChart points={run.equityCurve} emptyText={t('labor.tooFewPoints')} step /></div>
           </section>
 
           {runWindow && run.trades.length > 0 && (() => {

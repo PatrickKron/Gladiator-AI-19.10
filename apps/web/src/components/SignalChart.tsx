@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { createChart, CrosshairMode, type IChartApi } from 'lightweight-charts';
+import { CandlestickSeries, createChart, CrosshairMode, type IChartApi } from 'lightweight-charts';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 
@@ -42,7 +42,7 @@ export function SignalChart({
     });
     chartRef.current = chart;
 
-    const series = chart.addCandlestickSeries({
+    const series = chart.addSeries(CandlestickSeries, {
       upColor: '#3ddc97',
       downColor: '#ff5c6c',
       borderUpColor: '#3ddc97',

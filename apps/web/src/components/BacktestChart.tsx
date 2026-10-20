@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  CandlestickSeries,
   createChart,
+  createSeriesMarkers,
+  LineSeries,
   CrosshairMode,
   LineStyle,
   type IChartApi,
   type ISeriesApi,
+  type ISeriesMarkersPluginApi,
   type SeriesMarker,
   type Time,
   type UTCTimestamp,
@@ -77,6 +81,7 @@ export function BacktestChart({
   const legendRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'empty'>('loading');
   const [truncated, setTruncated] = useState(false);
   const [window, setWindow] = useState<{ first: number; last: number } | null>(null);
@@ -99,7 +104,7 @@ export function BacktestChart({
       timeScale: { borderColor: 'rgba(99,140,255,0.18)', timeVisible: timeframe !== '1d', rightOffset: 4 },
     });
     chartRef.current = chart;
-    const candle = chart.addCandlestickSeries({
+    const candle = chart.addSeries(CandlestickSeries, {
       upColor: C.green,
       downColor: C.red,
       borderUpColor: C.green,
@@ -109,6 +114,7 @@ export function BacktestChart({
       priceLineVisible: false,
     });
     candleRef.current = candle;
+    markersRef.current = createSeriesMarkers(candle, []);
 
     // OHLC-Legende
     const legendEl = legendRef.current;
@@ -172,6 +178,7 @@ export function BacktestChart({
       chart.remove();
       chartRef.current = null;
       candleRef.current = null;
+      markersRef.current = null;
     };
   }, [symbol, timeframe, from, to, trades, onSelect]);
 
@@ -210,7 +217,7 @@ export function BacktestChart({
       });
     }
     markers.sort((a, b) => (a.time as number) - (b.time as number));
-    candle.setMarkers(markers);
+    markersRef.current?.setMarkers(markers);
   }, [visibleTrades, selected, state]);
 
   // ── Auswahl → Chart auf den Trade zoomen; ohne Auswahl wieder alles zeigen ──
@@ -247,7 +254,7 @@ export function BacktestChart({
     // Trade-Bereich: Verlaufslinie Entry→Exit (Farbe nach Ergebnis)
     const entrySec = toSec(tr.entryTs);
     const exitSec = toSec(tr.exitTs);
-    const path = chart.addLineSeries({
+    const path = chart.addSeries(LineSeries, {
       color: tr.netPnl >= 0 ? 'rgba(61,220,151,0.9)' : 'rgba(255,92,108,0.9)',
       lineWidth: 2,
       lineStyle: LineStyle.Dotted,

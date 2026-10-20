@@ -1,3 +1,5 @@
+import { equityXY, toPolyline } from '../lib/equity-path.js';
+
 /**
  * Geteilte Equity-Kurven-Bausteine (Inline-SVG) — die EINE Wahrheit für alle
  * Views (Labor, Strategie-Workshop, …). `emptyText` kommt vom Aufrufer,
@@ -28,16 +30,18 @@ export const COMPARE_COLORS = ['#4fd1ff', '#3ddc97', '#f5b642', '#8b5cf6', '#e14
 export type EquityPoint = { ts: string; equity: number };
 export type ComparableRun = { key: string; label: string; color: string; equityCurve: EquityPoint[] };
 
-export function EquityChart({ points, emptyText, unit = '$' }: { points: EquityPoint[]; emptyText: string; unit?: string }) {
+/** `step`: realisiertes Kapital (Backtests) als Treppe; x-Achse ist immer die Zeit. */
+export function EquityChart({ points, emptyText, unit = '$', step = false }: { points: EquityPoint[]; emptyText: string; unit?: string; step?: boolean }) {
   if (points.length < 2) return <p className="label">{emptyText}</p>;
   const W = 860;
   const H = 220;
   const eq = points.map((p) => p.equity);
   const min = Math.min(...eq);
   const max = Math.max(...eq);
-  const span = max - min || 1;
-  const pts = eq.map((v, i) => [(i / (eq.length - 1)) * W, H - 8 - ((v - min) / span) * (H - 16)] as const);
-  const line = pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+  const pts = equityXY(points, { width: W, height: H, step });
+  const line = toPolyline(pts);
+  const x0 = pts[0]![0].toFixed(1);
+  const x1 = pts[pts.length - 1]![0].toFixed(1);
   const up = eq[eq.length - 1]! >= eq[0]!;
   const color = up ? 'var(--color-pos)' : 'var(--color-neg)';
   return (
@@ -49,7 +53,7 @@ export function EquityChart({ points, emptyText, unit = '$' }: { points: EquityP
             <stop offset="100%" stopColor={color} stopOpacity="0" />
           </linearGradient>
         </defs>
-        <polygon points={`0,${H} ${line} ${W},${H}`} fill="url(#sw-eqfill)" />
+        <polygon points={`${x0},${H} ${line} ${x1},${H}`} fill="url(#sw-eqfill)" />
         <polyline points={line} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" />
         <text x="4" y="14" className="num" fill="var(--color-mut)" fontSize="11">
           {fmt(max, 0)} {unit}
@@ -66,7 +70,7 @@ export function EquityChart({ points, emptyText, unit = '$' }: { points: EquityP
 }
 
 /** Overlay mehrerer Equity-Kurven, jede auf %-Return ab Start normiert. */
-export function MultiEquityChart({ runs, emptyText }: { runs: ComparableRun[]; emptyText: string }) {
+export function MultiEquityChart({ runs, emptyText, step = true }: { runs: ComparableRun[]; emptyText: string; step?: boolean }) {
   const withCurve = runs.filter((r) => r.equityCurve.length >= 2);
   if (withCurve.length === 0) return <p className="label">{emptyText}</p>;
   const W = 860;
@@ -80,7 +84,9 @@ export function MultiEquityChart({ runs, emptyText }: { runs: ComparableRun[]; e
   const max = Math.max(0, ...allPct);
   const span = max - min || 1;
   const y = (v: number) => H - 8 - ((v - min) / span) * (H - 16);
-  const x = (i: number, n: number) => (n <= 1 ? 0 : (i / (n - 1)) * W);
+  // Gemeinsame Zeitachse aller Läufe (nur gültige Zeitstempel)
+  const allTs = withCurve.flatMap((r) => r.equityCurve.map((p) => Date.parse(p.ts))).filter((t) => Number.isFinite(t));
+  const tRange = allTs.length > 0 ? { tMin: Math.min(...allTs), tMax: Math.max(...allTs) } : {};
   return (
     <div className="overflow-x-auto">
       <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="max-w-full">
@@ -88,7 +94,12 @@ export function MultiEquityChart({ runs, emptyText }: { runs: ComparableRun[]; e
         {series.map((s) => (
           <polyline
             key={s.key}
-            points={s.pct.map((v, i) => `${x(i, s.pct.length).toFixed(1)},${y(v).toFixed(1)}`).join(' ')}
+            points={toPolyline(
+              equityXY(
+                s.equityCurve.map((p, i) => ({ ts: p.ts, equity: s.pct[i]! })),
+                { width: W, height: H, step, min, max: min + span, ...tRange },
+              ),
+            )}
             fill="none"
             stroke={s.color}
             strokeWidth="1.8"

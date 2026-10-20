@@ -4,8 +4,8 @@ import {
   type IPriceLine,
   type ISeriesApi,
   type ISeriesPrimitive,
-  type ISeriesPrimitivePaneRenderer,
-  type ISeriesPrimitivePaneView,
+  type IPrimitivePaneRenderer,
+  type IPrimitivePaneView,
   type Logical,
   type SeriesAttachedParameter,
   type SeriesType,
@@ -15,7 +15,7 @@ import { fibLevelPrices, type DrawingKind, type DrawingPoint, type DrawingStyle 
 import { timeToLogical, type PixelShape, type Px } from '../lib/chart-drawings.js';
 
 /**
- * Rendering der Chart-Zeichnungen für lightweight-charts 4.2 (Series-Primitive).
+ * Rendering der Chart-Zeichnungen für lightweight-charts 5 (Series-Primitive).
  *
  * - Horizontale → echte Price-Lines der Kerzenserie (inkl. Achsen-Label).
  * - Trendlinie / Fibonacci → Canvas-Zeichnung im Pane. Die x-Position kommt aus
@@ -38,7 +38,7 @@ export const DRAWING_COLORS: Record<DrawingKind, string> = {
 };
 
 type Preview = { kind: DrawingKind; points: DrawingPoint[] } | null;
-type DrawTarget = Parameters<ISeriesPrimitivePaneRenderer['draw']>[0];
+type DrawTarget = Parameters<IPrimitivePaneRenderer['draw']>[0];
 
 const fmtPrice = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: n >= 1000 ? 2 : n >= 1 ? 4 : 8 });
 
@@ -50,10 +50,10 @@ export class DrawingsPrimitive implements ISeriesPrimitive<Time> {
   private times: number[] = [];
   private preview: Preview = null;
   private priceLines: IPriceLine[] = [];
-  private readonly view: ISeriesPrimitivePaneView;
+  private readonly view: IPrimitivePaneView;
 
   constructor() {
-    const renderer: ISeriesPrimitivePaneRenderer = { draw: (target) => this.draw(target) };
+    const renderer: IPrimitivePaneRenderer = { draw: (target) => this.draw(target) };
     this.view = { renderer: () => renderer };
   }
 
@@ -71,7 +71,7 @@ export class DrawingsPrimitive implements ISeriesPrimitive<Time> {
     this.requestUpdate = null;
   }
 
-  paneViews(): readonly ISeriesPrimitivePaneView[] {
+  paneViews(): readonly IPrimitivePaneView[] {
     return [this.view];
   }
 
