@@ -423,3 +423,13 @@ Volle Suite: 1345 grün, 4 rot nur umgebungsbedingt (review, signal-scan „BASI
 3. Nacht-Optimierung wöchentlich statt täglich — ok?
 4. Auto-Kill nur bei echtem Abfall unter 6,5 (Signale mit Start-Score < 6,5 bleiben) — ok?
 5. Weitere Wallet-Börsen: dYdX/Lighter brauchen andere Kennungen — bei Bedarf.
+
+---
+
+# SESSION 12 — Plan §3: „Was wäre passiert" (2026-10-20, Claude Code Cloud)
+
+- PR #3 gemergt (CI: nur die 3 bekannten Umgebungs-Fälle rot; neuer Walk-Forward-Test registriert smc-core jetzt selbst, weil die frische CI-DB keinen Scan-Lauf hat).
+- Showcase-Seite auf Version 5 aktualisiert (Nacht-Durchlauf, neue Bewertung, neue nächste Schritte).
+- **Ursache der abgelaufenen Signale:** keine Auto-Ausführung von Engine-Signalen (gewollt: Mensch im Loop); ohne Benachrichtigung laufen sie nach der TTL ab.
+- **„Was wäre passiert"** (`packages/backtest/src/hindsight.ts`, 10 Tests inkl. DB): Entry am Close der letzten geschlossenen Kerze vor dem Signal (kein Look-ahead), dann `runBacktest` (Stop zuerst, 50/30/20, Break-Even, Trailing, netto), max. 500 Kerzen, sonst „noch offen"; ohne Kerzen „ohne Daten" statt Schätzung. API `signals.hindsight`, Panel oben auf der Signale-Seite (lädt erst beim Aufklappen), i18n 5 Sprachen. Fließt NICHT in echte Statistiken/VDB.
+

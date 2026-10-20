@@ -4,6 +4,7 @@ import { isUnauthorized, trpc } from '../api.js';
 import type { SignalRow } from '../components/SignalCard.js';
 import { SignalListRow } from '../components/SignalListRow.js';
 import { ErrorBox, Loading, PageHeader } from '../components/ui.js';
+import { HindsightPanel } from '../components/HindsightPanel.js';
 import { DEFAULT_FILTERS, type SignalFilters } from '../lib/signal-filters.js';
 import { decodeListFilters, encodeListFilters, splitByExpiry } from '../lib/signal-list.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
@@ -136,6 +137,8 @@ export function Signals() {
       />
 
       {error && <ErrorBox message={error} />}
+
+      <HindsightPanel />
 
       {/* Hauptfilter IMMER sichtbar: Status · Symbol · Richtung (Auftrag) — Rest hinter „Filter" */}
       <div className="glass mb-5 p-3 sm:p-4">

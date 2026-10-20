@@ -258,3 +258,5 @@ Optional/nachgelagert: `14_` Gamification (War Room/Alecto) — nur auf ausdrüc
   - PR #3: Wallet nur lesend (öffentliche Adresse, vor Speichern gegen Börse geprüft), Daten-Assistent für FRED-Serien (Marktlage › Datenreihen), Börsen-Erkennung aus dem Workshop-Chat, PWA fürs Handy, Signal-Lebenszyklus (Auto-Kill/Reentry/Hebel-Vorschlag), VDB1/VDB2 aus echten Paper-Trades, wöchentliche Walk-Forward-Optimierung (nur Vorschläge), DSL ODER-Gruppen/TP-Gewichte/Break-Even-Schalter, Binance-Testnet auf CCXT-Kern. Keine Migrationen.
   - Tests: 1345 grün, 4 rot nur umgebungsbedingt (wie main). Lint/Typecheck/Web-Build sauber.
   - Offen: Live-Order-Verdrahtung (Cloud-Sicherheitsfilter blockiert, braucht Berechtigungsregel oder gemeinsame Session); Entscheidungen in `WORKOVER.md` Session 11.
+- **2026-10-20 — Session 12: PR #3 gemergt; „Was wäre passiert" für abgelaufene Signale (OFFENER_PLAN §3).** Hypothetische Netto-Auswertung mit derselben Engine, Panel auf der Signale-Seite. Suite 1355 grün, 4 rot nur umgebungsbedingt.
+

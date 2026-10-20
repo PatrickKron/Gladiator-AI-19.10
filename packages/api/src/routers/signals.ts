@@ -13,7 +13,7 @@ import { evaluateRisk } from '@gladiator/risk';
 import { leverageUpgradeSchema, reentrySchema } from '@gladiator/core';
 import { formatEmergencyAlert, sendTelegram } from '@gladiator/jobs';
 import { getEurUsdRate } from '@gladiator/market-data';
-import { getOptimalParams, MIN_TRADES_PER_CLUSTER, type OptimalParams } from '@gladiator/backtest';
+import { evaluateExpiredSignals, getOptimalParams, MIN_TRADES_PER_CLUSTER, type OptimalParams } from '@gladiator/backtest';
 import { buildClusterKey } from '@gladiator/strategy-engine';
 import { protectedProcedure, router } from '../trpc.js';
 
@@ -38,6 +38,24 @@ type SignalReviewDto = {
 type AutoKillDto = { reason: string; score: number | null; rescored: number | null; at: string };
 
 export const signalsRouter = router({
+  /**
+   * „Was wäre passiert": abgelaufene Signale mit derselben Backtest-Engine auf
+   * den echten Kerzen danach nachgerechnet (netto, hypothetisch gekennzeichnet).
+   */
+  hindsight: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(500).default(200) }).default({ limit: 200 }))
+    .query(async ({ ctx, input }) => {
+      const res = await evaluateExpiredSignals(ctx.db, { limit: input.limit });
+      return {
+        summary: res.summary,
+        items: res.items.map((i) => ({
+          ...i,
+          createdAt: i.createdAt.toISOString(),
+          exitTs: i.exitTs ? i.exitTs.toISOString() : null,
+        })),
+      };
+    }),
+
   list: protectedProcedure
     .input(
       z.object({
