@@ -1,4 +1,5 @@
 import ccxt from 'ccxt';
+import { withBinancePublic } from '@gladiator/market-data';
 import { stepFromPrecision, type MarketRules } from '../venue.js';
 import { venueSymbol } from '../venue-quotes.js';
 import type { OrderBookSnapshot } from './fill-engine.js';
@@ -39,10 +40,16 @@ export class CcxtBookSource implements DemoBookSource {
     this.exchange = new Ctor({ enableRateLimit: true, timeout: 8_000 });
   }
 
+  /** Binance über den Standort-Ausweichweg (HTTP 451 → offizieller Marktdaten-Spiegel), sonst direkt. */
+  private run<T>(fn: (ex: CcxtBookClient) => Promise<T>): Promise<T> {
+    if (this.venueId === 'binance') return withBinancePublic((ex) => fn(ex as unknown as CcxtBookClient));
+    return fn(this.exchange);
+  }
+
   async fetchBook(symbol: string): Promise<OrderBookSnapshot> {
     const hit = this.cache.get(symbol);
     if (hit && Date.now() - hit.fetchedAt < BOOK_CACHE_MS) return hit.book;
-    const ob = await this.exchange.fetchOrderBook(venueSymbol(this.venueId, symbol).symbol, BOOK_DEPTH);
+    const ob = await this.run((ex) => ex.fetchOrderBook(venueSymbol(this.venueId, symbol).symbol, BOOK_DEPTH));
     const book: OrderBookSnapshot = {
       symbol,
       ts: ob.timestamp ?? Date.now(),
@@ -57,9 +64,10 @@ export class CcxtBookSource implements DemoBookSource {
   }
 
   async marketRules(symbol: string): Promise<MarketRules> {
-    await this.exchange.loadMarkets();
-    const m = this.exchange.market(venueSymbol(this.venueId, symbol).symbol);
-    const tickSizeMode = this.exchange.precisionMode === ccxt.TICK_SIZE;
+    const { m, tickSizeMode } = await this.run(async (ex) => {
+      await ex.loadMarkets();
+      return { m: ex.market(venueSymbol(this.venueId, symbol).symbol), tickSizeMode: ex.precisionMode === ccxt.TICK_SIZE };
+    });
     return {
       tickSize: stepFromPrecision(m.precision?.price, tickSizeMode, 0.01),
       lotSize: stepFromPrecision(m.precision?.amount, tickSizeMode, 0.000001),

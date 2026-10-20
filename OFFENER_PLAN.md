@@ -28,7 +28,7 @@
 ## Stand nach Session 12 (2026-10-20, Cloud, PR #3–#12 gemergt)
 
 - Alles bis PR #12 ist in `main` (Details `WORKOVER.md` Session 11/12). Was Claude ohne Patrick erledigen konnte, ist erledigt; offen sind nur die Punkte unten mit Patrick-Bezug.
-- GitHub-CI bleibt bei 3 Tests rot, die bewusst echte Börsen-/Seed-Daten brauchen (signal-scan BASIS-Frische, phase6 product, pine): Binance blockiert GitHub-Runner (HTTP 451), Seed-Daten liegen nur auf dem Server. Maßgeblich ist die Server-CI (`scripts/ci.sh`). Ob sie auf GitHub als „live“ ausgeklammert werden sollen, entscheidet Patrick.
+- GitHub-CI: die 3 bisher roten Tests sind mit Vision-Punkt 4 adressiert (Binance-Spiegel bei 451, Tests laden echte Daten selbst) — Patrick (2026-10-20): Tests immer mit echten Daten, nichts ausklammern.
 - **Live-Order-Verdrahtung blockiert** durch die Sicherheitsfilterung der Cloud-Umgebung (trotz Patricks Go) → nur per Berechtigungsregel in Claude-Code-Einstellungen oder gemeinsam lokal. `CcxtLiveVenue` + Binance-Demo-Trading fertig, nicht verdrahtet.
 
 ## 0 · Vision & Fahrplan (Patrick, 2026-10-20)
@@ -38,7 +38,7 @@
 - [x] **1 · Hebel im Order-Ticket + Limit-Profile** (Session 12): Demo-Konto mit Isolated Margin (Margin = Notional/Hebel, Liquidationspreis, Monitor liquidiert, Verlust ≤ Margin), Hebel-Schnellwahl bis zur eigenen Obergrenze, Risiko-Profile in Einstellungen › Trading.
 - [x] **2 · Börsen-Vergleich + Auswahl im Ticket** (Session 12): `market.venueQuotes` (8 Börsen, öffentliche Kurse, effektiver Preis inkl. Taker-Gebühr, Funding/max. Hebel bei Perps, 15-s-Cache, „verbunden“-Hinweis); Demo-Order läuft gegen das echte Buch der gewählten Börse (Spalte `venue`, Migration 0023). Nächste Stufe: dieselbe Auswahl im Live-Ticket, sobald Punkt 5/Live-Freigabe steht.
 - [x] **3 · Benachrichtigungen in der App + Web-Push** (Session 12): `notify()` in @gladiator/jobs = EINE Stelle für Signale, Preis-Alarme, Notfälle, Kill-Switch, Briefing → Tabelle `notifications` (Glocke in der Kopfleiste) + Web-Push (`push_subscriptions`, VAPID) + optional Telegram. **Server einmalig:** `npm run push:keys` → VAPID_* in die `.env`, API + Worker neu starten; danach in der Glocke „Push auf diesem Gerät aktivieren“ (iPhone: vorher zum Home-Bildschirm hinzufügen).
-- [ ] **4 · CI mit echten Daten + Selbsthoster-Setup** (Tests holen echte Daten selbst von erreichbarer öffentlicher Quelle; Setup-Skript füllt Startdaten; nichts wird ausgeklammert).
+- [x] **4 · CI mit echten Daten + Selbsthoster-Setup** (Session 12): Binance-Standortsperre (HTTP 451, z. B. GitHub-Runner in den USA) → automatisch offizieller Marktdaten-Spiegel `data-api.binance.vision` (Kerzen-Backfill, Paper-Kurse, Demo-Bücher); Pine-Test lädt seine echten Kerzen selbst; Produkt-Test legt sein Test-Paket selbst an; `npm run setup:env` (Geheimnisse + Push-Schlüssel), `npm run setup:data` (Kern-Strategie + echte Kerzen), `SELFHOST.md`. Nichts ausgeklammert.
 - [ ] **5 · Wallet-Trading**: zuerst Hyperliquid mit Agent-Wallet (kann handeln, nie abheben), danach Spot/Memecoins (Solana/Jupiter, EVM/Uniswap) mit eigener Trading-Wallet. **Offen:** Patricks Zustimmung zur verschlüsselten Schlüssel-Ablage auf dem Server. **Achtung:** `packages/risk/CLAUDE.md` verbietet bisher hart „Swaps“ — für Spot-Swaps muss Patrick diese Regel ausdrücklich anpassen. Echte Orders nur gemeinsam (Cloud-Umgebung blockt sie).
 
 ## 1 · Patrick-Schritte (blockieren am meisten — Claude kann sie nicht erledigen)
