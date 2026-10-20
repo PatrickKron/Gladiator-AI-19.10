@@ -45,6 +45,8 @@ export const de = {
     nextHint: '{{session}} beginnt um {{time}} (deine Zeit)',
   },
   wealth: {
+    walletLine: "Wallet „{{label}}“",
+    walletsIncomplete: "Mindestens eine Wallet ist gerade nicht vollständig bewertbar (Kurs fehlt) — sie fehlt in der Summe.",
     title: 'Vermögen',
     subtitle: 'Alle Konten getrennt und ehrlich: Übungsgeld ist virtuell — echtes Geld kommt nur von verbundenen Börsen.',
     totalLabel: 'Gesamtvermögen',
@@ -715,6 +717,7 @@ export const de = {
     heroTitle: 'Übungsgeld · virtuell (Selbst + Agenten)',
     heroToday: 'heute (Paper)',
     heroSplit: 'Demo {{demo}} $ · Paper {{paper}} $',
+    heroWallets: "Wallets {{amount}} $",
     heroOpenPositions: '{{n}} offene Positionen →',
     myMarketsTitle: 'Meine Märkte',
     quoteFavsTitle: 'Weitere Favoriten — Aktien · ETF · Indizes · Futures · Rohstoffe',
@@ -1121,6 +1124,7 @@ export const de = {
     },
   },
   builder: {
+    tabWorkshop: "Workshop",
     tabCatalog: 'Katalog',
     dslMovedHint: 'Eigene DSL-Strategien baust du jetzt an EINEM Ort — im',
     title: 'Strategie-Builder',
@@ -1784,6 +1788,10 @@ export const de = {
     noDataHint: 'Daten entstehen, sobald RL-Agenten Episoden laufen und tägliche Snapshots erzeugt werden.',
   },
   profile: {
+    resetTitle: "Ansicht zurücksetzen",
+    resetHint: "Setzt gespeicherte Ansichts-Einstellungen in diesem Browser zurück (Einfach/Profi, zuletzt gewähltes Konto und Asset, Orderbuch-Dock). Daten, Konten und Anmeldung bleiben unberührt.",
+    resetButton: "Ansicht zurücksetzen",
+    resetDone: "Zurückgesetzt — Seite lädt neu …",
     pwTitle: 'Passwort ändern',
     pw_current: 'Aktuelles Passwort',
     pw_next: 'Neues Passwort (mind. 10 Zeichen)',
@@ -2068,6 +2076,13 @@ export const de = {
     keysHint: "Mit ↑/↓ (oder k/j) durch die Märkte blättern.",
     showBook: "Orderbuch einblenden",
     hideBook: "Orderbuch ausblenden",
+  },
+  hotkeys: {
+    title: "Tastenkürzel",
+    search: "Suche öffnen",
+    watchlist: "Chart: Markt wechseln",
+    help: "Diese Hilfe",
+    close: "Schließen",
   },
 };
 

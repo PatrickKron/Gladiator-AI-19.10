@@ -9,6 +9,8 @@ import { getUiMode, onUiModeChange, setUiMode, type UiMode } from '../lib/ui-mod
 import { currentSessionEnd, nextSessionStart, sessionAt, type MarketSession } from '../lib/market-session.js';
 import { CommandPalette } from './CommandPalette.js';
 import { AREAS, NAV_PAGES, pageForHash, tabForHash } from '../lib/navigation.js';
+import { GOTO_KEYS, resolveHotkey } from '../lib/hotkeys.js';
+import { isTypingTarget } from '../lib/watchlist.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 
 /**
@@ -145,6 +147,7 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
   const [menuOpen, setMenuOpen] = useState(false);
   const [killSwitch, setKillSwitch] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [demoMode, setDemoModeState] = useState(() => isDemoMode());
   const [uiMode, setUiModeState] = useState<UiMode>(() => getUiMode());
 
@@ -158,6 +161,27 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
         e.preventDefault();
         setPaletteOpen((o) => !o);
       }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Tastenkürzel (UI-Welle 5): g + Buchstabe springt, ? zeigt die Hilfe, / öffnet die Suche.
+  useEffect(() => {
+    let pendingSince: number | null = null;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target as HTMLElement | null)) return;
+      if (e.key === 'Escape') {
+        setHelpOpen(false);
+        return;
+      }
+      const action = resolveHotkey(e.key, pendingSince, Date.now());
+      pendingSince = action?.type === 'pending' ? Date.now() : null;
+      if (!action || action.type === 'pending') return;
+      e.preventDefault();
+      if (action.type === 'goto') window.location.hash = action.hash;
+      else if (action.type === 'help') setHelpOpen((o) => !o);
+      else setPaletteOpen(true);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -362,6 +386,42 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
       </div>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      {helpOpen && <HotkeyHelp onClose={() => setHelpOpen(false)} />}
+    </div>
+  );
+}
+
+/** Übersicht der Tastenkürzel („?“). */
+function HotkeyHelp({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation();
+  const rows: [string, string][] = [
+    ...GOTO_KEYS.map((g) => [`g ${g.key}`, t(g.labelKey)] as [string, string]),
+    ['/', t('hotkeys.search')],
+    ['⌘K', t('hotkeys.search')],
+    ['↑ ↓ · k j', t('hotkeys.watchlist')],
+    ['?', t('hotkeys.help')],
+    ['Esc', t('hotkeys.close')],
+  ];
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(3,6,20,0.7)' }} onClick={onClose} role="dialog" aria-label={t('hotkeys.title')}>
+      <div className="glass w-full max-w-md p-5" style={{ background: 'rgba(9,12,32,0.97)' }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <p className="label">{t('hotkeys.title')}</p>
+          <button type="button" className="text-xs" style={{ color: 'var(--color-mut)' }} onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <ul className="mt-3 space-y-1.5 text-sm">
+          {rows.map(([k, label]) => (
+            <li key={k} className="flex items-center justify-between gap-3">
+              <span style={{ color: 'var(--color-mut)' }}>{label}</span>
+              <kbd className="num rounded border px-1.5 py-0.5 text-xs" style={{ borderColor: 'var(--color-line)' }}>
+                {k}
+              </kbd>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }

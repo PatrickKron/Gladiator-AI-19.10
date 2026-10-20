@@ -46,6 +46,8 @@ export const fr: Catalog = {
     nextHint: '{{session}} commence à {{time}} (votre heure)',
   },
   wealth: {
+    walletLine: "Wallet « {{label}} »",
+    walletsIncomplete: "Au moins une wallet ne peut pas être valorisée entièrement (prix manquant) — exclue du total.",
     title: 'Patrimoine',
     subtitle: 'Tous les comptes séparés et honnêtes : l’argent d’entraînement est virtuel — l’argent réel ne vient que des bourses connectées.',
     totalLabel: 'Patrimoine total',
@@ -716,6 +718,7 @@ export const fr: Catalog = {
     heroTitle: 'Argent d’entraînement · virtuel (manuel + agents)',
     heroToday: "aujourd'hui (paper)",
     heroSplit: 'Démo {{demo}} $ · Paper {{paper}} $',
+    heroWallets: "Wallets {{amount}} $",
     heroOpenPositions: '{{n}} positions ouvertes →',
     myMarketsTitle: 'Mes marchés',
     quoteFavsTitle: 'Autres favoris — actions · ETF · indices · futures · matières premières',
@@ -1122,6 +1125,7 @@ export const fr: Catalog = {
     },
   },
   builder: {
+    tabWorkshop: "Atelier",
     tabCatalog: 'Catalogue',
     dslMovedHint: 'Les stratégies DSL personnalisées se créent désormais à UN seul endroit — dans le',
     title: 'Constructeur de stratégies',
@@ -1785,6 +1789,10 @@ export const fr: Catalog = {
     noDataHint: 'Les données apparaissent dès que les agents RL exécutent des épisodes et que des snapshots quotidiens sont générés.',
   },
   profile: {
+    resetTitle: "Réinitialiser l'affichage",
+    resetHint: "Réinitialise les réglages d'affichage enregistrés dans ce navigateur (simple/pro, dernier compte et actif, dock du carnet). Données, comptes et connexion restent intacts.",
+    resetButton: "Réinitialiser",
+    resetDone: "Réinitialisé — rechargement …",
     pwTitle: 'Changer le mot de passe',
     pw_current: 'Mot de passe actuel',
     pw_next: 'Nouveau mot de passe (10 caractères min.)',
@@ -2069,5 +2077,12 @@ export const fr: Catalog = {
     keysHint: "Utilise ↑/↓ (ou k/j) pour parcourir les marchés.",
     showBook: "Afficher le carnet",
     hideBook: "Masquer le carnet",
+  },
+  hotkeys: {
+    title: "Raccourcis clavier",
+    search: "Ouvrir la recherche",
+    watchlist: "Graphique : changer de marché",
+    help: "Cette aide",
+    close: "Fermer",
   },
 };

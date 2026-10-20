@@ -55,6 +55,7 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
       ['#/charts?symbol=ETH%2FUSDT&tab=makro', '#/marktlage?tab=makro'],
       ['#/charts?tab=risiko', '#/marktlage?tab=risiko'],
       // Welle 3: alte Konto-Seiten → #/traden, Unter-Tab bleibt erhalten
+      ['#/strategie-workshop', '#/strategien?tab=workshop'],
       ['#/demo', '#/traden?tab=demo'],
       ['#/wallet', '#/traden?tab=wallet'],
       ['#/trading', '#/traden?tab=positionen'],
@@ -70,7 +71,7 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
     });
 
     it('jedes Weiterleitungsziel ist eine echte Seite mit echtem Tab', () => {
-      for (const from of ['#/oracle', '#/aegis', '#/ml', '#/rl-agenten', '#/performance', '#/intelligenz?tab=intel', '#/demo', '#/wallet', '#/trading', '#/trading?tab=alerts']) {
+      for (const from of ['#/oracle', '#/aegis', '#/ml', '#/rl-agenten', '#/performance', '#/intelligenz?tab=intel', '#/demo', '#/wallet', '#/trading', '#/trading?tab=alerts', '#/strategie-workshop']) {
         const to = resolveRedirect(from)!;
         const page = pageForHash(to)!;
         const tab = new URLSearchParams(to.split('?')[1]).get('tab');

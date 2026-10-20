@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { VIEW_PREFERENCE_KEYS } from '../lib/hotkeys.js';
 import { changePassword, logout, trpc } from '../api.js';
 import { Loading, PageHeader, Panel } from '../components/ui.js';
 import { LANGUAGES, setLanguage, storedLanguage, type LanguageCode } from '../i18n/index.js';
@@ -144,8 +145,39 @@ export function Profil() {
               {t('profile.pwHint')}
             </p>
           </Panel>
+          <ViewResetPanel />
         </div>
       </section>
     </div>
+  );
+}
+
+/** Ansicht zurücksetzen (UI-Welle 5): nur Ansichts-Merker im Browser — Daten und Anmeldung bleiben. */
+function ViewResetPanel() {
+  const { t } = useTranslation();
+  const [done, setDone] = useState(false);
+  return (
+    <Panel label={t('profile.resetTitle')} stagger={5}>
+      <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+        {t('profile.resetHint')}
+      </p>
+      <button
+        className="btn mt-3"
+        onClick={() => {
+          for (const k of VIEW_PREFERENCE_KEYS) {
+            try {
+              localStorage.removeItem(k);
+            } catch {
+              // ohne localStorage gibt es nichts zurückzusetzen
+            }
+          }
+          setDone(true);
+          window.setTimeout(() => window.location.reload(), 600);
+        }}
+      >
+        {t('profile.resetButton')}
+      </button>
+      {done && <p className="mt-2 text-sm" style={{ color: 'var(--color-pos)' }}>{t('profile.resetDone')}</p>}
+    </Panel>
   );
 }

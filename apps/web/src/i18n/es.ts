@@ -46,6 +46,8 @@ export const es: Catalog = {
     nextHint: '{{session}} empieza a las {{time}} (tu hora)',
   },
   wealth: {
+    walletLine: "Wallet «{{label}}»",
+    walletsIncomplete: "Al menos una wallet no puede valorarse completamente ahora (falta precio) — queda fuera del total.",
     title: 'Patrimonio',
     subtitle: 'Todas las cuentas separadas y honestas: el dinero de práctica es virtual — el real solo viene de bolsas conectadas.',
     totalLabel: 'Patrimonio total',
@@ -716,6 +718,7 @@ export const es: Catalog = {
     heroTitle: 'Dinero de práctica · virtual (manual + agentes)',
     heroToday: 'hoy (paper)',
     heroSplit: 'Demo {{demo}} $ · Paper {{paper}} $',
+    heroWallets: "Wallets {{amount}} $",
     heroOpenPositions: '{{n}} posiciones abiertas →',
     myMarketsTitle: 'Mis mercados',
     quoteFavsTitle: 'Más favoritos — acciones · ETF · índices · futuros · materias primas',
@@ -1122,6 +1125,7 @@ export const es: Catalog = {
     },
   },
   builder: {
+    tabWorkshop: "Taller",
     tabCatalog: 'Catálogo',
     dslMovedHint: 'Las estrategias DSL propias ahora se crean en UN solo lugar — en el',
     title: 'Constructor de estrategias',
@@ -1785,6 +1789,10 @@ export const es: Catalog = {
     noDataHint: 'Los datos aparecen cuando los agentes RL ejecutan episodios y se generan snapshots diarios.',
   },
   profile: {
+    resetTitle: "Restablecer vista",
+    resetHint: "Restablece los ajustes de vista guardados en este navegador (simple/pro, última cuenta y activo, panel del libro). Datos, cuentas e inicio de sesión no cambian.",
+    resetButton: "Restablecer vista",
+    resetDone: "Restablecido — recargando …",
     pwTitle: 'Cambiar contraseña',
     pw_current: 'Contraseña actual',
     pw_next: 'Nueva contraseña (mín. 10 caracteres)',
@@ -2069,5 +2077,12 @@ export const es: Catalog = {
     keysHint: "Usa ↑/↓ (o k/j) para recorrer los mercados.",
     showBook: "Mostrar libro de órdenes",
     hideBook: "Ocultar libro de órdenes",
+  },
+  hotkeys: {
+    title: "Atajos de teclado",
+    search: "Abrir búsqueda",
+    watchlist: "Gráfico: cambiar mercado",
+    help: "Esta ayuda",
+    close: "Cerrar",
   },
 };
