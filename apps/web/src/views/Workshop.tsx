@@ -974,7 +974,7 @@ function BacktestPanel({
             <div className="mt-5">
               {metricsCards(result.metrics, t)}
               <div className="mt-4">
-                <EquityChart points={result.equityCurve} emptyText={t('sw.tooFewPoints')} />
+                <EquityChart points={result.equityCurve} emptyText={t('sw.tooFewPoints')} step />
               </div>
               <TradesTable trades={result.trades} />
             </div>
