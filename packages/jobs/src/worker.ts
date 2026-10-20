@@ -455,7 +455,7 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
       // Beobachtete Wallets + Copy-Trading (Paper) — fehlerisoliert.
       try {
         const wc = await runWalletCopy(db);
-        if (wc.detected > 0) console.log(`[wallet-copy] Wallets=${wc.checked} erkannt=${wc.detected} kopiert=${wc.copied} übersprungen=${wc.skipped} fehlgeschlagen=${wc.failed}`);
+        if (wc.detected > 0 || wc.deferred > 0) console.log(`[wallet-copy] Wallets=${wc.checked} vertagt=${wc.deferred} erkannt=${wc.detected} kopiert=${wc.copied} übersprungen=${wc.skipped} fehlgeschlagen=${wc.failed}`);
         for (const e of wc.errors) console.warn('[wallet-copy]', e);
       } catch (err) {
         console.warn('[wallet-copy] Tick fehlgeschlagen:', String(err));
