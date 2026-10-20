@@ -77,7 +77,7 @@ export function createApp(db: Db, opts: AppOptions = {}): express.Express {
     }),
   );
   app.use(
-    ['/api/trpc/auth.login', '/api/trpc/auth.register', '/api/trpc/auth.refresh'],
+    ['/api/trpc/auth.login', '/api/trpc/auth.register', '/api/trpc/auth.refresh', '/api/trpc/auth.autoLogin'],
     rateLimit({
       windowMs: 60_000,
       limit: 20,

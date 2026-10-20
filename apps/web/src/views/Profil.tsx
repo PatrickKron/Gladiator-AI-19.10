@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { logout, trpc } from '../api.js';
+import { changePassword, logout, trpc } from '../api.js';
 import { Loading, PageHeader, Panel } from '../components/ui.js';
 import { LANGUAGES, setLanguage, storedLanguage, type LanguageCode } from '../i18n/index.js';
 
@@ -12,6 +12,27 @@ export function Profil() {
   const { t } = useTranslation();
   const [me, setMe] = useState<Me | null>(null);
   const [lang, setLang] = useState<LanguageCode>(storedLanguage());
+  const [pw, setPw] = useState({ current: '', next: '', repeat: '' });
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function submitPassword() {
+    if (pw.next !== pw.repeat) {
+      setPwMsg({ ok: false, text: t('profile.pwMismatch') });
+      return;
+    }
+    setPwBusy(true);
+    setPwMsg(null);
+    try {
+      await changePassword(pw.current, pw.next);
+      setPw({ current: '', next: '', repeat: '' });
+      setPwMsg({ ok: true, text: t('profile.pwChanged') });
+    } catch (err) {
+      setPwMsg({ ok: false, text: err instanceof Error ? err.message : t('common.error') });
+    } finally {
+      setPwBusy(false);
+    }
+  }
 
   useEffect(() => {
     void trpc.auth.me.query().then(setMe).catch(() => setMe(null));
@@ -89,6 +110,38 @@ export function Profil() {
             </button>
             <p className="mt-4 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
               {t('profile.apiKeys')}
+            </p>
+          </Panel>
+
+          <Panel label={t('profile.pwTitle')} stagger={4}>
+            <div className="mt-4 grid gap-3">
+              {(['current', 'next', 'repeat'] as const).map((k) => (
+                <label key={k} className="flex flex-col gap-1">
+                  <span className="label">{t(`profile.pw_${k}`)}</span>
+                  <input
+                    className="field w-full px-3 py-2 text-sm"
+                    type="password"
+                    autoComplete={k === 'current' ? 'current-password' : 'new-password'}
+                    value={pw[k]}
+                    onChange={(e) => setPw((p) => ({ ...p, [k]: e.target.value }))}
+                  />
+                </label>
+              ))}
+            </div>
+            <button
+              className="btn mt-3"
+              disabled={pwBusy || !pw.current || pw.next.length < 10 || !pw.repeat}
+              onClick={() => void submitPassword()}
+            >
+              {t('profile.pwSave')}
+            </button>
+            {pwMsg && (
+              <p className="mt-2 text-sm" style={{ color: pwMsg.ok ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+                {pwMsg.text}
+              </p>
+            )}
+            <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+              {t('profile.pwHint')}
             </p>
           </Panel>
         </div>

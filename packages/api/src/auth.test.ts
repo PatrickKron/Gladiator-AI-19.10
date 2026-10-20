@@ -13,7 +13,7 @@ import type pg from 'pg';
 import { createApp } from './app.js';
 import { appRouter } from './routers/index.js';
 import { buildContext, createCallerFactory } from './trpc.js';
-import { login, register } from './auth/service.js';
+import { login, register, setPasswordByEmail } from './auth/service.js';
 import { signAccessToken, verifyAccessToken } from './auth/tokens.js';
 
 const hasDb = Boolean(process.env.DATABASE_URL);
@@ -44,8 +44,8 @@ describe.skipIf(!hasDb)('Auth (JWT + Refresh, ein User-Typ)', () => {
     await pool.end();
   });
 
-  const callerFor = async (authHeader?: string) =>
-    createCaller(await buildContext({ db, authorizationHeader: authHeader ?? null }));
+  const callerFor = async (authHeader?: string, ip: string | null = null) =>
+    createCaller(await buildContext({ db, authorizationHeader: authHeader ?? null, ip }));
 
   it('register → me: neuer User bekommt Token-Paar und ist authentifiziert', async () => {
     const caller = await callerFor();
@@ -128,7 +128,7 @@ describe.skipIf(!hasDb)('Auth (JWT + Refresh, ein User-Typ)', () => {
 
   it('autoLogin: mit AUTO_LOGIN_EMAIL → volle Session ohne Passwort, auditiert; unbekannte E-Mail → UNAUTHORIZED', async () => {
     const saved = process.env.AUTO_LOGIN_EMAIL;
-    const caller = await callerFor();
+    const caller = await callerFor(undefined, '100.72.94.1'); // Tailnet
     await caller.auth.register({ email: email('auto'), password: PASSWORD });
     try {
       process.env.AUTO_LOGIN_EMAIL = email('auto');
@@ -145,12 +145,50 @@ describe.skipIf(!hasDb)('Auth (JWT + Refresh, ein User-Typ)', () => {
       );
       expect(audit.rows.map((r) => r.action)).toContain('auth.autologin');
 
+      // Fremdes Netz bzw. unbekannte Herkunft → kein passwortloser Zugang
+      await expect((await callerFor(undefined, '203.0.113.5')).auth.autoLogin()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect((await callerFor()).auth.autoLogin()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
       process.env.AUTO_LOGIN_EMAIL = email('auto-gibtsnicht');
       await expect(caller.auth.autoLogin()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
     } finally {
       if (saved !== undefined) process.env.AUTO_LOGIN_EMAIL = saved;
       else delete process.env.AUTO_LOGIN_EMAIL;
     }
+  });
+
+  it('changePassword: altes Passwort nötig, danach nur noch das neue gültig, alle anderen Sessions abgemeldet', async () => {
+    const caller = await callerFor();
+    const reg = await caller.auth.register({ email: email('pw'), password: PASSWORD });
+    const other = await caller.auth.login({ email: email('pw'), password: PASSWORD }); // zweites Gerät
+    const authed = await callerFor(`Bearer ${reg.accessToken}`);
+
+    await expect(authed.auth.changePassword({ currentPassword: 'falsches-passwort-123', newPassword: 'ganz-neues-passwort-1' })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    await expect(authed.auth.changePassword({ currentPassword: PASSWORD, newPassword: 'kurz' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(authed.auth.changePassword({ currentPassword: PASSWORD, newPassword: PASSWORD })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+
+    const res = await authed.auth.changePassword({ currentPassword: PASSWORD, newPassword: 'ganz-neues-passwort-1' });
+    expect(res.accessToken).toBeTruthy();
+    await expect(caller.auth.login({ email: email('pw'), password: PASSWORD })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    expect((await caller.auth.login({ email: email('pw'), password: 'ganz-neues-passwort-1' })).user.email).toBe(email('pw'));
+    // Die neue Session gilt; die alte (anderes Gerät) ist entwertet — ihr Einsatz löst die
+    // Reuse-Erkennung aus (danach sind bewusst ALLE Sessions weg, daher diese Reihenfolge)
+    expect((await caller.auth.refresh({ refreshToken: res.refreshToken })).refreshToken).toBeTruthy();
+    await expect(caller.auth.refresh({ refreshToken: other.refreshToken })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    const audit = await db.execute(sql`SELECT action FROM audit_log WHERE user_id = ${reg.user.id}`);
+    expect(audit.rows.map((r) => r.action)).toContain('auth.password_changed');
+  });
+
+  it('setPasswordByEmail (Server-Skript): setzt neu, entwertet alle Sessions; unbekannte E-Mail → Fehler', async () => {
+    const caller = await callerFor();
+    const reg = await caller.auth.register({ email: email('reset'), password: PASSWORD });
+    await setPasswordByEmail(db, email('reset'), 'zurueckgesetzt-12345');
+    await expect(caller.auth.refresh({ refreshToken: reg.refreshToken })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    expect((await caller.auth.login({ email: email('reset'), password: 'zurueckgesetzt-12345' })).user.email).toBe(email('reset'));
+    await expect(setPasswordByEmail(db, email('gibtsnicht'), 'zurueckgesetzt-12345')).rejects.toThrow(/nicht gefunden/);
+    await expect(setPasswordByEmail(db, email('reset'), 'kurz')).rejects.toThrow(/10 Zeichen/);
   });
 
   it('v1-Kompatibilität: bestehender bcrypt-Hash (bcryptjs) funktioniert beim Login', async () => {

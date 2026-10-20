@@ -8,7 +8,8 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "start": "tsx src/start.ts"
+    "start": "tsx src/start.ts",
+    "auth:set-password": "tsx src/scripts/set-password.ts"
   },
   "dependencies": {
     "@gladiator/core": "*",
