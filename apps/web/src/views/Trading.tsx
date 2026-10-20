@@ -439,6 +439,8 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
   function changeTab(tb: string) {
     setTab(tb);
     window.history.replaceState(null, '', buildTabHash('#/traden', tb));
+    // Brotkrumen (Shell) hören auf hashchange — replaceState feuert keinen.
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
   }
 
   async function saveNote(tradeId: string) {

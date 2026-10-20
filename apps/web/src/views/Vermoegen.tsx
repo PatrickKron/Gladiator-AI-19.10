@@ -126,6 +126,15 @@ export function Vermoegen() {
                 {usd(data?.practice.paperEquityUsd ?? null)}
               </span>
             </p>
+            {data?.practice.wallets.map((w) => (
+              <p key={w.walletId}>
+                {t('wealth.walletLine', { label: w.label })}:{' '}
+                <span className="num" style={{ color: 'var(--color-ink)' }} title={w.error ?? undefined}>
+                  {w.totalUsd !== null ? usd(w.totalUsd) : '—'}
+                </span>
+              </p>
+            ))}
+            {data?.practice.walletsIncomplete && <p style={{ color: 'var(--color-warn)' }}>{t('wealth.walletsIncomplete')}</p>}
           </div>
           <a href="#/traden?tab=positionen" className="mt-4 inline-block text-sm underline decoration-dotted" style={{ color: 'var(--color-cyan)' }}>
             {t('wealth.toPractice')}
@@ -156,6 +165,21 @@ export function Vermoegen() {
                 {data.real.totalEur !== null ? eur(data.real.totalEur) : usd(data.real.totalUsd)}
               </p>
               <div className="mt-3 space-y-3">
+                {data.real.wallets.map((w) => (
+                  <div key={w.walletId} className="rounded border p-3" style={{ borderColor: 'var(--color-line)' }}>
+                    <div className="flex items-center justify-between text-sm">
+                      <span>{t('wealth.walletLine', { label: w.label })}</span>
+                      <span className="num" title={w.error ?? undefined}>
+                        {w.totalUsd !== null ? usd(w.totalUsd) : '—'}
+                      </span>
+                    </div>
+                    {w.error && (
+                      <p className="mt-1 text-xs" style={{ color: 'var(--color-warn)' }}>
+                        {w.error}
+                      </p>
+                    )}
+                  </div>
+                ))}
                 {data.real.accounts.map((acc) => (
                   <div key={acc.connectionId} className="rounded border p-3" style={{ borderColor: 'var(--color-line)' }}>
                     <div className="flex items-center justify-between text-sm">

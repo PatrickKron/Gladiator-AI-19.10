@@ -1,3 +1,4 @@
+import { and, eq, isNull } from 'drizzle-orm';
 import { schema, type Db } from '@gladiator/db';
 import {
   decryptSecret,
@@ -6,6 +7,7 @@ import {
   fetchOnchainBalances,
   fetchSwapQuote,
   fetchTokenInfo,
+  fetchTokenPrices,
   fetchTokenSafety,
   fromAtomic,
   isNativeToken,
@@ -338,4 +340,50 @@ async function executeLive(db: Db, p: PreparedSwap, side: 'buy' | 'sell', ctx: E
   });
   if (result.status !== 'filled') throw new SwapError('BAD_GATEWAY', `${result.error ?? 'Swap fehlgeschlagen'} (Tx ${result.txHash})`);
   return { tradeId: trade.id, realizedPnlUsd: trade.realizedPnlUsd === null ? null : Number(trade.realizedPnlUsd), txHash: result.txHash };
+}
+
+export type WalletValuation = {
+  walletId: string;
+  label: string;
+  chain: SwapChainId;
+  mode: 'paper' | 'live';
+  /** null = nicht vollständig bewertbar (Kurs fehlt, Kette nicht erreichbar) — nie geschätzt */
+  totalUsd: number | null;
+  error: string | null;
+};
+
+/**
+ * Wert aller (nicht entfernten) Swap-Wallets eines Users für „Vermögen“.
+ * Live-Wallets lesen ihre Bestände vorher frisch von der Kette.
+ */
+export async function valueSwapWallets(db: Db, userId: string): Promise<WalletValuation[]> {
+  const rows = await db
+    .select()
+    .from(schema.swapWallets)
+    .where(and(eq(schema.swapWallets.userId, userId), isNull(schema.swapWallets.archivedAt)));
+  const out: WalletValuation[] = [];
+  for (const w of rows) {
+    const chain = w.chain as SwapChainId;
+    const base = { walletId: w.id, label: w.label, chain, mode: w.mode };
+    try {
+      if (w.mode === 'live') await syncLiveBalances(db, w);
+      const balances = await walletBalances(db, w.id);
+      if (balances.length === 0) {
+        out.push({ ...base, totalUsd: 0, error: null });
+        continue;
+      }
+      const prices = await fetchTokenPrices(chain, balances.map((b) => b.token), swapNet());
+      let total = 0;
+      let complete = true;
+      for (const b of balances) {
+        const price = prices.get(b.token);
+        if (price === undefined) complete = false;
+        else total += Number(fromAtomic(b.amountAtomic, b.decimals)) * price;
+      }
+      out.push({ ...base, totalUsd: complete ? total : null, error: complete ? null : 'Kurs für mindestens einen Token fehlt' });
+    } catch (err) {
+      out.push({ ...base, totalUsd: null, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return out;
 }

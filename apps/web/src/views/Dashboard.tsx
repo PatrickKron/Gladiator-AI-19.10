@@ -266,6 +266,8 @@ function HeroWealth({ account }: { account: Account | null }) {
   const { t } = useTranslation();
   const [demo, setDemo] = useState<{ equity: number } | null | undefined>(undefined); // undefined = lädt
   const [real, setReal] = useState<{ connected: boolean; totalEur: number | null } | null>(null);
+  // Paper-Wallets (Wallet-Trading) gehören zum Übungsgeld
+  const [walletsUsd, setWalletsUsd] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -279,7 +281,10 @@ function HeroWealth({ account }: { account: Account | null }) {
       // Echtes Geld (verbundene Börsen) — ehrlich getrennt vom Übungsgeld.
       try {
         const ov = await trpc.portfolio.overview.query();
-        if (!cancelled) setReal({ connected: ov.real.connected, totalEur: ov.real.totalEur });
+        if (!cancelled) {
+          setReal({ connected: ov.real.connected, totalEur: ov.real.totalEur });
+          setWalletsUsd(ov.practice.wallets.reduce((sum, w) => sum + (w.totalUsd ?? 0), 0));
+        }
       } catch {
         if (!cancelled) setReal(null);
       }
@@ -295,7 +300,7 @@ function HeroWealth({ account }: { account: Account | null }) {
   const paperEquity = account?.equity ?? null;
   const demoEquity = demo === undefined ? null : (demo?.equity ?? null);
   // EIN Übungskonto (Umbau 2026-07-10): Demo + Paper zusammen als Übungsgeld.
-  const total = paperEquity === null && demoEquity === null ? null : (paperEquity ?? 0) + (demoEquity ?? 0);
+  const total = paperEquity === null && demoEquity === null ? null : (paperEquity ?? 0) + (demoEquity ?? 0) + walletsUsd;
   const dailyPct = account?.dailyPnlPct ?? null;
 
   return (
@@ -320,6 +325,7 @@ function HeroWealth({ account }: { account: Account | null }) {
                 demo: demoEquity !== null ? demoEquity.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—',
                 paper: paperEquity !== null ? paperEquity.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—',
               })}
+              {walletsUsd > 0 && ` · ${t('dashboard.heroWallets', { amount: walletsUsd.toLocaleString(undefined, { maximumFractionDigits: 0 }) })}`}
             </span>
             {account && account.openPositions > 0 && (
               <a href="#/traden?tab=positionen" className="underline decoration-dotted" style={{ color: 'var(--color-cyan)' }}>

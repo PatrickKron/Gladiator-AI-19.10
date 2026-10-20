@@ -76,6 +76,8 @@ export {
   prepareSwap,
   quoteView,
   executePreparedSwap,
+  valueSwapWallets,
+  type WalletValuation,
   type SwapRequest,
   type PreparedSwap,
   type SwapWalletRow,

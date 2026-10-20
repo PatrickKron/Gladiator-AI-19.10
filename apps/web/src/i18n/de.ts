@@ -45,6 +45,8 @@ export const de = {
     nextHint: '{{session}} beginnt um {{time}} (deine Zeit)',
   },
   wealth: {
+    walletLine: "Wallet „{{label}}“",
+    walletsIncomplete: "Mindestens eine Wallet ist gerade nicht vollständig bewertbar (Kurs fehlt) — sie fehlt in der Summe.",
     title: 'Vermögen',
     subtitle: 'Alle Konten getrennt und ehrlich: Übungsgeld ist virtuell — echtes Geld kommt nur von verbundenen Börsen.',
     totalLabel: 'Gesamtvermögen',
@@ -715,6 +717,7 @@ export const de = {
     heroTitle: 'Übungsgeld · virtuell (Selbst + Agenten)',
     heroToday: 'heute (Paper)',
     heroSplit: 'Demo {{demo}} $ · Paper {{paper}} $',
+    heroWallets: "Wallets {{amount}} $",
     heroOpenPositions: '{{n}} offene Positionen →',
     myMarketsTitle: 'Meine Märkte',
     quoteFavsTitle: 'Weitere Favoriten — Aktien · ETF · Indizes · Futures · Rohstoffe',

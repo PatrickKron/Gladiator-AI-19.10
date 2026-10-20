@@ -46,6 +46,8 @@ export const es: Catalog = {
     nextHint: '{{session}} empieza a las {{time}} (tu hora)',
   },
   wealth: {
+    walletLine: "Wallet «{{label}}»",
+    walletsIncomplete: "Al menos una wallet no puede valorarse completamente ahora (falta precio) — queda fuera del total.",
     title: 'Patrimonio',
     subtitle: 'Todas las cuentas separadas y honestas: el dinero de práctica es virtual — el real solo viene de bolsas conectadas.',
     totalLabel: 'Patrimonio total',
@@ -716,6 +718,7 @@ export const es: Catalog = {
     heroTitle: 'Dinero de práctica · virtual (manual + agentes)',
     heroToday: 'hoy (paper)',
     heroSplit: 'Demo {{demo}} $ · Paper {{paper}} $',
+    heroWallets: "Wallets {{amount}} $",
     heroOpenPositions: '{{n}} posiciones abiertas →',
     myMarketsTitle: 'Mis mercados',
     quoteFavsTitle: 'Más favoritos — acciones · ETF · índices · futuros · materias primas',

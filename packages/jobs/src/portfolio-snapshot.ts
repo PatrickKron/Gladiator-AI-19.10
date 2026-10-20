@@ -9,6 +9,7 @@ import {
   listConnections,
 } from '@gladiator/exchange';
 import { getEurUsdRate, valueBalancesUsd } from '@gladiator/market-data';
+import { valueSwapWallets } from './swap-service.js';
 
 const { users, accountValueSnapshots } = schema;
 
@@ -67,8 +68,21 @@ export async function snapshotAccountValues(db: Db): Promise<SnapshotResult> {
         if (anyValued) realEquityUsd = sum;
       }
 
+      // Swap-Wallets: Paper → Übungsgeld (in der Summe), live → echtes Geld
+      let walletPaperUsd = 0;
+      try {
+        for (const w of await valueSwapWallets(db, u.id)) {
+          breakdown[`wallet:${w.walletId}`] = { mode: w.mode, chain: w.chain, totalUsd: w.totalUsd, error: w.error };
+          if (w.totalUsd === null) continue;
+          if (w.mode === 'live') realEquityUsd = (realEquityUsd ?? 0) + w.totalUsd;
+          else walletPaperUsd += w.totalUsd;
+        }
+      } catch (err) {
+        errors.push(`wallets ${u.id}: ${String(err)}`);
+      }
+
       const eurUsd = await getEurUsdRate();
-      const totalUsd = (demoEquity ?? 0) + (paperEquity ?? 0) + (realEquityUsd ?? 0);
+      const totalUsd = (demoEquity ?? 0) + (paperEquity ?? 0) + walletPaperUsd + (realEquityUsd ?? 0);
       const totalEur = eurUsd !== null ? totalUsd / eurUsd : null;
 
       await db.insert(accountValueSnapshots).values({

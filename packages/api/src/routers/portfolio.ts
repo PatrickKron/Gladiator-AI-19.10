@@ -7,13 +7,13 @@ import {
   listConnections,
 } from '@gladiator/exchange';
 import { getEurUsdRate, valueBalancesUsd } from '@gladiator/market-data';
-import { loadValueHistory } from '@gladiator/jobs';
+import { loadValueHistory, valueSwapWallets } from '@gladiator/jobs';
 import { protectedProcedure, router } from '../trpc.js';
 
 /**
  * Vermögens-Ansicht (Phase 2): alle Konten GETRENNT und ehrlich —
- * Übungskonto (Demo manuell + Paper Agenten, beides virtuell) strikt getrennt
- * von echtem Geld (verbundene Börsen). Gesamt in EUR nur mit echtem Kurs,
+ * Übungskonto (Demo manuell + Paper Agenten + Paper-Wallets, alles virtuell)
+ * strikt getrennt von echtem Geld (verbundene Börsen + eigene Trading-Wallets). Gesamt in EUR nur mit echtem Kurs,
  * sonst null. „Echtes Geld: 0 €" wenn keine Börse verbunden ist — keine
  * Beschönigung.
  */
@@ -80,8 +80,15 @@ export const portfolioRouter = router({
       }
     }
 
+    // Swap-Wallets (Vision-Punkt 5): Paper zählt zum Übungsgeld, eigene Wallets zum echten Geld.
+    const wallets = await valueSwapWallets(ctx.db, ctx.user.id);
+    const paperWallets = wallets.filter((w) => w.mode === 'paper');
+    const liveWallets = wallets.filter((w) => w.mode === 'live');
+    const sum = (ws: typeof wallets) => ws.reduce((s, w) => s + (w.totalUsd ?? 0), 0);
+    if (liveWallets.length > 0) realTotalUsd = (realTotalUsd ?? 0) + sum(liveWallets);
+
     const eurUsd = await getEurUsdRate();
-    const practiceUsd = (demo?.equity ?? 0) + paper.equity;
+    const practiceUsd = (demo?.equity ?? 0) + paper.equity + sum(paperWallets);
     const toEur = (usd: number | null): number | null =>
       usd === null || eurUsd === null ? null : usd / eurUsd;
 
@@ -90,14 +97,18 @@ export const portfolioRouter = router({
         demoEquityUsd: demo?.equity ?? null,
         demoIncomplete: demo?.markIncomplete ?? true,
         paperEquityUsd: paper.equity,
+        wallets: paperWallets,
+        walletsIncomplete: paperWallets.some((w) => w.totalUsd === null),
         totalUsd: practiceUsd,
         totalEur: toEur(practiceUsd),
       },
       real: {
-        connected: connections.length > 0,
+        connected: connections.length > 0 || liveWallets.length > 0,
         accounts: realAccounts,
-        totalUsd: connections.length > 0 ? realTotalUsd : 0,
-        totalEur: connections.length > 0 ? toEur(realTotalUsd) : 0,
+        wallets: liveWallets,
+        walletsIncomplete: liveWallets.some((w) => w.totalUsd === null),
+        totalUsd: connections.length > 0 || liveWallets.length > 0 ? realTotalUsd : 0,
+        totalEur: connections.length > 0 || liveWallets.length > 0 ? toEur(realTotalUsd) : 0,
       },
       eurUsdRate: eurUsd,
     };

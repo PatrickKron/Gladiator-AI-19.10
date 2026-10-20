@@ -46,6 +46,8 @@ export const fr: Catalog = {
     nextHint: '{{session}} commence à {{time}} (votre heure)',
   },
   wealth: {
+    walletLine: "Wallet « {{label}} »",
+    walletsIncomplete: "Au moins une wallet ne peut pas être valorisée entièrement (prix manquant) — exclue du total.",
     title: 'Patrimoine',
     subtitle: 'Tous les comptes séparés et honnêtes : l’argent d’entraînement est virtuel — l’argent réel ne vient que des bourses connectées.',
     totalLabel: 'Patrimoine total',
@@ -716,6 +718,7 @@ export const fr: Catalog = {
     heroTitle: 'Argent d’entraînement · virtuel (manuel + agents)',
     heroToday: "aujourd'hui (paper)",
     heroSplit: 'Démo {{demo}} $ · Paper {{paper}} $',
+    heroWallets: "Wallets {{amount}} $",
     heroOpenPositions: '{{n}} positions ouvertes →',
     myMarketsTitle: 'Mes marchés',
     quoteFavsTitle: 'Autres favoris — actions · ETF · indices · futures · matières premières',
