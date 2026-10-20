@@ -44,6 +44,7 @@ import {
   macd,
   rsi,
 } from '@gladiator/strategy-engine';
+import { binanceBookSource, summarizeBook } from '@gladiator/exchange';
 import { protectedProcedure, router } from '../trpc.js';
 
 /**
@@ -371,6 +372,30 @@ export const marketRouter = router({
       });
 
       return { summary: completion.text.trim(), costUsd: completion.costUsd };
+    }),
+
+  /**
+   * Orderbuch-Ansicht (echtes Binance-Buch, public REST, 3-s-Cache geteilt mit
+   * dem Demo-Modus). Nicht erreichbar/kein Markt ⇒ ehrlicher Fehler, nie ein erfundenes Buch.
+   */
+  orderBook: protectedProcedure
+    .input(
+      z.object({
+        symbol: z.string().min(3).max(30),
+        levels: z.number().int().min(5).max(50).default(15),
+        group: z.number().positive().max(100_000).optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      try {
+        const book = await binanceBookSource().fetchBook(input.symbol);
+        return summarizeBook(book, { levels: input.levels, ...(input.group ? { group: input.group } : {}) });
+      } catch (err) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
     }),
 
   /** Aktien-/ETF-Quotes (Yahoo, 5-min-Cache). Unbekannt ⇒ null (ehrlich kein Kurs). */

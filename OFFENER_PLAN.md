@@ -47,7 +47,7 @@
 - [x] **Trailing als Strategie-Exit** (Session 10, PR #2) in Backtest-Engine + DSL — dieselbe `trailStep`-Funktion aus `packages/exchange/src/trailing.ts` nutzen (sonst Backtest ≠ Live).
 - [ ] **Default-Limits** (1 % Risiko + 20 % Exposure) blocken Stops < 5 % → hebelbewusste Exposure (Patricks Entscheidung, offen). ✓ Klarer Hinweis im Ticket gebaut (Session 12): Rechnung offengelegt + „Betrag auf X setzen (Risiko dann Y %)“.
 - [x] Backtest-Stops gap-realistisch + Robustheits-Gate (jüngste 30 %) (Session 10, PR #2); Walk-Forward mit Trailing/Funding/Warmup (PR #3).
-- [ ] **Orderbuch-Ansicht** (braucht Depth-Streaming, z. B. ccxt.pro `watchOrderBook`).
+- [x] **Orderbuch-Ansicht** (Session 12): Chart-Seite, echtes Binance-Buch alle 3 s (REST, 3-s-Cache geteilt mit dem Demo-Modus), Bündeln, Tiefenbalken, Spread, Kauf/Verkauf-Ungleichgewicht. Echtes Streaming per `watchOrderBook` wäre die nächste Stufe.
 - [x] **Reentry-/Hebel-Upgrade-Engine + Auto-Kill** (Blueprint `05_` §9) — PR #3; Hebel-Upgrade nur als Vorschlag.
 - [x] Wallet-Anschluss nur lesend (Hyperliquid/Paradex/Derive/Aftermath) — PR #3. Offen: eigenes Wallet, dYdX/Lighter.
 
