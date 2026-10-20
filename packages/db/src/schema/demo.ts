@@ -52,6 +52,8 @@ export const demoOrders = pgTable(
     slippagePaid: numeric('slippage_paid').notNull().default('0'),
     /** true = darf nur eine bestehende Position reduzieren (SL/TP/Close). */
     reduceOnly: boolean('reduce_only').notNull().default(false),
+    /** Hebel der Entry-Order (Isolated Margin; 1 = ohne Hebel). Wird beim Fill an die Position übergeben. */
+    leverage: numeric('leverage').notNull().default('1'),
     status: orderStatusEnum('status').notNull().default('open'),
     /** Ehrlicher Ablehnungs-/Info-Text (z. B. Buch leer, Limit-Regeln). */
     note: text('note'),
@@ -82,6 +84,8 @@ export const demoPositions = pgTable(
     entrySlippage: numeric('entry_slippage').notNull().default('0'),
     stopLoss: numeric('stop_loss'),
     takeProfit: numeric('take_profit'),
+    /** Hebel (Isolated Margin): gebunden ist qty × entry / leverage; Liquidation aus fill-engine.liquidationPrice. */
+    leverage: numeric('leverage').notNull().default('1'),
     openedAt: timestamp('opened_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -116,7 +120,7 @@ export const demoTrades = pgTable(
     fundingPaid: numeric('funding_paid').notNull().default('0'),
     netPnl: numeric('net_pnl').notNull(),
     rMultiple: numeric('r_multiple'),
-    /** Warum geschlossen: sl | tp | manual | order (reduzierende Limit/Market-Order). */
+    /** Warum geschlossen: sl | tp | manual | order (reduzierende Limit/Market-Order) | liquidation. */
     reason: text('reason').notNull().default('manual'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

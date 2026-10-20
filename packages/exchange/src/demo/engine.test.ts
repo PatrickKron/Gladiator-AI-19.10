@@ -13,7 +13,7 @@ import { schema } from '@gladiator/db';
 import type pg from 'pg';
 import type { MarketRules } from '../venue.js';
 import type { DemoBookSource } from './book-source.js';
-import { DEMO_MAKER_FEE, DEMO_TAKER_FEE, type OrderBookSnapshot } from './fill-engine.js';
+import { DEMO_MAINTENANCE_MARGIN, DEMO_MAKER_FEE, DEMO_TAKER_FEE, type OrderBookSnapshot } from './fill-engine.js';
 import {
   closeDemoPositionNow,
   demoAccountOverview,
@@ -262,6 +262,62 @@ describe.skipIf(!hasDb)('Demo-Engine (echte DB, deterministisches Buch)', () => 
     expect(await db.select().from(demoPositions).where(eq(demoPositions.userId, userId))).toHaveLength(0);
     expect(await db.select().from(demoOrders).where(eq(demoOrders.userId, userId))).toHaveLength(0);
     expect(await db.select().from(demoTrades).where(eq(demoTrades.userId, userId))).toHaveLength(0);
+  });
+
+  it('Hebel 10×: gebunden ist nur die Margin (Notional / 10), Gebühr auf das volle Notional', async () => {
+    // eigenes, festes Buch: frühere Tests verschieben die Kurse
+    source.book = {
+      symbol: 'BTC/USDT',
+      ts: 10,
+      bids: [{ price: 50_000, qty: 10 }],
+      asks: [{ price: 50_100, qty: 10 }],
+    };
+    const before = await demoAccountOverview(db, source, userId);
+    const preview = await previewDemoOrder(db, source, userId, { symbol: 'BTC/USDT', direction: 'long', type: 'market', qty: 1, leverage: 10 });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    expect(preview.margin).toBeCloseTo(5_010, 6);
+    expect(preview.liquidationPrice).toBeCloseTo(50_100 * (1 - 0.1 + DEMO_MAINTENANCE_MARGIN), 6);
+
+    const r = await placeDemoOrder(db, source, userId, { symbol: 'BTC/USDT', direction: 'long', type: 'market', qty: 1, leverage: 10 });
+    expect(r.placed).toBe(true);
+    const after = await demoAccountOverview(db, source, userId);
+    const fee = 50_100 * DEMO_TAKER_FEE;
+    expect(after.balance).toBeCloseTo(before.balance - fee, 6);
+    expect(after.usedMargin).toBeCloseTo(5_010, 6);
+    expect(after.available).toBeCloseTo(before.balance - fee - 5_010, 6);
+    const [pos] = await db.select().from(demoPositions).where(eq(demoPositions.userId, userId));
+    expect(Number(pos!.leverage)).toBe(10);
+  });
+
+  it('Hebel über dem Limit aus den Einstellungen wird abgelehnt', async () => {
+    const r = await placeDemoOrder(db, source, userId, { symbol: 'BTC/USDT', direction: 'short', type: 'market', qty: 0.1, leverage: 20, maxLeverage: 10 });
+    expect(r).toMatchObject({ placed: false, reason: 'leverage_above_limit' });
+  });
+
+  it('Aufstocken nur mit demselben Hebel (ein Hebel je Symbol und Richtung)', async () => {
+    const r = await placeDemoOrder(db, source, userId, { symbol: 'BTC/USDT', direction: 'long', type: 'market', qty: 0.1, leverage: 5 });
+    expect(r).toMatchObject({ placed: false, reason: 'leverage_mismatch' });
+  });
+
+  it('Liquidation: Bid unter dem Liquidationspreis → Monitor schließt, Verlust höchstens die Margin', async () => {
+    const original = source.book;
+    source.book = { symbol: 'BTC/USDT', ts: 0, bids: [{ price: 44_000, qty: 10 }], asks: [{ price: 44_100, qty: 10 }] };
+    try {
+      const account = await getOrCreateDemoAccount(db, userId);
+      const res = await monitorDemoTick(db, source, { accountId: account.id });
+      expect(res.triggeredCloses).toBe(1);
+      const [trade] = await db
+        .select()
+        .from(demoTrades)
+        .where(and(eq(demoTrades.userId, userId), eq(demoTrades.reason, 'liquidation')));
+      expect(trade).toBeDefined();
+      // ungedeckelt wären es (44_000 − 50_100) × 1 = −6_100; Isolated-Margin begrenzt auf −5_010
+      expect(Number(trade!.grossPnl)).toBeCloseTo(-5_010, 6);
+      expect(await db.select().from(demoPositions).where(eq(demoPositions.userId, userId))).toHaveLength(0);
+    } finally {
+      source.book = original;
+    }
   });
 
   it('SICHERHEIT: der komplette Demo-Fluss hat orders/positions/executed_trades NICHT berührt', async () => {

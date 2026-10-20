@@ -7,6 +7,11 @@ import {
   availableBalance,
   checkTrigger,
   computeCloseNumbers,
+  DEMO_MAINTENANCE_MARGIN,
+  capLiquidationLoss,
+  liquidationHit,
+  liquidationPrice,
+  marginFor,
   midPrice,
   restingLimitFill,
   roundToStep,
@@ -201,7 +206,7 @@ describe('Konto-Rechnung', () => {
     expect(DEMO_START_BALANCE).toBe(100_000);
   });
 
-  it('verfügbar = Balance − offene Positions-Notional − ruhende Entry-Order-Notional', () => {
+  it('verfügbar = Balance − gebundene Margin (Positionen + ruhende Entry-Orders)', () => {
     expect(availableBalance(100_000, 30_000, 20_000)).toBe(50_000);
     expect(availableBalance(100_000, 120_000, 0)).toBe(0); // nie negativ
   });
@@ -216,5 +221,41 @@ describe('Konto-Rechnung', () => {
     expect(roundToStep(1.23456, 0.001)).toBeCloseTo(1.234, 12);
     expect(roundToStep(1.23456, 0.5)).toBeCloseTo(1, 12);
     expect(roundToStep(0.0009, 0.001)).toBe(0);
+  });
+});
+
+describe('Hebel (Isolated Margin, wie Perps)', () => {
+  it('Margin = Notional / Hebel; 1× bindet den vollen Wert', () => {
+    expect(marginFor(10_000, 1)).toBe(10_000);
+    expect(marginFor(10_000, 10)).toBe(1_000);
+    expect(marginFor(10_000, 25)).toBe(400);
+  });
+
+  it('Liquidationspreis: Long fällt um (1/Hebel − Wartungsmarge), Short steigt spiegelbildlich', () => {
+    const mmr = DEMO_MAINTENANCE_MARGIN;
+    expect(liquidationPrice('long', 100, 10)).toBeCloseTo(100 * (1 - 0.1 + mmr), 10);
+    expect(liquidationPrice('short', 100, 10)).toBeCloseTo(100 * (1 + 0.1 - mmr), 10);
+    // höherer Hebel → näher am Einstieg
+    expect(liquidationPrice('long', 100, 50)).toBeGreaterThan(liquidationPrice('long', 100, 10)!);
+  });
+
+  it('1× Long hat keine Liquidation (voll gedeckt), 1× Short schon (Kurs verdoppelt sich)', () => {
+    expect(liquidationPrice('long', 100, 1)).toBeNull();
+    expect(liquidationPrice('short', 100, 1)).toBeCloseTo(100 * (2 - DEMO_MAINTENANCE_MARGIN), 10);
+  });
+
+  it('liquidationHit prüft gegen den ausführbaren Preis (Long: Bid, Short: Ask)', () => {
+    const book = { symbol: 'X', ts: 0, bids: [{ price: 90, qty: 1 }], asks: [{ price: 91, qty: 1 }] };
+    expect(liquidationHit('long', 90.5, book)).toBe(true);
+    expect(liquidationHit('long', 89, book)).toBe(false);
+    expect(liquidationHit('short', 91, book)).toBe(true);
+    expect(liquidationHit('short', 92, book)).toBe(false);
+    expect(liquidationHit('long', null, book)).toBe(false);
+  });
+
+  it('Liquidation kostet höchstens die eingesetzte Margin (Rest trägt der Versicherungsfonds)', () => {
+    expect(capLiquidationLoss(-1_500, 1_000)).toBe(-1_000);
+    expect(capLiquidationLoss(-800, 1_000)).toBe(-800);
+    expect(capLiquidationLoss(50, 1_000)).toBe(50);
   });
 });

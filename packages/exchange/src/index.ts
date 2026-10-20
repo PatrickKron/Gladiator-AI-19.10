@@ -30,6 +30,9 @@ export {
   DEMO_MAKER_FEE,
   DEMO_TAKER_FEE,
   DEMO_START_BALANCE,
+  DEMO_MAINTENANCE_MARGIN,
+  liquidationPrice,
+  marginFor,
   midPrice,
   type OrderBookSnapshot,
   type FillResult,
@@ -47,6 +50,7 @@ export {
   closeDemoPositionNow,
   resetDemoAccount,
   monitorDemoTick,
+  DEMO_MAX_LEVERAGE,
   type PlaceDemoOrderInput,
   type PlaceDemoOrderResult,
 } from './demo/engine.js';

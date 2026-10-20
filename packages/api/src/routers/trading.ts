@@ -292,7 +292,7 @@ export const tradingRouter = router({
         direction: z.enum(['long', 'short']),
         entry: z.number().positive(),
         stopLoss: z.number().positive(),
-        leverage: z.number().min(1).max(25).default(1),
+        leverage: z.number().min(1).max(125).default(1),
       }),
     )
     .mutation(async ({ ctx, input }) => {

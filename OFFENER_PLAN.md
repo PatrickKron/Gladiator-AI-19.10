@@ -31,6 +31,16 @@
 - GitHub-CI bleibt bei 3 Tests rot, die bewusst echte Börsen-/Seed-Daten brauchen (signal-scan BASIS-Frische, phase6 product, pine): Binance blockiert GitHub-Runner (HTTP 451), Seed-Daten liegen nur auf dem Server. Maßgeblich ist die Server-CI (`scripts/ci.sh`). Ob sie auf GitHub als „live“ ausgeklammert werden sollen, entscheidet Patrick.
 - **Live-Order-Verdrahtung blockiert** durch die Sicherheitsfilterung der Cloud-Umgebung (trotz Patricks Go) → nur per Berechtigungsregel in Claude-Code-Einstellungen oder gemeinsam lokal. `CcxtLiveVenue` + Binance-Demo-Trading fertig, nicht verdrahtet.
 
+## 0 · Vision & Fahrplan (Patrick, 2026-10-20)
+
+> Selbst hostbares Trading-Terminal: beliebige Wallets + Börsen anschließen, mit Hebel handeln, pro Trade die Börse mit dem besten Preis wählen, Bedienung schnell wie der Trojan-Bot (aber für alle Wallets), Benachrichtigungen in der App statt Telegram, Limits frei anpassbar (Profi bis Meme-Coin). Tests immer mit echten Daten; alles muss beim Selbsthosten komplett funktionieren. Reihenfolge: ein Punkt nach dem anderen, selbstständig.
+
+- [x] **1 · Hebel im Order-Ticket + Limit-Profile** (Session 12): Demo-Konto mit Isolated Margin (Margin = Notional/Hebel, Liquidationspreis, Monitor liquidiert, Verlust ≤ Margin), Hebel-Schnellwahl bis zur eigenen Obergrenze, Risiko-Profile in Einstellungen › Trading.
+- [ ] **2 · Börsen-Vergleich + Auswahl im Ticket** (Preis, Spread, Gebühr, Funding, max. Hebel je Börse; öffentliche Daten).
+- [ ] **3 · Benachrichtigungen in der App + Web-Push** (Telegram optional).
+- [ ] **4 · CI mit echten Daten + Selbsthoster-Setup** (Tests holen echte Daten selbst von erreichbarer öffentlicher Quelle; Setup-Skript füllt Startdaten; nichts wird ausgeklammert).
+- [ ] **5 · Wallet-Trading**: zuerst Hyperliquid mit Agent-Wallet (kann handeln, nie abheben), danach Spot/Memecoins (Solana/Jupiter, EVM/Uniswap) mit eigener Trading-Wallet. **Offen:** Patricks Zustimmung zur verschlüsselten Schlüssel-Ablage auf dem Server. **Achtung:** `packages/risk/CLAUDE.md` verbietet bisher hart „Swaps“ — für Spot-Swaps muss Patrick diese Regel ausdrücklich anpassen. Echte Orders nur gemeinsam (Cloud-Umgebung blockt sie).
+
 ## 1 · Patrick-Schritte (blockieren am meisten — Claude kann sie nicht erledigen)
 
 - [ ] **Auto-Deploy GitHub → Server einmalig installieren** (`deploy/install-github-sync.sh` auf dem Server + read-only Deploy-Key bei GitHub eintragen). Bis dahin deployt eine lokale Sitzung: `git pull origin main && git push server main`. Damit geht auch PR #1 live.
@@ -46,7 +56,7 @@
 - [ ] **Live-Order-Pfad** über den bestehenden CCXT-Router (`packages/exchange/src/connections.ts`, `pickConnectionForSymbol`): Live-Adapter → Testnet-E2E → grüne Reconciliation → Freigabe-Phrase `LIVE-FREIGABE <venue>` (`venue_approvals`) → Kleinst-Trade-Probe. **Erst nach Patricks ausdrücklicher Freigabe beginnen.** Voraussetzung: Punkt 1 (Börse verbunden).
 - [x] Trailing-Stop am PositionMonitor + Position schließen/Teilschluss/SL-TP ändern (Session 9, PR #1).
 - [x] **Trailing als Strategie-Exit** (Session 10, PR #2) in Backtest-Engine + DSL — dieselbe `trailStep`-Funktion aus `packages/exchange/src/trailing.ts` nutzen (sonst Backtest ≠ Live).
-- [ ] **Default-Limits** (1 % Risiko + 20 % Exposure) blocken Stops < 5 % → hebelbewusste Exposure (Patricks Entscheidung, offen). ✓ Klarer Hinweis im Ticket gebaut (Session 12): Rechnung offengelegt + „Betrag auf X setzen (Risiko dann Y %)“.
+- [x] **Default-Limits** — Patrick (2026-10-20): „anpassbar bleiben, nicht zu starr“. Gelöst über Risiko-Profile (Vorsichtig/Standard/Profi/Aggressiv/Hochrisiko, `@gladiator/core/trading-settings`), Hebel-Cap bis 125×, Exposure bis 12.500 % (über 100 % nur mit Hebel). Standard bleibt 1 %/10×/20 %.
 - [x] Backtest-Stops gap-realistisch + Robustheits-Gate (jüngste 30 %) (Session 10, PR #2); Walk-Forward mit Trailing/Funding/Warmup (PR #3).
 - [x] **Orderbuch-Ansicht** (Session 12): Chart-Seite, echtes Binance-Buch alle 3 s (REST, 3-s-Cache geteilt mit dem Demo-Modus), Bündeln, Tiefenbalken, Spread, Kauf/Verkauf-Ungleichgewicht. Seit Session 12: serverseitiger Websocket-Stream (`watchOrderBook`, `StreamingBookCache`) solange jemand hinschaut, REST-Fallback, Panel 1×/s mit ehrlicher Quellenangabe.
 - [x] **Reentry-/Hebel-Upgrade-Engine + Auto-Kill** (Blueprint `05_` §9) — PR #3; Hebel-Upgrade nur als Vorschlag.
