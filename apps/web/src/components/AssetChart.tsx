@@ -7,14 +7,13 @@ import {
   LineSeries,
   CrosshairMode,
   LineStyle,
-  type IChartApi,
-  type LogicalRange,
   type SeriesMarker,
   type Time,
   type UTCTimestamp,
 } from 'lightweight-charts';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
+import { paneLayout, type PaneSpec } from '../lib/chart-panes.js';
 import { loadTf, pickTf, saveTf } from '../lib/chart-tf.js';
 import { CHART_TFS, type ChartTf } from '../lib/chart-url.js';
 import {
@@ -103,51 +102,15 @@ const SIGNAL_STATUS_LABEL: Record<SignalMarker['status'], string> = {
   expired: 'verf.',
 };
 
-/**
- * Alle Zeitskalen aneinander koppeln, damit die Panels zum Kurs ausgerichtet
- * bleiben. Gibt einen Disposer zurück: der MUSS vor `chart.remove()` laufen,
- * sonst feuert die Sync-Callback während des Entsorgens auf einen bereits
- * disposed Chart (`Object is disposed` / `removeSeries: Value is undefined`)
- * und reißt beim Unmount die ganze App weiß.
- */
-function linkTimeScales(charts: IChartApi[]): () => void {
-  let syncing = false;
-  let disposed = false;
-  const offs: (() => void)[] = [];
-  for (const src of charts) {
-    const handler = (range: LogicalRange | null) => {
-      if (disposed || syncing || !range) return;
-      syncing = true;
-      for (const tgt of charts) {
-        if (tgt === src) continue;
-        try {
-          tgt.timeScale().setVisibleLogicalRange(range);
-        } catch {
-          /* Ziel-Chart schon entsorgt — ignorieren */
-        }
-      }
-      syncing = false;
-    };
-    src.timeScale().subscribeVisibleLogicalRangeChange(handler);
-    offs.push(() => {
-      try {
-        src.timeScale().unsubscribeVisibleLogicalRangeChange(handler);
-      } catch {
-        /* Chart schon entsorgt */
-      }
-    });
-  }
-  return () => {
-    disposed = true;
-    for (const off of offs) off();
-  };
-}
+const MAIN_HEIGHT = 340;
+const PANE_HEIGHT = 120;
 
 const baseChartOptions = (timeframe: Timeframe, height: number) => ({
   height,
   layout: { background: { color: 'transparent' }, textColor: C.mut, fontSize: 10 },
   grid: { vertLines: { color: 'rgba(99,140,255,0.05)' }, horzLines: { color: 'rgba(99,140,255,0.05)' } },
   crosshair: { mode: CrosshairMode.Normal },
+  panes: { separatorColor: 'rgba(99,140,255,0.18)', separatorHoverColor: 'rgba(79,209,255,0.35)', enableResize: false },
   rightPriceScale: { borderColor: 'rgba(99,140,255,0.18)' },
   timeScale: {
     borderColor: 'rgba(99,140,255,0.18)',
@@ -378,11 +341,6 @@ export function AssetChart({
   }, []);
 
   const priceRef = useRef<HTMLDivElement>(null);
-  const rsiRef = useRef<HTMLDivElement>(null);
-  const macdRef = useRef<HTMLDivElement>(null);
-  const atrRef = useRef<HTMLDivElement>(null);
-  const custRsiRef = useRef<HTMLDivElement>(null);
-  const custMacdRef = useRef<HTMLDivElement>(null);
   const legendRef = useRef<HTMLDivElement>(null);
 
   // Daten laden (Symbol/TF) — echte Kerzen + alle Indikatorserien
@@ -538,6 +496,20 @@ export function AssetChart({
    * die erste definierte Kerze je aktivem Indikator. EMA200 braucht 200 Kerzen,
    * RSI 14 usw. — bis dahin ist der Indikator ehrlich NICHT definiert.
    */
+  // Unterfenster (v5-Panes) unter den Kerzen — Reihenfolge: Standard, dann eigene.
+  const panes = useMemo(() => {
+    const specs: PaneSpec[] = [];
+    if (data) {
+      if (toggles.rsi && data.rsi.length > 0) specs.push({ key: 'rsi', label: 'RSI 14' });
+      if (toggles.macd && data.macd.line.length > 0) specs.push({ key: 'macd', label: 'MACD 12/26/9' });
+      if (toggles.atr && data.atr.length > 0) specs.push({ key: 'atr', label: 'ATR 14' });
+    }
+    if (customSeries?.rsi && customSeries.rsi.length > 0) specs.push({ key: 'custRsi', label: `RSI ${indCfg.rsi.period} · ${t('chart.ind.customTag')}` });
+    if (customSeries?.macd && customSeries.macd.line.length > 0)
+      specs.push({ key: 'custMacd', label: `MACD ${indCfg.macd.fast}/${indCfg.macd.slow}/${indCfg.macd.signal} · ${t('chart.ind.customTag')}` });
+    return paneLayout(specs, MAIN_HEIGHT, PANE_HEIGHT);
+  }, [data, toggles, customSeries, indCfg, t]);
+
   const warmupInfo = useMemo(() => {
     const items: { label: string; bar: number; time: number }[] = [];
     if (!data) return items;
@@ -566,13 +538,11 @@ export function AssetChart({
   // Charts (neu)bauen bei Daten- oder Toggle-Änderung
   useEffect(() => {
     if (state !== 'ready' || !data || !priceRef.current) return;
-    const charts: IChartApi[] = [];
     const cleanups: (() => void)[] = [];
 
     // ── Hauptchart: Kerzen ──
     const priceEl = priceRef.current;
-    const price = createChart(priceEl, { width: priceEl.clientWidth, ...baseChartOptions(tf, 340) });
-    charts.push(price);
+    const price = createChart(priceEl, { width: priceEl.clientWidth, ...baseChartOptions(tf, panes.total) });
     const candle = price.addSeries(CandlestickSeries, {
       upColor: C.green,
       downColor: C.red,
@@ -599,7 +569,7 @@ export function AssetChart({
     const chartPointAt = (pt: { x: number; y: number }): DrawingPoint | null =>
       pointFromChart(barTimes, price.timeScale().coordinateToLogical(pt.x), candle.coordinateToPrice(pt.y));
     const onDrawClick = (param: Parameters<Parameters<typeof price.subscribeClick>[0]>[0]) => {
-      if (!param.point) return;
+      if (!param.point || (param.paneIndex ?? 0) > 0) return; // Zeichnen nur im Kursfenster
       handleChartClickRef.current(param.point, chartPointAt(param.point));
     };
     price.subscribeClick(onDrawClick);
@@ -608,7 +578,7 @@ export function AssetChart({
     const onDrawMove = (param: Parameters<Parameters<typeof price.subscribeCrosshairMove>[0]>[0]) => {
       const current = toolRef.current;
       const start = pendingRef.current;
-      if (!start || (current !== 'trend' && current !== 'fib') || !param.point) return;
+      if (!start || (current !== 'trend' && current !== 'fib') || !param.point || (param.paneIndex ?? 0) > 0) return;
       const p = chartPointAt(param.point);
       drawPrim.setPreview({ kind: current, points: p ? [start, p] : [start] });
     };
@@ -626,6 +596,7 @@ export function AssetChart({
     const onPointerDown = (e: PointerEvent) => {
       if (toolRef.current !== 'move') return;
       const px = localPt(e);
+      if (px.y > MAIN_HEIGHT) return; // Unterfenster: kein Zeichnungs-Griff
       const id = pickDrawing(drawPrim.shapes(), px, 6);
       const d = id ? drawingsRef.current.find((x) => x.id === id) : undefined;
       const logical = price.timeScale().coordinateToLogical(px.x);
@@ -864,91 +835,59 @@ export function AssetChart({
     price.subscribeCrosshairMove(onMove);
     cleanups.push(() => price.unsubscribeCrosshairMove(onMove));
 
-    // ── Oszillator-Panels (separate, zeitsynchrone Charts) ──
-    const buildPane = (
-      el: HTMLDivElement,
-      draw: (chart: IChartApi) => void,
-    ): IChartApi => {
-      const c = createChart(el, { width: el.clientWidth, ...baseChartOptions(tf, 120) });
-      c.timeScale().applyOptions({ visible: false });
-      draw(c);
-      charts.push(c);
-      return c;
+    // ── Oszillator-Unterfenster (v5-Panes im selben Chart) ──
+    const paneOf = (key: string) => panes.panes.find((p) => p.key === key)?.index;
+    const levels3070 = (s: ReturnType<typeof price.addSeries<'Line'>>) => {
+      s.createPriceLine({ price: 70, color: 'rgba(255,92,108,0.4)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '70' });
+      s.createPriceLine({ price: 30, color: 'rgba(61,220,151,0.4)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '30' });
     };
-
-    if (toggles.rsi && rsiRef.current && data.rsi.length > 0) {
-      buildPane(rsiRef.current, (c) => {
-        const s = c.addSeries(LineSeries, { color: C.cyan, lineWidth: 1, priceLineVisible: false, lastValueVisible: true });
-        s.setData(data.rsi as never);
-        s.createPriceLine({ price: 70, color: 'rgba(255,92,108,0.4)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '70' });
-        s.createPriceLine({ price: 30, color: 'rgba(61,220,151,0.4)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '30' });
-      });
+    const addMacd = (pane: number, m: { line: unknown[]; signal: unknown[]; histogram: unknown[] }) => {
+      price.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false }, pane).setData(m.histogram as never);
+      price.addSeries(LineSeries, { color: C.cyan, lineWidth: 1, priceLineVisible: false, lastValueVisible: false }, pane).setData(m.line as never);
+      price.addSeries(LineSeries, { color: C.amber, lineWidth: 1, priceLineVisible: false, lastValueVisible: false }, pane).setData(m.signal as never);
+    };
+    const rsiPane = paneOf('rsi');
+    if (rsiPane) {
+      const s = price.addSeries(LineSeries, { color: C.cyan, lineWidth: 1, priceLineVisible: false, lastValueVisible: true }, rsiPane);
+      s.setData(data.rsi as never);
+      levels3070(s);
     }
-    if (toggles.macd && macdRef.current && data.macd.line.length > 0) {
-      buildPane(macdRef.current, (c) => {
-        const h = c.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false });
-        h.setData(data.macd.histogram as never);
-        const line = c.addSeries(LineSeries, { color: C.cyan, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-        line.setData(data.macd.line as never);
-        const sig = c.addSeries(LineSeries, { color: C.amber, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-        sig.setData(data.macd.signal as never);
-      });
+    const macdPane = paneOf('macd');
+    if (macdPane) addMacd(macdPane, data.macd);
+    const atrPane = paneOf('atr');
+    if (atrPane) price.addSeries(LineSeries, { color: C.violet, lineWidth: 1, priceLineVisible: false, lastValueVisible: true }, atrPane).setData(data.atr as never);
+    const custRsiPane = paneOf('custRsi');
+    if (custRsiPane && customSeries?.rsi) {
+      const s = price.addSeries(LineSeries, { color: '#e14ecf', lineWidth: 1, priceLineVisible: false, lastValueVisible: true }, custRsiPane);
+      s.setData(customSeries.rsi as never);
+      levels3070(s);
     }
-    if (toggles.atr && atrRef.current && data.atr.length > 0) {
-      buildPane(atrRef.current, (c) => {
-        const s = c.addSeries(LineSeries, { color: C.violet, lineWidth: 1, priceLineVisible: false, lastValueVisible: true });
-        s.setData(data.atr as never);
-      });
-    }
-
-    // ── Eigene Oszillator-Panels (Panel-Konfiguration, freie Perioden) ──
-    const custRsi = customSeries?.rsi ?? null;
-    if (custRsi && custRsi.length > 0 && custRsiRef.current) {
-      buildPane(custRsiRef.current, (c) => {
-        const s = c.addSeries(LineSeries, { color: '#e14ecf', lineWidth: 1, priceLineVisible: false, lastValueVisible: true });
-        s.setData(custRsi as never);
-        s.createPriceLine({ price: 70, color: 'rgba(255,92,108,0.4)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '70' });
-        s.createPriceLine({ price: 30, color: 'rgba(61,220,151,0.4)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '30' });
-      });
-    }
-    const custMacd = customSeries?.macd ?? null;
-    if (custMacd && custMacd.line.length > 0 && custMacdRef.current) {
-      buildPane(custMacdRef.current, (c) => {
-        const h = c.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false });
-        h.setData(custMacd.histogram as never);
-        const line = c.addSeries(LineSeries, { color: C.cyan, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-        line.setData(custMacd.line as never);
-        const sig = c.addSeries(LineSeries, { color: C.amber, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-        sig.setData(custMacd.signal as never);
-      });
-    }
+    const custMacdPane = paneOf('custMacd');
+    if (custMacdPane && customSeries?.macd) addMacd(custMacdPane, customSeries.macd);
+    // Höhen über Stretch-Faktoren (proportional zu den Pixelhöhen): nacheinander
+    // gesetzte setHeight-Aufrufe verteilen den Rest neu und quetschen Fenster.
+    const paneApis = price.panes();
+    paneApis[0]?.setStretchFactor(MAIN_HEIGHT);
+    for (const p of panes.panes) paneApis[p.index]?.setStretchFactor(p.height);
 
     price.timeScale().fitContent();
-    const unlinkTimeScales = linkTimeScales(charts);
 
-    // Alle Charts teilen sich die Spaltenbreite (gleiche linke/rechte Kante).
-    const observer = new ResizeObserver(() => {
-      const w = priceEl.clientWidth;
-      for (const c of charts) c.applyOptions({ width: w });
-    });
+    const observer = new ResizeObserver(() => price.applyOptions({ width: priceEl.clientWidth }));
     observer.observe(priceEl);
     cleanups.push(() => observer.disconnect());
 
     return () => {
-      // Reihenfolge ist kritisch: erst Sync-Kopplung + Observer/Subscriptions
-      // lösen, DANN die Charts entsorgen — sonst feuert eine Callback auf einen
-      // schon disposed Chart und der Fehler reißt beim Unmount die App weiß.
-      unlinkTimeScales();
+      // Reihenfolge ist kritisch: erst Observer/Subscriptions lösen, DANN den
+      // Chart entsorgen — sonst feuert eine Callback auf einen disposed Chart
+      // und der Fehler reißt beim Unmount die App weiß.
       for (const fn of cleanups) fn();
-      for (const c of charts) {
-        try {
-          c.remove();
-        } catch {
-          /* schon entsorgt — ignorieren */
-        }
+      try {
+        price.remove();
+      } catch {
+        /* schon entsorgt — ignorieren */
       }
     };
-  }, [state, data, toggles, tf, levels, activeZones, signals, warmupInfo, t, customSeries, strategySignals, indCfg, symbol]);
+  }, [state, data, toggles, tf, levels, activeZones, signals, warmupInfo, t, customSeries, strategySignals, indCfg, symbol, panes]);
 
   const chip = (key: ToggleKey, label: string) => (
     <button
@@ -1092,41 +1031,12 @@ export function AssetChart({
         <div className="relative">
           <div ref={legendRef} className="num pointer-events-none absolute left-2 top-1 z-10 text-[11px]" style={{ opacity: 0 }} />
           <div ref={priceRef} className="w-full overflow-hidden rounded" style={{ background: 'rgba(4,6,20,0.45)' }} />
-        </div>
-        {toggles.rsi && (
-          <div className="mt-1">
-            <p className="label px-2">RSI 14</p>
-            <div ref={rsiRef} className="w-full overflow-hidden rounded" style={{ background: 'rgba(4,6,20,0.45)' }} />
-          </div>
-        )}
-        {toggles.macd && (
-          <div className="mt-1">
-            <p className="label px-2">MACD 12/26/9</p>
-            <div ref={macdRef} className="w-full overflow-hidden rounded" style={{ background: 'rgba(4,6,20,0.45)' }} />
-          </div>
-        )}
-        {toggles.atr && (
-          <div className="mt-1">
-            <p className="label px-2">ATR 14</p>
-            <div ref={atrRef} className="w-full overflow-hidden rounded" style={{ background: 'rgba(4,6,20,0.45)' }} />
-          </div>
-        )}
-        {/* Eigene Oszillator-Panels — Beschriftung mit Periode + „eigene", damit
-            sie neben den Standard-Panels klar zuzuordnen sind */}
-        {customSeries?.rsi && customSeries.rsi.length > 0 && (
-          <div className="mt-1">
-            <p className="label px-2">RSI {indCfg.rsi.period} · {t('chart.ind.customTag')}</p>
-            <div ref={custRsiRef} className="w-full overflow-hidden rounded" style={{ background: 'rgba(4,6,20,0.45)' }} />
-          </div>
-        )}
-        {customSeries?.macd && customSeries.macd.line.length > 0 && (
-          <div className="mt-1">
-            <p className="label px-2">
-              MACD {indCfg.macd.fast}/{indCfg.macd.slow}/{indCfg.macd.signal} · {t('chart.ind.customTag')}
+          {panes.panes.map((p) => (
+            <p key={p.key} className="label pointer-events-none absolute left-2 z-10 px-1" style={{ top: p.top + 2, background: 'rgba(4,6,20,0.6)' }}>
+              {p.label}
             </p>
-            <div ref={custMacdRef} className="w-full overflow-hidden rounded" style={{ background: 'rgba(4,6,20,0.45)' }} />
-          </div>
-        )}
+          ))}
+        </div>
         {emptyCustomLabels.length > 0 && (
           <p className="label mt-1.5 px-2" style={{ color: 'var(--color-warn)' }}>
             {t('chart.ind.tooFewCandles', { list: emptyCustomLabels.join(', ') })}
