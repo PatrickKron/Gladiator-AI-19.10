@@ -75,7 +75,7 @@
 - [x] Chart: Zeichenwerkzeuge (Horizontale, Trendlinie, Fibonacci, Löschen/Alle löschen; DB `chart_drawings`, Migration 0021, API `drawings.*`, pro Nutzer + Symbol, TF-unabhängig).
 - [x] Zeichnungen per Ziehen verschieben (Werkzeug „Verschieben“, Session 12).
 - [x] Jesse-artige Trade-Ansicht im Backtest-Labor (Session 12): Auswahl zoomt den Chart auf den Trade (±15 Kerzen), Vor/Zurück per Knopf oder ←/→, „Alle zeigen“; MFE/MAE-Tabelle gab es schon.
-- [x] Chart: Upgrade lightweight-charts 5.2 (Session 12): `addSeries(…Series)`, Marker über `createSeriesMarkers`, Primitive-Typen umbenannt. Oszillatoren bleiben vorerst eigene, zeitgekoppelte Charts (v5-Panes wären der nächste Schritt).
+- [x] Chart: Upgrade lightweight-charts 5.2 (Session 12): `addSeries(…Series)`, Marker über `createSeriesMarkers`, Primitive-Typen umbenannt. Oszillatoren seit PR #12 als echte Unterfenster (v5-Panes) im selben Chart.
 
 - [x] Labor + Optimierungs-Vorschläge vollständig in 5 Sprachen (144 Schlüssel, Session 12); Chart-Komponenten waren bereits geteilt. CSV-Spaltennamen bewusst fest (Importe).
 - [x] Workshop-Antworten streamen (Session 12): `POST /api/workshop/:id/chat-stream` (SSE), Antwort erscheint live.
