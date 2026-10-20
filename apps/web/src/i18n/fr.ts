@@ -91,7 +91,7 @@ export const fr: Catalog = {
     viaApi: 'Clé API',
     viaWallet: 'Adresse de wallet',
     walletAddress: 'Adresse publique du wallet',
-    walletHint: 'Uniquement l’adresse publique (0x…) — ne saisissez jamais de clé privée ni de phrase secrète. Les connexions wallet sont toujours en lecture seule.',
+    walletHint: 'Uniquement l’adresse publique (0x…, ou dydx1… pour dYdX) — ne saisissez jamais de clé privée ni de phrase secrète. Les connexions wallet sont toujours en lecture seule.',
     walletPick: 'Plateforme avec connexion wallet ({{n}})',
     walletBadge: 'Wallet · lecture seule',
     detectedInChat: 'Détecté dans votre chat :',

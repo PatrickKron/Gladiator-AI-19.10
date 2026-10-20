@@ -90,7 +90,7 @@ export const de = {
     viaApi: 'API-Key',
     viaWallet: 'Wallet-Adresse',
     walletAddress: 'Öffentliche Wallet-Adresse',
-    walletHint: 'Nur die öffentliche Adresse (0x…) — niemals Private Key oder Seed-Phrase eingeben. Wallet-Verbindungen sind immer nur lesend.',
+    walletHint: 'Nur die öffentliche Adresse (0x…, bei dYdX dydx1…) — niemals Private Key oder Seed-Phrase eingeben. Wallet-Verbindungen sind immer nur lesend.',
     walletPick: 'Börse mit Wallet-Login ({{n}})',
     walletBadge: 'Wallet · nur lesend',
     detectedInChat: 'Aus deinem Chat erkannt:',

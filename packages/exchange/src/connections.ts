@@ -2,6 +2,7 @@ import ccxt from 'ccxt';
 import { and, eq } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
+import { normalizeWalletAddress, walletAddressKind } from '@gladiator/core/wallet-address';
 import { decryptCredentials, encryptCredentials } from './vault.js';
 
 const { exchangeConnections } = schema;
@@ -105,6 +106,13 @@ export function isValidEvmAddress(address: string): boolean {
 let walletCache: SupportedExchange[] | null = null;
 
 /**
+ * Börsen, deren Konto CCXT zusätzlich über einen ÖFFENTLICHEN Indexer allein
+ * per Adresse liest, ohne `walletAddress` in requiredCredentials zu führen
+ * (dYdX v4: indexer …/addresses/{dydx1…}). Lighter verlangt einen Private Key → nicht hier.
+ */
+const PUBLIC_INDEXER_WALLETS = new Set(['dydx']);
+
+/**
  * Börsen, deren Konto an einer Wallet-Adresse statt an einem API-Key hängt
  * (laut CCXT requiredCredentials.walletAddress, z. B. Hyperliquid). Nur diese
  * lassen sich per öffentlicher Adresse NUR LESEND anschließen.
@@ -118,7 +126,7 @@ export function walletExchanges(): SupportedExchange[] {
     try {
       const instance = new Ctor({}) as { name?: string; requiredCredentials?: Record<string, boolean> };
       const req = instance.requiredCredentials ?? {};
-      if (req.walletAddress && !req.apiKey) out.push({ id, name: instance.name || id });
+      if ((req.walletAddress && !req.apiKey) || PUBLIC_INDEXER_WALLETS.has(id)) out.push({ id, name: instance.name || id });
     } catch {
       // ohne parameterlosen Konstruktor ehrlich auslassen
     }
@@ -233,7 +241,7 @@ export type ConnectionDto = {
 
 /** Wallet-Verbindungen speichern statt last4 die maskierte Adresse ('0xabcd…1234'). */
 function isWalletRow(row: { keyLast4: string }): boolean {
-  return row.keyLast4.startsWith('0x');
+  return row.keyLast4.startsWith('0x') || row.keyLast4.startsWith('dydx1');
 }
 
 function toDto(row: typeof exchangeConnections.$inferSelect): ConnectionDto {
@@ -328,10 +336,14 @@ export async function connectWallet(
   if (!walletExchanges().some((e) => e.id === exchangeId)) {
     throw new Error(`"${exchangeId}" unterstützt keinen Wallet-Anschluss — bitte API-Keys verwenden.`);
   }
-  if (!isValidEvmAddress(input.walletAddress)) {
-    throw new Error('Ungültige Wallet-Adresse — erwartet 0x gefolgt von 40 Hex-Zeichen.');
+  const walletAddress = normalizeWalletAddress(exchangeId, input.walletAddress);
+  if (!walletAddress) {
+    throw new Error(
+      walletAddressKind(exchangeId) === 'dydx'
+        ? 'Ungültige Wallet-Adresse — dYdX erwartet dydx1 gefolgt von 38 Zeichen.'
+        : 'Ungültige Wallet-Adresse — erwartet 0x gefolgt von 40 Hex-Zeichen.',
+    );
   }
-  const walletAddress = input.walletAddress.trim().toLowerCase();
   const client = createClient(exchangeId, { walletAddress });
   let markets: Record<string, CcxtMarket>;
   let name = exchangeId;
