@@ -123,3 +123,4 @@ export {
   type PreferredExchange,
   type PreferredExchangeView,
 } from './exchange-mentions.js';
+export * from './swap/index.js';
