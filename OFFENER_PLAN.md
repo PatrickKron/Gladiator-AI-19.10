@@ -80,7 +80,7 @@
 > Session 9 hat die Navigation bereits neu geordnet (5 Bereiche: Heute · Markt · Handel & Vermögen · Agenten & Strategien · System, Seite „Marktlage“, Demo-Konto unter #/demo). Wellen darauf aufbauen, nicht dagegen.
 
 - [x] Welle 3: Traden vereinheitlicht (Session 12): EINE Seite `#/traden` mit Konto-Schalter (Demo-Konto · Agenten-Konto · Wallets), Konten als Tabs (`?tab=demo|wallet|positionen…`), letztes Konto gemerkt; alte Links `#/demo`, `#/trading?tab=…`, `#/wallet` leiten weiter (Unter-Tab bleibt); Sidebar „Handel & Vermögen“ = Traden + Vermögen. Ansichten unverändert eingebettet → jederzeit umkehrbar. Einsteiger-Ticket: Demo-Ticket rechnet bereits in € (Einsatz × Hebel).
-- [ ] Welle 4: Markt-Bühne (Chart + Watchlist-Seitenleiste + Docks, Tastatur-Navigation).
+- [x] Welle 4: Markt-Bühne (Session 12): Chart-Seite mit Watchlist-Seitenleiste („Meine Märkte“: Favoriten zuerst, dann Scan-Universum, Live-Kurse aus dem Preis-Stream, ehrlich „—“ ohne Tick), ↑/↓ bzw. k/j wechselt das Asset (nicht in Eingabefeldern, nicht wenn die Leiste ausgeblendet ist), Orderbuch als ein-/ausblendbares Dock (gemerkt). Nebenbei: Kopfleiste lief auf dem Handy 24 px über (seit der Glocke) → engerer Abstand auf schmalen Bildschirmen.
 - [ ] Welle 5: Strategien + Workshop zusammenführen, Vorlagen-Galerie, Hotkeys, Reset-Knopf.
 
 ## 5 · Aufräumen & Technik

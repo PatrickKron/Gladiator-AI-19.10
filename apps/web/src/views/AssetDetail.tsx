@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PageHeader, Panel } from '../components/ui.js';
 import { AssetSelect, getSelectedAsset, setSelectedAsset } from '../components/AssetSelect.js';
@@ -9,6 +9,16 @@ import { MlInsights } from '../components/MlInsights.js';
 import { FavStarSymbol } from '../components/FavStar.js';
 import { ASSET_TABS, buildAssetUrl, parseChartHash, type AssetTab } from '../lib/chart-url.js';
 import { parseTab } from '../lib/tab-hash.js';
+import { Watchlist } from '../components/Watchlist.js';
+
+const DOCK_KEY = 'gladiator.chartBookDock';
+function bookDockOpen(): boolean {
+  try {
+    return localStorage.getItem(DOCK_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
 
 /**
  * Asset-Detailseite (P2.9): Chart + Kontext eines Assets. Makro und Risiko
@@ -30,11 +40,25 @@ export function AssetDetail() {
   const [tab, setTab] = useState<AssetTab>(() => parseTab(window.location.hash, ASSET_TABS, 'chart') as AssetTab);
   const ctx = useAssetContext(asset);
 
-  function changeAsset(sym: string) {
-    setSelectedAsset(sym);
-    setAsset(sym);
-    window.history.replaceState(null, '', buildAssetUrl(sym, tab));
-    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  const changeAsset = useCallback(
+    (sym: string) => {
+      setSelectedAsset(sym);
+      setAsset(sym);
+      window.history.replaceState(null, '', buildAssetUrl(sym, tab));
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    },
+    [tab],
+  );
+  const [bookOpen, setBookOpen] = useState(bookDockOpen);
+  function toggleBook() {
+    setBookOpen((o) => {
+      try {
+        localStorage.setItem(DOCK_KEY, o ? '0' : '1');
+      } catch {
+        // ohne localStorage gilt die Wahl nur für diese Sitzung
+      }
+      return !o;
+    });
   }
   function changeTab(tb: AssetTab) {
     setTab(tb);
@@ -98,12 +122,21 @@ export function AssetDetail() {
       </div>
 
       {tab === 'chart' && (
-        <>
-          <Panel label={asset} stagger={1}>
-            <AssetChart symbol={asset} timeframeOverride={linked.tf ?? undefined} />
-          </Panel>
-          <OrderBookPanel symbol={asset} />
-        </>
+        // Markt-Bühne (UI-Welle 4): Watchlist links, Chart mittig, Orderbuch als ein-/ausblendbares Dock
+        <div className="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
+          <div className="hidden xl:block">
+            <Watchlist value={asset} onSelect={changeAsset} />
+          </div>
+          <div className="min-w-0">
+            <Panel label={asset} stagger={1}>
+              <AssetChart symbol={asset} timeframeOverride={linked.tf ?? undefined} />
+            </Panel>
+            <button type="button" onClick={toggleBook} className="label mt-3 rounded border px-2 py-1" style={{ borderColor: 'var(--color-line)' }}>
+              {bookOpen ? t('market.hideBook') : t('market.showBook')}
+            </button>
+            {bookOpen && <OrderBookPanel symbol={asset} />}
+          </div>
+        </div>
       )}
       {tab === 'kontext' && (
         <Panel label={t('assetCtx.title', { symbol: asset })} stagger={1}>

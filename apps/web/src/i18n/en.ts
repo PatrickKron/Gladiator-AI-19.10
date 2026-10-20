@@ -2064,4 +2064,10 @@ export const en: Catalog = {
     hint_agent: "Your agents' paper account: positions, history, risk, alerts.",
     hint_wallet: "Buy and sell tokens by address (Solana, EVM) — paper or your own wallet.",
   },
+  market: {
+    watchlist: "My markets",
+    keysHint: "Use ↑/↓ (or k/j) to move through markets.",
+    showBook: "Show order book",
+    hideBook: "Hide order book",
+  },
 };

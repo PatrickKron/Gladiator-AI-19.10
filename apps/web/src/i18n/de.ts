@@ -2063,6 +2063,12 @@ export const de = {
     hint_agent: "Paper-Konto deiner Agenten: Positionen, Historie, Risiko, Alarme.",
     hint_wallet: "Token per Adresse kaufen und verkaufen (Solana, EVM) — Paper oder eigene Wallet.",
   },
+  market: {
+    watchlist: "Meine Märkte",
+    keysHint: "Mit ↑/↓ (oder k/j) durch die Märkte blättern.",
+    showBook: "Orderbuch einblenden",
+    hideBook: "Orderbuch ausblenden",
+  },
 };
 
 export type Catalog = typeof de;
