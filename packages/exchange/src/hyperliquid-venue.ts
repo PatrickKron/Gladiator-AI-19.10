@@ -1,4 +1,5 @@
 import ccxt from 'ccxt';
+import { verifyAgentWallet, type AgentCheck } from './hyperliquid-agent.js';
 import { stepFromPrecision, type MarketRules, type TradingVenue, type VenueOrderRequest, type VenueOrderResult, type VenuePosition } from './venue.js';
 
 /**
@@ -18,9 +19,17 @@ export class HyperliquidTestnetVenue implements TradingVenue {
   readonly kind = 'testnet' as const;
 
   private exchange: InstanceType<typeof ccxt.hyperliquid> | null = null;
+  private readonly creds: { wallet: string; agentKey: string } | null = null;
+  /** Ergebnis der Agent-Prüfung — Orders erst, wenn sie bestanden ist. */
+  private agentCheck: AgentCheck | null = null;
 
-  constructor(walletAddress?: string, agentPrivateKey?: string) {
+  constructor(
+    walletAddress?: string,
+    agentPrivateKey?: string,
+    private readonly fetchFn: typeof fetch = fetch,
+  ) {
     if (walletAddress && agentPrivateKey) {
+      this.creds = { wallet: walletAddress, agentKey: agentPrivateKey };
       this.exchange = new ccxt.hyperliquid({
         walletAddress,
         privateKey: agentPrivateKey,
@@ -52,19 +61,24 @@ export class HyperliquidTestnetVenue implements TradingVenue {
         detail: 'nicht verbunden — HYPERLIQUID_TESTNET_WALLET/_AGENT_KEY fehlen (Agent-Wallet legt Patrick an).',
       };
     }
+    // Erst beweisen, dass der Key ein freigegebener AGENT der Haupt-Wallet ist
+    // (öffentliche Info-API `userRole`) — der Haupt-Wallet-Key wird verweigert.
+    const check = await this.verifyAgent();
+    if (!check.ok) return { ok: false, detail: check.detail };
     try {
-      // EHRLICHE Grenze: Hyperliquids Balance-Abfrage ist adressbasiert öffentlich —
-      // sie beweist Erreichbarkeit + Wallet-Existenz, NICHT die Signierfähigkeit
-      // des Agent-Keys. Die wird erst bei der ersten (Testnet-)Order bewiesen.
       await this.exchange.fetchBalance();
-      return {
-        ok: true,
-        detail:
-          'Hyperliquid-Testnet erreichbar (Agent-Wallet, kein Auszahlungsrecht). Agent-Key wird bei der ersten Order verifiziert.',
-      };
+      return { ok: true, detail: `Hyperliquid-Testnet erreichbar. ${check.detail}` };
     } catch (err) {
       return { ok: false, detail: `Hyperliquid-Testnet-Zugang fehlgeschlagen: ${String(err)}` };
     }
+  }
+
+  /** Agent-Prüfung (gecacht, solange bestanden; Fehlschläge werden neu geprüft). */
+  async verifyAgent(): Promise<AgentCheck> {
+    if (!this.creds) throw new Error('Hyperliquid-Testnet nicht konfiguriert (Agent-Wallet fehlt).');
+    if (this.agentCheck?.ok) return this.agentCheck;
+    this.agentCheck = await verifyAgentWallet(this.creds.wallet, this.creds.agentKey, 'testnet', this.fetchFn);
+    return this.agentCheck;
   }
 
   async marketRules(symbol: string): Promise<MarketRules> {
@@ -88,6 +102,8 @@ export class HyperliquidTestnetVenue implements TradingVenue {
 
   async placeOrder(req: VenueOrderRequest): Promise<VenueOrderResult> {
     const ex = this.ex();
+    const check = await this.verifyAgent();
+    if (!check.ok) throw new Error(`Hyperliquid-Order verweigert: ${check.detail}`);
     const hlSymbol = HyperliquidTestnetVenue.mapSymbol(req.symbol);
     let lastErr: unknown;
     for (let attempt = 1; attempt <= 3; attempt++) {
