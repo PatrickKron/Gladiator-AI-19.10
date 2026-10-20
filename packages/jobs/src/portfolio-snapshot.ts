@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import {
-  binanceBookSource,
+  demoBookSource,
   buildAccountState,
   demoAccountOverview,
   fetchConnectionBalances,
@@ -31,7 +31,7 @@ export async function snapshotAccountValues(db: Db): Promise<SnapshotResult> {
       // Übungskonto: Demo (manuell) + Paper (Agenten) — beides USD.
       let demoEquity: number | null = null;
       try {
-        const demo = await demoAccountOverview(db, binanceBookSource(), u.id);
+        const demo = await demoAccountOverview(db, demoBookSource(), u.id);
         demoEquity = demo.markIncomplete ? null : demo.equity;
       } catch (err) {
         errors.push(`demo ${u.id}: ${String(err)}`);

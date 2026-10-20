@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import {
-  binanceBookSource,
+  demoBookSource,
   buildAccountState,
   demoAccountOverview,
   fetchConnectionBalances,
@@ -22,7 +22,7 @@ export const portfolioRouter = router({
     // Übungskonto (virtuell)
     let demo: { equity: number; markIncomplete: boolean } | null = null;
     try {
-      const d = await demoAccountOverview(ctx.db, binanceBookSource(), ctx.user.id);
+      const d = await demoAccountOverview(ctx.db, demoBookSource(), ctx.user.id);
       demo = { equity: d.equity, markIncomplete: d.markIncomplete };
     } catch {
       demo = null; // Orderbuch gerade nicht erreichbar → ehrlich null

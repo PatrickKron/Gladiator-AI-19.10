@@ -3,7 +3,8 @@ import { and, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
 import {
-  binanceBookSource,
+  COMPARE_VENUES,
+  demoBookSource,
   cancelDemoOrder,
   closeDemoPositionNow,
   demoAccountOverview,
@@ -36,7 +37,7 @@ export function setDemoBookSourceForTests(source: DemoBookSource | null): void {
   bookSourceOverride = source;
 }
 function books(): DemoBookSource {
-  return bookSourceOverride ?? binanceBookSource();
+  return bookSourceOverride ?? demoBookSource();
 }
 
 const orderInput = z.object({
@@ -49,6 +50,8 @@ const orderInput = z.object({
   takeProfit: z.number().positive().optional(),
   /** Hebel (Isolated Margin); Obergrenze kommt aus den Trading-Einstellungen. */
   leverage: z.number().min(1).max(125).optional(),
+  /** Börse, gegen deren echtes Orderbuch ausgeführt wird (Vision-Punkt 2), Standard Binance. */
+  venue: z.enum(COMPARE_VENUES).optional(),
 });
 
 /** Symbol normalisieren + Hebel-Obergrenze aus den Trading-Einstellungen des Users anhängen. */
@@ -98,6 +101,7 @@ export const demoRouter = router({
       avgFillPrice: o.avgFillPrice === null ? null : Number(o.avgFillPrice),
       feePaid: Number(o.feePaid),
       status: o.status,
+      venue: o.venue,
       createdAt: o.createdAt.toISOString(),
     }));
   }),
@@ -110,15 +114,16 @@ export const demoRouter = router({
       .where(eq(demoPositions.userId, ctx.user.id))
       .orderBy(desc(demoPositions.openedAt));
     const marks = new Map<string, number | null>();
-    for (const symbol of new Set(rows.map((p) => p.symbol))) {
+    for (const key of new Set(rows.map((p) => `${p.venue}|${p.symbol}`))) {
+      const [venue, symbol] = key.split('|') as [string, string];
       try {
-        marks.set(symbol, midPrice(await books().fetchBook(symbol)));
+        marks.set(key, midPrice(await books().fetchBook(symbol, venue)));
       } catch {
-        marks.set(symbol, null);
+        marks.set(key, null);
       }
     }
     return rows.map((p) => {
-      const mark = marks.get(p.symbol) ?? null;
+      const mark = marks.get(`${p.venue}|${p.symbol}`) ?? null;
       const sign = p.direction === 'long' ? 1 : -1;
       const entry = Number(p.entryPrice);
       const qty = Number(p.qty);
@@ -132,6 +137,7 @@ export const demoRouter = router({
         stopLoss: p.stopLoss === null ? null : Number(p.stopLoss),
         takeProfit: p.takeProfit === null ? null : Number(p.takeProfit),
         leverage: Number(p.leverage),
+        venue: p.venue,
         margin: marginFor(entry * qty, Number(p.leverage)),
         liquidationPrice: liquidationPrice(p.direction, entry, Number(p.leverage)),
         markPrice: mark,
@@ -193,6 +199,7 @@ export const demoRouter = router({
         netPnl: Number(t.netPnl),
         rMultiple: t.rMultiple === null ? null : Number(t.rMultiple),
         reason: t.reason,
+        venue: t.venue,
       }));
     }),
 

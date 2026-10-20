@@ -162,6 +162,13 @@
       "when": 1792511422833,
       "tag": "0022_remarkable_skrulls",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1792512327978,
+      "tag": "0023_funny_madame_masque",
+      "breakpoints": true
     }
   ]
 }

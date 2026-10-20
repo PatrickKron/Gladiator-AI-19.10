@@ -37,7 +37,24 @@ export {
   type OrderBookSnapshot,
   type FillResult,
 } from './demo/fill-engine.js';
-export { binanceBookSource, BinanceBookSource, type DemoBookSource } from './demo/book-source.js';
+export {
+  binanceBookSource,
+  BinanceBookSource,
+  CcxtBookSource,
+  DEMO_DEFAULT_VENUE,
+  demoBookSource,
+  MultiVenueBookSource,
+  type DemoBookSource,
+} from './demo/book-source.js';
+export {
+  COMPARE_VENUES,
+  fetchVenueQuotes,
+  rankVenueQuotes,
+  venueSymbol,
+  type CompareVenue,
+  type RankedVenueQuote,
+  type VenueQuote,
+} from './venue-quotes.js';
 export { binanceStreamingBook, StreamingBookCache, type BookStreamStatus } from './demo/book-stream.js';
 export { summarizeBook, type BookView, type BookViewLevel } from './demo/book-view.js';
 export {
