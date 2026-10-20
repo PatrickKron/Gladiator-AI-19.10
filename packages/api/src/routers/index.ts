@@ -19,6 +19,7 @@ import { settingsRouter } from './settings.js';
 import { signalsRouter } from './signals.js';
 import { strategiesRouter } from './strategies.js';
 import { subAgentsRouter } from './sub-agents.js';
+import { swapsRouter } from './swaps.js';
 import { systemRouter } from './system.js';
 import { tradingRouter } from './trading.js';
 import { workshopRouter } from './workshop.js';
@@ -40,6 +41,7 @@ export const appRouter = router({
   rl: rlRouter,
   risk: riskRouter,
   secrets: secretsRouter,
+  swaps: swapsRouter,
   settings: settingsRouter,
   signals: signalsRouter,
   strategies: strategiesRouter,

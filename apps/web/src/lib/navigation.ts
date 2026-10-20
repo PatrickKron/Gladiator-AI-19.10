@@ -144,6 +144,15 @@ export const PAGES = [
     keywords: ['demo', 'selbst handeln', 'order', 'orderbuch', 'limit', 'market', 'manuell', 'üben'],
   },
   {
+    id: 'wallet',
+    hash: '#/wallet',
+    area: 'trade',
+    labelKey: 'ia.page_wallet',
+    descKey: 'ia.desc_wallet',
+    icon: 'M3 7a2 2 0 012-2h13v4M3 7v10a2 2 0 002 2h15V9H5a2 2 0 01-2-2zm13 7h.01',
+    keywords: ['wallet', 'swap', 'spot', 'meme', 'memecoin', 'token', 'solana', 'jupiter', 'uniswap', 'kyberswap', 'trojan', 'dex', 'base', 'ethereum'],
+  },
+  {
     id: 'wealth',
     hash: '#/vermoegen',
     area: 'trade',

@@ -50,25 +50,32 @@ describe.skipIf(!hasDb)('Benachrichtigungen: Glocke, Scoping, Push-Abo', () => {
     await pool.end();
   });
 
-  it('neue Benachrichtigung erscheint nur beim Empfänger, Ungelesen-Zähler stimmt', async () => {
-    await notify(db, { userId: userAId, kind: 'price_alert', title: 'Preis-Alarm BTC', body: 'Kurs ≥ 70.000', link: '#/charts' });
-    expect((await a.notifications.unreadCount()).unread).toBe(1);
-    expect((await b.notifications.unreadCount()).unread).toBe(0);
-    const list = await a.notifications.list();
-    expect(list[0]).toMatchObject({ kind: 'price_alert', title: 'Preis-Alarm BTC', read: false, link: '#/charts' });
-    expect(await b.notifications.list()).toHaveLength(0);
+  // Andere Testdateien laufen parallel gegen dieselbe DB und senden System-Benachrichtigungen
+  // an ALLE User (Signal-Review, Briefing) — deshalb prüfen die Tests ihre eigenen Einträge
+  // (per Id/Titel) statt absoluter Zählerstände.
+  const own = <T extends { title: string }>(list: T[], title: string): T[] => list.filter((n) => n.title === title);
+
+  it('neue Benachrichtigung erscheint nur beim Empfänger, Ungelesen-Zähler zählt sie', async () => {
+    const title = `Preis-Alarm BTC ${RUN}`;
+    const before = (await a.notifications.unreadCount()).unread;
+    await notify(db, { userId: userAId, kind: 'price_alert', title, body: 'Kurs ≥ 70.000', link: '#/charts' });
+    expect((await a.notifications.unreadCount()).unread).toBeGreaterThanOrEqual(before + 1);
+    expect(own(await a.notifications.list(), title)[0]).toMatchObject({ kind: 'price_alert', read: false, link: '#/charts' });
+    expect(own(await b.notifications.list(), title)).toHaveLength(0);
   });
 
   it('abhaken: fremde Ids wirken nicht, eigene schon; „alle gelesen" leert den Zähler', async () => {
-    const [n] = await a.notifications.list();
+    const title = `Preis-Alarm BTC ${RUN}`;
+    const [n] = own(await a.notifications.list(), title);
     await b.notifications.markRead({ ids: [n!.id] });
-    expect((await a.notifications.unreadCount()).unread).toBe(1);
+    expect(own(await a.notifications.list({ unreadOnly: true }), title)).toHaveLength(1);
     await a.notifications.markRead({ ids: [n!.id] });
-    expect((await a.notifications.unreadCount()).unread).toBe(0);
-    await notify(db, { userId: userAId, kind: 'system', title: 'x', body: 'y' });
+    expect(own(await a.notifications.list({ unreadOnly: true }), title)).toHaveLength(0);
+    const second = `Zweite ${RUN}`;
+    await notify(db, { userId: userAId, kind: 'system', title: second, body: 'y' });
     await a.notifications.markAllRead();
-    expect((await a.notifications.unreadCount()).unread).toBe(0);
-    expect((await a.notifications.list({ unreadOnly: true })).length).toBe(0);
+    const unread = await a.notifications.list({ unreadOnly: true });
+    expect(own(unread, second)).toHaveLength(0);
   });
 
   it('Push ohne VAPID ehrlich „nicht eingerichtet"; Abo je Gerät (Upsert), Abmelden widerruft', async () => {
@@ -82,8 +89,9 @@ describe.skipIf(!hasDb)('Benachrichtigungen: Glocke, Scoping, Push-Abo', () => {
   });
 
   it('Test-Benachrichtigung landet in der Glocke, Push-Zähler 0 ohne Einrichtung', async () => {
+    await a.notifications.markAllRead();
     const r = await a.notifications.test();
     expect(r).toMatchObject({ created: 1, pushed: 0 });
-    expect((await a.notifications.unreadCount()).unread).toBe(1);
+    expect(own(await a.notifications.list({ unreadOnly: true }), 'Gladiator: Test-Benachrichtigung')).toHaveLength(1);
   });
 });

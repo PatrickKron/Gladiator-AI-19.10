@@ -20,3 +20,4 @@ export * from './exchange-connections.js';
 export * from './portfolio.js';
 export * from './chart-drawings.js';
 export * from './notifications.js';
+export * from './swap.js';

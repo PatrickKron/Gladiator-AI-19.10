@@ -23,3 +23,14 @@ export {
   type OhlcLike,
 } from './safe.js';
 export { exposureFit, type ExposureFit, type ExposureFitInput } from './exposure-fit.js';
+export {
+  judgeSwap,
+  SWAP_LIMIT_BOUNDS,
+  SWAP_PROFILES,
+  DEFAULT_SWAP_LIMITS,
+  type SwapLimits,
+  type SwapIntent,
+  type SwapVerdict,
+  type SwapRejectReason,
+  type SwapProfileId,
+} from './swap-gate.js';

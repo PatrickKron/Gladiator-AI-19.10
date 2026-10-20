@@ -1,0 +1,36 @@
+import { describe, expect, it } from 'vitest';
+import { de } from '../i18n/de.js';
+import { bpsLabel, fmtAmount, fmtUsd, slippageChoices, swapReasonKey } from './swap-format.js';
+
+describe('swap-format', () => {
+  it('fmtUsd: normale Beträge, Meme-Preise, kompakt', () => {
+    expect(fmtUsd(1234.5, 'en')).toBe('$1,234.50');
+    expect(fmtUsd(0.0000123456, 'en')).toBe('$0.00001235');
+    expect(fmtUsd(1_250_000_000, 'en', true)).toBe('$1.25B');
+    expect(fmtUsd(Number.NaN, 'en')).toBe('—');
+  });
+
+  it('fmtAmount: große Mengen mit Trennzeichen, kleine mit signifikanten Stellen', () => {
+    expect(fmtAmount('3551200.12345', 'de')).toBe('3.551.200,12');
+    expect(fmtAmount('0.5', 'de')).toBe('0,5');
+    expect(fmtAmount('0.000012345', 'en')).toBe('0.00001235');
+    expect(fmtAmount('kaputt', 'de')).toBe('kaputt');
+  });
+
+  it('Slippage-Auswahl endet an der eigenen Obergrenze', () => {
+    expect(slippageChoices(100)).toEqual([10, 50, 100]);
+    expect(slippageChoices(1_500)).toEqual([10, 50, 100, 300, 500, 1_000, 1_500]);
+    expect(slippageChoices(250)).toEqual([10, 50, 100, 250]);
+  });
+
+  it('bpsLabel', () => {
+    expect(bpsLabel(50, 'en')).toBe('0.5 %');
+    expect(bpsLabel(1_500, 'de')).toBe('15 %');
+  });
+
+  it('jeder Grund des Swap-Gates hat eine Übersetzung', () => {
+    const reasons = ['recipient_not_owner', 'invalid_amount', 'trade_above_limit', 'slippage_above_limit', 'price_impact_above_limit', 'liquidity_below_limit', 'liquidity_unknown'];
+    const swap = (de as unknown as { swap: Record<string, string> }).swap;
+    for (const r of reasons) expect(swap[swapReasonKey(r).slice('swap.'.length)]).toBeTruthy();
+  });
+});
