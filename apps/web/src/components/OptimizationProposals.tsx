@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { fmt } from './EquityChart.js';
 
@@ -7,17 +8,17 @@ import { fmt } from './EquityChart.js';
  * Nacht-Optimierung legt hier NUR Vorschläge ab; „Übernehmen" erzeugt eine
  * neue Entwurfs-Version (draft) — scharf geschaltet wird erst nach Backtest
  * und Promotion über das reguläre Validitäts-Gate (Mensch im Loop).
- * Deutsch hart kodiert wie das übrige Labor (bestehende Konvention).
+ * Alle Texte über i18n (`labor.proposals.*`).
  */
 
 type Proposal = Awaited<ReturnType<typeof trpc.lab.proposals.query>>[number];
 type Summary = Proposal['results']['before'];
 
-const STATE_LABEL: Record<Proposal['state'], string> = {
-  open: 'offen',
-  accepted: 'übernommen',
-  rejected: 'verworfen',
-  superseded: 'ersetzt',
+const STATE_KEY: Record<Proposal['state'], string> = {
+  open: 'labor.proposals.stateOpen',
+  accepted: 'labor.proposals.stateAccepted',
+  rejected: 'labor.proposals.stateRejected',
+  superseded: 'labor.proposals.stateSuperseded',
 };
 
 function pf(m: Summary): string {
@@ -26,21 +27,22 @@ function pf(m: Summary): string {
 }
 
 function MetricsCompare({ before, after }: { before: Summary; after: Summary }) {
+  const { t } = useTranslation();
   const rows: [string, string, string, number | null][] = [
-    ['OOS-Trades', fmt(before.tradeCount, 0), fmt(after.tradeCount, 0), null],
-    ['Erwartung', before.expectancy === null ? '—' : `${fmt(before.expectancy)} R`, after.expectancy === null ? '—' : `${fmt(after.expectancy)} R`, (after.expectancy ?? 0) - (before.expectancy ?? 0)],
-    ['Profit-Factor', pf(before), pf(after), null],
-    ['WinRate', before.winRate === null ? '—' : `${fmt(before.winRate * 100, 1)} %`, after.winRate === null ? '—' : `${fmt(after.winRate * 100, 1)} %`, null],
-    ['Max-Drawdown', `${fmt(before.maxDrawdownPct)} %`, `${fmt(after.maxDrawdownPct)} %`, null],
-    ['Netto-PnL', `${fmt(before.netPnl)} $`, `${fmt(after.netPnl)} $`, after.netPnl - before.netPnl],
+    [t('labor.proposals.oosTrades'), fmt(before.tradeCount, 0), fmt(after.tradeCount, 0), null],
+    [t('labor.proposals.expectation'), before.expectancy === null ? '—' : `${fmt(before.expectancy)} R`, after.expectancy === null ? '—' : `${fmt(after.expectancy)} R`, (after.expectancy ?? 0) - (before.expectancy ?? 0)],
+    [t('labor.profitFactor'), pf(before), pf(after), null],
+    [t('labor.winRate'), before.winRate === null ? '—' : `${fmt(before.winRate * 100, 1)} %`, after.winRate === null ? '—' : `${fmt(after.winRate * 100, 1)} %`, null],
+    [t('labor.maxDrawdown'), `${fmt(before.maxDrawdownPct)} %`, `${fmt(after.maxDrawdownPct)} %`, null],
+    [t('labor.netPnl'), `${fmt(before.netPnl)} $`, `${fmt(after.netPnl)} $`, after.netPnl - before.netPnl],
   ];
   return (
     <table className="mt-3 w-full text-sm">
       <thead>
         <tr className="label text-left">
-          <th className="py-1 pr-3 font-normal">OOS kombiniert · netto</th>
-          <th className="py-1 pr-3 text-right font-normal">Aktuell</th>
-          <th className="py-1 text-right font-normal">Vorschlag</th>
+          <th className="py-1 pr-3 font-normal">{t('labor.proposals.tableHead')}</th>
+          <th className="py-1 pr-3 text-right font-normal">{t('labor.proposals.current')}</th>
+          <th className="py-1 text-right font-normal">{t('labor.proposals.proposal')}</th>
         </tr>
       </thead>
       <tbody className="num">
@@ -61,9 +63,10 @@ function MetricsCompare({ before, after }: { before: Summary; after: Summary }) 
   );
 }
 
-const showValue = (v: unknown) => (v === null || v === undefined ? 'aus' : String(v));
+const showValue = (v: unknown, off: string) => (v === null || v === undefined ? off : String(v));
 
 export function OptimizationProposals() {
+  const { t } = useTranslation();
   const [scope, setScope] = useState<'open' | 'all'>('open');
   const [items, setItems] = useState<Proposal[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -77,7 +80,7 @@ export function OptimizationProposals() {
       setItems(await trpc.lab.proposals.query({ state: s }));
       setLoadError(null);
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : 'Vorschläge konnten nicht geladen werden.');
+      setLoadError(err instanceof Error ? err.message : t('labor.proposals.errLoad'));
     }
   }
   useEffect(() => {
@@ -89,13 +92,11 @@ export function OptimizationProposals() {
     setActionError(null);
     try {
       const out = await trpc.lab.acceptProposal.mutate({ id: p.id });
-      setNotice(
-        `${out.slug} v${out.version} als ENTWURF angelegt. Nächster Schritt: im Labor backtesten und unter Strategien über das Validitäts-Gate promoten — die laufende Version bleibt bis dahin unverändert.`,
-      );
+      setNotice(t('labor.proposals.acceptedNotice', { slug: out.slug, version: out.version }));
       setConfirmId(null);
       await load();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Übernehmen fehlgeschlagen.');
+      setActionError(err instanceof Error ? err.message : t('labor.proposals.errAccept'));
     } finally {
       setBusyId(null);
     }
@@ -106,10 +107,10 @@ export function OptimizationProposals() {
     setActionError(null);
     try {
       await trpc.lab.rejectProposal.mutate({ id: p.id });
-      setNotice(`Vorschlag für ${p.slug} v${p.baseVersion} verworfen.`);
+      setNotice(t('labor.proposals.rejectedNotice', { slug: p.slug, version: p.baseVersion }));
       await load();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Verwerfen fehlgeschlagen.');
+      setActionError(err instanceof Error ? err.message : t('labor.proposals.errReject'));
     } finally {
       setBusyId(null);
     }
@@ -118,7 +119,7 @@ export function OptimizationProposals() {
   return (
     <section className="glass mt-6 p-6" id="optimierungs-vorschlaege">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="label">Optimierungs-Vorschläge · Walk-Forward netto · du entscheidest</h2>
+        <h2 className="label">{t('labor.proposals.title')}</h2>
         <div className="flex gap-2 text-xs">
           {(['open', 'all'] as const).map((s) => (
             <button
@@ -130,22 +131,20 @@ export function OptimizationProposals() {
                 color: scope === s ? 'var(--color-cyan)' : 'var(--color-mut)',
               }}
             >
-              {s === 'open' ? 'Offen' : 'Alle'}
+              {s === 'open' ? t('labor.proposals.scopeOpen') : t('labor.proposals.scopeAll')}
             </button>
           ))}
         </div>
       </div>
       <p className="mt-2 text-xs" style={{ color: 'var(--color-mut)' }}>
-        Sonntags 03:00 UTC prüft die Nacht-Optimierung jede Paper-Strategie (und SMC Core) mit einem kleinen Parameter-Grid im
-        Walk-Forward. Ein Vorschlag entsteht nur, wenn er auf denselben Out-of-Sample-Fenstern klar besser ist (Erwartung ≥ +0,05 R,
-        Profit-Factor ≥ ×1,1, ≥ 30 OOS-Trades, Validitäts-Gate inkl. jüngstem Abschnitt). Übernehmen legt nur eine Entwurfs-Version an.
+        {t('labor.proposals.intro')}
       </p>
 
       {notice && (
         <p className="mt-3 rounded-[0.625rem] border p-3 text-sm" style={{ borderColor: 'rgba(61,220,151,0.4)', color: 'var(--color-pos)' }}>
           ✓ {notice}{' '}
           <a href="#/strategien" className="underline">
-            Zu den Strategien
+            {t('labor.proposals.toStrategies')}
           </a>
         </p>
       )}
@@ -162,14 +161,14 @@ export function OptimizationProposals() {
 
       {items === null && !loadError && (
         <p className="mt-3 text-sm" style={{ color: 'var(--color-mut)' }}>
-          Lade …
+          {t('labor.proposals.loading')}
         </p>
       )}
       {items !== null && items.length === 0 && (
         <p className="mt-3 text-sm" style={{ color: 'var(--color-mut)' }}>
           {scope === 'open'
-            ? 'Keine offenen Vorschläge — entweder ist die aktuelle Version bereits die beste im Grid oder kein Kandidat war klar besser.'
-            : 'Noch keine Vorschläge vorhanden.'}
+            ? t('labor.proposals.emptyOpen')
+            : t('labor.proposals.emptyAll')}
         </p>
       )}
 
@@ -183,14 +182,17 @@ export function OptimizationProposals() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-medium">
-                      {p.name} <span style={{ color: 'var(--color-mut)' }}>({p.slug})</span> · Basis v{p.baseVersion}
+                      {p.name} <span style={{ color: 'var(--color-mut)' }}>({p.slug})</span> · {t('labor.proposals.baseVersion', { version: p.baseVersion })}
                     </p>
                     <p className="label mt-1">
-                      {new Date(p.createdAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })} · {STATE_LABEL[p.state]}
-                      {r.review.newVersion ? ` → v${r.review.newVersion} (Entwurf)` : ''} · {r.window.windows} OOS-Fenster ·
-                      IS-Sieger in {r.wins} davon
+                      {new Date(p.createdAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })} · {t(STATE_KEY[p.state])}
+                      {r.review.newVersion ? ` → ${t('labor.proposals.draftVersion', { version: r.review.newVersion })}` : ''} ·{' '}
+                      {t('labor.proposals.windowsWins', { windows: r.window.windows, wins: r.wins })}
                       {r.window.oosFrom && r.window.oosTo
-                        ? ` · OOS ${new Date(r.window.oosFrom).toLocaleDateString('de-DE')} – ${new Date(r.window.oosTo).toLocaleDateString('de-DE')}`
+                        ? ` · ${t('labor.proposals.oosRange', {
+                            from: new Date(r.window.oosFrom).toLocaleDateString('de-DE'),
+                            to: new Date(r.window.oosTo).toLocaleDateString('de-DE'),
+                          })}`
                         : ''}
                     </p>
                   </div>
@@ -204,14 +206,14 @@ export function OptimizationProposals() {
                             className="rounded border px-3 py-1.5 text-xs"
                             style={{ borderColor: 'rgba(61,220,151,0.5)', color: 'var(--color-pos)' }}
                           >
-                            {busyId === p.id ? 'Lege an …' : 'Ja, Entwurf anlegen'}
+                            {busyId === p.id ? t('labor.proposals.creating') : t('labor.proposals.confirm')}
                           </button>
                           <button
                             onClick={() => setConfirmId(null)}
                             className="rounded border px-3 py-1.5 text-xs"
                             style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
                           >
-                            Abbrechen
+                            {t('labor.proposals.cancel')}
                           </button>
                         </>
                       ) : (
@@ -222,7 +224,7 @@ export function OptimizationProposals() {
                             className="rounded border px-3 py-1.5 text-xs"
                             style={{ borderColor: 'rgba(61,220,151,0.4)', color: 'var(--color-pos)' }}
                           >
-                            Übernehmen …
+                            {t('labor.proposals.accept')}
                           </button>
                           <button
                             disabled={busyId !== null}
@@ -230,7 +232,7 @@ export function OptimizationProposals() {
                             className="rounded border px-3 py-1.5 text-xs"
                             style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
                           >
-                            Verwerfen
+                            {t('labor.proposals.reject')}
                           </button>
                         </>
                       )}
@@ -240,11 +242,11 @@ export function OptimizationProposals() {
 
                 {r.changes.length > 0 && (
                   <div className="mt-3">
-                    <h3 className="label">Geänderte Parameter</h3>
+                    <h3 className="label">{t('labor.proposals.changedParams')}</h3>
                     <ul className="num mt-1 space-y-0.5 text-sm">
                       {r.changes.map((c) => (
                         <li key={c.path}>
-                          <span style={{ color: 'var(--color-mut)' }}>{c.path}:</span> {showValue(c.from)} → <b>{showValue(c.to)}</b>
+                          <span style={{ color: 'var(--color-mut)' }}>{c.path}:</span> {showValue(c.from, t('labor.off'))} → <b>{showValue(c.to, t('labor.off'))}</b>
                         </li>
                       ))}
                     </ul>
@@ -257,9 +259,12 @@ export function OptimizationProposals() {
 
                 {r.holdout && (
                   <p className="mt-2 text-xs" style={{ color: 'var(--color-mut)' }}>
-                    Jüngster OOS-Abschnitt (ab {new Date(r.holdout.fromTs).toLocaleDateString('de-DE')}): {r.holdout.tradeCount} Trades ·
-                    Erwartung {r.holdout.expectancy === null ? '—' : `${fmt(r.holdout.expectancy)} R`} · PF{' '}
-                    {r.holdout.profitFactor === null ? (r.holdout.tradeCount > 0 ? '∞' : '—') : fmt(r.holdout.profitFactor)}
+                    {t('labor.proposals.holdout', {
+                      from: new Date(r.holdout.fromTs).toLocaleDateString('de-DE'),
+                      n: r.holdout.tradeCount,
+                      expectancy: r.holdout.expectancy === null ? '—' : `${fmt(r.holdout.expectancy)} R`,
+                      pf: r.holdout.profitFactor === null ? (r.holdout.tradeCount > 0 ? '∞' : '—') : fmt(r.holdout.profitFactor),
+                    })}
                   </p>
                 )}
 
@@ -273,11 +278,19 @@ export function OptimizationProposals() {
 
                 {r.markets.length > 0 && (
                   <p className="mt-2 text-xs" style={{ color: 'var(--color-mut)' }}>
-                    Märkte:{' '}
+                    {t('labor.proposals.markets')}{' '}
                     {r.markets
-                      .map(
-                        (m) =>
-                          `${m.key} (${m.windows} Fenster, Funding ${m.fundingSource === 'historical' ? 'historisch' : 'Modell'}${m.dataWarnings.length > 0 ? `, ${m.dataWarnings.length} Datenhinweis(e)` : ''})`,
+                      .map((m) =>
+                        t('labor.proposals.marketItem', {
+                          key: m.key,
+                          windows: m.windows,
+                          funding:
+                            m.fundingSource === 'historical'
+                              ? t('labor.proposals.fundingHistorical')
+                              : t('labor.proposals.fundingModel'),
+                          warnings:
+                            m.dataWarnings.length > 0 ? `, ${t('labor.proposals.dataHints', { n: m.dataWarnings.length })}` : '',
+                        }),
                       )
                       .join(' · ')}
                   </p>
