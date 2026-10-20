@@ -169,19 +169,11 @@ export const PAGES = [
     icon: 'M4 6h16M4 12h10M4 18h7m5-3l4 4m0-4l-4 4',
     keywords: ['builder', 'strategie', 'aktivieren', 'promote', 'paper'],
     tabs: [
-      { id: 'katalog', labelKey: 'builder.tabCatalog', keywords: ['vorlagen', 'presets', 'konservativ', 'aggressiv'] },
+      { id: 'katalog', labelKey: 'builder.tabCatalog', keywords: ['vorlagen', 'presets', 'konservativ', 'aggressiv', 'galerie'] },
+      { id: 'workshop', labelKey: 'builder.tabWorkshop', keywords: ['workshop', 'dsl', 'chat', 'ki', 'claude', 'entwurf', 'versionen', 'eigene strategie'] },
       { id: 'builtin', labelKey: 'builder.tabBuiltin', keywords: ['eingebaut', 'dsl'] },
       { id: 'pine', labelKey: 'builder.tabPine', keywords: ['pine', 'tradingview', 'pinescript', 'import'] },
     ],
-  },
-  {
-    id: 'strategyWorkshop',
-    hash: '#/strategie-workshop',
-    area: 'agents',
-    labelKey: 'ia.page_strategyWorkshop',
-    descKey: 'ia.desc_strategyWorkshop',
-    icon: 'M8 9h8m-8 4h5m-7 7l-3-3V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2H8z',
-    keywords: ['dsl', 'chat', 'ki', 'claude', 'entwurf', 'versionen', 'eigene strategie'],
   },
   {
     id: 'agentWorkshop',
@@ -291,6 +283,8 @@ export function tabForHash(page: NavPage, hash: string): NavTab | null {
  */
 const REDIRECTS: { from: string; tab: string | null; to: string; keepQuery?: boolean }[] = [
   // Welle 3: Konten unter #/traden — alte Seiten (auch aus Benachrichtigungen) bleiben gültig
+  // Welle 5: Strategie-Workshop ist ein Tab unter Strategien
+  { from: '#/strategie-workshop', tab: null, to: '#/strategien?tab=workshop' },
   { from: '#/demo', tab: null, to: '#/traden?tab=demo' },
   { from: '#/wallet', tab: null, to: '#/traden?tab=wallet' },
   { from: '#/trading', tab: null, to: '#/traden?tab=positionen', keepQuery: true },

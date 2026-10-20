@@ -1122,6 +1122,7 @@ export const fr: Catalog = {
     },
   },
   builder: {
+    tabWorkshop: "Atelier",
     tabCatalog: 'Catalogue',
     dslMovedHint: 'Les stratégies DSL personnalisées se créent désormais à UN seul endroit — dans le',
     title: 'Constructeur de stratégies',
@@ -1785,6 +1786,10 @@ export const fr: Catalog = {
     noDataHint: 'Les données apparaissent dès que les agents RL exécutent des épisodes et que des snapshots quotidiens sont générés.',
   },
   profile: {
+    resetTitle: "Réinitialiser l'affichage",
+    resetHint: "Réinitialise les réglages d'affichage enregistrés dans ce navigateur (simple/pro, dernier compte et actif, dock du carnet). Données, comptes et connexion restent intacts.",
+    resetButton: "Réinitialiser",
+    resetDone: "Réinitialisé — rechargement …",
     pwTitle: 'Changer le mot de passe',
     pw_current: 'Mot de passe actuel',
     pw_next: 'Nouveau mot de passe (10 caractères min.)',
@@ -2069,5 +2074,12 @@ export const fr: Catalog = {
     keysHint: "Utilise ↑/↓ (ou k/j) pour parcourir les marchés.",
     showBook: "Afficher le carnet",
     hideBook: "Masquer le carnet",
+  },
+  hotkeys: {
+    title: "Raccourcis clavier",
+    search: "Ouvrir la recherche",
+    watchlist: "Graphique : changer de marché",
+    help: "Cette aide",
+    close: "Fermer",
   },
 };

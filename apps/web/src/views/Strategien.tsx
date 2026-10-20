@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useHashTab } from '../lib/use-hash-tab.js';
 import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
+import { Workshop } from './Workshop.js';
 import { StrategyCatalog } from '../components/StrategyCatalog.js';
 
 /**
@@ -515,7 +516,7 @@ function PineAnalyzePanel() {
 }
 
 /** Tabs im Hash — Deep-Link z. B. `#/strategien?tab=pine` (auch über ⌘K-Suche). */
-const STRATEGY_TABS = ['katalog', 'builtin', 'pine'] as const;
+const STRATEGY_TABS = ['katalog', 'workshop', 'builtin', 'pine'] as const;
 type StrategyTab = (typeof STRATEGY_TABS)[number];
 
 export function Strategien() {
@@ -542,6 +543,7 @@ export function Strategien() {
 
   const tabs = [
     { id: 'katalog' as const, key: 'builder.tabCatalog' },
+    { id: 'workshop' as const, key: 'builder.tabWorkshop' },
     { id: 'builtin' as const, key: 'builder.tabBuiltin' },
     { id: 'pine' as const, key: 'builder.tabPine' },
   ];
@@ -584,6 +586,7 @@ export function Strategien() {
         </>
       )}
       {tab === 'katalog' && <StrategyCatalog />}
+      {tab === 'workshop' && <Workshop embedded />}
       {tab === 'builtin' && (
         <Panel stagger={2}>
           <p className="text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
@@ -591,7 +594,7 @@ export function Strategien() {
           </p>
           <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
             {t('builder.dslMovedHint')}{' '}
-            <a href="#/strategie-workshop" className="underline decoration-dotted" style={{ color: 'var(--color-cyan)' }}>
+            <a href="#/strategien?tab=workshop" className="underline decoration-dotted" style={{ color: 'var(--color-cyan)' }}>
               {t('nav.strategyWorkshop')}
             </a>
           </p>

@@ -1121,6 +1121,7 @@ export const de = {
     },
   },
   builder: {
+    tabWorkshop: "Workshop",
     tabCatalog: 'Katalog',
     dslMovedHint: 'Eigene DSL-Strategien baust du jetzt an EINEM Ort — im',
     title: 'Strategie-Builder',
@@ -1784,6 +1785,10 @@ export const de = {
     noDataHint: 'Daten entstehen, sobald RL-Agenten Episoden laufen und tägliche Snapshots erzeugt werden.',
   },
   profile: {
+    resetTitle: "Ansicht zurücksetzen",
+    resetHint: "Setzt gespeicherte Ansichts-Einstellungen in diesem Browser zurück (Einfach/Profi, zuletzt gewähltes Konto und Asset, Orderbuch-Dock). Daten, Konten und Anmeldung bleiben unberührt.",
+    resetButton: "Ansicht zurücksetzen",
+    resetDone: "Zurückgesetzt — Seite lädt neu …",
     pwTitle: 'Passwort ändern',
     pw_current: 'Aktuelles Passwort',
     pw_next: 'Neues Passwort (mind. 10 Zeichen)',
@@ -2068,6 +2073,13 @@ export const de = {
     keysHint: "Mit ↑/↓ (oder k/j) durch die Märkte blättern.",
     showBook: "Orderbuch einblenden",
     hideBook: "Orderbuch ausblenden",
+  },
+  hotkeys: {
+    title: "Tastenkürzel",
+    search: "Suche öffnen",
+    watchlist: "Chart: Markt wechseln",
+    help: "Diese Hilfe",
+    close: "Schließen",
   },
 };
 

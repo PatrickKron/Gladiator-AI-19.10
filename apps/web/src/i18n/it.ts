@@ -1122,6 +1122,7 @@ export const it: Catalog = {
     },
   },
   builder: {
+    tabWorkshop: "Workshop",
     tabCatalog: 'Catalogo',
     dslMovedHint: 'Le strategie DSL personalizzate ora si creano in UN solo posto — nel',
     title: 'Costruttore di strategie',
@@ -1785,6 +1786,10 @@ export const it: Catalog = {
     noDataHint: 'I dati compaiono quando gli agenti RL eseguono episodi e vengono generati snapshot giornalieri.',
   },
   profile: {
+    resetTitle: "Ripristina vista",
+    resetHint: "Ripristina le impostazioni di visualizzazione salvate in questo browser (semplice/pro, ultimo conto e asset, dock order book). Dati, conti e login restano invariati.",
+    resetButton: "Ripristina",
+    resetDone: "Ripristinato — ricarico …",
     pwTitle: 'Cambia password',
     pw_current: 'Password attuale',
     pw_next: 'Nuova password (min. 10 caratteri)',
@@ -2069,5 +2074,12 @@ export const it: Catalog = {
     keysHint: "Usa ↑/↓ (o k/j) per scorrere i mercati.",
     showBook: "Mostra order book",
     hideBook: "Nascondi order book",
+  },
+  hotkeys: {
+    title: "Scorciatoie da tastiera",
+    search: "Apri ricerca",
+    watchlist: "Grafico: cambia mercato",
+    help: "Questo aiuto",
+    close: "Chiudi",
   },
 };

@@ -1213,7 +1213,8 @@ function VersionsPanel({
 
 // ── Hauptview ───────────────────────────────────────────────────────────────
 
-export function Workshop() {
+/** `embedded`: als Tab unter Strategien (UI-Welle 5) — ohne eigene Seitenüberschrift. */
+export function Workshop({ embedded = false }: { embedded?: boolean } = {}) {
   const { t } = useTranslation();
   const [sessions, setSessions] = useState<SessionRow[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1300,7 +1301,7 @@ export function Workshop() {
 
   return (
     <div>
-      <PageHeader title={t('sw.title')} subtitle={t('sw.subtitle')} />
+      {!embedded && <PageHeader title={t('sw.title')} subtitle={t('sw.subtitle')} />}
       {loadError && <ErrorBox message={loadError} />}
 
       <Panel label={t('sw.sessions')} stagger={0}>
