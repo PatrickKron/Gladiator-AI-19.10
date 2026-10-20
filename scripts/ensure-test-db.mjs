@@ -1,3 +1,4 @@
+/* global process, console, URL */
 // Legt die Test-Datenbank für die Server-CI an, falls sie fehlt (idempotent).
 // Aufruf: node scripts/ensure-test-db.mjs  (liest TEST_DATABASE_URL + DATABASE_URL)
 // Sicherung: bricht ab, wenn Test- und Live-Datenbank identisch wären.
