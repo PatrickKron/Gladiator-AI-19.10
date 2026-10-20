@@ -322,7 +322,7 @@ function HeroWealth({ account }: { account: Account | null }) {
               })}
             </span>
             {account && account.openPositions > 0 && (
-              <a href="#/trading" className="underline decoration-dotted" style={{ color: 'var(--color-cyan)' }}>
+              <a href="#/traden?tab=positionen" className="underline decoration-dotted" style={{ color: 'var(--color-cyan)' }}>
                 {t('dashboard.heroOpenPositions', { n: account.openPositions })}
               </a>
             )}
@@ -494,7 +494,7 @@ function WatchCard({ symbol, isFavorite, closes, stagger, onRemoved }: { symbol:
           e.preventDefault();
           e.stopPropagation();
           setPendingTradeSymbol(symbol);
-          window.location.hash = '#/demo';
+          window.location.hash = '#/traden?tab=demo';
         }}
         className="btn-primary mt-4 w-full px-3 py-2 text-sm"
         title={t('dashboard.tradeTooltip', { symbol })}
@@ -768,7 +768,7 @@ export function Dashboard() {
           ) : (
             <Loading />
           )}
-          <a href="#/trading" className="mt-4 inline-block text-xs" style={{ color: 'var(--color-cyan)' }}>
+          <a href="#/traden?tab=positionen" className="mt-4 inline-block text-xs" style={{ color: 'var(--color-cyan)' }}>
             → {t('trading.title')}
           </a>
         </Panel>

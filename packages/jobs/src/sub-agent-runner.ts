@@ -356,7 +356,7 @@ export async function runSubAgents(
               severity: 'critical',
               title: `Notfall ${sig!.symbol}`,
               body: telegramHtmlToText(html),
-              link: '#/trading',
+              link: '#/traden?tab=positionen',
               telegramHtml: html,
             });
           }

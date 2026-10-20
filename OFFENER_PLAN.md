@@ -79,7 +79,7 @@
 
 > Session 9 hat die Navigation bereits neu geordnet (5 Bereiche: Heute · Markt · Handel & Vermögen · Agenten & Strategien · System, Seite „Marktlage“, Demo-Konto unter #/demo). Wellen darauf aufbauen, nicht dagegen.
 
-- [ ] Welle 3: Traden vereinheitlichen (eine Seite mit Konto-Schalter, Einsteiger-Ticket).
+- [x] Welle 3: Traden vereinheitlicht (Session 12): EINE Seite `#/traden` mit Konto-Schalter (Demo-Konto · Agenten-Konto · Wallets), Konten als Tabs (`?tab=demo|wallet|positionen…`), letztes Konto gemerkt; alte Links `#/demo`, `#/trading?tab=…`, `#/wallet` leiten weiter (Unter-Tab bleibt); Sidebar „Handel & Vermögen“ = Traden + Vermögen. Ansichten unverändert eingebettet → jederzeit umkehrbar. Einsteiger-Ticket: Demo-Ticket rechnet bereits in € (Einsatz × Hebel).
 - [ ] Welle 4: Markt-Bühne (Chart + Watchlist-Seitenleiste + Docks, Tastatur-Navigation).
 - [ ] Welle 5: Strategien + Workshop zusammenführen, Vorlagen-Galerie, Hotkeys, Reset-Knopf.
 

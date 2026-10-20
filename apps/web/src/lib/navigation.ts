@@ -119,38 +119,28 @@ export const PAGES = [
     keywords: ['magazin', 'magazine', 'artikel', 'zusammenfassung', 'summary'],
   },
   {
+    // Welle 3: EINE Seite fürs Traden mit Konto-Schalter (Demo · Agenten-Konto · Wallets).
+    // Die Konten sind Tabs: `demo`/`wallet` wählen das Konto, die übrigen Tabs gehören zum Agenten-Konto.
     id: 'trade',
-    hash: '#/trading',
+    hash: '#/traden',
     area: 'trade',
-    labelKey: 'ia.page_trade',
-    descKey: 'ia.desc_trade',
+    labelKey: 'ia.page_tradeHub',
+    descKey: 'ia.desc_tradeHub',
     icon: 'M4 19V5m0 14h16M8 15l3-4 3 2 5-7',
-    keywords: ['paper', 'agenten-konto', 'übungskonto', 'kill-switch', 'konto'],
+    keywords: ['traden', 'trade', 'konto', 'order', 'kaufen', 'verkaufen', 'buy', 'sell', 'agenten-konto', 'paper', 'kill-switch'],
     tabs: [
-      { id: 'positionen', labelKey: 'trading.tab_positionen', keywords: ['position', 'stop', 'take profit', 'sl', 'tp', 'schliessen', 'close', 'stop verschieben'] },
+      { id: 'demo', labelKey: 'ia.page_demo', keywords: ['demo', 'selbst handeln', 'orderbuch', 'limit', 'market', 'manuell', 'üben', 'hebel', 'leverage', 'börsenvergleich'] },
+      {
+        id: 'wallet',
+        labelKey: 'ia.page_wallet',
+        keywords: ['wallet', 'swap', 'spot', 'meme', 'memecoin', 'token', 'solana', 'jupiter', 'uniswap', 'kyberswap', 'trojan', 'dex', 'base', 'ethereum', 'auto-sell', 'take profit', 'stop loss', 'honeypot'],
+      },
+      { id: 'positionen', labelKey: 'trading.tab_positionen', keywords: ['position', 'stop', 'sl', 'tp', 'schliessen', 'close', 'stop verschieben', 'agenten'] },
       { id: 'historie', labelKey: 'trading.tab_historie', keywords: ['journal', 'notiz', 'trades', 'history'] },
       { id: 'risiko', labelKey: 'trading.tab_risiko', keywords: ['positionsgröße', 'sizing', 'rechner', 'live-freigabe', 'venue'] },
       { id: 'alerts', labelKey: 'trading.tab_alerts', keywords: ['alarm', 'preisalarm', 'benachrichtigung'] },
       { id: 'performance', labelKey: 'trading.tab_performance', keywords: ['pnl', 'winrate', 'profit factor', 'erwartungswert'] },
     ],
-  },
-  {
-    id: 'demo',
-    hash: '#/demo',
-    area: 'trade',
-    labelKey: 'ia.page_demo',
-    descKey: 'ia.desc_demo',
-    icon: 'M12 2l3 7h7l-5.5 4.5 2 7.5L12 17l-6.5 4 2-7.5L2 9h7z',
-    keywords: ['demo', 'selbst handeln', 'order', 'orderbuch', 'limit', 'market', 'manuell', 'üben'],
-  },
-  {
-    id: 'wallet',
-    hash: '#/wallet',
-    area: 'trade',
-    labelKey: 'ia.page_wallet',
-    descKey: 'ia.desc_wallet',
-    icon: 'M3 7a2 2 0 012-2h13v4M3 7v10a2 2 0 002 2h15V9H5a2 2 0 01-2-2zm13 7h.01',
-    keywords: ['wallet', 'swap', 'spot', 'meme', 'memecoin', 'token', 'solana', 'jupiter', 'uniswap', 'kyberswap', 'trojan', 'dex', 'base', 'ethereum'],
   },
   {
     id: 'wealth',
@@ -299,7 +289,11 @@ export function tabForHash(page: NavPage, hash: string): NavTab | null {
  * Alte Links → neuer Ort. Reihenfolge zählt: spezifische (mit Tab) zuerst.
  * `tab: null` = gilt unabhängig vom Tab.
  */
-const REDIRECTS: { from: string; tab: string | null; to: string }[] = [
+const REDIRECTS: { from: string; tab: string | null; to: string; keepQuery?: boolean }[] = [
+  // Welle 3: Konten unter #/traden — alte Seiten (auch aus Benachrichtigungen) bleiben gültig
+  { from: '#/demo', tab: null, to: '#/traden?tab=demo' },
+  { from: '#/wallet', tab: null, to: '#/traden?tab=wallet' },
+  { from: '#/trading', tab: null, to: '#/traden?tab=positionen', keepQuery: true },
   { from: '#/oracle', tab: null, to: '#/marktlage?tab=makro' },
   { from: '#/aegis', tab: null, to: '#/marktlage?tab=risiko' },
   { from: '#/ml', tab: null, to: '#/intelligenz?tab=ml' },
@@ -316,7 +310,13 @@ export function resolveRedirect(hash: string): string | null {
   const [path = '', query = ''] = hash.split('?');
   const tab = new URLSearchParams(query).get('tab');
   const hit = REDIRECTS.find((r) => r.from === path && (r.tab === null || r.tab === tab));
-  return hit ? hit.to : null;
+  if (!hit) return null;
+  if (!hit.keepQuery || !query) return hit.to;
+  // übrige Parameter (z. B. der Unter-Tab) mitnehmen; Werte aus dem Link schlagen den Standard
+  const [toPath, toQuery = ''] = hit.to.split('?');
+  const merged = new URLSearchParams(toQuery);
+  for (const [k, v] of new URLSearchParams(query)) merged.set(k, v);
+  return `${toPath}?${merged.toString()}`;
 }
 
 // ── Suche ──────────────────────────────────────────────────────────────────

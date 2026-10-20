@@ -284,7 +284,7 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
             </span>
             {demoMode && (
               <a
-                href="#/demo"
+                href="#/traden?tab=demo"
                 className="label rounded border px-1.5 py-0.5"
                 style={{ borderColor: 'rgba(225,78,207,0.55)', color: 'var(--color-magenta)', boxShadow: '0 0 14px rgba(225,78,207,0.2)' }}
                 title={t('demo.badgeHint')}
@@ -294,7 +294,7 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
             )}
             {killSwitch && (
               <a
-                href="#/trading"
+                href="#/traden?tab=positionen"
                 className="label rounded border px-1.5 py-0.5"
                 style={{ borderColor: 'rgba(255,92,108,0.5)', color: 'var(--color-neg)', boxShadow: '0 0 14px rgba(255,92,108,0.25)' }}
               >

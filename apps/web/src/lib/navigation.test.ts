@@ -37,7 +37,7 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
   });
 
   it('pageForHash ignoriert Query-Strings und erkennt die Startseite', () => {
-    expect(pageForHash('#/trading?tab=historie')?.id).toBe('trade');
+    expect(pageForHash('#/traden?tab=historie')?.id).toBe('trade');
     expect(pageForHash('')?.id).toBe('today');
     expect(pageForHash('#/')?.id).toBe('today');
     expect(pageForHash('#/gibtsnicht')).toBeNull();
@@ -54,6 +54,11 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
       ['#/intelligenz?tab=intel', '#/marktlage?tab=entscheidung'],
       ['#/charts?symbol=ETH%2FUSDT&tab=makro', '#/marktlage?tab=makro'],
       ['#/charts?tab=risiko', '#/marktlage?tab=risiko'],
+      // Welle 3: alte Konto-Seiten → #/traden, Unter-Tab bleibt erhalten
+      ['#/demo', '#/traden?tab=demo'],
+      ['#/wallet', '#/traden?tab=wallet'],
+      ['#/trading', '#/traden?tab=positionen'],
+      ['#/trading?tab=risiko', '#/traden?tab=risiko'],
     ])('%s → %s', (from, to) => {
       expect(resolveRedirect(from)).toBe(to);
     });
@@ -65,7 +70,7 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
     });
 
     it('jedes Weiterleitungsziel ist eine echte Seite mit echtem Tab', () => {
-      for (const from of ['#/oracle', '#/aegis', '#/ml', '#/rl-agenten', '#/performance', '#/intelligenz?tab=intel']) {
+      for (const from of ['#/oracle', '#/aegis', '#/ml', '#/rl-agenten', '#/performance', '#/intelligenz?tab=intel', '#/demo', '#/wallet', '#/trading', '#/trading?tab=alerts']) {
         const to = resolveRedirect(from)!;
         const page = pageForHash(to)!;
         const tab = new URLSearchParams(to.split('?')[1]).get('tab');
@@ -90,7 +95,9 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
       expect(first('backtest')).toBe('#/labor');
       expect(first('pine')).toBe('#/strategien?tab=pine');
       expect(first('cot')).toBe('#/marktlage?tab=entscheidung');
-      expect(first('alarm')).toBe('#/trading?tab=alerts');
+      expect(first('alarm')).toBe('#/traden?tab=alerts');
+      expect(first('memecoin')).toBe('#/traden?tab=wallet');
+      expect(first('demo')).toBe('#/traden?tab=demo');
       expect(first('audit')).toBe('#/protokoll');
       expect(first('wer hat')).toBe('#/protokoll');
     });
@@ -98,7 +105,7 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
     it('Groß-/Kleinschreibung und Umlaute egal, mehrere Wörter müssen alle passen', () => {
       expect(first('VERMÖGEN')).toBe('#/vermoegen');
       expect(first('vermogen')).toBe('#/vermoegen');
-      expect(searchNav(entries, 'demo historie').every((e) => e.hash.startsWith('#/demo') || e.label.toLowerCase().includes('historie'))).toBe(true);
+      expect(searchNav(entries, 'konto historie').every((e) => e.hash.startsWith('#/traden') || e.label.toLowerCase().includes('historie'))).toBe(true);
       expect(searchNav(entries, 'xyzqq')).toEqual([]);
     });
 

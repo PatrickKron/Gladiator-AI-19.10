@@ -326,6 +326,8 @@ export const en: Catalog = {
     desc_news: "Latest news on your markets, optionally summarized by AI.",
     desc_trade: "Your agents' paper account: positions, history, risk, alerts and performance.",
     desc_demo: "Trade yourself with play money against the real order book — market, limit, SL/TP.",
+    page_tradeHub: "Trade",
+    desc_tradeHub: "One place to trade: demo account (play money, real order books), agent account (paper) and wallets (spot swaps) — switch at the top.",
     page_wallet: "Wallet Trading",
     desc_wallet: "Buy and sell tokens by address (Solana, Ethereum, Base, Arbitrum, BSC) — real route, your own limits, paper first.",
     desc_wealth: "Total wealth across all accounts and connected exchanges, with history.",
@@ -2052,5 +2054,14 @@ export const en: Catalog = {
     reason_price_impact_above_limit: "Price impact too high (not enough depth for this amount).",
     reason_liquidity_below_limit: "Liquidity below your minimum.",
     reason_liquidity_unknown: "Liquidity unknown — no swap while a minimum liquidity is required.",
+  },
+  trade: {
+    accountLabel: "Account",
+    account_demo: "Demo account",
+    account_agent: "Agent account",
+    account_wallet: "Wallets",
+    hint_demo: "Trade yourself with play money against real order books — with leverage and exchange comparison.",
+    hint_agent: "Your agents' paper account: positions, history, risk, alerts.",
+    hint_wallet: "Buy and sell tokens by address (Solana, EVM) — paper or your own wallet.",
   },
 };

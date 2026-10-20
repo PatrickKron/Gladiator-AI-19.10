@@ -127,7 +127,7 @@ export function Vermoegen() {
               </span>
             </p>
           </div>
-          <a href="#/trading" className="mt-4 inline-block text-sm underline decoration-dotted" style={{ color: 'var(--color-cyan)' }}>
+          <a href="#/traden?tab=positionen" className="mt-4 inline-block text-sm underline decoration-dotted" style={{ color: 'var(--color-cyan)' }}>
             {t('wealth.toPractice')}
           </a>
         </div>

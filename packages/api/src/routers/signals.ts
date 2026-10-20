@@ -401,7 +401,7 @@ export const signalsRouter = router({
           severity: 'critical',
           title: `Notfall ${updated.symbol}`,
           body: telegramHtmlToText(emergencyHtml),
-          link: '#/trading',
+          link: '#/traden?tab=positionen',
           telegramHtml: emergencyHtml,
         });
       } else if (!execution.executed) {
