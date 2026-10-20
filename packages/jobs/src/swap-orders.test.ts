@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, schema, type Db } from '@gladiator/db';
 import { fundPaperWallet, SOL_MINT, walletBalances } from '@gladiator/exchange';
 import type pg from 'pg';
-import { evaluateSwapOrder, failStuckSwapOrders, runSwapOrders, validateNewOrder } from './swap-orders.js';
+import { dcaAfterRun, evaluateSwapOrder, failStuckSwapOrders, runDcaOrders, runSwapOrders, validateNewOrder } from './swap-orders.js';
 import { setSwapFetchForTests } from './swap-service.js';
 
 describe('evaluateSwapOrder', () => {
@@ -35,6 +35,19 @@ describe('evaluateSwapOrder', () => {
   it('ohne gültigen Preis nie auslösen', () => {
     expect(evaluateSwapOrder({ kind: 'stop_loss', triggerPriceUsd: 1, trailPct: null, peakPriceUsd: null }, Number.NaN).trigger).toBe(false);
     expect(evaluateSwapOrder({ kind: 'stop_loss', triggerPriceUsd: 1, trailPct: null, peakPriceUsd: null }, 0).trigger).toBe(false);
+  });
+});
+
+describe('dcaAfterRun', () => {
+  it('zählt hoch, nächster Termin ab jetzt, fertig nach dem letzten Kauf', () => {
+    const now = new Date('2026-10-20T12:00:00Z');
+    expect(dcaAfterRun({ runsDone: 0, runsTotal: 3, intervalMinutes: 60 }, now)).toEqual({ runsDone: 1, done: false, nextRunAt: new Date('2026-10-20T13:00:00Z') });
+    expect(dcaAfterRun({ runsDone: 2, runsTotal: 3, intervalMinutes: 60 }, now).done).toBe(true);
+  });
+
+  it('DCA ist nie preisgesteuert und braucht keine Preisprüfung beim Anlegen', () => {
+    expect(evaluateSwapOrder({ kind: 'dca', triggerPriceUsd: null, trailPct: null, peakPriceUsd: null }, 1).trigger).toBe(false);
+    expect(validateNewOrder({ kind: 'dca', triggerPriceUsd: null, trailPct: null, peakPriceUsd: null }, 1)).toBeNull();
   });
 });
 
@@ -149,5 +162,51 @@ describe.skipIf(!process.env.DATABASE_URL)('runSwapOrders (echte DB, Paper)', ()
     await db.execute(sql`UPDATE swap_orders SET status = 'executing', triggered_at = now() - interval '11 minutes' WHERE id = ${o.id}`);
     expect(await failStuckSwapOrders(db)).toBeGreaterThanOrEqual(1);
     expect((await status(o.id)).status).toBe('failed');
+  });
+
+  it('DCA: kauft je Termin genau einmal, überspringt über der Preisgrenze, endet nach dem letzten Termin', async () => {
+    const t0 = new Date(Date.now() + 365 * 86_400_000); // weit in der Zukunft: unabhängig von anderen Läufen
+    const o = await addOrder({ kind: 'dca', buyAmount: '0.5', intervalMinutes: 60, runsTotal: 3, nextRunAt: t0, maxPriceUsd: '0.00003' });
+    const own = async () => (await db.select().from(schema.swapTrades).where(eq(schema.swapTrades.walletId, walletId))).filter((t) => t.side === 'buy').length;
+    const before = await own();
+    bonkUsd = 0.00002;
+
+    // noch nicht fällig
+    await runDcaOrders(db, new Date(t0.getTime() - 60_000));
+    expect((await status(o.id)).runsDone).toBe(0);
+
+    // Termin 1: Kauf
+    await runDcaOrders(db, t0);
+    let s1 = await status(o.id);
+    expect(s1).toMatchObject({ status: 'open', runsDone: 1, error: null });
+    expect(s1.nextRunAt!.getTime()).toBe(t0.getTime() + 3_600_000);
+    expect(await own()).toBe(before + 1);
+    // derselbe Zeitpunkt nochmal → nichts (nie doppelt)
+    await runDcaOrders(db, t0);
+    expect(await own()).toBe(before + 1);
+
+    // Termin 2: Kurs über der Grenze → übersprungen, zählt aber
+    bonkUsd = 0.00004;
+    const t1 = new Date(t0.getTime() + 3_600_000);
+    await runDcaOrders(db, t1);
+    s1 = await status(o.id);
+    expect(s1.runsDone).toBe(2);
+    expect(s1.error).toMatch(/übersprungen.*Preisgrenze/);
+    expect(await own()).toBe(before + 1);
+
+    // Termin 3: wieder günstig → Kauf, DCA fertig
+    bonkUsd = 0.00002;
+    await runDcaOrders(db, new Date(t1.getTime() + 3_600_000));
+    expect(await status(o.id)).toMatchObject({ status: 'filled', runsDone: 3, error: null });
+    expect(await own()).toBe(before + 2);
+    const notes = await db.select().from(schema.notifications).where(eq(schema.notifications.userId, userId));
+    expect(notes.map((n) => n.title)).toEqual(expect.arrayContaining(['DCA-Kauf 1/3: Bonk', 'DCA-Kauf 3/3: Bonk']));
+  });
+
+  it('DCA erscheint nie im preisgesteuerten Lauf', async () => {
+    const o = await addOrder({ kind: 'dca', buyAmount: '0.1', intervalMinutes: 60, runsTotal: 2, nextRunAt: new Date(Date.now() + 400 * 86_400_000) });
+    await runSwapOrders(db);
+    expect(await status(o.id)).toMatchObject({ status: 'open', runsDone: 0 });
+    await db.update(schema.swapOrders).set({ status: 'cancelled' }).where(eq(schema.swapOrders.id, o.id));
   });
 });

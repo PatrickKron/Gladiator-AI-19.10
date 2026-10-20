@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, isNull, lte, ne, sql } from 'drizzle-orm';
 import { schema, type Db } from '@gladiator/db';
 import { fetchTokenPrices, walletBalances, type SwapChainId } from '@gladiator/exchange';
 import { notifySafe } from './notify.js';
@@ -13,13 +13,14 @@ const { swapOrders, swapWallets } = schema;
  * Ticket (Angebot, Sicherheitscheck beim Kauf, Gate, Paper/Live).
  */
 
-export type SwapOrderKind = 'take_profit' | 'stop_loss' | 'trailing_stop' | 'limit_buy';
+export type SwapOrderKind = 'take_profit' | 'stop_loss' | 'trailing_stop' | 'limit_buy' | 'dca';
 
 export const SWAP_ORDER_LABEL: Record<SwapOrderKind, string> = {
   take_profit: 'Take-Profit',
   stop_loss: 'Stop-Loss',
   trailing_stop: 'Trailing-Stop',
   limit_buy: 'Limit-Kauf',
+  dca: 'DCA-Kauf',
 };
 
 export type OrderState = { kind: SwapOrderKind; triggerPriceUsd: number | null; trailPct: number | null; peakPriceUsd: number | null };
@@ -37,6 +38,9 @@ export function evaluateSwapOrder(o: OrderState, priceUsd: number): { trigger: b
       return { trigger: o.triggerPriceUsd !== null && priceUsd <= o.triggerPriceUsd, peakPriceUsd: null };
     case 'limit_buy':
       return { trigger: o.triggerPriceUsd !== null && priceUsd <= o.triggerPriceUsd, peakPriceUsd: null };
+    case 'dca':
+      // zeitgesteuert (runDcaOrders), nie preisgesteuert
+      return { trigger: false, peakPriceUsd: null };
     case 'trailing_stop': {
       const peak = Math.max(o.peakPriceUsd ?? priceUsd, priceUsd);
       const trail = o.trailPct ?? 0;
@@ -47,6 +51,7 @@ export function evaluateSwapOrder(o: OrderState, priceUsd: number): { trigger: b
 
 /** Plausibilität beim Anlegen: eine Order, die sofort auslösen würde, ist fast immer ein Tippfehler. */
 export function validateNewOrder(o: OrderState, priceUsd: number): string | null {
+  if (o.kind === 'dca') return null;
   if (o.kind === 'trailing_stop') {
     if (!(o.trailPct !== null && o.trailPct >= 0.5 && o.trailPct <= 90)) return 'Trailing-Abstand: 0,5 bis 90 %.';
     return null;
@@ -145,7 +150,7 @@ export async function runSwapOrders(db: Db): Promise<SwapOrdersResult> {
     .select({ order: swapOrders, wallet: swapWallets })
     .from(swapOrders)
     .innerJoin(swapWallets, eq(swapOrders.walletId, swapWallets.id))
-    .where(and(eq(swapOrders.status, 'open'), isNull(swapWallets.archivedAt)));
+    .where(and(eq(swapOrders.status, 'open'), ne(swapOrders.kind, 'dca'), isNull(swapWallets.archivedAt)));
   if (rows.length === 0) return out;
 
   const byChain = new Map<SwapChainId, Set<string>>();
@@ -188,3 +193,78 @@ export async function failStuckSwapOrders(db: Db): Promise<number> {
   return rows.length;
 }
 
+/** DCA nach einem Lauf (rein): Zähler hoch, fertig nach dem letzten Kauf, sonst nächster Termin ab jetzt (kein Nachholen verpasster Termine). */
+export function dcaAfterRun(o: { runsDone: number; runsTotal: number; intervalMinutes: number }, now: Date): { runsDone: number; done: boolean; nextRunAt: Date } {
+  const runsDone = o.runsDone + 1;
+  return { runsDone, done: runsDone >= o.runsTotal, nextRunAt: new Date(now.getTime() + o.intervalMinutes * 60_000) };
+}
+
+export type DcaResult = { due: number; bought: number; skipped: number; failed: number; errors: string[] };
+
+/**
+ * DCA-Käufe (Vision-Punkt 5, „wie Trojan“): fällige Orders atomar
+ * open → executing, Kauf über denselben Swap-Pfad wie das Ticket (Angebot,
+ * Sicherheitscheck, Gate, Paper/Live). Jeder Termin zählt genau einmal —
+ * ausgeführt, über der Preisgrenze übersprungen oder fehlgeschlagen —, damit
+ * eine DCA nie endlos läuft und nie doppelt kauft.
+ */
+export async function runDcaOrders(db: Db, now = new Date()): Promise<DcaResult> {
+  const out: DcaResult = { due: 0, bought: 0, skipped: 0, failed: 0, errors: [] };
+  const rows = await db
+    .select({ order: swapOrders, wallet: swapWallets })
+    .from(swapOrders)
+    .innerJoin(swapWallets, eq(swapOrders.walletId, swapWallets.id))
+    .where(and(eq(swapOrders.status, 'open'), eq(swapOrders.kind, 'dca'), lte(swapOrders.nextRunAt, now), isNull(swapWallets.archivedAt)));
+  for (const { order: o, wallet: w } of rows) {
+    const claimed = await db
+      .update(swapOrders)
+      .set({ status: 'executing', triggeredAt: now })
+      .where(and(eq(swapOrders.id, o.id), eq(swapOrders.status, 'open'), lte(swapOrders.nextRunAt, now)))
+      .returning({ id: swapOrders.id });
+    if (claimed.length === 0) continue;
+    out.due++;
+    const step = dcaAfterRun({ runsDone: o.runsDone, runsTotal: o.runsTotal ?? 1, intervalMinutes: o.intervalMinutes ?? 60 }, now);
+    const nr = `${step.runsDone}/${o.runsTotal}`;
+    let tradeId: string | null = o.tradeId;
+    let note: string | null = null;
+    try {
+      const p = await prepareSwap(db, w, { side: 'buy', token: o.token, amount: o.buyAmount ?? undefined, slippageBps: o.slippageBps ?? undefined });
+      const cap = o.maxPriceUsd === null ? null : Number(o.maxPriceUsd);
+      if (cap !== null && p.info.priceUsd !== null && p.info.priceUsd > cap) {
+        note = `Kauf ${nr} übersprungen: Kurs ${p.info.priceUsd.toPrecision(4)} $ über der Preisgrenze ${cap} $`;
+        out.skipped++;
+      } else {
+        const r = await executePreparedSwap(db, p, 'buy', { userId: w.userId, ip: null, actor: 'system', confirmedLive: o.confirmedLive, origin: `DCA ${nr}` });
+        tradeId = r.tradeId;
+        out.bought++;
+        if (w.mode === 'paper') {
+          await notifySafe(db, {
+            userId: w.userId,
+            kind: 'system',
+            title: `DCA-Kauf ${nr}: ${o.symbol}`,
+            body: `${p.quote.inAmount} ${p.quote.inToken.symbol} → ${p.quote.outAmount} ${p.quote.outToken.symbol} (${w.label}, Paper)`,
+            link: '#/traden?tab=wallet',
+          });
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      note = `Kauf ${nr} fehlgeschlagen: ${msg}`;
+      out.failed++;
+      out.errors.push(`DCA ${o.symbol}: ${msg}`);
+      await notifySafe(db, { userId: w.userId, kind: 'system', severity: 'warn', title: `DCA-Kauf ${nr} nicht ausgeführt: ${o.symbol}`, body: `${msg} (${w.label})`, link: '#/traden?tab=wallet' });
+    }
+    await db
+      .update(swapOrders)
+      .set({
+        status: step.done ? 'filled' : 'open',
+        runsDone: step.runsDone,
+        nextRunAt: step.nextRunAt,
+        tradeId,
+        error: note,
+        closedAt: step.done ? now : null,
+      })
+      .where(eq(swapOrders.id, o.id));
+  }
+  return out;
+}
