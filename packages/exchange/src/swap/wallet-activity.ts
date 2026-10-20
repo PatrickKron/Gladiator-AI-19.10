@@ -132,7 +132,8 @@ export async function fetchSolanaWalletSwaps(
   const swaps: ObservedSwap[] = [];
   for (const s of sigs) {
     if (s.err) continue;
-    const tx = (await rpc('getTransaction', [s.signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }], fetchFn)) as ParsedTx | null;
+    // Version 1 = neueste Solana-Transaktionsform (auch v0/legacy werden damit geliefert)
+    const tx = (await rpc('getTransaction', [s.signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 1, commitment: 'confirmed' }], fetchFn)) as ParsedTx | null;
     if (!tx) continue;
     const swap = deriveSwapFromTx(s.signature, tx, owner);
     if (swap) swaps.push(swap);
