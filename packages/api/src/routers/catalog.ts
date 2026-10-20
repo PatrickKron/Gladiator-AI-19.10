@@ -5,6 +5,7 @@ import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { presetBySlug, STRATEGY_PRESETS } from '@gladiator/strategy-engine';
 import { evaluateBacktestValidity, readHoldout, runLabBacktest, type ValidityVerdict } from '@gladiator/backtest';
+import { ensureCandleHistory } from '@gladiator/market-data';
 import { protectedProcedure, router } from '../trpc.js';
 
 const { strategies, strategyVersions, backtests, auditLog } = schema;
@@ -112,6 +113,15 @@ export const catalogRouter = router({
       // 2) ECHTER Backtest über die letzten 12 Monate echte Kerzen
       const to = new Date();
       const from = new Date(to.getTime() - BACKTEST_MONTHS * 30 * 86_400_000);
+      // Fehlende echte Historie (z. B. 15m für Scalp-Presets) einmalig nachladen —
+      // sonst scheitert der Backtest an „zu wenig Kerzen". Nur echte Börsendaten.
+      let history: { before: number; after: number; backfilled: boolean };
+      try {
+        history = await ensureCandleHistory(ctx.db, { symbol: preset.dsl.symbol, timeframe: preset.dsl.timeframe, from, to });
+      } catch (err) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err instanceof Error ? err.message : String(err) });
+      }
+
       let lab;
       try {
         lab = await runLabBacktest(ctx.db, {
@@ -149,6 +159,7 @@ export const catalogRouter = router({
           slug: preset.slug,
           backtestId: lab.backtestId,
           candles: lab.candles,
+          history,
           metrics: lab.result.metrics,
           verdict,
         },

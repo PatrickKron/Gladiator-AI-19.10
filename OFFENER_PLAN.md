@@ -54,7 +54,7 @@
 ## 3 · Signale, die auch genutzt werden
 
 - [x] **304 von 306 Signalen sind unbearbeitet abgelaufen.** Ursache: Engine-Signale werden nur per Bestätigung durch Patrick oder durch seine Agenten ausgeführt (Mensch im Loop, gewollt); ohne Telegram-Benachrichtigung sieht er sie nicht, die Frist (15m 4 h · 1h 12 h · 4h 48 h · 1d 120 h) läuft ab. „Was wäre passiert" gebaut (Session 12): Signale › aufklappbares Panel, abgelaufene Signale mit derselben Backtest-Engine auf den echten Kerzen danach nachgerechnet, netto, hypothetisch markiert. Hebel für mehr genutzte Signale bleibt Punkt 1 (Telegram-Bot).
-- [ ] **Strategie-Katalog:** Aktivierung braucht ≥ 250 echte Kerzen je Symbol/Timeframe — 15m-Historie für Scalp-Presets ggf. nachfüllen.
+- [x] **Strategie-Katalog:** Aktivierung lädt fehlende echte Historie (Abdeckung < 90 % im 12-Monats-Fenster) einmalig von Binance nach, bevor der Backtest läuft (Session 12, `ensureCandleHistory`).
 
 - [x] Nacht-Optimierung → Vorschlag (08 §5) und VDB1/VDB2-Erfahrungsvorschlag im Ticket (13) — PR #3.
 - [x] Handy-Nutzung: PWA + `deploy/MOBILE.md` (`tailscale serve`, einmalig auf dem Server ausführen) — PR #3.
