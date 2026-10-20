@@ -64,6 +64,14 @@ Börsen- und Wallet-Zugänge trägst du nicht in die `.env` ein, sondern in der 
 
 Unter Handel & Vermögen › Wallet-Trading: Token-Adresse einfügen → Preis, Liquidität, Marktkapitalisierung (DexScreener) → Schnellkauf/-verkauf → echte Route über Jupiter (Solana) bzw. KyberSwap (Ethereum, Base, Arbitrum, BSC). Jeder Swap läuft durch das Swap-Gate mit den Grenzen der Wallet (Betrag, Slippage, Preis-Einfluss, Mindest-Liquidität — Profile von Vorsichtig bis Meme-Coins, frei änderbar). Paper-Wallets handeln virtuell zum echten Angebot inkl. Gebühren.
 
+**Eigene Trading-Wallet (echte Swaps)** — nur wenn du als Betreiber `WALLET_KEYS_ENABLED=1` in die `.env` setzt:
+1. Wallet-Trading › „Eigene Wallet (live)“ → **Neue Wallet erzeugen** (empfohlen) oder eine eigens fürs Trading angelegte Wallet importieren. Nie die Haupt-Wallet.
+2. Den angezeigten Schlüssel **sofort sichern** — er erscheint nur einmal. Mit ihm öffnest du die Wallet jederzeit in Phantom/MetaMask und holst Guthaben selbst heraus; Gladiator kann nie überweisen.
+3. Etwas SOL/ETH/BNB an die Adresse senden (Käufe + Netzwerkgebühren).
+4. „FREIGEBEN“ eintippen → Live freigegeben. Jeder Swap wird danach noch einzeln bestätigt.
+
+Der Schlüssel liegt nur verschlüsselt in der Datenbank (AES-256-GCM mit `ENCRYPTION_KEY`). Gebaut werden ausschließlich Aggregator-Swaps mit der eigenen Adresse als Empfänger (Solana: Jupiter, eigene Wallet muss alleiniger Gebührenzahler sein; EVM: nur der offizielle KyberSwap-Router, `approve` exakt in Verkaufshöhe). „Wallet entfernen“ löscht den gespeicherten Schlüssel.
+
 ## Tests
 
 `npm test` läuft gegen die Datenbank aus `DATABASE_URL` und holt die echten Marktdaten, die einzelne Tests brauchen, selbst. Eine Test-Datenbank getrennt vom Betrieb: `TEST_DATABASE_URL` setzen und `scripts/ci.sh` verwenden.
