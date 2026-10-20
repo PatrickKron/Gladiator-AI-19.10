@@ -72,7 +72,8 @@
 - [ ] Positions-Monitor in eigene Queue (läuft hinter RL/ML-Jobs).
 - [ ] CI gegen eigene Test-DB statt Live-DB.
 - [ ] Auto-Login absichern (Rate-Limit, Host-Allowlist) + echtes Passwort.
-- [ ] Chart: Zeichenwerkzeuge, Upgrade lightweight-charts v5, Jesse-artige Trade-Ansicht.
+- [x] Chart: Zeichenwerkzeuge (Horizontale, Trendlinie, Fibonacci, Löschen/Alle löschen; DB `chart_drawings`, Migration 0021, API `drawings.*`, pro Nutzer + Symbol, TF-unabhängig).
+- [ ] Chart: Upgrade lightweight-charts v5, Jesse-artige Trade-Ansicht; Zeichnungen per Ziehen verschieben (API `drawings.update` steht bereit).
 
 - [ ] `apps/web/src/views/Labor.tsx`: Binnentexte auf i18n (5 Sprachen, Paritätstest) und lokale Chart-Kopien auf `components/EquityChart.tsx` umstellen.
 - [ ] Workshop-Antworten streamen (SSE statt Ein-Turn-Antwort).

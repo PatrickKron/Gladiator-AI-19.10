@@ -18,3 +18,4 @@ export * from './intelligence.js';
 export * from './demo.js';
 export * from './exchange-connections.js';
 export * from './portfolio.js';
+export * from './chart-drawings.js';
