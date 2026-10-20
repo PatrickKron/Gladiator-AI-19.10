@@ -9,13 +9,16 @@ import {
   type Time,
   type UTCTimestamp,
 } from 'lightweight-charts';
+import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
+import { barSpacingSec, stepTrade, tradeFocusRange } from '../lib/trade-view.js';
 
 /**
  * Visuelles Backtesting (Feature 1): echte DB-Kerzen über das Backtest-Fenster
  * (rangedCandles) mit Entry/Exit-Markern je Trade. Der ausgewählte Trade zeigt
  * zusätzlich SL/TP als gestrichelte Preislinien und seinen Verlauf (Entry→Exit)
  * als Trade-Bereich. Nichts erfunden — Marker sitzen exakt auf den Signal-Kerzen.
+ * Jesse-artig: Auswahl zoomt den Chart auf den Trade, Vor/Zurück per Knopf oder ←/→.
  */
 
 const C = {
@@ -69,6 +72,7 @@ export function BacktestChart({
   selected: number | null;
   onSelect?: (index: number | null) => void;
 }) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const legendRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -76,6 +80,7 @@ export function BacktestChart({
   const [state, setState] = useState<'loading' | 'ready' | 'empty'>('loading');
   const [truncated, setTruncated] = useState(false);
   const [window, setWindow] = useState<{ first: number; last: number } | null>(null);
+  const [barSec, setBarSec] = useState<number | null>(null);
 
   // ── Kerzen laden + Basis-Chart aufbauen (Symbol/TF/Fenster) ──
   useEffect(() => {
@@ -151,6 +156,7 @@ export function BacktestChart({
         chart.timeScale().fitContent();
         setTruncated(res.truncated);
         setWindow({ first: res.bars[0]!.time, last: res.bars[res.bars.length - 1]!.time });
+        setBarSec(barSpacingSec(res.bars));
         setState('ready');
       })
       .catch(() => {
@@ -206,6 +212,21 @@ export function BacktestChart({
     markers.sort((a, b) => (a.time as number) - (b.time as number));
     candle.setMarkers(markers);
   }, [visibleTrades, selected, state]);
+
+  // ── Auswahl → Chart auf den Trade zoomen; ohne Auswahl wieder alles zeigen ──
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || state !== 'ready') return;
+    const tr = selected === null ? undefined : trades[selected];
+    if (!tr || !barSec || !window) {
+      chart.timeScale().fitContent();
+      return;
+    }
+    const r = tradeFocusRange(toSec(tr.entryTs), toSec(tr.exitTs), barSec, 15, window);
+    chart.timeScale().setVisibleRange({ from: r.from as UTCTimestamp, to: r.to as UTCTimestamp });
+  }, [selected, trades, state, barSec, window]);
+
+  const step = (delta: 1 | -1) => onSelect?.(stepTrade(selected, delta, trades.length));
 
   // ── Ausgewählter Trade: SL/TP-Preislinien + Entry→Exit-Bereich ──
   useEffect(() => {
@@ -263,29 +284,55 @@ export function BacktestChart({
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]" style={{ color: C.mut }}>
-        <span><span style={{ color: C.green }}>▲</span> Long-Entry</span>
-        <span><span style={{ color: C.red }}>▼</span> Short-Entry</span>
-        <span><span style={{ color: C.green }}>●</span> Exit im Gewinn</span>
-        <span><span style={{ color: C.red }}>●</span> Exit im Verlust</span>
-        <span>Kerze/Trade anklicken → SL/TP-Linien</span>
+        <span><span style={{ color: C.green }}>▲</span> {t('labor.btLongEntry')}</span>
+        <span><span style={{ color: C.red }}>▼</span> {t('labor.btShortEntry')}</span>
+        <span><span style={{ color: C.green }}>●</span> {t('labor.btExitWin')}</span>
+        <span><span style={{ color: C.red }}>●</span> {t('labor.btExitLoss')}</span>
+        <span>{t('labor.btHint')}</span>
+        {onSelect && trades.length > 0 && (
+          <span className="ml-auto flex items-center gap-1.5">
+            <button type="button" onClick={() => step(-1)} disabled={selected === 0} className="rounded border px-2 py-0.5 disabled:opacity-40" style={{ borderColor: 'var(--color-line)', color: 'var(--color-cyan)' }} aria-label={t('labor.btPrev')} title={t('labor.btPrev')}>
+              ←
+            </button>
+            <span className="num">{selected === null ? '—' : selected + 1} / {trades.length}</span>
+            <button type="button" onClick={() => step(1)} disabled={selected === trades.length - 1} className="rounded border px-2 py-0.5 disabled:opacity-40" style={{ borderColor: 'var(--color-line)', color: 'var(--color-cyan)' }} aria-label={t('labor.btNext')} title={t('labor.btNext')}>
+              →
+            </button>
+            {selected !== null && (
+              <button type="button" onClick={() => onSelect(null)} className="rounded border px-2 py-0.5" style={{ borderColor: 'var(--color-line)' }}>
+                {t('labor.btShowAll')}
+              </button>
+            )}
+          </span>
+        )}
       </div>
       {state === 'loading' && (
-        <div className="flex h-[360px] items-center justify-center text-sm" style={{ color: C.mut }}>Kerzen laden …</div>
+        <div className="flex h-[360px] items-center justify-center text-sm" style={{ color: C.mut }}>{t('labor.btLoading')}</div>
       )}
       {state === 'empty' && (
         <div className="flex h-[200px] items-center justify-center rounded border p-4 text-center text-sm" style={{ borderColor: 'var(--color-line)', color: C.mut }}>
-          Keine Kerzen im Backtest-Fenster für {symbol} · {timeframe}.
+          {t('labor.btEmpty', { symbol, tf: timeframe })}
         </div>
       )}
       <div style={{ display: state === 'ready' ? 'block' : 'none' }}>
-        <div className="relative">
+        <div
+          className="relative outline-none"
+          tabIndex={onSelect && trades.length > 0 ? 0 : undefined}
+          aria-label={t('labor.btKeys')}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+              e.preventDefault();
+              step(e.key === 'ArrowRight' ? 1 : -1);
+            }
+          }}
+        >
           <div ref={legendRef} className="num pointer-events-none absolute left-2 top-1 z-10 text-[11px]" style={{ opacity: 0 }} />
           <div ref={containerRef} className="w-full overflow-hidden rounded" style={{ background: 'rgba(4,6,20,0.45)' }} />
         </div>
         <p className="label mt-1.5 px-2">
-          {visibleTrades.length} von {trades.length} Trades im Chartfenster
-          {truncated && ' · Fenster gekürzt (zu viele Kerzen — jüngeren Zeitraum wählen)'}
-          {selected !== null && trades[selected] && ` · fokussiert: Trade #${selected + 1}`}
+          {t('labor.btInWindow', { visible: visibleTrades.length, total: trades.length })}
+          {truncated && ` · ${t('labor.btTruncated')}`}
+          {selected !== null && trades[selected] && ` · ${t('labor.btFocused', { n: selected + 1 })}`}
         </p>
       </div>
     </div>
