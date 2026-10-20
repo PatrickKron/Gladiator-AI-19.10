@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
+import { TokenChart } from '../components/TokenChart.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
 import { bpsLabel, fmtAmount, fmtPct, fmtUsd, slippageChoices, swapReasonKey } from '../lib/swap-format.js';
@@ -329,6 +330,7 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
               <Stat label={t('swap.pairAge')} value={token.pairCreatedAt ? new Date(token.pairCreatedAt).toLocaleDateString(lang) : '—'} />
             </dl>
             <SafetyBadges safety={safety} />
+            {token.pairAddress && <TokenChart key={token.pairAddress} chain={wallet.chain} pool={token.pairAddress} />}
 
             <p className="label mt-4">{t('swap.buyWith', { symbol: chain.native.symbol })}</p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">

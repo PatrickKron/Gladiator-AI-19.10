@@ -23,6 +23,13 @@ export function fmtAmount(amount: string, locale: string): string {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: Math.abs(n) >= 1_000 ? 2 : 6 }).format(n);
 }
 
+/** Nachkommastellen für Chart-Preise: 4 signifikante Stellen bei kleinen Preisen (0,00002134), max. 12. */
+export function pricePrecision(price: number): number {
+  if (!(price > 0) || !Number.isFinite(price)) return 2;
+  if (price >= 1) return price >= 1_000 ? 2 : 4;
+  return Math.min(12, Math.ceil(-Math.log10(price)) + 3);
+}
+
 const SLIPPAGE_STEPS = [10, 50, 100, 300, 500, 1_000, 1_500, 3_000, 5_000];
 
 /** Slippage-Schnellwahl: Standardstufen bis zur eigenen Obergrenze, die Obergrenze selbst immer dabei. */

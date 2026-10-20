@@ -1923,6 +1923,7 @@ export const it: Catalog = {
     err_unknown: 'Errore sconosciuto.',
   },
   swap: {
+    noCandles: "Nessuna candela per questo pool (ancora).",
     ordersTitle: "Ordini limite e auto-vendita",
     kind_take_profit: "Take profit",
     kind_stop_loss: "Stop loss",

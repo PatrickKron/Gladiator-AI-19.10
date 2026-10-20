@@ -1922,6 +1922,7 @@ export const de = {
     err_unknown: 'Unbekannter Fehler.',
   },
   swap: {
+    noCandles: "Für diesen Pool gibt es (noch) keine Kerzen.",
     ordersTitle: "Limit-Orders & Auto-Sell",
     kind_take_profit: "Take-Profit",
     kind_stop_loss: "Stop-Loss",
