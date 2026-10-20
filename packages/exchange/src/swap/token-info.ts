@@ -19,6 +19,8 @@ export type TokenInfo = SwapToken & {
   volume24hUsd: number | null;
   change24hPct: number | null;
   pairUrl: string | null;
+  /** Adresse des liquidesten Pools (für Kerzen über GeckoTerminal) */
+  pairAddress: string | null;
   dex: string | null;
   pairCreatedAt: string | null;
   imageUrl: string | null;
@@ -29,6 +31,7 @@ type Fetch = typeof fetch;
 type DexPair = {
   chainId?: string;
   dexId?: string;
+  pairAddress?: string;
   url?: string;
   baseToken?: { address?: string; name?: string; symbol?: string };
   priceUsd?: string;
@@ -110,6 +113,7 @@ export async function fetchTokenInfo(chain: SwapChainId, address: string, fetchF
     volume24hUsd: num(best?.volume?.h24),
     change24hPct: num(best?.priceChange?.h24),
     pairUrl: best?.url ?? null,
+    pairAddress: best?.pairAddress ?? null,
     dex: best?.dexId ?? null,
     pairCreatedAt: best?.pairCreatedAt ? new Date(best.pairCreatedAt).toISOString() : null,
     imageUrl: best?.info?.imageUrl ?? null,

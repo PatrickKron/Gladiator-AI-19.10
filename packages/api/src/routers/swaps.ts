@@ -22,7 +22,10 @@ import {
   encryptSecret,
   generateWalletKey,
   importWalletKey,
+  fetchTokenCandles,
   fetchTokenPrices,
+  TOKEN_CHART_TIMEFRAMES,
+  type TokenCandle,
   fromAtomic,
   fundPaperWallet,
   isNativeToken,
@@ -44,6 +47,9 @@ const { swapWallets, swapTrades, swapOrders, auditLog } = schema;
  */
 
 export { setSwapFetchForTests, setLiveSwapExecutorForTests } from '@gladiator/jobs';
+
+const CANDLE_TTL_MS = 60_000;
+const candleCache = new Map<string, { at: number; candles: TokenCandle[] }>();
 
 /** SwapError des Dienstes → tRPC-Fehler (gleicher Code, gleiche Meldung). */
 function asTrpc(err: unknown): never {
@@ -500,4 +506,20 @@ export const swapsRouter = router({
     if (rows.length === 0) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Order ist nicht mehr offen.' });
     return { ok: true };
   }),
+
+  /** Echte Kerzen des Token-Pools (GeckoTerminal) für den Chart im Ticket; 60 s gecacht (freies Abruf-Limit). */
+  candles: protectedProcedure
+    .input(z.object({ chain: chainSchema, pool: z.string().min(32).max(90), tf: z.enum(TOKEN_CHART_TIMEFRAMES) }))
+    .query(async ({ input }) => {
+      const key = `${input.chain}:${input.pool}:${input.tf}`;
+      const hit = candleCache.get(key);
+      if (hit && Date.now() - hit.at < CANDLE_TTL_MS) return hit.candles;
+      try {
+        const candles = await fetchTokenCandles(input.chain, input.pool, input.tf, swapNet());
+        candleCache.set(key, { at: Date.now(), candles });
+        return candles;
+      } catch (err) {
+        return asTrpc(netError(err));
+      }
+    }),
 });

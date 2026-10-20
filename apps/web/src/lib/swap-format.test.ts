@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { de } from '../i18n/de.js';
-import { bpsLabel, fmtAmount, fmtUsd, slippageChoices, swapReasonKey } from './swap-format.js';
+import { bpsLabel, fmtAmount, fmtUsd, pricePrecision, slippageChoices, swapReasonKey } from './swap-format.js';
 
 describe('swap-format', () => {
   it('fmtUsd: normale Beträge, Meme-Preise, kompakt', () => {
@@ -15,6 +15,15 @@ describe('swap-format', () => {
     expect(fmtAmount('0.5', 'de')).toBe('0,5');
     expect(fmtAmount('0.000012345', 'en')).toBe('0.00001235');
     expect(fmtAmount('kaputt', 'de')).toBe('kaputt');
+  });
+
+  it('pricePrecision: Meme-Preise mit genug Stellen, große Preise mit 2', () => {
+    expect(pricePrecision(0.00002134)).toBe(8); // 0,00002134
+    expect(pricePrecision(0.5)).toBe(4);
+    expect(pricePrecision(150)).toBe(4);
+    expect(pricePrecision(65_000)).toBe(2);
+    expect(pricePrecision(1e-20)).toBe(12);
+    expect(pricePrecision(Number.NaN)).toBe(2);
   });
 
   it('Slippage-Auswahl endet an der eigenen Obergrenze', () => {
