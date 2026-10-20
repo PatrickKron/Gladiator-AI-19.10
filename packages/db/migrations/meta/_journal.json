@@ -169,6 +169,20 @@
       "when": 1792512327978,
       "tag": "0023_funny_madame_masque",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1792513059096,
+      "tag": "0024_windy_carlie_cooper",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1792513124631,
+      "tag": "0025_old_roulette",
+      "breakpoints": true
     }
   ]
 }

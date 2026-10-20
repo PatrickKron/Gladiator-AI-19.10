@@ -19,3 +19,4 @@ export * from './demo.js';
 export * from './exchange-connections.js';
 export * from './portfolio.js';
 export * from './chart-drawings.js';
+export * from './notifications.js';

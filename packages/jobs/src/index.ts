@@ -3,6 +3,7 @@ export { startJobWorker } from './worker.js';
 export { reviewNewSignals, buildDevilEvidence, type ReviewResult } from './review.js';
 export { runDslScan, type DslScanResult } from './dsl-scan.js';
 export { escapeHtml, formatEmergencyAlert, formatKillSwitchAlert, formatSignalAlert, sendTelegram, telegramConfigured, type SignalAlertData } from './telegram.js';
+export { notify, notifySafe, pushConfig, pushPayload, telegramHtmlToText, type NotifyEvent, type NotifyKind, type PushSender } from './notify.js';
 export { buildBriefing, latestBriefing, renderBriefing, runNightPipeline, type BriefingData, type NightPipelineResult } from './briefing.js';
 export { enqueueRlEpisodeRun, workerHeartbeatAgeSec, workerHeartbeatAgeSecAsync } from './worker.js';
 export { explainForUser, deterministicExplanation, buildExplanationMessages, sanitizeExplanation, type ExplanationFacts } from './explanation.js';

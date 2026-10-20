@@ -37,7 +37,7 @@
 
 - [x] **1 · Hebel im Order-Ticket + Limit-Profile** (Session 12): Demo-Konto mit Isolated Margin (Margin = Notional/Hebel, Liquidationspreis, Monitor liquidiert, Verlust ≤ Margin), Hebel-Schnellwahl bis zur eigenen Obergrenze, Risiko-Profile in Einstellungen › Trading.
 - [x] **2 · Börsen-Vergleich + Auswahl im Ticket** (Session 12): `market.venueQuotes` (8 Börsen, öffentliche Kurse, effektiver Preis inkl. Taker-Gebühr, Funding/max. Hebel bei Perps, 15-s-Cache, „verbunden“-Hinweis); Demo-Order läuft gegen das echte Buch der gewählten Börse (Spalte `venue`, Migration 0023). Nächste Stufe: dieselbe Auswahl im Live-Ticket, sobald Punkt 5/Live-Freigabe steht.
-- [ ] **3 · Benachrichtigungen in der App + Web-Push** (Telegram optional).
+- [x] **3 · Benachrichtigungen in der App + Web-Push** (Session 12): `notify()` in @gladiator/jobs = EINE Stelle für Signale, Preis-Alarme, Notfälle, Kill-Switch, Briefing → Tabelle `notifications` (Glocke in der Kopfleiste) + Web-Push (`push_subscriptions`, VAPID) + optional Telegram. **Server einmalig:** `npm run push:keys` → VAPID_* in die `.env`, API + Worker neu starten; danach in der Glocke „Push auf diesem Gerät aktivieren“ (iPhone: vorher zum Home-Bildschirm hinzufügen).
 - [ ] **4 · CI mit echten Daten + Selbsthoster-Setup** (Tests holen echte Daten selbst von erreichbarer öffentlicher Quelle; Setup-Skript füllt Startdaten; nichts wird ausgeklammert).
 - [ ] **5 · Wallet-Trading**: zuerst Hyperliquid mit Agent-Wallet (kann handeln, nie abheben), danach Spot/Memecoins (Solana/Jupiter, EVM/Uniswap) mit eigener Trading-Wallet. **Offen:** Patricks Zustimmung zur verschlüsselten Schlüssel-Ablage auf dem Server. **Achtung:** `packages/risk/CLAUDE.md` verbietet bisher hart „Swaps“ — für Spot-Swaps muss Patrick diese Regel ausdrücklich anpassen. Echte Orders nur gemeinsam (Cloud-Umgebung blockt sie).
 
@@ -46,7 +46,7 @@
 - [ ] **Auto-Deploy GitHub → Server einmalig installieren** (`deploy/install-github-sync.sh` auf dem Server + read-only Deploy-Key bei GitHub eintragen). Bis dahin deployt eine lokale Sitzung: `git pull origin main && git push server main`. Damit geht auch PR #1 live.
 
 - [ ] **ANTHROPIC_API_KEY** in Einstellungen → API-Keys → schaltet Pine-Analyse, Workshop-Dialog, Text→Strategie, Makro-/Shadow-Agent, Signal-Erklärung frei.
-- [ ] **Neuer Telegram-Bot** (BotFather) → `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` → Signal-/Preis-/Kill-Switch-Alarme + Morgen-Briefing aufs Handy.
+- [ ] *(optional seit Vision-Punkt 3 — Benachrichtigungen kommen in der App + per Push)* **Neuer Telegram-Bot** (BotFather) → `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` → Signal-/Preis-/Kill-Switch-Alarme + Morgen-Briefing aufs Handy.
 - [ ] **Alt-Secrets aus v1 widerrufen** (Telegram-Token, OpenAI `sk-proj-…`, OKX-Keys), danach `backend-node/.env` im v1-Ordner löschen — einziger offener Punkt der Sicherheits-Checkliste (`SECURITY.md` #1).
 - [ ] Optional: `HEALTHCHECKS_URL` (externer Dead-Man-Switch) · erste Börse unter Einstellungen → „Börse verbinden" (API-Key OHNE Withdraw-Recht).
 - [ ] GitHub-Repo auf **privat** stellen (enthält Server-IP, Deploy-Skripte, Sicherheits-Doku — keine Secrets).

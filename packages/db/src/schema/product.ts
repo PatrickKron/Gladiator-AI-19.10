@@ -123,7 +123,11 @@ export const newsletterSubscribers = pgTable('newsletter_subscribers', {
   unsubscribedAt: timestamp('unsubscribed_at', { withTimezone: true }),
 });
 
-/** Web-Push-Subscriptions. */
+/**
+ * Web-Push-Abos je Gerät (Browser-PushSubscription; `keys` = { p256dh, auth }).
+ * Zustellung über @gladiator/jobs notify(): abgelaufene Abos (404/410) werden
+ * widerrufen (`revokedAt`), andere Fehler gezählt.
+ */
 export const pushSubscriptions = pgTable(
   'push_subscriptions',
   {
@@ -132,7 +136,10 @@ export const pushSubscriptions = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     endpoint: text('endpoint').notNull().unique(),
-    keys: jsonb('keys').notNull(),
+    keys: jsonb('keys').$type<{ p256dh: string; auth: string }>().notNull(),
+    userAgent: text('user_agent'),
+    failureCount: integer('failure_count').notNull().default(0),
+    lastSuccessAt: timestamp('last_success_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
   },

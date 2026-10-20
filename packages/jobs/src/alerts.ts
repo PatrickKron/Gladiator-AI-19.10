@@ -2,7 +2,8 @@ import { and, eq } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import type { TradingVenue } from '@gladiator/exchange';
-import { escapeHtml, sendTelegram } from './telegram.js';
+import { escapeHtml } from './telegram.js';
+import { notifySafe, telegramHtmlToText } from './notify.js';
 
 const { priceAlerts, auditLog } = schema;
 
@@ -44,11 +45,18 @@ export async function checkPriceAlerts(db: Db, venue: TradingVenue): Promise<{ c
       .where(and(eq(priceAlerts.id, alert.id), eq(priceAlerts.active, true)));
     result.triggered++;
 
-    await sendTelegram(
+    const alertHtml =
       `🔔 <b>Preis-Alert</b> ${escapeHtml(alert.symbol)}: Kurs ${price.toLocaleString('de-DE')} ` +
-        `${alert.condition === 'above' ? '≥' : '≤'} Ziel ${Number(alert.price).toLocaleString('de-DE')}` +
-        (alert.note ? `\n📝 ${escapeHtml(alert.note)}` : ''),
-    );
+      `${alert.condition === 'above' ? '≥' : '≤'} Ziel ${Number(alert.price).toLocaleString('de-DE')}` +
+      (alert.note ? `\n📝 ${escapeHtml(alert.note)}` : '');
+    await notifySafe(db, {
+      userId: alert.userId,
+      kind: 'price_alert',
+      title: `Preis-Alarm ${alert.symbol}`,
+      body: telegramHtmlToText(alertHtml),
+      link: `#/charts?symbol=${encodeURIComponent(alert.symbol)}`,
+      telegramHtml: alertHtml,
+    });
     await db.insert(auditLog).values({
       actor: 'system',
       userId: alert.userId,

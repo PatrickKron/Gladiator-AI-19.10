@@ -19,7 +19,8 @@
     "db:migrate": "npm run migrate -w @gladiator/db",
     "db:seed": "npm run seed -w @gladiator/db",
     "build:web": "npm run build -w web",
-    "auth:set-password": "npm run auth:set-password -w @gladiator/api --"
+    "auth:set-password": "npm run auth:set-password -w @gladiator/api --",
+    "push:keys": "npm run push:keys -w @gladiator/jobs"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",

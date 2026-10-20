@@ -36,7 +36,8 @@ import {
   type MarketRegimeName,
   type SignalFacts,
 } from '@gladiator/agents';
-import { formatSignalAlert, sendTelegram } from './telegram.js';
+import { formatSignalAlert } from './telegram.js';
+import { notifySafe, telegramHtmlToText } from './notify.js';
 import { explainForUser } from './explanation.js';
 
 const { signals, signalReviews, studyTrades, users, auditLog, marketRegimes, signalIntelligence } = schema;
@@ -364,9 +365,8 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue): Promise<Rev
           },
         });
 
-      // Telegram-Alert (Phase 7): echtes Signal + Schwarm-Urteil; Fehler crashen nie den Review.
-      await sendTelegram(
-        formatSignalAlert({
+      // Benachrichtigung (App + Push + optional Telegram): echtes Signal + Schwarm-Urteil; Fehler crashen nie den Review.
+      const signalHtml = formatSignalAlert({
           symbol: facts.symbol,
           timeframe: facts.timeframe,
           direction: facts.direction,
@@ -379,8 +379,14 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue): Promise<Rev
           portfolioVote: portfolio.vote,
           portfolioConfidence: portfolio.confidence,
           disabledAgents: disabled.map((d) => d.agent),
-        }),
-      );
+        });
+      await notifySafe(db, {
+        kind: 'signal',
+        title: `${facts.symbol} ${facts.direction === 'long' ? 'Long' : 'Short'} · ${facts.timeframe} · Score ${facts.score.toFixed(1)}`,
+        body: telegramHtmlToText(signalHtml),
+        link: '#/signals',
+        telegramHtml: signalHtml,
+      });
 
       await db.insert(auditLog).values({
         actor: 'system',

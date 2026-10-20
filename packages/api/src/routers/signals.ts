@@ -11,7 +11,7 @@ import {
 } from '@gladiator/exchange';
 import { evaluateRisk, exposureFit } from '@gladiator/risk';
 import { leverageUpgradeSchema, reentrySchema } from '@gladiator/core';
-import { formatEmergencyAlert, sendTelegram } from '@gladiator/jobs';
+import { formatEmergencyAlert, notifySafe, telegramHtmlToText } from '@gladiator/jobs';
 import { getEurUsdRate } from '@gladiator/market-data';
 import { evaluateExpiredSignals, getOptimalParams, MIN_TRADES_PER_CLUSTER, type OptimalParams } from '@gladiator/backtest';
 import { buildClusterKey } from '@gladiator/strategy-engine';
@@ -394,7 +394,16 @@ export const signalsRouter = router({
 
       if (execution.emergency) {
         // Notfall: Stop nicht platzierbar → Executor hat glattgestellt (oder meldet UNGESCHÜTZT).
-        void sendTelegram(formatEmergencyAlert(updated.symbol, execution.detail, execution.emergency.closed));
+        const emergencyHtml = formatEmergencyAlert(updated.symbol, execution.detail, execution.emergency.closed);
+        void notifySafe(ctx.db, {
+          userId: ctx.user.id,
+          kind: 'emergency',
+          severity: 'critical',
+          title: `Notfall ${updated.symbol}`,
+          body: telegramHtmlToText(emergencyHtml),
+          link: '#/trading',
+          telegramHtml: emergencyHtml,
+        });
       } else if (!execution.executed) {
         // Gate hat geblockt → Signal bleibt handlungsfähig ('new'), Gründe an die UI
         await resetToNew();
