@@ -443,4 +443,5 @@ Volle Suite: 1345 grün, 4 rot nur umgebungsbedingt (review, signal-scan „BASI
   - **Labor i18n (Agent):** 144 Schlüssel in 5 Sprachen; CSV-Kopf bleibt fest.
   - **Orderbuch-Ansicht:** `summarizeBook` (rein, 5 Tests), `market.orderBook`, `OrderBookPanel` unter dem Chart; Preisgenauigkeit aus den echten Leveln (Fund im Screenshot: sonst doppelte Stufen). Lokal ohne Binance ehrlich „nicht verbunden“; Darstellung mit abgefangenem Test-Buch geprüft.
   - **Zeichnungen verschieben:** Werkzeug „Verschieben“ (Pointer-Events am Chart, Scrollen währenddessen aus), `translatePoints` (rein, 4 Tests), optimistisch gespeichert über `drawings.update`, bei Fehler zurück. Per Playwright geprüft: Linie gezogen, gespeichert, Chart scrollt nicht mit.
+  - **Katalog-Historie:** `ensureCandleHistory` (market-data, 4 Tests, Nachlader injiziert) vor dem Aktivierungs-Backtest; nur echte Börsenkerzen, Datenqualitäts-Prüfung bleibt; Ergebnis im Audit (`history`).
 

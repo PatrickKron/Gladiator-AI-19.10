@@ -160,3 +160,4 @@ export {
   type FredFetcher,
   type FredWatchEntry,
 } from './fred-watchlist.js';
+export { ensureCandleHistory, coverageRatio, MIN_COVERAGE, type Backfiller } from './ensure-history.js';
