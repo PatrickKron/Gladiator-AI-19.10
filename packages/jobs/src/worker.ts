@@ -19,15 +19,21 @@ import { runStrategyOptimization } from './optimization.js';
 
 /**
  * BullMQ-Worker (04_ §2: robuste Jobs statt loser Loops — der v1-Fehler).
- * signal-scan 5 min · position-monitor 1 min · macro-sync 30 min ·
+ * signal-scan 5 min · position-monitor 1 min (eigene Queue) · macro-sync 30 min ·
  * calendar-sync 60 min · news-sync 15 min · derivatives-sync 30 min ·
  * signal-lifecycle 1 min (05_ §9: Auto-Kill, Reentry, Leverage-Upgrade).
  * strategy-optimize So 03:00 UTC (nur Vorschläge, Mensch promotet).
  */
 
-const QUEUE_NAME = 'gladiator-jobs';
+export const QUEUE_NAME = 'gladiator-jobs';
+/**
+ * Eigene Queue für den Positions-Monitor (SL/TP, Trailing, Notfall-Pfad):
+ * Die Haupt-Queue läuft mit concurrency 1, CPU-schwere Jobs (RL-Episoden,
+ * ML-Retrain, Optimierung) dauern Minuten — der Monitor darf nie dahinter warten.
+ */
+export const FAST_QUEUE_NAME = 'gladiator-monitor';
 const SCAN_JOB = 'signal-scan';
-const MONITOR_JOB = 'position-monitor';
+export const MONITOR_JOB = 'position-monitor';
 const MACRO_JOB = 'macro-sync';
 const CALENDAR_JOB = 'calendar-sync';
 const NEWS_JOB = 'news-sync';
@@ -114,9 +120,8 @@ async function pingDeadMansSwitch(): Promise<void> {
   }
 }
 
-const SCHEDULES: [string, number][] = [
+export const SCHEDULES: [string, number][] = [
   [SCAN_JOB, 5 * 60_000],
-  [MONITOR_JOB, 60_000],
   [MACRO_JOB, 30 * 60_000],
   [CALENDAR_JOB, 60 * 60_000],
   [NEWS_JOB, 15 * 60_000],
@@ -132,6 +137,9 @@ const SCHEDULES: [string, number][] = [
   // Zusatzläufe (Neustart) sind unschädlich: die Hebel-Stufengrenze bezieht sich auf die Vorwoche.
   [STUDY_CLUSTER_JOB, 7 * 24 * 60 * 60_000],
 ];
+
+/** Schnelle Queue: nur der Positions-Monitor, jede Minute. */
+export const FAST_SCHEDULES: [string, number][] = [[MONITOR_JOB, 60_000]];
 
 /** Nacht-Pipeline: täglich 03:30 UTC (08_ §5) — Cron statt Intervall. */
 const NIGHT_CRON = '30 3 * * *';
@@ -168,9 +176,17 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
   const connection = redisConnection();
   const queue = new Queue(QUEUE_NAME, { connection });
 
+  const fastQueue = new Queue(FAST_QUEUE_NAME, { connection });
+
   for (const [name, every] of SCHEDULES) {
     await queue.upsertJobScheduler(name, { every }, { name });
   }
+  for (const [name, every] of FAST_SCHEDULES) {
+    await fastQueue.upsertJobScheduler(name, { every }, { name });
+  }
+  // Altbestand: der Monitor-Takt lag früher in der Haupt-Queue → dort entfernen (idempotent),
+  // sonst liefe er doppelt.
+  await queue.removeJobScheduler(MONITOR_JOB);
   await queue.upsertJobScheduler(NIGHT_JOB, { pattern: NIGHT_CRON }, { name: NIGHT_JOB });
   await queue.upsertJobScheduler(OPTIMIZE_JOB, { pattern: OPTIMIZE_CRON }, { name: OPTIMIZE_JOB });
   await queue.upsertJobScheduler(ML_RETRAIN_JOB, { pattern: ML_RETRAIN_CRON }, { name: ML_RETRAIN_JOB });
@@ -209,34 +225,6 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
             console.log(`[signal-review] bewertet=${rev.reviewed} Fehler=${rev.errors.length}`);
             for (const e of rev.errors) console.warn('[signal-review]', e);
           }
-          return res;
-        }
-        case MONITOR_JOB: {
-          const res = await monitorOpenPositions(db, venue);
-          if (res.fills > 0) {
-            console.log(`[position-monitor] ${new Date().toISOString()} Positionen=${res.checked} Fills=${res.fills}`);
-          }
-          const alerts = await checkPriceAlerts(db, venue);
-          if (alerts.triggered > 0) console.log(`[price-alerts] ausgelöst=${alerts.triggered}`);
-          for (const e of alerts.errors) console.warn('[price-alerts]', e);
-          // Demo-Modus (Session 5): ruhende Limit-Orders + SL/TP gegen echte
-          // Orderbücher — fehlerisoliert, darf Monitor/Heartbeat nie blockieren.
-          try {
-            const demo = await monitorDemoTick(db, binanceBookSource());
-            if (demo.orderFills > 0 || demo.triggeredCloses > 0) {
-              console.log(`[demo-monitor] Fills=${demo.orderFills} SL/TP-Closes=${demo.triggeredCloses}`);
-            }
-          } catch (err) {
-            console.warn('[demo-monitor] Tick fehlgeschlagen:', String(err));
-          }
-          lastHeartbeat = new Date();
-          // Heartbeat auch nach Redis — sichtbar für den getrennten Web-Prozess (/health).
-          try {
-            await (await queue.client).set(HEARTBEAT_KEY, String(Date.now()));
-          } catch {
-            // Redis-Schluckauf ist kein Job-Fehler; /health meldet dann ehrlich null/degraded.
-          }
-          await pingDeadMansSwitch();
           return res;
         }
         case NIGHT_JOB: {
@@ -428,6 +416,44 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
     console.error(`[jobs] ${job?.name ?? '?'} fehlgeschlagen:`, err.message);
   });
 
+  // Schneller Worker nur für den Positions-Monitor — unabhängig vom Rückstau der Haupt-Queue.
+  const fastWorker = new Worker(
+    FAST_QUEUE_NAME,
+    async (job) => {
+      if (job.name !== MONITOR_JOB) return;
+      const res = await monitorOpenPositions(db, venue);
+      if (res.fills > 0) {
+        console.log(`[position-monitor] ${new Date().toISOString()} Positionen=${res.checked} Fills=${res.fills}`);
+      }
+      const alerts = await checkPriceAlerts(db, venue);
+      if (alerts.triggered > 0) console.log(`[price-alerts] ausgelöst=${alerts.triggered}`);
+      for (const e of alerts.errors) console.warn('[price-alerts]', e);
+      // Demo-Modus (Session 5): ruhende Limit-Orders + SL/TP gegen echte
+      // Orderbücher — fehlerisoliert, darf Monitor/Heartbeat nie blockieren.
+      try {
+        const demo = await monitorDemoTick(db, binanceBookSource());
+        if (demo.orderFills > 0 || demo.triggeredCloses > 0) {
+          console.log(`[demo-monitor] Fills=${demo.orderFills} SL/TP-Closes=${demo.triggeredCloses}`);
+        }
+      } catch (err) {
+        console.warn('[demo-monitor] Tick fehlgeschlagen:', String(err));
+      }
+      lastHeartbeat = new Date();
+      // Heartbeat auch nach Redis — sichtbar für den getrennten Web-Prozess (/health).
+      try {
+        await (await queue.client).set(HEARTBEAT_KEY, String(Date.now()));
+      } catch {
+        // Redis-Schluckauf ist kein Job-Fehler; /health meldet dann ehrlich null/degraded.
+      }
+      await pingDeadMansSwitch();
+      return res;
+    },
+    { connection, concurrency: 1, lockDuration: 60_000, maxStalledCount: 2 },
+  );
+  fastWorker.on('failed', (job, err) => {
+    console.error(`[jobs] ${job?.name ?? '?'} fehlgeschlagen:`, err.message);
+  });
+
   // Sofort-Läufe beim Start, damit die UI nicht auf den ersten Takt wartet
   await queue.add(SCAN_JOB, {});
   await queue.add(MACRO_JOB, {});
@@ -437,7 +463,9 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
 
   return {
     stop: async () => {
+      await fastWorker.close();
       await worker.close();
+      await fastQueue.close();
       await queue.close();
     },
   };
