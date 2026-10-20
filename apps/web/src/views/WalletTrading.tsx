@@ -891,7 +891,9 @@ function LimitsPanel({ config, wallet, onSaved }: { config: Config; wallet: Wall
   );
 }
 
-const ORDER_KINDS: OrderKind[] = ['take_profit', 'stop_loss', 'trailing_stop', 'limit_buy'];
+const ORDER_KINDS: OrderKind[] = ['take_profit', 'stop_loss', 'trailing_stop', 'limit_buy', 'dca'];
+/** DCA-Abstände in Minuten */
+const DCA_INTERVALS = [15, 60, 240, 720, 1440, 10_080];
 
 /**
  * Limit-Order / Auto-Sell zum gewählten Token anlegen. Ziel als Abstand zum
@@ -919,14 +921,23 @@ function OrderForm({
   const [sellPercent, setSellPercent] = useState(100);
   const [buyAmount, setBuyAmount] = useState('0.1');
   const [confirmLive, setConfirmLive] = useState(false);
+  const [interval, setIntervalMin] = useState(240);
+  const [runs, setRuns] = useState('6');
+  const [capPct, setCapPct] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const price = token.priceUsd!;
+  const dca = kind === 'dca';
+  const runsN = Number(runs);
+  const cap = capPct.trim() === '' ? null : price * (1 + Number(capPct.replace(',', '.')) / 100);
+  const amountN = Number(buyAmount.replace(',', '.'));
   const off = Number(offset.replace(',', '.'));
   const sign = kind === 'take_profit' ? 1 : -1;
   const trigger = kind === 'trailing_stop' ? null : price * (1 + (sign * off) / 100);
-  const needsHolding = kind !== 'limit_buy';
-  const valid = Number.isFinite(off) && off > 0 && (kind === 'take_profit' || off < 100) && (!needsHolding || held);
+  const needsHolding = kind !== 'limit_buy' && !dca;
+  const valid = dca
+    ? amountN > 0 && Number.isInteger(runsN) && runsN >= 2 && runsN <= 500 && (cap === null || (Number.isFinite(cap) && cap > 0))
+    : Number.isFinite(off) && off > 0 && (kind === 'take_profit' || off < 100) && (!needsHolding || held);
 
   async function create() {
     setBusy(true);
@@ -936,10 +947,13 @@ function OrderForm({
         walletId: wallet.id,
         token: token.address,
         kind,
-        triggerPriceUsd: trigger ?? undefined,
+        triggerPriceUsd: dca ? undefined : (trigger ?? undefined),
         trailPct: kind === 'trailing_stop' ? off : undefined,
         sellPercent: needsHolding ? sellPercent : undefined,
-        buyAmount: kind === 'limit_buy' ? buyAmount.replace(',', '.') : undefined,
+        buyAmount: kind === 'limit_buy' || dca ? buyAmount.replace(',', '.') : undefined,
+        intervalMinutes: dca ? interval : undefined,
+        runsTotal: dca ? runsN : undefined,
+        maxPriceUsd: dca && cap !== null ? cap : undefined,
         slippageBps,
         confirmLive: wallet.mode === 'live' ? confirmLive : undefined,
       });
@@ -972,6 +986,32 @@ function OrderForm({
           </button>
         ))}
       </div>
+      {dca ? (
+        <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+          <label>
+            {t('swap.buyAmount', { symbol: nativeSymbol })}
+            <input className={field} value={buyAmount} inputMode="decimal" onChange={(e) => setBuyAmount(e.target.value)} />
+          </label>
+          <label>
+            {t('swap.dcaInterval')}
+            <select className={field} value={interval} onChange={(e) => setIntervalMin(Number(e.target.value))}>
+              {DCA_INTERVALS.map((m) => (
+                <option key={m} value={m}>
+                  {t(`swap.dcaEvery_${m}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {t('swap.dcaRuns')}
+            <input className={field} value={runs} inputMode="numeric" onChange={(e) => setRuns(e.target.value.replace(/\D/g, ''))} />
+          </label>
+          <label>
+            {t('swap.dcaCap')}
+            <input className={field} value={capPct} inputMode="decimal" placeholder={t('swap.dcaCapNone')} onChange={(e) => setCapPct(e.target.value)} />
+          </label>
+        </div>
+      ) : (
       <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
         <label>
           {kind === 'take_profit' ? t('swap.offsetUp') : kind === 'trailing_stop' ? t('swap.trailPct') : t('swap.offsetDown')}
@@ -1001,8 +1041,17 @@ function OrderForm({
           </div>
         )}
       </div>
+      )}
       <p className="num mt-2 text-[11px]" style={{ color: 'var(--color-mut)' }}>
-        {kind === 'trailing_stop'
+        {dca
+          ? t('swap.dcaHint', {
+              runs: Number.isFinite(runsN) ? runsN : 0,
+              amount: fmtAmount(buyAmount.replace(',', '.'), lang),
+              symbol: nativeSymbol,
+              every: t(`swap.dcaEvery_${interval}`),
+              total: Number.isFinite(amountN * runsN) ? fmtAmount(String(Math.round(amountN * runsN * 1e9) / 1e9), lang) : '—',
+            }) + (cap !== null && Number.isFinite(cap) ? ' ' + t('swap.dcaCapHint', { price: fmtUsd(cap, lang) }) : '')
+          : kind === 'trailing_stop'
           ? t('swap.trailHint', { pct: fmtPct(Number.isFinite(off) ? off : 0, lang), price: fmtUsd(price, lang) })
           : t('swap.triggerHint', { price: trigger !== null && Number.isFinite(trigger) ? fmtUsd(trigger, lang) : '—', now: fmtUsd(price, lang) })}
       </p>
@@ -1083,7 +1132,9 @@ function OrdersPanel({ walletId, version, onChanged }: { walletId: string; versi
             <span>
               <b>{t(`swap.kind_${o.kind}`)}</b> {o.symbol}{' '}
               <span style={{ color: 'var(--color-mut)' }}>
-                {o.kind === 'trailing_stop'
+                {o.kind === 'dca'
+                  ? `${o.runsDone}/${o.runsTotal ?? '?'} · ${o.intervalMinutes ? t(`swap.dcaEvery_${o.intervalMinutes}`, { defaultValue: `${o.intervalMinutes} min` }) : ''}${o.maxPriceUsd !== null ? ` · ≤ ${fmtUsd(o.maxPriceUsd, lang)}` : ''}${o.status === 'open' && o.nextRunAt ? ` · ${t('swap.dcaNext', { time: new Date(o.nextRunAt).toLocaleString(lang, { dateStyle: 'short', timeStyle: 'short' }) })}` : ''}`
+                  : o.kind === 'trailing_stop'
                   ? `−${fmtPct(o.trailPct ?? 0, lang)} ${t('swap.fromPeak')} ${o.peakPriceUsd !== null ? fmtUsd(o.peakPriceUsd, lang) : '—'}`
                   : `@ ${o.triggerPriceUsd !== null ? fmtUsd(o.triggerPriceUsd, lang) : '—'}`}
                 {o.sellPercent !== null ? ` · ${o.sellPercent} %` : ''}
@@ -1100,7 +1151,7 @@ function OrdersPanel({ walletId, version, onChanged }: { walletId: string; versi
                 </button>
               )}
             </span>
-            {o.error && o.status !== 'open' && <span className="w-full" style={{ color: 'var(--color-mut)' }}>{o.error}</span>}
+            {o.error && (o.status !== 'open' || o.kind === 'dca') && <span className="w-full" style={{ color: 'var(--color-mut)' }}>{o.error}</span>}
           </li>
         ))}
       </ul>

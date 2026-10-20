@@ -444,6 +444,11 @@ export const swapsRouter = router({
         peakPriceUsd: o.peakPriceUsd === null ? null : Number(o.peakPriceUsd),
         sellPercent: o.sellPercent === null ? null : Number(o.sellPercent),
         buyAmount: o.buyAmount,
+        intervalMinutes: o.intervalMinutes,
+        runsTotal: o.runsTotal,
+        runsDone: o.runsDone,
+        nextRunAt: o.nextRunAt?.toISOString() ?? null,
+        maxPriceUsd: o.maxPriceUsd === null ? null : Number(o.maxPriceUsd),
         status: o.status,
         error: o.error,
         createdAt: o.createdAt.toISOString(),
@@ -461,7 +466,11 @@ export const swapsRouter = router({
       z.object({
         walletId: z.string().uuid(),
         token: z.string().min(32).max(64),
-        kind: z.enum(['take_profit', 'stop_loss', 'trailing_stop', 'limit_buy']),
+        kind: z.enum(['take_profit', 'stop_loss', 'trailing_stop', 'limit_buy', 'dca']),
+        /** DCA: Abstand (5 min bis 30 Tage), Anzahl Käufe, optionale Preisgrenze */
+        intervalMinutes: z.number().int().min(5).max(43_200).optional(),
+        runsTotal: z.number().int().min(2).max(500).optional(),
+        maxPriceUsd: z.number().positive().optional(),
         triggerPriceUsd: z.number().positive().optional(),
         trailPct: z.number().min(0.5).max(90).optional(),
         sellPercent: z.number().min(1).max(100).optional(),
@@ -483,8 +492,12 @@ export const swapsRouter = router({
         if (!liveKeysAllowed() || !w.liveApprovedAt) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Diese Wallet ist nicht für Live-Swaps freigegeben.' });
         if (input.confirmLive !== true) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Live-Order bitte ausdrücklich bestätigen — sie wird später automatisch ausgeführt.' });
       }
-      const buy = input.kind === 'limit_buy';
-      if (buy && !(input.buyAmount && Number(input.buyAmount) > 0)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Limit-Kauf braucht einen Betrag.' });
+      const dca = input.kind === 'dca';
+      const buy = input.kind === 'limit_buy' || dca;
+      if (buy && !(input.buyAmount && Number(input.buyAmount) > 0)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Kauf-Order braucht einen Betrag.' });
+      if (dca && (input.intervalMinutes === undefined || input.runsTotal === undefined)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'DCA braucht Abstand und Anzahl der Käufe.' });
+      }
       const info = await cachedTokenInfo(chain, input.token).catch((err: unknown) => asTrpc(netError(err)));
       if (info.priceUsd === null) throw new TRPCError({ code: 'BAD_GATEWAY', message: 'Kein aktueller Kurs — Order nicht prüfbar.' });
       if (!buy) {
@@ -502,17 +515,22 @@ export const swapsRouter = router({
           token: input.token,
           symbol: info.symbol,
           kind: input.kind,
-          triggerPriceUsd: input.kind === 'trailing_stop' ? null : String(input.triggerPriceUsd),
+          triggerPriceUsd: input.kind === 'trailing_stop' || dca ? null : String(input.triggerPriceUsd),
           trailPct: input.kind === 'trailing_stop' ? String(input.trailPct) : null,
           peakPriceUsd: input.kind === 'trailing_stop' ? String(info.priceUsd) : null,
           sellPercent: buy ? null : String(input.sellPercent ?? 100),
           buyAmount: buy ? input.buyAmount! : null,
           slippageBps: input.slippageBps ?? null,
+          // DCA: erster Kauf im nächsten Worker-Takt
+          intervalMinutes: dca ? input.intervalMinutes! : null,
+          runsTotal: dca ? input.runsTotal! : null,
+          nextRunAt: dca ? new Date() : null,
+          maxPriceUsd: dca && input.maxPriceUsd !== undefined ? String(input.maxPriceUsd) : null,
           confirmedLive: w.mode === 'live' && input.confirmLive === true,
         })
         .returning();
       if (w.mode === 'live') {
-        await ctx.db.insert(auditLog).values({ actor: 'user', userId: ctx.user.id, action: 'swap.live_order_create', entityType: 'swap_order', entityId: o!.id, details: { chain, kind: input.kind, token: input.token, triggerPriceUsd: input.triggerPriceUsd ?? null, trailPct: input.trailPct ?? null, sellPercent: input.sellPercent ?? null, buyAmount: input.buyAmount ?? null }, ip: ctx.ip });
+        await ctx.db.insert(auditLog).values({ actor: 'user', userId: ctx.user.id, action: 'swap.live_order_create', entityType: 'swap_order', entityId: o!.id, details: { chain, kind: input.kind, token: input.token, triggerPriceUsd: input.triggerPriceUsd ?? null, trailPct: input.trailPct ?? null, sellPercent: input.sellPercent ?? null, buyAmount: input.buyAmount ?? null, intervalMinutes: input.intervalMinutes ?? null, runsTotal: input.runsTotal ?? null, maxPriceUsd: input.maxPriceUsd ?? null }, ip: ctx.ip });
       }
       return { id: o!.id };
     }),

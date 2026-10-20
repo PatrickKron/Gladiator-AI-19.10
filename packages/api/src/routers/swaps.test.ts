@@ -174,6 +174,18 @@ describe.skipIf(!hasDb)('Wallet-Trading: Paper-Swaps über das Swap-Gate', () =>
     await expect(a.swaps.cancelOrder({ orderId: tp.id })).rejects.toThrow(/nicht mehr offen/);
   });
 
+  it('DCA: braucht Betrag, Abstand und Anzahl; erster Kauf sofort fällig', async () => {
+    await expect(a.swaps.createOrder({ walletId, token: BONK, kind: 'dca', intervalMinutes: 60, runsTotal: 5 })).rejects.toThrow(/Betrag/);
+    await expect(a.swaps.createOrder({ walletId, token: BONK, kind: 'dca', buyAmount: '0.1' })).rejects.toThrow(/Abstand und Anzahl/);
+    await expect(a.swaps.createOrder({ walletId, token: BONK, kind: 'dca', buyAmount: '0.1', intervalMinutes: 1, runsTotal: 5 })).rejects.toThrow();
+    const before = Date.now();
+    const o = await a.swaps.createOrder({ walletId, token: BONK, kind: 'dca', buyAmount: '0.1', intervalMinutes: 240, runsTotal: 6, maxPriceUsd: 0.00003 });
+    const row = (await a.swaps.orders({ walletId })).find((x) => x.id === o.id)!;
+    expect(row).toMatchObject({ kind: 'dca', buyAmount: '0.1', intervalMinutes: 240, runsTotal: 6, runsDone: 0, maxPriceUsd: 0.00003, triggerPriceUsd: null, sellPercent: null, status: 'open' });
+    expect(Date.parse(row.nextRunAt!)).toBeGreaterThanOrEqual(before - 1000);
+    await a.swaps.cancelOrder({ orderId: o.id });
+  });
+
   it('fremde Wallets sind unsichtbar', async () => {
     expect(await b.swaps.wallets()).toEqual([]);
     await expect(b.swaps.portfolio({ walletId })).rejects.toThrow(/nicht gefunden/);

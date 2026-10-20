@@ -2,7 +2,7 @@ import { Queue, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { requireEnv, type Db } from '@gladiator/db';
 import { demoBookSource, monitorDemoTick, monitorOpenPositions, reconcile, type TradingVenue } from '@gladiator/exchange';
-import { failStuckSwapOrders, runSwapOrders } from './swap-orders.js';
+import { failStuckSwapOrders, runDcaOrders, runSwapOrders } from './swap-orders.js';
 import { runWalletCopy } from './wallet-copy.js';
 import { fredConfigured, syncDerivatives, syncFredWatch, syncEconomicCalendar, syncFredSeries, syncMacroSeries, syncNews } from '@gladiator/market-data';
 import { runNightPipeline } from './briefing.js';
@@ -446,6 +446,9 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
         const so = await runSwapOrders(db);
         if (so.triggered > 0) console.log(`[swap-orders] ausgelöst=${so.triggered} ausgeführt=${so.filled} fehlgeschlagen=${so.failed}`);
         for (const e of so.errors) console.warn('[swap-orders]', e);
+        const dca = await runDcaOrders(db);
+        if (dca.due > 0) console.log(`[swap-dca] fällig=${dca.due} gekauft=${dca.bought} übersprungen=${dca.skipped} fehlgeschlagen=${dca.failed}`);
+        for (const e of dca.errors) console.warn('[swap-dca]', e);
       } catch (err) {
         console.warn('[swap-orders] Tick fehlgeschlagen:', String(err));
       }
