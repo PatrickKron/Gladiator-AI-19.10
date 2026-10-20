@@ -29,7 +29,7 @@ describe('swap-format', () => {
   });
 
   it('jeder Grund des Swap-Gates hat eine Übersetzung', () => {
-    const reasons = ['recipient_not_owner', 'invalid_amount', 'trade_above_limit', 'slippage_above_limit', 'price_impact_above_limit', 'liquidity_below_limit', 'liquidity_unknown'];
+    const reasons = ['recipient_not_owner', 'invalid_amount', 'trade_above_limit', 'slippage_above_limit', 'price_impact_above_limit', 'liquidity_below_limit', 'liquidity_unknown', 'token_unsafe', 'token_tax_above_limit'];
     const swap = (de as unknown as { swap: Record<string, string> }).swap;
     for (const r of reasons) expect(swap[swapReasonKey(r).slice('swap.'.length)]).toBeTruthy();
   });

@@ -17,6 +17,7 @@ type Wallet = Awaited<ReturnType<typeof trpc.swaps.wallets.query>>[number];
 type Portfolio = Awaited<ReturnType<typeof trpc.swaps.portfolio.query>>;
 type TokenInfo = Awaited<ReturnType<typeof trpc.swaps.token.query>>;
 type Quote = Awaited<ReturnType<typeof trpc.swaps.quote.query>>;
+type Safety = Awaited<ReturnType<typeof trpc.swaps.safety.query>>;
 type ChainId = Wallet['chain'];
 type Limits = Wallet['limits'];
 type SwapReq = { side: 'buy' | 'sell'; amount?: string; percent?: number };
@@ -182,6 +183,7 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
   const [pfError, setPfError] = useState<string | null>(null);
   const [address, setAddress] = useState('');
   const [token, setToken] = useState<TokenInfo | null>(null);
+  const [safety, setSafety] = useState<Safety | null>(null);
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [customAmount, setCustomAmount] = useState('');
   const [slippage, setSlippage] = useState(wallet.slippageBps);
@@ -208,11 +210,17 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
     const a = addr.trim();
     setAddress(a);
     setToken(null);
+    setSafety(null);
     setQuote(null);
     setPending(null);
     setTokenError(null);
     if (!a) return;
     try {
+      // Sicherheitscheck parallel — die Token-Infos warten nicht darauf
+      void trpc.swaps.safety
+        .query({ chain: wallet.chain, address: a })
+        .then(setSafety)
+        .catch(() => setSafety(null));
       setToken(await trpc.swaps.token.query({ chain: wallet.chain, address: a }));
     } catch (err) {
       setTokenError(errText(err, t('common.error')));
@@ -315,6 +323,7 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
               />
               <Stat label={t('swap.pairAge')} value={token.pairCreatedAt ? new Date(token.pairCreatedAt).toLocaleDateString(lang) : '—'} />
             </dl>
+            <SafetyBadges safety={safety} />
 
             <p className="label mt-4">{t('swap.buyWith', { symbol: chain.native.symbol })}</p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -385,6 +394,9 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
               <Stat label={t('swap.route')} value={`${quote.route.join(' → ') || '—'} (${quote.aggregator})`} />
               <Stat label={t('swap.slippage')} value={bpsLabel(quote.slippageBps, lang)} />
             </dl>
+            {quote.safety && !quote.safety.checked && (
+              <p className="mt-2 text-xs" style={{ color: 'var(--color-warn)' }}>{t('swap.safety_unchecked')}</p>
+            )}
             {!quote.verdict.allowed && (
               <ul className="mt-2 space-y-0.5 text-xs" style={{ color: 'var(--color-neg)' }}>
                 {quote.verdict.reasons.map((r) => (
@@ -735,7 +747,39 @@ function Stat({ label, value, color }: { label: string; value: string; color?: s
   );
 }
 
-const LIMIT_KEYS = ['maxTradeUsd', 'maxSlippageBps', 'maxPriceImpactPct', 'minLiquidityUsd'] as const;
+const LIMIT_KEYS = ['maxTradeUsd', 'maxSlippageBps', 'maxPriceImpactPct', 'minLiquidityUsd', 'maxTokenTaxPct'] as const;
+
+/** Ergebnis des Sicherheitschecks: schwere Befunde rot (Kauf gesperrt), Warnungen gelb, sonst grün. */
+function SafetyBadges({ safety }: { safety: Safety | null }) {
+  const { t, i18n } = useTranslation();
+  if (!safety) return <p className="mt-2 text-[11px]" style={{ color: 'var(--color-mut)' }}>{t('swap.safety_loading')}</p>;
+  if (!safety.checked) {
+    return (
+      <p className="mt-2 text-[11px]" style={{ color: 'var(--color-warn)' }} title={safety.error ?? undefined}>
+        {t('swap.safety_unchecked')}
+      </p>
+    );
+  }
+  if (safety.source === 'native') return null;
+  const badge = (key: string, color: string) => (
+    <span key={key} className="rounded border px-1.5 py-0.5" style={{ borderColor: color, color }}>
+      {t(`swap.flag_${key}`)}
+    </span>
+  );
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+      <span style={{ color: 'var(--color-mut)' }}>{t('swap.safety')}:</span>
+      {safety.severe.length === 0 && safety.warnings.length === 0 && badge('ok', 'var(--color-pos)')}
+      {safety.severe.map((f) => badge(f, 'var(--color-neg)'))}
+      {safety.warnings.map((f) => badge(f, 'var(--color-warn)'))}
+      {safety.taxPct !== null && safety.taxPct > 0 && (
+        <span className="rounded border px-1.5 py-0.5" style={{ borderColor: 'var(--color-warn)', color: 'var(--color-warn)' }}>
+          {t('swap.tax', { pct: fmtPct(safety.taxPct, i18n.language) })}
+        </span>
+      )}
+    </div>
+  );
+}
 
 function LimitsPanel({ config, wallet, onSaved }: { config: Config; wallet: Wallet; onSaved: () => Promise<void> }) {
   const { t } = useTranslation();
@@ -744,6 +788,7 @@ function LimitsPanel({ config, wallet, onSaved }: { config: Config; wallet: Wall
     maxSlippageBps: String(wallet.limits.maxSlippageBps),
     maxPriceImpactPct: String(wallet.limits.maxPriceImpactPct),
     minLiquidityUsd: String(wallet.limits.minLiquidityUsd),
+    maxTokenTaxPct: String(wallet.limits.maxTokenTaxPct),
   }));
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -754,6 +799,7 @@ function LimitsPanel({ config, wallet, onSaved }: { config: Config; wallet: Wall
       maxSlippageBps: String(limits.maxSlippageBps),
       maxPriceImpactPct: String(limits.maxPriceImpactPct),
       minLiquidityUsd: String(limits.minLiquidityUsd),
+      maxTokenTaxPct: String(limits.maxTokenTaxPct),
     });
     setMsg(null);
   }

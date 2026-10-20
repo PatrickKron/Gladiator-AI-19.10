@@ -22,6 +22,7 @@ if (hasDb && !process.env.JWT_SECRET) {
 const createCaller = createCallerFactory(appRouter);
 const RUN = `${process.pid}-${Date.now()}`;
 const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+const RUG = 'RugPu11Token1111111111111111111111111111111';
 const SOL_USD = 150;
 const BONK_USD = 0.00002; // 1 SOL = 7.500.000 BONK
 
@@ -51,11 +52,28 @@ const fakeNet = (async (url: string, init?: RequestInit) => {
         : (amount * 10n ** 9n * 997n) / (7_500_000n * 100_000n * 1_000n);
     return json({ inAmount: amount.toString(), outAmount: out.toString(), priceImpactPct: '0.004', routePlan: [{ swapInfo: { label: 'Raydium' } }] });
   }
-  if (init?.method === 'POST') return json({ jsonrpc: '2.0', id: 1, result: { value: { decimals: 5 } } }); // getTokenSupply
+  if (init?.method === 'POST') {
+    const rpc = JSON.parse(String(init.body)) as { method: string; params: unknown[] };
+    if (rpc.method === 'getAccountInfo') {
+      // RUG = Token-2022 mit permanentem Delegierten (kann Tokens jederzeit abziehen)
+      const rug = rpc.params[0] === RUG;
+      return json({
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          value: {
+            owner: rug ? 'TokenzQdBNbLqP5VEhdkAS6EHFLp88EzTEbtKFFuh6' : 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+            data: { parsed: { type: 'mint', info: { mintAuthority: null, freezeAuthority: null, extensions: rug ? [{ extension: 'permanentDelegate', state: { delegate: 'Evil' } }] : [] } } },
+          },
+        },
+      });
+    }
+    return json({ jsonrpc: '2.0', id: 1, result: { value: { decimals: 5 } } }); // getTokenSupply
+  }
   return new Response('unbekannt', { status: 404 });
 }) as unknown as typeof fetch;
 
-const STANDARD = { maxTradeUsd: 1_000, maxSlippageBps: 100, maxPriceImpactPct: 3, minLiquidityUsd: 10_000 };
+const STANDARD = { maxTradeUsd: 1_000, maxSlippageBps: 100, maxPriceImpactPct: 3, minLiquidityUsd: 10_000, maxTokenTaxPct: 3 };
 
 describe.skipIf(!hasDb)('Wallet-Trading: Paper-Swaps über das Swap-Gate', () => {
   let db: Db;
@@ -124,6 +142,16 @@ describe.skipIf(!hasDb)('Wallet-Trading: Paper-Swaps über das Swap-Gate', () =>
     const q = await a.swaps.quote({ walletId, side: 'buy', token: BONK, amount: '0.1' });
     expect(q.verdict.reasons).toEqual(['liquidity_below_limit']);
     await expect(a.swaps.execute({ walletId, side: 'buy', token: BONK, amount: '0.1' })).rejects.toThrow(/liquidity_below_limit/);
+  });
+
+  it('Sicherheitscheck: Token mit permanentem Delegierten wird nicht gekauft; sauberer Token zeigt den Check', async () => {
+    const ok = await a.swaps.quote({ walletId, side: 'buy', token: BONK, amount: '0.1' });
+    expect(ok.safety).toMatchObject({ checked: true, source: 'chain', severe: [] });
+    await a.swaps.updateWallet({ walletId, limits: STANDARD });
+    const rug = await a.swaps.quote({ walletId, side: 'buy', token: RUG, amount: '0.1' });
+    expect(rug.safety?.severe).toEqual(['permanent_delegate']);
+    expect(rug.verdict.reasons).toContain('token_unsafe');
+    expect(await a.swaps.safety({ chain: 'solana', address: RUG })).toMatchObject({ severe: ['permanent_delegate'] });
   });
 
   it('Standard-Slippage darf die eigene Obergrenze nicht überschreiten', async () => {

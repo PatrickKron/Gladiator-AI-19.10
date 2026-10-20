@@ -17,6 +17,7 @@ import {
   fetchSwapQuote,
   fetchTokenInfo,
   fetchTokenPrices,
+  fetchTokenSafety,
   fromAtomic,
   fundPaperWallet,
   isNativeToken,
@@ -28,6 +29,7 @@ import {
   type SwapChainId,
   type SwapQuote,
   type TokenInfo,
+  type TokenSafety,
 } from '@gladiator/exchange';
 import { judgeSwap, SWAP_LIMIT_BOUNDS, SWAP_PROFILES, type SwapLimits, type SwapVerdict } from '@gladiator/risk';
 import { protectedProcedure, router } from '../trpc.js';
@@ -72,6 +74,19 @@ async function tokenInfo(chain: SwapChainId, address: string): Promise<TokenInfo
 }
 
 /** Netzfehler ehrlich mit Quelle melden (Aggregator, DexScreener oder RPC nicht erreichbar). */
+const SAFETY_TTL_MS = 60_000;
+const safetyCache = new Map<string, { at: number; safety: TokenSafety }>();
+
+/** Sicherheitscheck (60 s gecacht, nur erfolgreiche Prüfungen). */
+async function tokenSafety(chain: SwapChainId, address: string): Promise<TokenSafety> {
+  const key = `${chain}:${address}`;
+  const hit = safetyCache.get(key);
+  if (hit && Date.now() - hit.at < SAFETY_TTL_MS && !fetchOverride) return hit.safety;
+  const safety = await fetchTokenSafety(chain, address, net());
+  if (safety.checked) safetyCache.set(key, { at: Date.now(), safety });
+  return safety;
+}
+
 function netError(err: unknown): TRPCError {
   const detail = err instanceof Error ? err.message : String(err);
   return new TRPCError({ code: 'BAD_GATEWAY', message: `Markt-/Kettendaten nicht erreichbar (DexScreener, RPC bzw. Aggregator): ${detail}` });
@@ -83,6 +98,7 @@ const limitsSchema = z.object({
   maxSlippageBps: z.number().int().min(SWAP_LIMIT_BOUNDS.maxSlippageBps.min).max(SWAP_LIMIT_BOUNDS.maxSlippageBps.max),
   maxPriceImpactPct: z.number().min(SWAP_LIMIT_BOUNDS.maxPriceImpactPct.min).max(SWAP_LIMIT_BOUNDS.maxPriceImpactPct.max),
   minLiquidityUsd: z.number().min(SWAP_LIMIT_BOUNDS.minLiquidityUsd.min).max(SWAP_LIMIT_BOUNDS.minLiquidityUsd.max),
+  maxTokenTaxPct: z.number().min(SWAP_LIMIT_BOUNDS.maxTokenTaxPct.min).max(SWAP_LIMIT_BOUNDS.maxTokenTaxPct.max),
 });
 
 type WalletRow = typeof swapWallets.$inferSelect;
@@ -93,6 +109,7 @@ function limitsOf(w: WalletRow): SwapLimits {
     maxSlippageBps: w.maxSlippageBps,
     maxPriceImpactPct: Number(w.maxPriceImpactPct),
     minLiquidityUsd: Number(w.minLiquidityUsd),
+    maxTokenTaxPct: Number(w.maxTokenTaxPct),
   };
 }
 
@@ -155,6 +172,8 @@ async function syncLive(db: Db, w: WalletRow, extra?: { address: string; symbol:
 type Prepared = {
   wallet: WalletRow;
   info: TokenInfo;
+  /** nur bei Käufen geprüft (Verkauf: raus muss immer gehen) */
+  safety: TokenSafety | null;
   nativePriceUsd: number;
   quote: SwapQuote;
   valueUsd: number;
@@ -216,12 +235,22 @@ async function prepareSwap(db: Db, userId: string, input: z.infer<typeof swapInp
     throw netError(err);
   }
   const valueUsd = Number(input.side === 'buy' ? quote.inAmount : quote.outAmount) * nativePriceUsd;
+  const safety = input.side === 'buy' ? await tokenSafety(chain, input.token) : null;
   // Empfänger = eigene Wallet: Swaps werden nie mit fremdem Empfänger gebaut (Live-Schritt nutzt dieselbe Adresse)
   const verdict = judgeSwap(
-    { owner: wallet.address, recipient: wallet.address, valueUsd, slippageBps, priceImpactPct: quote.priceImpactPct, liquidityUsd: info.liquidityUsd },
+    {
+      side: input.side,
+      safety: safety?.checked ? { severe: safety.severe, taxPct: safety.taxPct } : null,
+      owner: wallet.address,
+      recipient: wallet.address,
+      valueUsd,
+      slippageBps,
+      priceImpactPct: quote.priceImpactPct,
+      liquidityUsd: info.liquidityUsd,
+    },
     limitsOf(wallet),
   );
-  return { wallet, info, nativePriceUsd, quote, valueUsd, verdict };
+  return { wallet, info, safety, nativePriceUsd, quote, valueUsd, verdict };
 }
 
 function quoteView(p: Prepared) {
@@ -241,6 +270,7 @@ function quoteView(p: Prepared) {
     valueUsd: p.valueUsd,
     route: q.route,
     aggregator: q.aggregator,
+    safety: p.safety,
     verdict: p.verdict,
   };
 }
@@ -371,6 +401,7 @@ export const swapsRouter = router({
           maxSlippageBps: input.limits.maxSlippageBps,
           maxPriceImpactPct: String(input.limits.maxPriceImpactPct),
           minLiquidityUsd: String(input.limits.minLiquidityUsd),
+          maxTokenTaxPct: String(input.limits.maxTokenTaxPct),
           slippageBps: Math.min(100, input.limits.maxSlippageBps),
         })
         .returning();
@@ -423,6 +454,7 @@ export const swapsRouter = router({
           maxSlippageBps: input.limits.maxSlippageBps,
           maxPriceImpactPct: String(input.limits.maxPriceImpactPct),
           minLiquidityUsd: String(input.limits.minLiquidityUsd),
+          maxTokenTaxPct: String(input.limits.maxTokenTaxPct),
           slippageBps: Math.min(100, input.limits.maxSlippageBps),
         })
         .returning();
@@ -481,6 +513,7 @@ export const swapsRouter = router({
           maxSlippageBps: limits.maxSlippageBps,
           maxPriceImpactPct: String(limits.maxPriceImpactPct),
           minLiquidityUsd: String(limits.minLiquidityUsd),
+          maxTokenTaxPct: String(limits.maxTokenTaxPct),
           slippageBps: slippage,
         })
         .where(eq(swapWallets.id, w.id))
@@ -513,6 +546,14 @@ export const swapsRouter = router({
     } catch (err) {
       throw netError(err);
     }
+  }),
+
+  /** Token-Sicherheitscheck (Mint/Freeze/Honeypot/Steuer) — eigene Abfrage, damit die Token-Infos nicht warten. */
+  safety: protectedProcedure.input(z.object({ chain: chainSchema, address: z.string().min(32).max(64) })).query(async ({ input }) => {
+    if (!isTokenAddress(input.chain, input.address)) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: `Keine gültige ${SWAP_CHAINS[input.chain].name}-Token-Adresse.` });
+    }
+    return tokenSafety(input.chain, input.address);
   }),
 
   /** Bestände mit aktuellem Wert und unrealisierter PnL + letzte Swaps. */
