@@ -41,9 +41,18 @@ describe('buildSwapsCsv', () => {
     expect(lines[2]).toContain(';Kauf;0.5;SOL;');
     expect(lines[2]).toContain(';sig1;jupiter');
     expect(lines[3]).toContain(';Verkauf;');
-    expect(lines[3]).toContain(';12.5;sig2;');
+    expect(lines[3]).toContain(';12.5;;;;sig2;');
     expect(csv).not.toContain('sig3');
     expect(csv).not.toContain('sig4');
+  });
+
+  it('EUR-Spalten zum Tageskurs; ohne Kurse leer mit ehrlichem Hinweis', () => {
+    const withEur = buildSwapsCsv([base], { eurRate: () => 1.25 });
+    expect(withEur.split('\n')[0]).toMatch(/EZB-Referenzkurs des Tages/);
+    expect(withEur.split('\n')[2]).toContain(';1.25;60.0000;0.0006;sig1;');
+    const without = buildSwapsCsv([base], { eurRate: null });
+    expect(without.split('\n')[0]).toMatch(/EZB-Kurse waren nicht abrufbar/);
+    expect(without.split('\n')[2]).toContain(';;;;sig1;');
   });
 
   it('Steuerjahr nach deutscher Zeit (Silvester 23:30 UTC = schon das neue Jahr)', () => {

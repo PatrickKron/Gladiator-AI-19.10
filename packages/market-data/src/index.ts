@@ -163,3 +163,4 @@ export {
 export { ensureCandleHistory, coverageRatio, MIN_COVERAGE, type Backfiller } from './ensure-history.js';
 export { BINANCE_MARKET_DATA_MIRROR, binanceMirrorActive, binancePublicClient, isGeoBlocked, withBinancePublic } from './binance-public.js';
 export * from './onchain.js';
+export { ECB_EXR_URL, ecbRateOn, fetchEcbUsdPerEur, parseEcbCsv } from './ecb-fx.js';

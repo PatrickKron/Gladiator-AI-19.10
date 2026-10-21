@@ -30,6 +30,11 @@ const BONK_USD = 0.00002; // 1 SOL = 7.500.000 BONK
 const fakeNet = (async (url: string, init?: RequestInit) => {
   const u = String(url);
   const json = (b: unknown) => new Response(JSON.stringify(b));
+  if (u.includes('data-api.ecb.europa.eu')) {
+    // EZB-Antwort (Aufbau wie csvdata) mit einem Testkurs für die letzten Tage
+    const days = [0, 1, 2, 3].map((d) => new Date(Date.now() - d * 86_400_000).toISOString().slice(0, 10));
+    return new Response(['KEY,FREQ,TIME_PERIOD,OBS_VALUE', ...days.map((d) => `EXR.D.USD.EUR.SP00.A,D,${d},1.25`)].join('\n'));
+  }
   if (u.includes('dexscreener')) {
     const addrs = u.split('/').pop()!.split(',');
     return json(
@@ -142,6 +147,9 @@ describe.skipIf(!hasDb)('Wallet-Trading: Paper-Swaps über das Swap-Gate', () =>
     expect(lines[0]).toMatch(/^# Hinweis: Paper-Swaps sind simuliert/);
     const rows = lines.slice(2).filter((l) => l.includes(';Solana;'));
     expect(rows.some((l) => l.includes(';Kauf;1;SOL;'))).toBe(true);
+    // EUR zum (Test-)EZB-Kurs: 1 SOL × 150 $ / 1,25 = 120 €
+    expect(lines[0]).toMatch(/EZB-Referenzkurs des Tages/);
+    expect(rows.find((l) => l.includes(';Kauf;1;SOL;'))).toMatch(/;1\.25;120\.0000;/);
     expect(rows.some((l) => l.includes(';Verkauf;'))).toBe(true);
     // anderes Jahr → nur Kopf
     expect((await a.swaps.exportTrades({ format: 'csv', year: 2001 })).trim().split('\n')).toHaveLength(2);

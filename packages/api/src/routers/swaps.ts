@@ -39,6 +39,7 @@ import {
   walletBalances,
   type SwapChainId,
 } from '@gladiator/exchange';
+import { ecbRateOn, fetchEcbUsdPerEur } from '@gladiator/market-data';
 import { SWAP_LIMIT_BOUNDS, SWAP_PROFILES } from '@gladiator/risk';
 import { protectedProcedure, router } from '../trpc.js';
 import { buildSwapsCsv } from '../export/swaps-csv.js';
@@ -669,6 +670,17 @@ export const swapsRouter = router({
         .from(swapTrades)
         .innerJoin(swapWallets, eq(swapTrades.walletId, swapWallets.id))
         .where(eq(swapWallets.userId, ctx.user.id));
+      // EUR zum EZB-Referenzkurs des Tages (offizielle Quelle); nicht erreichbar → EUR-Spalten ehrlich leer
+      let eurRate: ((ts: Date) => number | null) | null = null;
+      const times = rows.map((r) => r.trade.createdAt.getTime());
+      if (times.length > 0) {
+        try {
+          const rates = await fetchEcbUsdPerEur(new Date(Math.min(...times)), new Date(Math.max(...times)), swapNet());
+          eurRate = (ts) => ecbRateOn(rates, ts);
+        } catch {
+          eurRate = null;
+        }
+      }
       return buildSwapsCsv(
         rows.map(({ trade: t, wallet: w }) => ({
           ts: t.createdAt,
@@ -689,7 +701,7 @@ export const swapsRouter = router({
           txHash: t.txHash,
           aggregator: t.aggregator,
         })),
-        { year: input.year },
+        { year: input.year, eurRate },
       );
     }),
 
