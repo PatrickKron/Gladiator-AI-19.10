@@ -149,6 +149,8 @@ html {
   border: 1px solid var(--color-line);
   border-radius: 0.625rem;
   color: var(--color-ink);
+  /* Auswahlfelder mit langen Optionen dürfen die Karte nie breiter machen (Handy: 3 px Überlauf im Screener). */
+  max-width: 100%;
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 .field:focus {

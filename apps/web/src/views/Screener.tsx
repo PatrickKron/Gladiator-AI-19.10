@@ -80,7 +80,7 @@ function OperandEditor({ value, onChange, catalog }: { value: Operand; onChange:
   const standard = useMemo(() => catalog.filter((e) => e.group === 'standard').sort((a, b) => a.name.localeCompare(b.name)), [catalog]);
   const entry = value.kind === 'indicator' ? catalog.find((e) => e.id === value.id) : undefined;
   return (
-    <span className="flex flex-wrap items-center gap-1.5">
+    <span className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
       <select value={value.kind} onChange={(e) => onChange(defaultOperand(e.target.value as OperandKind))} className={selCls} aria-label={t('screener.value')}>
         {OPERAND_KINDS.map((k) => (
           <option key={k} value={k}>
@@ -399,7 +399,7 @@ export function Screener() {
           </span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
           <span className="label mr-1">{t('screener.presets')}</span>
           {presets.map((p) => (
             <button key={p.id} type="button" onClick={() => applyPreset(p)} className={chipCls} style={chipStyle(false)}>
