@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { and, desc, eq, isNotNull, notInArray, sql } from 'drizzle-orm';
 import { schema } from '@gladiator/db';
 import {
+  fetchOnchainSnapshot,
+  type OnchainSnapshot,
   getBuffettSnapshot,
   getCotSnapshot,
   getCpiSnapshot,
@@ -13,6 +15,16 @@ import { aggregatePostTrade, evaluateTrade, type BuffettStatus, type CotStatus, 
 import { protectedProcedure, router } from '../trpc.js';
 
 const { signalIntelligence, postTradeReviews, executedTrades, signals } = schema;
+
+/** On-Chain (DNA): Tageswerte → 1 h Cache; nur vollständige Antworten werden gemerkt. */
+const ONCHAIN_TTL_MS = 3_600_000;
+let onchainCache: { at: number; data: OnchainSnapshot } | null = null;
+let onchainFetch: typeof fetch | null = null;
+/** Tests: Netz für die On-Chain-Quellen ersetzen (null = echtes fetch) und Cache leeren. */
+export function setOnchainFetchForTests(f: typeof fetch | null): void {
+  onchainFetch = f;
+  onchainCache = null;
+}
 
 /**
  * KI-Trading-Intelligence-Router („/goal Ergänzung zu Gladiator AI").
@@ -36,6 +48,15 @@ export const intelligenceRouter = router({
 
   /** Warren-Buffett-Bewertungsstatus (PDF §7). */
   buffettStatus: protectedProcedure.query(({ ctx }) => getBuffettSnapshot(ctx.db)),
+
+  /** DNA-Quadrant: MVRV + aktive Adressen (Coin Metrics Community), Stablecoin-Umlauf (DefiLlama). */
+  onchain: protectedProcedure.query(async () => {
+    if (onchainCache && Date.now() - onchainCache.at < ONCHAIN_TTL_MS) return onchainCache.data;
+    const data = await fetchOnchainSnapshot(onchainFetch ?? fetch);
+    const complete = data.assets.every((a) => a.error === null) && data.stablecoins.error === null;
+    if (complete) onchainCache = { at: Date.now(), data };
+    return data;
+  }),
 
   /** Erweitertes Signalobjekt zu einem Signal (PDF §11). Null, wenn noch nicht angereichert. */
   signalIntelligence: protectedProcedure

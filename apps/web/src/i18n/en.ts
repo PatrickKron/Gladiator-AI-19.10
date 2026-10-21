@@ -911,6 +911,13 @@ export const en: Catalog = {
     noneFavorites: 'No packages with favorited assets. Star some assets first.',
   },
   oracle: {
+    mvrv_undervalued: "undervalued (< 1)",
+    mvrv_neutral: "neutral",
+    mvrv_elevated: "elevated",
+    mvrv_overheated: "overheated",
+    activeAddresses: "{{asset}} active addresses",
+    stablecoins: "Stablecoin supply",
+    dnaSource: "Source: Coin Metrics Community (MVRV, addresses), DefiLlama (stablecoins) · daily; zone by own percentile",
     title: 'Oracle · Macro synapse',
     subtitle: 'Regime MRI from VIX/DXY/FRED/on-chain — quadrants show REAL values only.',
     grs: 'Global regime score',
@@ -931,7 +938,6 @@ export const en: Catalog = {
     fundingRate: 'Funding rate',
     oi: 'Open interest',
     oiChange: 'OI Δ24h',
-    dnaPlanned: 'On-chain sources (Glassnode etc.) are not connected yet — NOTHING invented is shown here.',
     syncPending: 'Series not synced yet — the macro-sync job loads VIX/DXY/US10Y (Yahoo, real).',
   },
   assetCtx: {

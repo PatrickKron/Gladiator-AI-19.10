@@ -6,7 +6,8 @@ import { Sparkline } from './Sparkline.js';
 
 /**
  * Makro-Panels (P2.9): GRS-Ring, Pulse (VIX/DXY), Gravity (US10Y), Footprint
- * (Funding/OI), COT (CFTC, echt), DNA (On-Chain, ehrlich nicht verbunden)
+ * (Funding/OI), COT (CFTC, echt), DNA (On-Chain: Coin Metrics Community +
+ * DefiLlama, fehlende Quelle ehrlich „nicht verbunden“)
  * + GRS-Verlauf (P2.11).
  * Aus Oracle.tsx herausgelöst, damit die Asset-Detailseite dieselbe Ansicht zeigt.
  */
@@ -15,6 +16,15 @@ type Macro = Awaited<ReturnType<typeof trpc.market.macro.query>>;
 type Derivatives = Awaited<ReturnType<typeof trpc.market.derivatives.query>>;
 type GrsHist = Awaited<ReturnType<typeof trpc.market.grsHistory.query>>;
 type Cot = Awaited<ReturnType<typeof trpc.intelligence.cotSnapshot.query>>;
+type Onchain = Awaited<ReturnType<typeof trpc.intelligence.onchain.query>>;
+
+/** Farben je MVRV-Zone (unterbewertet = Chance, überhitzt = Warnung). */
+const MVRV_COLOR: Record<NonNullable<Onchain['assets'][number]['zone']>, string> = {
+  undervalued: 'var(--color-pos)',
+  neutral: 'var(--color-mut)',
+  elevated: 'var(--color-warn)',
+  overheated: 'var(--color-neg)',
+};
 
 /** Farben je COT-Status — gleiche Semantik wie im Tab „Entscheidung". */
 const COT_COLOR: Record<Cot[number]['positioning']['status'], string> = {
@@ -41,11 +51,13 @@ function MetricRow({ label, value, sub, color }: { label: string; value: string;
 }
 
 export function MacroPanels() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language;
   const [macro, setMacro] = useState<Macro | null>(null);
   const [deriv, setDeriv] = useState<Derivatives>([]);
   const [hist, setHist] = useState<GrsHist>([]);
   const [cot, setCot] = useState<Cot>([]);
+  const [onchain, setOnchain] = useState<Onchain | null>(null);
 
   const { failed, fail, reset } = useLoadFailures();
   const load = useCallback(() => {
@@ -54,6 +66,7 @@ export function MacroPanels() {
     void trpc.market.derivatives.query().then(setDeriv).catch(fail('market.derivatives', () => setDeriv([])));
     void trpc.market.grsHistory.query().then(setHist).catch(fail('market.grsHistory', () => setHist([])));
     void trpc.intelligence.cotSnapshot.query({}).then(setCot).catch(fail('intelligence.cotSnapshot', () => setCot([])));
+    void trpc.intelligence.onchain.query().then(setOnchain).catch(fail('intelligence.onchain', () => setOnchain(null)));
   }, [fail, reset]);
   useEffect(() => load(), [load]);
 
@@ -243,9 +256,44 @@ export function MacroPanels() {
           )}
         </Panel>
 
-        {/* DNA: On-Chain — ehrlich nicht verbunden */}
+        {/* DNA: On-Chain — echte Tageswerte (Coin Metrics Community, DefiLlama); fehlt eine Quelle, steht ihr Grund da */}
         <Panel label={t('oracle.dna')} stagger={6}>
-          <NotConnected detail={t('oracle.dnaPlanned')} />
+          {onchain === null ? (
+            <Loading />
+          ) : onchain.assets.every((a) => a.error) && onchain.stablecoins.error ? (
+            <NotConnected detail={[...new Set([...onchain.assets.map((a) => a.error), onchain.stablecoins.error])].join(' · ')} />
+          ) : (
+            <div className="mt-2">
+              {onchain.assets.map((a) =>
+                a.error ? (
+                  <MetricRow key={a.asset} label={`${a.asset.toUpperCase()} MVRV`} value="—" sub={a.error} />
+                ) : (
+                  <div key={a.asset}>
+                    <MetricRow
+                      label={`${a.asset.toUpperCase()} MVRV`}
+                      value={a.mvrv === null ? '—' : a.mvrv.toFixed(2)}
+                      sub={a.zone ? `${t(`oracle.mvrv_${a.zone}`)}${a.mvrvPercentile !== null ? ` · P${Math.round(a.mvrvPercentile * 100)}` : ''}` : undefined}
+                      color={a.zone ? MVRV_COLOR[a.zone] : undefined}
+                    />
+                    <MetricRow
+                      label={t('oracle.activeAddresses', { asset: a.asset.toUpperCase() })}
+                      value={a.activeAddresses === null ? '—' : new Intl.NumberFormat(lang).format(Math.round(a.activeAddresses))}
+                      sub={a.activeAddresses30dPct === null ? undefined : `${pct(a.activeAddresses30dPct, 1)} % 30 d`}
+                    />
+                  </div>
+                ),
+              )}
+              <MetricRow
+                label={t('oracle.stablecoins')}
+                value={onchain.stablecoins.totalUsd === null ? '—' : new Intl.NumberFormat(lang, { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1 }).format(onchain.stablecoins.totalUsd)}
+                sub={onchain.stablecoins.error ?? (onchain.stablecoins.change30dPct === null ? undefined : `${pct(onchain.stablecoins.change30dPct, 1)} % 30 d`)}
+              />
+              <p className="label mt-2">
+                {t('oracle.dnaSource')}
+                {onchain.assets[0]?.asOf ? ` · ${new Date(onchain.assets[0].asOf).toLocaleDateString(lang)}` : ''}
+              </p>
+            </div>
+          )}
         </Panel>
       </section>
 
