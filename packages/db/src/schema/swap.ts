@@ -122,13 +122,15 @@ export const swapOrders = pgTable(
       .references(() => swapWallets.id, { onDelete: 'cascade' }),
     token: text('token').notNull(),
     symbol: text('symbol').notNull(),
-    kind: text('kind').$type<'take_profit' | 'stop_loss' | 'trailing_stop' | 'limit_buy' | 'dca' | 'alert_above' | 'alert_below'>().notNull(),
+    kind: text('kind').$type<'take_profit' | 'stop_loss' | 'trailing_stop' | 'limit_buy' | 'dca' | 'alert_above' | 'alert_below' | 'rug_guard'>().notNull(),
     /** Auslösepreis (USD) für Take-Profit, Stop-Loss, Limit-Kauf */
     triggerPriceUsd: numeric('trigger_price_usd'),
     /** Trailing-Stop: Abstand vom Höchstkurs in % */
     trailPct: numeric('trail_pct'),
     /** Trailing-Stop: bisheriger Höchstkurs (USD) */
     peakPriceUsd: numeric('peak_price_usd'),
+    /** Rug-Schutz: bisher höchste Pool-Liquidität (USD); Abfall in % steht in `trailPct` */
+    peakLiquidityUsd: numeric('peak_liquidity_usd'),
     /** Verkäufe: Anteil des Bestands beim Auslösen in % */
     sellPercent: numeric('sell_percent'),
     /** Limit-Kauf: Betrag in nativer Währung (Dezimal-String) */
@@ -155,7 +157,7 @@ export const swapOrders = pgTable(
   (t) => [
     index('swap_orders_status_idx').on(t.status),
     index('swap_orders_wallet_idx').on(t.walletId, t.createdAt),
-    check('swap_orders_kind_check', sql`${t.kind} IN ('take_profit', 'stop_loss', 'trailing_stop', 'limit_buy', 'dca', 'alert_above', 'alert_below')`),
+    check('swap_orders_kind_check', sql`${t.kind} IN ('take_profit', 'stop_loss', 'trailing_stop', 'limit_buy', 'dca', 'alert_above', 'alert_below', 'rug_guard')`),
     check('swap_orders_dca_check', sql`${t.kind} <> 'dca' OR (${t.intervalMinutes} > 0 AND ${t.runsTotal} > 0 AND ${t.nextRunAt} IS NOT NULL)`),
     check('swap_orders_status_check', sql`${t.status} IN ('open', 'executing', 'filled', 'failed', 'cancelled')`),
   ],

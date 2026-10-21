@@ -121,8 +121,13 @@ export async function fetchTokenInfo(chain: SwapChainId, address: string, fetchF
 }
 
 /** USD-Preise mehrerer Tokens einer Kette in einem Aufruf (DexScreener erlaubt bis 30 Adressen). */
-export async function fetchTokenPrices(chain: SwapChainId, addresses: string[], fetchFn: Fetch = fetch): Promise<Map<string, number>> {
-  const out = new Map<string, number>();
+/** Preis + Liquidität des liquidesten Pools je Token (ein DexScreener-Abruf je 30 Tokens). */
+export async function fetchTokenMarket(
+  chain: SwapChainId,
+  addresses: string[],
+  fetchFn: Fetch = fetch,
+): Promise<Map<string, { priceUsd: number; liquidityUsd: number | null }>> {
+  const out = new Map<string, { priceUsd: number; liquidityUsd: number | null }>();
   const lookups = addresses.map((a) => (isNativeToken(chain, a) ? SWAP_CHAINS[chain].wrappedNative : a));
   for (let i = 0; i < lookups.length; i += 30) {
     const batch = [...new Set(lookups.slice(i, i + 30))];
@@ -132,12 +137,19 @@ export async function fetchTokenPrices(chain: SwapChainId, addresses: string[], 
     if (!res.ok) throw new Error(`DexScreener: HTTP ${res.status}`);
     const pairs = ((await res.json()) as DexPair[]) ?? [];
     for (const lookup of batch) {
-      const p = num(pickBestPair(pairs, chain, lookup)?.priceUsd);
+      const best = pickBestPair(pairs, chain, lookup);
+      const p = num(best?.priceUsd);
       if (p === null) continue;
+      const liquidityUsd = num(best?.liquidity?.usd);
       addresses.forEach((a, idx) => {
-        if (lookups[idx] === lookup) out.set(a, p);
+        if (lookups[idx] === lookup) out.set(a, { priceUsd: p, liquidityUsd });
       });
     }
   }
   return out;
+}
+
+export async function fetchTokenPrices(chain: SwapChainId, addresses: string[], fetchFn: Fetch = fetch): Promise<Map<string, number>> {
+  const market = await fetchTokenMarket(chain, addresses, fetchFn);
+  return new Map([...market].map(([a, m]) => [a, m.priceUsd]));
 }

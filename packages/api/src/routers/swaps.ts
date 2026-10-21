@@ -518,6 +518,7 @@ export const swapsRouter = router({
         triggerPriceUsd: o.triggerPriceUsd === null ? null : Number(o.triggerPriceUsd),
         trailPct: o.trailPct === null ? null : Number(o.trailPct),
         peakPriceUsd: o.peakPriceUsd === null ? null : Number(o.peakPriceUsd),
+        peakLiquidityUsd: o.peakLiquidityUsd === null ? null : Number(o.peakLiquidityUsd),
         sellPercent: o.sellPercent === null ? null : Number(o.sellPercent),
         buyAmount: o.buyAmount,
         intervalMinutes: o.intervalMinutes,
@@ -542,7 +543,7 @@ export const swapsRouter = router({
       z.object({
         walletId: z.string().uuid(),
         token: z.string().min(32).max(64),
-        kind: z.enum(['take_profit', 'stop_loss', 'trailing_stop', 'limit_buy', 'dca', 'alert_above', 'alert_below']),
+        kind: z.enum(['take_profit', 'stop_loss', 'trailing_stop', 'limit_buy', 'dca', 'alert_above', 'alert_below', 'rug_guard']),
         /** DCA: Abstand (5 min bis 30 Tage), Anzahl Käufe, optionale Preisgrenze */
         intervalMinutes: z.number().int().min(5).max(43_200).optional(),
         runsTotal: z.number().int().min(2).max(500).optional(),
@@ -586,6 +587,11 @@ export const swapsRouter = router({
       const state = { kind: input.kind, triggerPriceUsd: input.triggerPriceUsd ?? null, trailPct: input.trailPct ?? null, peakPriceUsd: null };
       const problem = validateNewOrder(state, info.priceUsd);
       if (problem) throw new TRPCError({ code: 'BAD_REQUEST', message: problem });
+      // Rug-Schutz braucht eine bekannte Pool-Liquidität als Ausgangsstand
+      const rug = input.kind === 'rug_guard';
+      if (rug && !(info.liquidityUsd !== null && info.liquidityUsd > 0)) {
+        throw new TRPCError({ code: 'BAD_GATEWAY', message: 'Keine Pool-Liquidität bekannt — Rug-Schutz nicht möglich.' });
+      }
       const [o] = await ctx.db
         .insert(swapOrders)
         .values({
@@ -593,9 +599,10 @@ export const swapsRouter = router({
           token: input.token,
           symbol: info.symbol,
           kind: input.kind,
-          triggerPriceUsd: input.kind === 'trailing_stop' || dca ? null : String(input.triggerPriceUsd),
-          trailPct: input.kind === 'trailing_stop' ? String(input.trailPct) : null,
+          triggerPriceUsd: input.kind === 'trailing_stop' || dca || rug ? null : String(input.triggerPriceUsd),
+          trailPct: input.kind === 'trailing_stop' || rug ? String(input.trailPct) : null,
           peakPriceUsd: input.kind === 'trailing_stop' ? String(info.priceUsd) : null,
+          peakLiquidityUsd: rug ? String(info.liquidityUsd) : null,
           sellPercent: buy || alert ? null : String(input.sellPercent ?? 100),
           buyAmount: buy ? input.buyAmount! : null,
           slippageBps: input.slippageBps ?? null,
