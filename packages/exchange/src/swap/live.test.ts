@@ -10,7 +10,7 @@ import { parseTransaction, decodeFunctionData, parseAbi, type Hex } from 'viem';
 import { describe, expect, it } from 'vitest';
 import { EVM_NATIVE, SWAP_CHAINS, toAtomic } from './chains.js';
 import { base58Decode, generateWalletKey } from './keys.js';
-import { executeEvmSwap, executeSolanaSwap, fetchOnchainBalances, jupiterExpect, jupiterSwapRequest, KYBER_ROUTERS } from './live.js';
+import { buildKyberSwap, executeEvmSwap, executeSolanaSwap, fetchOnchainBalances, jupiterExpect, jupiterSwapRequest, KYBER_ROUTERS, kyberExpect } from './live.js';
 import { fetchSwapQuote, JUPITER_API, KYBER_API, type SwapQuote } from './quotes.js';
 import { parseSolanaTx, signSolanaTx } from './solana-tx.js';
 import { assertJupiterSwapTx } from './solana-guard.js';
@@ -225,6 +225,26 @@ function baseQuote(side: 'buy' | 'sell'): SwapQuote {
 }
 
 describe('EVM-Live-Swap (Netz injiziert)', () => {
+  it('Kurs beim Bauen leicht gefallen (Mindestmenge < bestätigt) → einmal mit engerer Slippage neu gebaut, nie aufgeweicht', async () => {
+    const asked: number[] = [];
+    const kyber = (out: bigint) =>
+      (async (_url: string, init: RequestInit) => {
+        const { slippageTolerance } = JSON.parse(String(init.body)) as { slippageTolerance: number };
+        asked.push(slippageTolerance);
+        const minReturnAmount = (out * BigInt(10_000 - slippageTolerance)) / 10_000n;
+        const data = kyberSwapCalldata({ srcToken: EVM_NATIVE, dstToken: USDC_BASE, dstReceiver: k.address, amount: 10n ** 16n, minReturnAmount });
+        return new Response(JSON.stringify({ code: 0, data: { data, routerAddress: ROUTER, amountOut: out.toString() } }));
+      }) as unknown as typeof fetch;
+    const q = baseQuote('buy'); // bestätigt: mind. 29,7 USDC bei 1 % Slippage
+    const b = await buildKyberSwap(q, k.address, kyber(29_800_000n));
+    expect(asked).toEqual([100, 33]);
+    expect(() => assertKyberSwap(b.data, b.value, kyberExpect(q, k.address))).not.toThrow();
+    // unter der bestätigten Mindestmenge → gar nicht erst
+    asked.length = 0;
+    await expect(buildKyberSwap(q, k.address, kyber(29_600_000n))).rejects.toThrow(/Kurs hat sich bewegt/);
+    expect(asked).toEqual([100]);
+  });
+
   const k = generateWalletKey('evm');
   const buyData = (receiver = k.address) => kyberSwapCalldata({ srcToken: EVM_NATIVE, dstToken: USDC_BASE, dstReceiver: receiver, amount: 10n ** 16n, minReturnAmount: 29_700_000n });
   const sellData = kyberSwapCalldata({ srcToken: USDC_BASE, dstToken: EVM_NATIVE, dstReceiver: k.address, amount: 30_000_000n, minReturnAmount: 99n * 10n ** 14n });
@@ -310,30 +330,16 @@ describe('echte Daten: Aggregatoren bauen für eine leere Wallet (nichts wird ge
     expect(() => assertJupiterSwapTx(Uint8Array.from(Buffer.from(swapTransaction, 'base64')), k.address, jupiterExpect(quote))).not.toThrow();
   }, 30_000);
 
-  it('KyberSwap: echte Route auf Base geht an den bekannten Router', async () => {
+  it('KyberSwap: echte Route auf Base geht an den bekannten Router; Wächter akzeptiert die echte Calldata', async () => {
     const k = generateWalletKey('evm');
     const quote = await fetchSwapQuote({ chain: 'base', inToken: { address: EVM_NATIVE, symbol: 'ETH', decimals: 18 }, outToken: { address: USDC_BASE, symbol: 'USDC', decimals: 6 }, inAtomic: 10n ** 15n, slippageBps: 100 });
-    const res = await fetch(`${KYBER_API}/base/api/v1/route/build`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-client-id': 'gladiator' },
-      body: JSON.stringify({ routeSummary: (quote.raw as { routeSummary: unknown }).routeSummary, sender: k.address, recipient: k.address, slippageTolerance: 100, source: 'gladiator' }),
-    });
-    const body = (await res.json()) as { code: number; data: { routerAddress: string; data: string; transactionValue?: string } };
-    expect(body.code).toBe(0);
-    expect(KYBER_ROUTERS.has(body.data.routerAddress.toLowerCase())).toBe(true);
+    // genau der Bau-Schritt des Live-Pfads (inkl. Neubau bei bewegtem Kurs)
+    const built = await buildKyberSwap(quote, k.address);
+    expect(KYBER_ROUTERS.has(built.router)).toBe(true);
     // unsere Adresse steckt als Empfänger in den Aufrufdaten
-    expect(body.data.data.toLowerCase()).toContain(k.address.slice(2).toLowerCase());
+    expect(built.data.toLowerCase()).toContain(k.address.slice(2).toLowerCase());
     // der Wächter dekodiert ECHTE KyberSwap-Calldata und akzeptiert sie (ABI passt zur Realität)
-    expect(() =>
-      assertKyberSwap(body.data.data as `0x${string}`, BigInt(body.data.transactionValue ?? '0'), {
-        owner: k.address,
-        srcToken: EVM_NATIVE,
-        dstToken: USDC_BASE,
-        amountIn: 10n ** 15n,
-        minOut: BigInt(quote.minOutAtomic),
-        nativeIn: true,
-      }),
-    ).not.toThrow();
+    expect(() => assertKyberSwap(built.data, built.value, kyberExpect(quote, k.address))).not.toThrow();
   }, 30_000);
 
   it('On-chain-Bestände lesen (Solana + Base)', async () => {

@@ -3,7 +3,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { arbitrum, base, bsc, mainnet } from 'viem/chains';
 import { isNativeToken, rpcUrl, SWAP_CHAINS, type SwapChainId } from './chains.js';
 import { JUPITER_API, KYBER_API, type SwapQuote } from './quotes.js';
-import { assertKyberSwap } from './kyber-guard.js';
+import { assertKyberSwap, decodeKyberDesc } from './kyber-guard.js';
 import { assertJupiterSwapTx } from './solana-guard.js';
 import { signSolanaTx } from './solana-tx.js';
 
@@ -139,6 +139,60 @@ export async function executeSolanaSwap(
   return { txHash: sig, status: 'pending', error: UNKNOWN, approvalTx: null };
 }
 
+/** Erwartungen des KyberSwap-Wächters aus dem bestätigten Angebot. */
+export function kyberExpect(q: SwapQuote, owner: string) {
+  return {
+    owner,
+    srcToken: q.inToken.address,
+    dstToken: q.outToken.address,
+    amountIn: BigInt(q.inAtomic),
+    minOut: BigInt(q.minOutAtomic),
+    nativeIn: isNativeToken(q.chain, q.inToken.address),
+  };
+}
+
+/**
+ * KyberSwap `/route/build` mit recipient = eigene Adresse, nur bekannter Router.
+ * KyberSwap rechnet beim Bauen den Kurs neu und setzt die Mindestmenge daraus —
+ * fällt sie unter die BESTÄTIGTE, wird einmal mit engerer Slippage neu gebaut
+ * (so dass die Mindestmenge wieder ≥ bestätigt ist), statt die Grenze aufzuweichen.
+ */
+export async function buildKyberSwap(
+  quote: SwapQuote,
+  address: string,
+  fetchFn: Fetch = fetch,
+): Promise<{ data: `0x${string}`; router: `0x${string}`; value: bigint }> {
+  const chainId = quote.chain as Exclude<SwapChainId, 'solana'>;
+  const slug = SWAP_CHAINS[chainId].kyberSlug!;
+  const raw = quote.raw as { routeSummary?: unknown };
+  const minOut = BigInt(quote.minOutAtomic);
+  const nativeIn = isNativeToken(chainId, quote.inToken.address);
+  const build = async (slippageBps: number) => {
+    const res = (await postJson(
+      `${KYBER_API}/${slug}/api/v1/route/build`,
+      { routeSummary: raw.routeSummary, sender: address, recipient: address, slippageTolerance: slippageBps, source: 'gladiator' },
+      fetchFn,
+    )) as { code?: number; message?: string; data?: { data?: string; routerAddress?: string; amountOut?: string; transactionValue?: string } };
+    const d = res.data;
+    if (res.code !== 0 || !d?.data || !d.routerAddress) throw new Error(`KyberSwap: Route nicht baubar (${res.message ?? 'leere Antwort'}).`);
+    const router = d.routerAddress.toLowerCase() as `0x${string}`;
+    if (!KYBER_ROUTERS.has(router)) throw new Error(`KyberSwap: unbekannter Router ${router} — verweigert.`);
+    const data = d.data as `0x${string}`;
+    const out = d.amountOut !== undefined ? BigInt(d.amountOut) : null;
+    if (out !== null && out < minOut) throw new Error('Kurs hat sich bewegt: Ergebnis unter der Mindestmenge — bitte neu anfragen.');
+    const value = d.transactionValue !== undefined ? BigInt(d.transactionValue) : nativeIn ? BigInt(quote.inAtomic) : 0n;
+    return { data, router, value, out, minReturn: decodeKyberDesc(data).minReturnAmount };
+  };
+  let b = await build(quote.slippageBps);
+  if (b.minReturn < minOut && b.out !== null) {
+    // engere Toleranz, damit out × (1 − s) ≥ bestätigte Mindestmenge
+    const tighter = Number(((b.out - minOut) * 10_000n) / b.out);
+    if (tighter < 1) throw new Error('Kurs hat sich bewegt: Ergebnis an der Mindestmenge — bitte neu anfragen.');
+    b = await build(Math.min(tighter, quote.slippageBps));
+  }
+  return { data: b.data, router: b.router, value: b.value };
+}
+
 /** EVM: KyberSwap baut die Route mit recipient = eigene Adresse; bei Token-Verkauf vorher exakter approve. */
 export async function executeEvmSwap(
   p: { quote: SwapQuote; address: string; secret: string },
@@ -146,18 +200,8 @@ export async function executeEvmSwap(
   opts: LiveSwapOpts = {},
 ): Promise<LiveSwapResult> {
   const chainId = p.quote.chain as Exclude<SwapChainId, 'solana'>;
-  const slug = SWAP_CHAINS[chainId].kyberSlug!;
-  const raw = p.quote.raw as { routeSummary?: unknown };
-  const res = (await postJson(
-    `${KYBER_API}/${slug}/api/v1/route/build`,
-    { routeSummary: raw.routeSummary, sender: p.address, recipient: p.address, slippageTolerance: p.quote.slippageBps, source: 'gladiator' },
-    fetchFn,
-  )) as { code?: number; message?: string; data?: { data?: string; routerAddress?: string; amountIn?: string; amountOut?: string; transactionValue?: string } };
-  const d = res.data;
-  if (res.code !== 0 || !d?.data || !d.routerAddress) throw new Error(`KyberSwap: Route nicht baubar (${res.message ?? 'leere Antwort'}).`);
-  const router = d.routerAddress.toLowerCase() as `0x${string}`;
-  if (!KYBER_ROUTERS.has(router)) throw new Error(`KyberSwap: unbekannter Router ${router} — verweigert.`);
-  if (d.amountOut && BigInt(d.amountOut) < BigInt(p.quote.minOutAtomic)) throw new Error('Kurs hat sich bewegt: Ergebnis unter der Mindestmenge — bitte neu anfragen.');
+  const d = await buildKyberSwap(p.quote, p.address, fetchFn);
+  const router = d.router;
 
   const account = privateKeyToAccount(p.secret as `0x${string}`);
   if (account.address.toLowerCase() !== p.address.toLowerCase()) throw new Error('Schlüssel passt nicht zur Wallet-Adresse.');
@@ -169,16 +213,9 @@ export async function executeEvmSwap(
   const amountIn = BigInt(p.quote.inAtomic);
   let approvalTx: string | null = null;
   const nativeIn = isNativeToken(chainId, p.quote.inToken.address);
-  const value = d.transactionValue !== undefined ? BigInt(d.transactionValue) : nativeIn ? amountIn : 0n;
+  const value = d.value;
   // Calldata dekodieren und gegen das bestätigte Angebot prüfen (Empfänger, Tokens, Mengen, Gebühren, value)
-  assertKyberSwap(d.data as `0x${string}`, value, {
-    owner: p.address,
-    srcToken: p.quote.inToken.address,
-    dstToken: p.quote.outToken.address,
-    amountIn,
-    minOut: BigInt(p.quote.minOutAtomic),
-    nativeIn,
-  });
+  assertKyberSwap(d.data, value, kyberExpect(p.quote, p.address));
   await opts.beforeSign?.();
   if (!nativeIn) {
     const token = p.quote.inToken.address as `0x${string}`;

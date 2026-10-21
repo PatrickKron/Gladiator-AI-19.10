@@ -69,7 +69,7 @@ export function assertKyberSwap(
   if (lc(d.dstReceiver) !== lc(expect.owner)) deny('Empfänger ist nicht die eigene Wallet.');
   if (lc(d.srcToken) !== lc(expect.srcToken) || lc(d.dstToken) !== lc(expect.dstToken)) deny('Tokens passen nicht zum bestätigten Angebot.');
   if (d.amount !== expect.amountIn) deny('Menge passt nicht zum bestätigten Angebot.');
-  if (d.minReturnAmount < expect.minOut) deny('Mindestmenge niedriger als bestätigt.');
+  if (d.minReturnAmount < expect.minOut) deny(`Mindestmenge niedriger als bestätigt (${d.minReturnAmount} < ${expect.minOut}).`);
   if (d.srcAmounts.reduce((s, x) => s + x, 0n) > d.amount) deny('Aufteilung übersteigt die Menge.');
   if (d.feeAmounts.some((f) => f > 0n) || d.feeReceivers.length > d.feeAmounts.length) deny('Fremdgebühren in der Route.');
   if (value !== (expect.nativeIn ? expect.amountIn : 0n)) deny('mitgeschickter Betrag passt nicht zum Angebot.');
