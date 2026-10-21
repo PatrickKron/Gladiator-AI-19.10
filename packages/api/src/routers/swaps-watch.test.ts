@@ -83,6 +83,9 @@ describe.skipIf(!hasDb)('Beobachtete Wallets (API)', () => {
     await expect(a.swaps.updateWatched({ id: w!.id, label: 'Wal', copyMode: 'paper', copyWalletId: basePaper.id, copyAmount: '0.1' })).rejects.toThrow(/Solana-Paper-Wallet/);
     await expect(a.swaps.updateWatched({ id: w!.id, label: 'Wal', copyMode: 'paper', copyWalletId: foreign.id, copyAmount: '0.1' })).rejects.toThrow(/nicht gefunden/);
     await expect(a.swaps.updateWatched({ id: w!.id, label: 'Wal', copyMode: 'paper', copyWalletId: solPaper.id, copyAmount: '0' })).rejects.toThrow();
+    // Mindestgröße für Wal-Käufe wird gespeichert; 0 ist ungültig
+    await expect(a.swaps.updateWatched({ id: w!.id, label: 'Wal', copyMode: 'paper', copyWalletId: solPaper.id, copyAmount: '0.1', copyMinNative: '0' })).rejects.toThrow();
+    expect(await a.swaps.updateWatched({ id: w!.id, label: 'Wal', copyMode: 'paper', copyWalletId: solPaper.id, copyAmount: '0.1', copyMinNative: '2.5' })).toMatchObject({ copyMinNative: '2.5' });
 
     const u = await a.swaps.updateWatched({ id: w!.id, label: 'Wal 2', copyMode: 'paper', copyWalletId: solPaper.id, copyAmount: '0.25' });
     expect(u).toMatchObject({ label: 'Wal 2', copyMode: 'paper', copyWalletId: solPaper.id, copyAmount: '0.25' });

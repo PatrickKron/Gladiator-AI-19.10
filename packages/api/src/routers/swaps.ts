@@ -55,6 +55,8 @@ const copyInput = z.object({
   copyWalletId: z.string().uuid().nullable(),
   /** Betrag je Kopie in nativer Währung (SOL, ETH, BNB) */
   copyAmount: z.string().regex(/^\d+(\.\d+)?$/).refine((v) => Number(v) > 0 && Number(v) <= 1000, 'Betrag: über 0 bis 1000.').nullable(),
+  /** nur Käufe des Wals ab dieser Größe kopieren (native Währung); null = alle */
+  copyMinNative: z.string().regex(/^\d+(\.\d+)?$/).refine((v) => Number(v) > 0 && Number(v) <= 100_000, 'Mindestgröße: über 0 bis 100000.').nullable().optional(),
 });
 
 /** Copy-Ziel prüfen: nur eigene, aktive PAPER-Wallets derselben Kette (echtes Copy-Trading gibt es nicht). */
@@ -873,6 +875,7 @@ export const swapsRouter = router({
           copyMode: input.copyMode,
           copyWalletId: input.copyMode === 'paper' ? input.copyWalletId : null,
           copyAmount: input.copyMode === 'paper' ? input.copyAmount : null,
+          copyMinNative: input.copyMode === 'paper' ? (input.copyMinNative ?? null) : null,
         })
         .returning();
       return row!;
@@ -894,6 +897,7 @@ export const swapsRouter = router({
           copyMode: input.copyMode,
           copyWalletId: input.copyMode === 'paper' ? input.copyWalletId : null,
           copyAmount: input.copyMode === 'paper' ? input.copyAmount : null,
+          copyMinNative: input.copyMode === 'paper' ? (input.copyMinNative ?? null) : null,
         })
         .where(and(eq(watchedWallets.id, input.id), eq(watchedWallets.userId, ctx.user.id)))
         .returning();
