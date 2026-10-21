@@ -188,6 +188,14 @@ describe('checkLiveSwapStatus („Ausgang unklar“ klären, Netz injiziert)', (
     expect((await evm({ eth_getTransactionCount: '0x7' }, EVM_UNSEEN_FAIL_MS + 1)).status).toBe('pending');
     // alt, Nonce von anderer Tx verbraucht → kann nie mehr landen
     expect(await evm({ eth_getTransactionCount: '0x8' }, EVM_UNSEEN_FAIL_MS + 1)).toMatchObject({ status: 'failed', error: expect.stringMatching(/Nonce/) });
+    // Gegenprobe: zweiter Beleg-Abruf findet die Tx doch (Knoten hing hinterher) → filled statt failed
+    let calls = 0;
+    const lagging = (async (_url: string, init: RequestInit) => {
+      const { method } = JSON.parse(String(init.body)) as { method: string };
+      const result = method === 'eth_getTransactionCount' ? '0x8' : method === 'eth_getTransactionReceipt' ? (calls++ === 0 ? null : { status: '0x1' }) : null;
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result }));
+    }) as unknown as typeof fetch;
+    expect((await checkLiveSwapStatus('base', '0xabc', EVM_UNSEEN_FAIL_MS + 1, lagging, sent)).status).toBe('filled');
     // ohne bekannte Nonce nie „fehlgeschlagen“ raten
     expect((await evm({ eth_getTransactionCount: '0x99' }, EVM_UNSEEN_FAIL_MS + 1, { from: sent.from })).status).toBe('pending');
   });
@@ -306,6 +314,9 @@ describe('EVM-Live-Swap (Netz injiziert)', () => {
       const lost = evmNet(build(), 0n, { send: 'network', chainId: '0x1' });
       const r = await executeEvmSwap({ quote: q, address: k.address, secret: k.secret }, lost.f);
       expect(r).toMatchObject({ status: 'pending', nonce: 0 });
+      // Flashbots lehnt mit JSON-RPC-Fehler ab → sicher nicht angenommen → failed (nicht „unklar“)
+      const refused = evmNet(build(), 0n, { send: 'rejected', chainId: '0x1' });
+      expect(await executeEvmSwap({ quote: q, address: k.address, secret: k.secret }, refused.f)).toMatchObject({ status: 'failed', error: expect.stringMatching(/Abgelehnt/) });
     } finally {
       if (saved !== undefined) process.env.MEV_PROTECT = saved;
     }

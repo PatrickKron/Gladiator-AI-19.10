@@ -1,4 +1,4 @@
-import { createPublicClient, createWalletClient, encodeFunctionData, http, keccak256, parseAbi, type Chain } from 'viem';
+import { BaseError, createPublicClient, createWalletClient, encodeFunctionData, http, keccak256, parseAbi, RpcRequestError, type Chain } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { arbitrum, base, bsc, mainnet } from 'viem/chains';
 import { isNativeToken, rpcUrl, SWAP_CHAINS, type SwapChainId } from './chains.js';
@@ -259,8 +259,14 @@ export async function executeEvmSwap(
     const sender = protectedRpc ? createPublicClient({ chain, transport: http(protectedRpc, { fetchFn }) }) : pub;
     await sender.sendRawTransaction({ serializedTransaction: serialized });
   } catch (err) {
-    // privat gesendet: öffentliche Knoten kennen die Tx nicht → Fehler heißt hier nie „sicher nicht gesendet“
-    if (protectedRpc) return { txHash: hash, status: 'pending', error: UNKNOWN, approvalTx, nonce: request.nonce ?? null };
+    if (protectedRpc) {
+      // Flashbots hat mit einer JSON-RPC-Fehlerantwort abgelehnt → sicher nicht angenommen
+      if (err instanceof BaseError && err.walk((e) => e instanceof RpcRequestError) instanceof RpcRequestError) {
+        return { txHash: hash, status: 'failed', error: `Abgelehnt: ${err.message.split('\n')[0]}`, approvalTx };
+      }
+      // sonst (Netz/Zeitüberschreitung): öffentliche Knoten kennen private Tx nicht → unklar, nie „nicht gesendet“
+      return { txHash: hash, status: 'pending', error: UNKNOWN, approvalTx, nonce: request.nonce ?? null };
+    }
     // abgelehnt oder doch angekommen? Nur „sicher unbekannt beim Knoten“ zählt als nicht gesendet
     const known = await pub.getTransaction({ hash }).then(
       () => true,
@@ -318,7 +324,13 @@ export async function checkLiveSwapStatus(
   // nicht kennt, beweist nichts — sie kann in anderen Mempools stecken.
   if (!receipt && ageMs > EVM_UNSEEN_FAIL_MS && sent.from && typeof sent.nonce === 'number') {
     const count = BigInt((await rpc(chain, 'eth_getTransactionCount', [sent.from, 'latest'], fetchFn)) as string);
-    if (count > BigInt(sent.nonce)) return { status: 'failed', error: 'Transaktion nie in einen Block gekommen (Nonce inzwischen anders verbraucht).' };
+    if (count > BigInt(sent.nonce)) {
+      // Gegenprobe: ein hinterherhängender Knoten hätte den Beleg eben noch nicht gehabt
+      const again = (await rpc(chain, 'eth_getTransactionReceipt', [txHash], fetchFn)) as { status?: string } | null;
+      if (again?.status === '0x1') return { status: 'filled', error: null };
+      if (again?.status === '0x0') return { status: 'failed', error: 'Swap on-chain zurückgewiesen (revert).' };
+      return { status: 'failed', error: 'Transaktion nie in einen Block gekommen (Nonce inzwischen anders verbraucht).' };
+    }
   }
   return { status: 'pending', error: null };
 }

@@ -4,9 +4,9 @@
  * (DexScreener, Solana-RPC, Jupiter) ist hier injiziert — die echten Antworten
  * prüft packages/exchange/src/swap/swap.test.ts live.
  */
-import { sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createDb, type Db } from '@gladiator/db';
+import { createDb, schema, type Db } from '@gladiator/db';
 import { SOL_MINT } from '@gladiator/exchange';
 import type pg from 'pg';
 import { appRouter } from './index.js';
@@ -35,11 +35,16 @@ const fakeNet = (async (url: string, init?: RequestInit) => {
     const days = [0, 1, 2, 3].map((d) => new Date(Date.now() - d * 86_400_000).toISOString().slice(0, 10));
     return new Response(['KEY,FREQ,TIME_PERIOD,OBS_VALUE', ...days.map((d) => `EXR.D.USD.EUR.SP00.A,D,${d},1.25`)].join('\n'));
   }
+  if (u.includes('dexscreener') && u.includes('/latest/dex/pairs/')) {
+    // Pool-Tiefe: 400 Mio. BONK × 1.000 SOL → √ = 632.455,5…
+    return json({ pairs: u.split('/').pop()!.split(',').map((p) => ({ chainId: 'solana', pairAddress: p, liquidity: { usd: 40_000, base: 400_000_000, quote: 1_000 } })) });
+  }
   if (u.includes('dexscreener')) {
     const addrs = u.split('/').pop()!.split(',');
     return json(
       addrs.map((a) => ({
         chainId: 'solana',
+        pairAddress: `Pool${a.slice(0, 20)}`,
         dexId: 'raydium',
         baseToken: { address: a, symbol: a === SOL_MINT ? 'SOL' : 'Bonk', name: a === SOL_MINT ? 'Wrapped SOL' : 'Bonk' },
         priceUsd: String(a === SOL_MINT ? SOL_USD : BONK_USD),
@@ -190,6 +195,10 @@ describe.skipIf(!hasDb)('Wallet-Trading: Paper-Swaps über das Swap-Gate', () =>
     await a.swaps.createOrder({ walletId, token: BONK, kind: 'rug_guard', trailPct: 50 });
     const list = await a.swaps.orders({ walletId });
     expect(list.find((o) => o.kind === 'rug_guard')).toMatchObject({ trailPct: 50, peakLiquidityUsd: 40_000, triggerPriceUsd: null, sellPercent: 100 });
+    const [rugRow] = await db.select().from(schema.swapOrders).where(and(eq(schema.swapOrders.walletId, walletId), eq(schema.swapOrders.kind, 'rug_guard')));
+    // fester Pool + Ausgangs-Tiefe √(Basis × Quote) des Pools
+    expect(rugRow).toMatchObject({ pairAddress: `Pool${BONK.slice(0, 20)}` });
+    expect(Number(rugRow!.peakDepth)).toBeCloseTo(Math.sqrt(400_000_000 * 1_000), 6);
     expect(list.map((o) => o.kind).sort()).toEqual(['rug_guard', 'take_profit', 'trailing_stop']);
     expect(list.find((o) => o.kind === 'trailing_stop')).toMatchObject({ peakPriceUsd: 0.00002, sellPercent: 100, status: 'open' });
     await expect(b.swaps.cancelOrder({ orderId: tp.id })).rejects.toThrow(/nicht gefunden/);

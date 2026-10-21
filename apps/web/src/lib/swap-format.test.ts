@@ -85,7 +85,12 @@ describe('Ziel nach Marktkapitalisierung', () => {
     expect(parseCompactUsd('2,5k')).toBe(2_500);
     expect(parseCompactUsd(' 1.2b ')).toBe(1_200_000_000);
     expect(parseCompactUsd('$750000')).toBe(750_000);
-    for (const bad of ['', 'abc', '10x', '-5m', '0', '1.2.3m']) expect(parseCompactUsd(bad)).toBeNull();
+    for (const bad of ['', 'abc', '10x', '-5m', '0', '1.2.3m', '1,000.50', '1.5,000']) expect(parseCompactUsd(bad)).toBeNull();
+    // Tausendertrenner ohne Kürzel (sonst würde ein Stop bei „250,000“ MC zu 250 $ MC und nie auslösen)
+    expect(parseCompactUsd('250,000')).toBe(250_000);
+    expect(parseCompactUsd('1,000,000')).toBe(1_000_000);
+    expect(parseCompactUsd('1.000.000')).toBe(1_000_000);
+    expect(parseCompactUsd('2,5')).toBe(2.5);
   });
 
   it('Auslösekurs skaliert mit der Marktkapitalisierung (gleiche Menge im Umlauf)', () => {

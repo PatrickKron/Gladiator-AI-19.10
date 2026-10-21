@@ -48,7 +48,7 @@ docker compose --env-file .env --profile app up -d --build
 docker compose --env-file .env --profile app run --rm app setup-data   # echte Startdaten (einmalig)
 ```
 
-Der App-Container legt beim Start die Tabellen an, liefert Oberfläche + API auf `http://127.0.0.1:3010` aus und läuft als normaler Benutzer (nicht root). Er läuft im Host-Netz und nutzt dieselbe `.env` unverändert (Datenbank 127.0.0.1:5433, Redis 6380, Oberfläche nur lokal) — Auto-Login aus dem Tailnet und alles andere verhalten sich wie ohne Container. Docker auf Linux vorausgesetzt (Host-Netz). Passwort zurücksetzen: `docker compose --env-file .env --profile app run --rm app set-password <email>`. Ohne `--profile app` startet Compose wie bisher nur Datenbank und Redis. Die CI startet genau diesen Container bei jedem Push und prüft `/health`.
+Der App-Container legt beim Start die Tabellen an, liefert Oberfläche + API auf `http://127.0.0.1:3010` aus und läuft als normaler Benutzer (nicht root). Er läuft im Host-Netz und nutzt dieselbe `.env` unverändert (Datenbank 127.0.0.1:5433, Redis 6380, Oberfläche nur lokal) — Auto-Login aus dem Tailnet und alles andere verhalten sich wie ohne Container. Docker auf Linux vorausgesetzt (Host-Netz; Docker Desktop auf Windows/macOS unterstützt das nur eingeschränkt — dort den Weg ohne Container nehmen). Passwort zurücksetzen: `docker compose --env-file .env --profile app run --rm app set-password <email>`. Ohne `--profile app` startet Compose wie bisher nur Datenbank und Redis. Die CI startet genau diesen Container bei jedem Push und prüft `/health`.
 
 ## Dauerbetrieb (systemd)
 

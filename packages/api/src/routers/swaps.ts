@@ -23,6 +23,7 @@ import {
   encryptSecret,
   generateWalletKey,
   importWalletKey,
+  fetchPairDepths,
   fetchTokenCandles,
   fetchTokenDiscovery,
   DISCOVERY_KINDS,
@@ -587,10 +588,15 @@ export const swapsRouter = router({
       const state = { kind: input.kind, triggerPriceUsd: input.triggerPriceUsd ?? null, trailPct: input.trailPct ?? null, peakPriceUsd: null };
       const problem = validateNewOrder(state, info.priceUsd);
       if (problem) throw new TRPCError({ code: 'BAD_REQUEST', message: problem });
-      // Rug-Schutz braucht eine bekannte Pool-Liquidität als Ausgangsstand
+      // Rug-Schutz: liquidesten Pool festhalten und dessen Tiefe als Ausgangsstand
       const rug = input.kind === 'rug_guard';
-      if (rug && !(info.liquidityUsd !== null && info.liquidityUsd > 0)) {
-        throw new TRPCError({ code: 'BAD_GATEWAY', message: 'Keine Pool-Liquidität bekannt — Rug-Schutz nicht möglich.' });
+      let rugDepth: number | null = null;
+      if (rug) {
+        if (info.pairAddress) {
+          const d = await fetchPairDepths(chain, [info.pairAddress], swapNet()).catch((err: unknown) => asTrpc(netError(err)));
+          rugDepth = d.get(info.pairAddress) ?? null;
+        }
+        if (!(rugDepth !== null && rugDepth > 0)) throw new TRPCError({ code: 'BAD_GATEWAY', message: 'Keine Pool-Liquidität bekannt — Rug-Schutz nicht möglich.' });
       }
       const [o] = await ctx.db
         .insert(swapOrders)
@@ -602,7 +608,9 @@ export const swapsRouter = router({
           triggerPriceUsd: input.kind === 'trailing_stop' || dca || rug ? null : String(input.triggerPriceUsd),
           trailPct: input.kind === 'trailing_stop' || rug ? String(input.trailPct) : null,
           peakPriceUsd: input.kind === 'trailing_stop' ? String(info.priceUsd) : null,
-          peakLiquidityUsd: rug ? String(info.liquidityUsd) : null,
+          peakLiquidityUsd: rug && info.liquidityUsd !== null ? String(info.liquidityUsd) : null,
+          pairAddress: rug ? info.pairAddress : null,
+          peakDepth: rug ? String(rugDepth) : null,
           sellPercent: buy || alert ? null : String(input.sellPercent ?? 100),
           buyAmount: buy ? input.buyAmount! : null,
           slippageBps: input.slippageBps ?? null,
@@ -663,11 +671,6 @@ export const swapsRouter = router({
     }
   }),
 
-  /**
-   * Alle offenen Token-Positionen über alle Wallets (Trojan „Positions“): Wert,
-   * Einstand, PnL je Position; Kurse je Kette gebündelt. Fehlt ein Kurs, ist
-   * der Wert null (nie geschätzt). Live-Wallets vorher mit der Kette abgleichen.
-   */
   /** Steuer-Export: alle ausgeführten Swaps aller (auch entfernten) Wallets des Users als CSV. */
   exportTrades: protectedProcedure
     .input(z.object({ year: z.number().int().min(2000).max(2100).optional(), format: z.literal('csv') }))
@@ -682,7 +685,10 @@ export const swapsRouter = router({
       const times = rows.map((r) => r.trade.createdAt.getTime());
       if (times.length > 0) {
         try {
-          const rates = await fetchEcbUsdPerEur(new Date(Math.min(...times)), new Date(Math.max(...times)), swapNet());
+          // reduce statt Math.min(...): bleibt auch bei sehr vielen Swaps stabil
+          const first = times.reduce((a, b) => (b < a ? b : a));
+          const last = times.reduce((a, b) => (b > a ? b : a));
+          const rates = await fetchEcbUsdPerEur(new Date(first), new Date(last), swapNet());
           eurRate = (ts) => ecbRateOn(rates, ts);
         } catch {
           eurRate = null;
@@ -712,6 +718,11 @@ export const swapsRouter = router({
       );
     }),
 
+  /**
+   * Alle offenen Token-Positionen über alle Wallets (Trojan „Positions“): Wert,
+   * Einstand, PnL je Position; Kurse je Kette gebündelt. Fehlt ein Kurs, ist
+   * der Wert null (nie geschätzt). Live-Wallets vorher mit der Kette abgleichen.
+   */
   positions: protectedProcedure.query(async ({ ctx }) => {
     const wallets = await ctx.db
       .select()

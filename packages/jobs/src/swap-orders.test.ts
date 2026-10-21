@@ -39,14 +39,14 @@ describe('evaluateSwapOrder', () => {
 });
 
 describe('evaluateRugGuard', () => {
-  it('Liquiditäts-Hoch zieht nach; Auslösung erst beim Abfall um den Prozentsatz; ohne Liquidität nie', () => {
-    let st = { dropPct: 50, peakLiquidityUsd: 100_000 as number | null };
+  it('Tiefe-Hoch zieht nach; Auslösung erst beim Abfall um den Prozentsatz; ohne Tiefe nie', () => {
+    let st = { dropPct: 50, peakDepth: 100_000 as number | null };
     const r = evaluateRugGuard(st, 150_000);
-    expect(r).toEqual({ trigger: false, peakLiquidityUsd: 150_000 });
-    st = { ...st, peakLiquidityUsd: r.peakLiquidityUsd };
+    expect(r).toEqual({ trigger: false, peakDepth: 150_000 });
+    st = { ...st, peakDepth: r.peakDepth };
     expect(evaluateRugGuard(st, 76_000).trigger).toBe(false);
     expect(evaluateRugGuard(st, 75_000).trigger).toBe(true);
-    expect(evaluateRugGuard(st, null)).toEqual({ trigger: false, peakLiquidityUsd: 150_000 });
+    expect(evaluateRugGuard(st, null)).toEqual({ trigger: false, peakDepth: 150_000 });
     // Rug-Schutz ist nie preisgesteuert
     expect(evaluateSwapOrder({ kind: 'rug_guard', triggerPriceUsd: null, trailPct: 50, peakPriceUsd: null }, 1).trigger).toBe(false);
   });
@@ -91,8 +91,9 @@ describe('validateNewOrder', () => {
 
 const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
 let bonkUsd = 0.00002;
-/** Pool-Liquidität von BONK (Rug-Schutz) */
-let bonkLiq = 1e8;
+/** BONK-Pool (Rug-Schutz): Token-Mengen im Pool; Tiefe = √(Basis × Quote) */
+let bonkPool = { base: 4e9, quote: 4e5 };
+const BONK_POOL = 'BonkPool111111111111111111111111111111111111';
 /** Wird während des Angebotsabrufs ausgeführt (Wettlauf nachstellen). */
 let duringQuote: (() => Promise<void>) | null = null;
 const fakeNet = (async (url: string, init?: RequestInit) => {
@@ -103,9 +104,12 @@ const fakeNet = (async (url: string, init?: RequestInit) => {
     await f();
   }
   const json = (b: unknown) => new Response(JSON.stringify(b));
+  if (u.includes('dexscreener') && u.includes('/latest/dex/pairs/')) {
+    return json({ pairs: [{ chainId: 'solana', pairAddress: BONK_POOL, liquidity: { usd: 1e8, ...bonkPool } }] });
+  }
   if (u.includes('dexscreener')) {
     const addrs = u.split('/').pop()!.split(',');
-    return json(addrs.map((a) => ({ chainId: 'solana', baseToken: { address: a, symbol: a === SOL_MINT ? 'SOL' : 'Bonk' }, priceUsd: String(a === SOL_MINT ? 150 : bonkUsd), liquidity: { usd: a === SOL_MINT ? 1e8 : bonkLiq } })));
+    return json(addrs.map((a) => ({ chainId: 'solana', baseToken: { address: a, symbol: a === SOL_MINT ? 'SOL' : 'Bonk' }, priceUsd: String(a === SOL_MINT ? 150 : bonkUsd), liquidity: { usd: 1e8 } })));
   }
   if (u.includes('jup.ag')) {
     const q = new URL(u).searchParams;
@@ -294,22 +298,32 @@ describe.skipIf(!process.env.DATABASE_URL)('runSwapOrders (echte DB, Paper)', ()
     await db.update(schema.swapOrders).set({ status: 'cancelled' }).where(eq(schema.swapOrders.id, down.id));
   });
 
-  it('Rug-Schutz: Liquidität steigt → Hoch zieht nach; Abzug um 50 % → Bestand wird verkauft', async () => {
+  it('Rug-Schutz: Kursrutsch allein (Tiefe gleich) löst nie aus; Liquidität abgezogen → Bestand wird verkauft', async () => {
     bonkUsd = 0.00001;
     const buy = await addOrder({ kind: 'limit_buy', triggerPriceUsd: '0.00002', buyAmount: '0.5' });
     expect((await runSwapOrders(db)).filled).toBeGreaterThanOrEqual(1);
     expect((await status(buy.id)).status).toBe('filled');
-    const rg = await addOrder({ kind: 'rug_guard', trailPct: '50', sellPercent: '100', peakLiquidityUsd: '100000000' });
-    bonkLiq = 1.2e8;
+    const startDepth = Math.sqrt(4e9 * 4e5);
+    const rg = await addOrder({ kind: 'rug_guard', trailPct: '50', sellPercent: '100', pairAddress: BONK_POOL, peakDepth: String(startDepth) });
+    // Verkaufsdruck: Kurs fällt um 75 %, Pool hat mehr BONK und weniger SOL — Produkt gleich → kein Rug
+    bonkPool = { base: 8e9, quote: 2e5 };
     await runSwapOrders(db);
-    expect(await status(rg.id)).toMatchObject({ status: 'open', peakLiquidityUsd: '120000000' });
-    bonkLiq = 5e7; // unter 50 % des Hochs (6e7)
+    expect((await status(rg.id)).status).toBe('open');
+    // Liquidität abgezogen: beide Seiten auf ein Drittel → Tiefe −67 %
+    bonkPool = { base: 4e9 / 3, quote: 4e5 / 3 };
     await runSwapOrders(db);
     expect((await status(rg.id)).status).toBe('filled');
     const bonk = (await walletBalances(db, walletId)).find((b) => b.token === BONK);
     expect(BigInt(bonk?.amountAtomic ?? '0')).toBe(0n);
     const notes = await db.select().from(schema.notifications).where(eq(schema.notifications.userId, userId));
     expect(notes.map((n) => n.title)).toContain('Rug-Schutz ausgeführt: Bonk');
-    bonkLiq = 1e8;
+    bonkPool = { base: 4e9, quote: 4e5 };
+  });
+
+  it('Rug-Schutz: fehlt der festgehaltene Pool in der Antwort, wird nichts entschieden', async () => {
+    const rg = await addOrder({ kind: 'rug_guard', trailPct: '50', sellPercent: '100', pairAddress: 'AnderPool1111111111111111111111111111111111', peakDepth: '1000000000000' });
+    await runSwapOrders(db);
+    expect(await status(rg.id)).toMatchObject({ status: 'open', peakDepth: '1000000000000' });
+    await db.update(schema.swapOrders).set({ status: 'cancelled' }).where(eq(schema.swapOrders.id, rg.id));
   });
 });

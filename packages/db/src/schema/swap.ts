@@ -129,8 +129,12 @@ export const swapOrders = pgTable(
     trailPct: numeric('trail_pct'),
     /** Trailing-Stop: bisheriger Höchstkurs (USD) */
     peakPriceUsd: numeric('peak_price_usd'),
-    /** Rug-Schutz: bisher höchste Pool-Liquidität (USD); Abfall in % steht in `trailPct` */
+    /** Rug-Schutz: Pool-Liquidität (USD) beim Anlegen — nur Anzeige */
     peakLiquidityUsd: numeric('peak_liquidity_usd'),
+    /** Rug-Schutz: beobachteter Pool (beim Anlegen festgehalten; wechselt nie) */
+    pairAddress: text('pair_address'),
+    /** Rug-Schutz: bisher größte Pool-Tiefe √(Basis × Quote); Abfall in % steht in `trailPct` */
+    peakDepth: numeric('peak_depth'),
     /** Verkäufe: Anteil des Bestands beim Auslösen in % */
     sellPercent: numeric('sell_percent'),
     /** Limit-Kauf: Betrag in nativer Währung (Dezimal-String) */
