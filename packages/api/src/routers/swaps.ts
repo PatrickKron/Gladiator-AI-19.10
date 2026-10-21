@@ -172,23 +172,29 @@ async function createAutoOrders(
       results.push({ kind: x.kind, triggerPriceUsd: x.trigger, orderId: null, error: problem });
       continue;
     }
-    const [o] = await ctx.db
-      .insert(swapOrders)
-      .values({
-        walletId: w.id,
-        token: p.info.address,
-        symbol: p.info.symbol,
-        kind: x.kind,
-        triggerPriceUsd: String(x.trigger),
-        sellPercent: String(auto.sellPercent),
-        slippageBps: slippageBps ?? null,
-        confirmedLive: w.mode === 'live' && confirmedLive,
-      })
-      .returning({ id: swapOrders.id });
-    if (w.mode === 'live') {
-      await ctx.db.insert(auditLog).values({ actor: 'user', userId: ctx.user.id, action: 'swap.live_order_create', entityType: 'swap_order', entityId: o!.id, details: { chain: w.chain, kind: x.kind, token: p.info.address, triggerPriceUsd: x.trigger, sellPercent: auto.sellPercent, origin: 'auto_on_buy' }, ip: ctx.ip });
+    // Der Kauf ist schon passiert (live: gesendet) — ein DB-Problem hier darf ihn nie
+    // als Fehler erscheinen lassen (sonst kauft man womöglich doppelt)
+    try {
+      const [o] = await ctx.db
+        .insert(swapOrders)
+        .values({
+          walletId: w.id,
+          token: p.info.address,
+          symbol: p.info.symbol,
+          kind: x.kind,
+          triggerPriceUsd: String(x.trigger),
+          sellPercent: String(auto.sellPercent),
+          slippageBps: slippageBps ?? null,
+          confirmedLive: w.mode === 'live' && confirmedLive,
+        })
+        .returning({ id: swapOrders.id });
+      if (w.mode === 'live') {
+        await ctx.db.insert(auditLog).values({ actor: 'user', userId: ctx.user.id, action: 'swap.live_order_create', entityType: 'swap_order', entityId: o!.id, details: { chain: w.chain, kind: x.kind, token: p.info.address, triggerPriceUsd: x.trigger, sellPercent: auto.sellPercent, origin: 'auto_on_buy' }, ip: ctx.ip });
+      }
+      results.push({ kind: x.kind, triggerPriceUsd: x.trigger, orderId: o!.id, error: null });
+    } catch (err) {
+      results.push({ kind: x.kind, triggerPriceUsd: x.trigger, orderId: null, error: err instanceof Error ? err.message : String(err) });
     }
-    results.push({ kind: x.kind, triggerPriceUsd: x.trigger, orderId: o!.id, error: null });
   }
   return results;
 }
@@ -331,7 +337,7 @@ export const swapsRouter = router({
     const w = await ownWallet(ctx.db, ctx.user.id, input.walletId);
     const [row] = await ctx.db.update(swapWallets).set({ liveApprovedAt: null }).where(eq(swapWallets.id, w.id)).returning();
     // ohne Freigabe darf nichts mehr automatisch live ausgeführt werden
-    await ctx.db.update(swapOrders).set({ status: 'cancelled', closedAt: new Date(), error: 'Live-Freigabe zurückgezogen' }).where(stoppableOrders(w.id));
+    await ctx.db.update(swapOrders).set({ status: 'cancelled', closedAt: new Date(), error: 'Live-Freigabe zurückgezogen' }).where(stoppableOrders(w.id, { keepAlerts: true }));
     await ctx.db.insert(auditLog).values({ actor: 'user', userId: ctx.user.id, action: 'swap.live_revoke', entityType: 'swap_wallet', entityId: w.id, details: { chain: w.chain }, ip: ctx.ip });
     return walletView(row!);
   }),

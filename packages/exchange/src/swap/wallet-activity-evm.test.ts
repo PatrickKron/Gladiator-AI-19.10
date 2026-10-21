@@ -53,9 +53,19 @@ describe('deriveEvmSwap', () => {
     expect(deriveEvmSwap('base', '0xabc', { from: ME, to: ROUTER, value: '0x0' }, [transfer(MEME, ME, POOL, 9n)], ME, dec, null)).toBeNull();
   });
 
-  it('Unwrap-Summe aus dem Receipt: nur Withdrawal-Events des Wrapped-Native-Vertrags', () => {
+  it('Unwrap-Summe aus dem Receipt: Withdrawal des Wrapped-Native bzw. Burn (Arbitrum aeWETH)', () => {
     const w = (addr: string, amount: bigint) => ({ address: addr, topics: [WETH_WITHDRAWAL_TOPIC, padTopic(ROUTER)], data: `0x${amount.toString(16).padStart(64, '0')}` });
     expect(unwrappedIn('base', [w(WETH, 5n), w(WETH.toUpperCase().replace('0X', '0x'), 2n), w(MEME, 100n), transfer(MEME, ME, POOL, 9n)])).toBe(7n);
+    const ARB_WETH = SWAP_CHAINS.arbitrum.wrappedNative;
+    const ZERO = '0x0000000000000000000000000000000000000000';
+    expect(unwrappedIn('arbitrum', [transfer(ARB_WETH, ROUTER, ZERO, 8n), transfer(MEME, ROUTER, ZERO, 50n)])).toBe(8n);
+    // meldet ein Vertrag beides, nie doppelt zählen
+    expect(unwrappedIn('base', [w(WETH, 5n), transfer(WETH, ROUTER, ZERO, 5n)])).toBe(5n);
+  });
+
+  it('natives ETH ↔ Stablecoin ist kein Token-Handel', () => {
+    expect(deriveEvmSwap('base', '0xabc', { from: ME, to: ROUTER, value: '0xde0b6b3a7640000' }, [transfer(USDC, POOL, ME, 3000n)], ME, dec, null)).toBeNull();
+    expect(deriveEvmSwap('base', '0xabc', { from: ME, to: ROUTER, value: '0x0' }, [transfer(USDC, ME, POOL, 3000n)], ME, dec, null, 10n)).toBeNull();
   });
 
   it('Stablecoin als Gegenseite: USDC → Meme = Kauf, Meme → USDC = Verkauf, Meme ↔ Meme = kein Swap', () => {
@@ -106,7 +116,7 @@ describe('Logs-RPC-Auswahl', () => {
     try {
       const first = new URL(EVM_LOG_RPCS.arbitrum[0]!).host;
       const r = await fetchEvmWalletSwaps('arbitrum', ME, {}, net((u) => new URL(u).host === first));
-      expect(r).toEqual({ swaps: [], newestSignature: String(0x1000), gap: false });
+      expect(r).toEqual({ swaps: [], newestSignature: String(0x1000 - 3), gap: false }); // 3 Bestätigungen
       expect(used.some((u) => u.startsWith(first))).toBe(true);
       // der funktionierende Endpunkt wird gemerkt → nächster Abruf fragt ihn zuerst
       used.length = 0;
@@ -132,7 +142,7 @@ describe('Drosselung', () => {
       return body.method === 'eth_blockNumber' ? rpc('0x20') : rpc([]);
     }) as unknown as typeof fetch;
     try {
-      await expect(fetchEvmWalletSwaps('bsc', ME, {}, net)).resolves.toEqual({ swaps: [], newestSignature: String(0x20), gap: false });
+      await expect(fetchEvmWalletSwaps('bsc', ME, {}, net)).resolves.toEqual({ swaps: [], newestSignature: String(0x20 - 3), gap: false });
       expect(calls).toBe(4); // 429, Blocknummer, Logs raus, Logs rein
     } finally {
       setEvmRetryDelayForTests(null);
@@ -174,14 +184,19 @@ describe('lückenlos nachholen', () => {
     const r2 = await fetchEvmWalletSwaps('base', ME, { cursor: r1.newestSignature, maxTxs: 2 }, net(buys));
     expect(r2.swaps.map((s) => s.signature)).toEqual(['0x104', '0x103']);
     const r3 = await fetchEvmWalletSwaps('base', ME, { cursor: r2.newestSignature, maxTxs: 2 }, net(buys));
-    expect(r3).toMatchObject({ newestSignature: '110', gap: false });
+    expect(r3).toMatchObject({ newestSignature: '107', gap: false }); // Spitze 110 − 3 Bestätigungen
     expect(r3.swaps.map((s) => s.signature)).toEqual(['0x105']);
+  });
+
+  it('Knoten hängt hinterher (Spitze ≤ Cursor) → Cursor bleibt, nichts doppelt', async () => {
+    const r = await fetchEvmWalletSwaps('base', ME, { cursor: '108', maxTxs: 5 }, net(buys, 110));
+    expect(r).toEqual({ swaps: [], newestSignature: '108', gap: false });
   });
 
   it('erster Lauf: nur die jüngsten als Verlauf; Cursor weit hinter dem Fenster → Lücke gemeldet', async () => {
     const first = await fetchEvmWalletSwaps('base', ME, { maxTxs: 2 }, net(buys));
     expect(first.swaps.map((s) => s.signature)).toEqual(['0x105', '0x104']);
-    expect(first.newestSignature).toBe('110');
+    expect(first.newestSignature).toBe('107');
     const behind = await fetchEvmWalletSwaps('base', ME, { cursor: '10', maxBlocks: 50 }, net(buys));
     expect(behind.gap).toBe(true);
   });

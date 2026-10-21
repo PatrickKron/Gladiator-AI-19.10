@@ -243,6 +243,8 @@ export type ExecuteContext = {
   confirmedLive: boolean;
   /** Herkunft für Meldung/Audit, z. B. „Take-Profit“. */
   origin?: string;
+  /** ausgelöste Order: live nur, solange sie noch „executing“ ist (nicht inzwischen gestoppt) */
+  orderId?: string;
 };
 
 export type ExecuteResult = { tradeId: string; realizedPnlUsd: number | null; txHash: string | null };
@@ -268,7 +270,15 @@ export async function executePreparedSwap(db: Db, p: PreparedSwap, side: 'buy' |
  * Ergebnis verbuchen, auditieren, benachrichtigen.
  */
 async function executeLive(db: Db, p: PreparedSwap, side: 'buy' | 'sell', ctx: ExecuteContext): Promise<ExecuteResult> {
-  const w = p.wallet;
+  // Wallet FRISCH lesen: zwischen Auslösen und Signieren liegen Sekunden (Angebot,
+  // Sicherheitscheck) — wurde die Freigabe inzwischen zurückgezogen oder die
+  // Wallet entfernt, wird nichts gesendet.
+  const [w] = await db.select().from(schema.swapWallets).where(eq(schema.swapWallets.id, p.wallet.id));
+  if (!w || w.archivedAt) throw new SwapError('PRECONDITION_FAILED', 'Wallet wurde entfernt — nichts gesendet.');
+  if (ctx.orderId) {
+    const [o] = await db.select({ status: schema.swapOrders.status }).from(schema.swapOrders).where(eq(schema.swapOrders.id, ctx.orderId));
+    if (o?.status !== 'executing') throw new SwapError('PRECONDITION_FAILED', 'Order wurde inzwischen gestoppt — nichts gesendet.');
+  }
   if (!liveKeysAllowed()) throw new SwapError('FORBIDDEN', 'Live-Wallets sind auf dieser Instanz abgeschaltet (WALLET_KEYS_ENABLED).');
   if (!w.liveApprovedAt) throw new SwapError('PRECONDITION_FAILED', 'Diese Wallet ist noch nicht für Live-Swaps freigegeben.');
   if (!ctx.confirmedLive) throw new SwapError('PRECONDITION_FAILED', 'Live-Swap bitte ausdrücklich bestätigen.');
