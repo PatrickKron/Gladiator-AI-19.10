@@ -10,7 +10,7 @@ import { parseTransaction, decodeFunctionData, parseAbi, type Hex } from 'viem';
 import { describe, expect, it } from 'vitest';
 import { EVM_NATIVE, SWAP_CHAINS, toAtomic } from './chains.js';
 import { base58Decode, generateWalletKey } from './keys.js';
-import { buildKyberSwap, checkLiveSwapStatus, EVM_UNSEEN_FAIL_MS, executeEvmSwap, SOLANA_UNSEEN_FAIL_MS, executeSolanaSwap, fetchOnchainBalances, jupiterExpect, jupiterSwapRequest, KYBER_ROUTERS, kyberExpect } from './live.js';
+import { buildKyberSwap, checkLiveSwapStatus, EVM_UNSEEN_FAIL_MS, executeEvmSwap, FLASHBOTS_PROTECT_RPC, mevProtectRpc, SOLANA_UNSEEN_FAIL_MS, executeSolanaSwap, fetchOnchainBalances, jupiterExpect, jupiterSwapRequest, KYBER_ROUTERS, kyberExpect } from './live.js';
 import { fetchSwapQuote, JUPITER_API, KYBER_API, type SwapQuote } from './quotes.js';
 import { parseSolanaTx, signSolanaTx } from './solana-tx.js';
 import { assertJupiterSwapTx } from './solana-guard.js';
@@ -177,27 +177,35 @@ describe('checkLiveSwapStatus („Ausgang unklar“ klären, Netz injiziert)', (
     expect((await sol({ confirmationStatus: 'processed', err: null }, SOLANA_UNSEEN_FAIL_MS + 1)).status).toBe('pending');
   });
 
-  it('EVM: Beleg 0x1 → filled, 0x0 → failed; ohne Beleg offen — verworfen erst nach langer Zeit und nur, wenn der Knoten die Tx nicht kennt', async () => {
-    const evm = (answers: Record<string, unknown>, ageMs = 1_000) => checkLiveSwapStatus('base', '0xabc', ageMs, rpcFake(answers));
+  it('EVM: Beleg 0x1 → filled, 0x0 → failed; ohne Beleg offen — „nie gelandet“ erst nach langer Zeit UND anders verbrauchter Nonce', async () => {
+    const sent = { from: '0x00000000000000000000000000000000000000aa', nonce: 7 };
+    const evm = (answers: Record<string, unknown>, ageMs = 1_000, s2: { from?: string; nonce?: number | null } = sent) =>
+      checkLiveSwapStatus('base', '0xabc', ageMs, rpcFake(answers), s2);
     expect((await evm({ eth_getTransactionReceipt: { status: '0x1' } })).status).toBe('filled');
     expect((await evm({ eth_getTransactionReceipt: { status: '0x0' } })).status).toBe('failed');
-    expect((await evm({})).status).toBe('pending');
-    expect((await evm({ eth_getTransactionByHash: { hash: '0xabc' } }, EVM_UNSEEN_FAIL_MS + 1)).status).toBe('pending');
-    expect(await evm({}, EVM_UNSEEN_FAIL_MS + 1)).toMatchObject({ status: 'failed', error: expect.stringMatching(/verworfen/) });
+    expect((await evm({ eth_getTransactionCount: '0x9' })).status).toBe('pending'); // noch jung
+    // alt, aber Nonce noch frei → kann noch landen → offen
+    expect((await evm({ eth_getTransactionCount: '0x7' }, EVM_UNSEEN_FAIL_MS + 1)).status).toBe('pending');
+    // alt, Nonce von anderer Tx verbraucht → kann nie mehr landen
+    expect(await evm({ eth_getTransactionCount: '0x8' }, EVM_UNSEEN_FAIL_MS + 1)).toMatchObject({ status: 'failed', error: expect.stringMatching(/Nonce/) });
+    // ohne bekannte Nonce nie „fehlgeschlagen“ raten
+    expect((await evm({ eth_getTransactionCount: '0x99' }, EVM_UNSEEN_FAIL_MS + 1, { from: sent.from })).status).toBe('pending');
   });
 });
 
 /** Minimaler JSON-RPC-Fake für viem auf Base (Chain 8453). */
-function evmNet(build: unknown, allowance = 0n, opts: { send?: 'ok' | 'rejected' } = {}) {
+function evmNet(build: unknown, allowance = 0n, opts: { send?: 'ok' | 'rejected' | 'network'; chainId?: string } = {}) {
   const raw: Hex[] = [];
+  const sentTo: string[] = [];
   const f = (async (url: string, init: RequestInit) => {
+    if (opts.send === 'network' && String(init.body).includes('eth_sendRawTransaction')) throw new TypeError('fetch failed');
     const body = JSON.parse(String(init.body)) as { id: number; method: string; params: unknown[] } | { id: number; method: string; params: unknown[] }[];
     if (String(url).startsWith(KYBER_API)) return new Response(JSON.stringify(build));
     const one = (b: { id: number; method: string; params: unknown[] }) => {
       const ok = (result: unknown) => ({ jsonrpc: '2.0', id: b.id, result });
       switch (b.method) {
         case 'eth_chainId':
-          return ok('0x2105');
+          return ok(opts.chainId ?? '0x2105');
         case 'eth_call':
           return ok(`0x${allowance.toString(16).padStart(64, '0')}`);
         case 'eth_getTransactionCount':
@@ -215,6 +223,7 @@ function evmNet(build: unknown, allowance = 0n, opts: { send?: 'ok' | 'rejected'
           return ok(null);
         case 'eth_sendRawTransaction': {
           raw.push((b.params as Hex[])[0]!);
+          sentTo.push(String(url));
           if (opts.send === 'rejected') return { jsonrpc: '2.0', id: b.id, error: { code: -32000, message: 'insufficient funds' } };
           return ok(`0x${String(raw.length).padStart(64, '0')}`);
         }
@@ -226,7 +235,7 @@ function evmNet(build: unknown, allowance = 0n, opts: { send?: 'ok' | 'rejected'
     };
     return new Response(JSON.stringify(Array.isArray(body) ? body.map(one) : one(body)));
   }) as unknown as typeof fetch;
-  return { f, raw };
+  return { f, raw, sentTo };
 }
 
 function baseQuote(side: 'buy' | 'sell'): SwapQuote {
@@ -276,6 +285,31 @@ describe('EVM-Live-Swap (Netz injiziert)', () => {
   const buyData = (receiver = k.address) => kyberSwapCalldata({ srcToken: EVM_NATIVE, dstToken: USDC_BASE, dstReceiver: receiver, amount: 10n ** 16n, minReturnAmount: 29_700_000n });
   const sellData = kyberSwapCalldata({ srcToken: USDC_BASE, dstToken: EVM_NATIVE, dstReceiver: k.address, amount: 30_000_000n, minReturnAmount: 99n * 10n ** 14n });
   const build = (over: Record<string, unknown> = {}) => ({ code: 0, data: { data: buyData(), routerAddress: ROUTER, amountOut: '30000000', ...over } });
+
+  it('MEV-Schutz: auf Ethereum geht die Swap-Tx privat an Flashbots Protect (abschaltbar), auf Base an den normalen Knoten', async () => {
+    expect(mevProtectRpc('ethereum', {})).toBe(FLASHBOTS_PROTECT_RPC);
+    expect(mevProtectRpc('ethereum', { MEV_PROTECT: '0' })).toBeNull();
+    expect(mevProtectRpc('ethereum', { MEV_PROTECT_RPC_ETHEREUM: 'https://eigen.example' })).toBe('https://eigen.example');
+    expect(mevProtectRpc('base', {})).toBeNull();
+    const saved = process.env.MEV_PROTECT;
+    delete process.env.MEV_PROTECT;
+    try {
+      const eth = evmNet(build(), 0n, { chainId: '0x1' });
+      const q = { ...baseQuote('buy'), chain: 'ethereum' as const };
+      expect((await executeEvmSwap({ quote: q, address: k.address, secret: k.secret }, eth.f)).status).toBe('filled');
+      expect(eth.sentTo.map((u) => new URL(u).origin)).toEqual([new URL(FLASHBOTS_PROTECT_RPC).origin]);
+      const base = evmNet(build());
+      await executeEvmSwap({ quote: baseQuote('buy'), address: k.address, secret: k.secret }, base.f);
+      expect(base.sentTo).toHaveLength(1);
+      expect(new URL(base.sentTo[0]!).origin).not.toBe(new URL(FLASHBOTS_PROTECT_RPC).origin);
+      // privat gesendet + Netzfehler: öffentliche Knoten kennen die Tx nicht → nie „failed“, sondern unklar (mit Nonce)
+      const lost = evmNet(build(), 0n, { send: 'network', chainId: '0x1' });
+      const r = await executeEvmSwap({ quote: q, address: k.address, secret: k.secret }, lost.f);
+      expect(r).toMatchObject({ status: 'pending', nonce: 0 });
+    } finally {
+      if (saved !== undefined) process.env.MEV_PROTECT = saved;
+    }
+  });
 
   it('Kauf mit ETH: genau EINE Transaktion an den Router, value = Betrag, Base-Chain', async () => {
     const n = evmNet(build());
@@ -367,6 +401,11 @@ describe('echte Daten: Aggregatoren bauen für eine leere Wallet (nichts wird ge
     expect(built.data.toLowerCase()).toContain(k.address.slice(2).toLowerCase());
     // der Wächter dekodiert ECHTE KyberSwap-Calldata und akzeptiert sie (ABI passt zur Realität)
     expect(() => assertKyberSwap(built.data, built.value, kyberExpect(quote, k.address))).not.toThrow();
+  }, 30_000);
+
+  it('Flashbots Protect (MEV-Schutz) ist erreichbar und gehört zu Ethereum', async () => {
+    const res = await fetch(FLASHBOTS_PROTECT_RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }) });
+    expect(((await res.json()) as { result: string }).result).toBe('0x1');
   }, 30_000);
 
   it('On-chain-Bestände lesen (Solana + Base)', async () => {

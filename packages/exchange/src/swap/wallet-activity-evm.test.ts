@@ -15,6 +15,7 @@ import {
   setEvmRetryDelayForTests,
   unwrappedIn,
   UNISWAP_V4_POOL_MANAGER,
+  V4_MODIFY_LIQUIDITY_TOPIC,
   V4_SWAP_TOPIC,
   v4SwapIn,
   WETH_WITHDRAWAL_TOPIC,
@@ -86,6 +87,9 @@ describe('deriveEvmSwap', () => {
     expect(v4SwapIn('base', [ev(POOL)])).toBe(false);
     expect(v4SwapIn('base', [ev(UNISWAP_V4_POOL_MANAGER.arbitrum)])).toBe(false);
     expect(v4SwapIn('solana', [ev(UNISWAP_V4_POOL_MANAGER.base)])).toBe(false);
+    // „Zap“: Swap + Liquidität hinzufügen in derselben Tx → kein Verkauf
+    const ml = { address: UNISWAP_V4_POOL_MANAGER.base, topics: [V4_MODIFY_LIQUIDITY_TOPIC, `0x${'ab'.repeat(32)}`, padTopic(ROUTER)] };
+    expect(v4SwapIn('base', [ev(UNISWAP_V4_POOL_MANAGER.base), ml])).toBe(false);
   });
 
   it('natives ETH ↔ Stablecoin ist kein Token-Handel', () => {

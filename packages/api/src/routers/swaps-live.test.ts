@@ -33,6 +33,8 @@ let chainLamports = 3_000_000_000n;
 let rugQuote = false;
 /** Antwort der Kette auf getSignatureStatuses (Klärung „Ausgang unklar“) */
 let sigStatus: unknown = null;
+/** Kette beim Bestände-Lesen nicht erreichbar */
+let balancesDown = false;
 const fakeNet = (async (url: string, init?: RequestInit) => {
   const u = String(url);
   const json = (b: unknown) => new Response(JSON.stringify(b));
@@ -54,6 +56,7 @@ const fakeNet = (async (url: string, init?: RequestInit) => {
   if (body.method === 'getAccountInfo') {
     return ok({ value: { owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', data: { parsed: { type: 'mint', info: { mintAuthority: null, freezeAuthority: null } } } } });
   }
+  if (balancesDown && (body.method === 'getBalance' || body.method === 'getTokenAccountsByOwner')) return new Response('down', { status: 503 });
   if (body.method === 'getBalance') return ok({ value: Number(chainLamports) });
   if (body.method === 'getSignatureStatuses') return ok({ value: [sigStatus] });
   if (body.method === 'getTokenAccountsByOwner') {
@@ -246,6 +249,11 @@ describe.skipIf(!hasDb)('Eigene Trading-Wallet (live)', () => {
     chainLamports -= 100_000_000n + 5_000n;
     chainBonk += 75_000_000_000n;
     sigStatus = { confirmationStatus: 'finalized', err: null };
+    // Bestände gerade nicht lesbar → NICHT aus dem Angebot buchen (sonst doppelt), im nächsten Takt erneut
+    balancesDown = true;
+    expect(await resolvePendingSwaps(db, { walletId })).toMatchObject({ filled: 0 });
+    expect((await pendingTrade())?.id).toBe(tx.id);
+    balancesDown = false;
     expect(await resolvePendingSwaps(db, { walletId })).toMatchObject({ filled: 1 });
     const pf = await a.swaps.portfolio({ walletId });
     const resolved = pf.trades.find((t) => t.id === tx.id)!;
@@ -266,6 +274,20 @@ describe.skipIf(!hasDb)('Eigene Trading-Wallet (live)', () => {
     expect(await resolvePendingSwaps(db, { walletId, now: later })).toMatchObject({ failed: 1 });
     expect((await a.swaps.portfolio({ walletId })).trades[0]).toMatchObject({ status: 'failed' });
     expect(chainBonk).toBe(bonkBefore + 75_000_000_000n);
+  });
+
+  it('„Ausgang unklar“ von vor Migration 0032 (ohne gespeichertes Angebot): gelandet → nur Status, kein Absturz in jedem Takt', async () => {
+    const [legacy] = await db
+      .insert(schema.swapTrades)
+      .values({ walletId, side: 'buy', mode: 'live', status: 'pending', aggregator: 'jupiter', inToken: SOL_MINT, inSymbol: 'SOL', inAtomic: '1', inDecimals: 9, outToken: BONK, outSymbol: 'Bonk', outAtomic: '1', outDecimals: 5, slippageBps: 50, txHash: 'tx-legacy' })
+      .returning();
+    sigStatus = { confirmationStatus: 'finalized', err: null };
+    const before = (await a.swaps.portfolio({ walletId })).holdings.find((h) => h.symbol === 'Bonk')?.amount;
+    expect(await resolvePendingSwaps(db, { walletId })).toMatchObject({ filled: 1, errors: [] });
+    const pf = await a.swaps.portfolio({ walletId });
+    expect(pf.trades.find((t) => t.id === legacy!.id)).toMatchObject({ status: 'filled', valueUsd: null });
+    expect(pf.holdings.find((h) => h.symbol === 'Bonk')?.amount).toBe(before);
+    sigStatus = null;
   });
 
   it('Freigabe zurückziehen sperrt sofort (Preisalarme bleiben); Entfernen löscht den Schlüssel erst nach Bestätigung', async () => {

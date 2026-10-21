@@ -32,7 +32,14 @@ const ERC20 = parseAbi([
  * `pending` = gesendet, Ausgang unbekannt (Netz/Timeout NACH dem Senden) — nie
  * als „nichts passiert“ werten, sonst kauft man womöglich doppelt.
  */
-export type LiveSwapResult = { txHash: string; status: 'filled' | 'failed' | 'pending'; error: string | null; approvalTx: string | null };
+export type LiveSwapResult = {
+  txHash: string;
+  status: 'filled' | 'failed' | 'pending';
+  error: string | null;
+  approvalTx: string | null;
+  /** EVM: Nonce der Swap-Tx (für die spätere Klärung von `pending`) */
+  nonce?: number | null;
+};
 
 export type LiveSwapOpts = {
   /** Unmittelbar vor dem Signieren: Freigabe/Order erneut prüfen — wirft → nichts signiert, nichts gesendet. */
@@ -139,6 +146,21 @@ export async function executeSolanaSwap(
   return { txHash: sig, status: 'pending', error: UNKNOWN, approvalTx: null };
 }
 
+/**
+ * MEV-Schutz: Flashbots Protect (offizieller öffentlicher RPC, ohne Schlüssel)
+ * nimmt die signierte Tx privat an und gibt sie direkt an Block-Builder — sie
+ * erscheint nie im öffentlichen Mempool, Sandwich-Angriffe auf den Swap
+ * entfallen; ein Revert kostet dort kein Gas. Nur Ethereum (Base/Arbitrum haben
+ * keinen öffentlichen Mempool, BSC keinen freien Dienst). Abschalten:
+ * `MEV_PROTECT=0`; eigener Endpunkt: `MEV_PROTECT_RPC_ETHEREUM`.
+ */
+export const FLASHBOTS_PROTECT_RPC = 'https://rpc.flashbots.net';
+
+export function mevProtectRpc(chain: SwapChainId, env: Record<string, string | undefined> = process.env): string | null {
+  if (chain !== 'ethereum' || env.MEV_PROTECT === '0') return null;
+  return env.MEV_PROTECT_RPC_ETHEREUM?.trim() || FLASHBOTS_PROTECT_RPC;
+}
+
 /** Erwartungen des KyberSwap-Wächters aus dem bestätigten Angebot. */
 export function kyberExpect(q: SwapQuote, owner: string) {
   return {
@@ -231,16 +253,21 @@ export async function executeEvmSwap(
   const request = await wallet.prepareTransactionRequest({ to: router, data: d.data as `0x${string}`, value });
   const serialized = await wallet.signTransaction(request);
   const hash = keccak256(serialized);
+  const protectedRpc = mevProtectRpc(chainId);
   try {
-    await pub.sendRawTransaction({ serializedTransaction: serialized });
+    // Ethereum: privat über Flashbots Protect (kein öffentlicher Mempool → kein Sandwich)
+    const sender = protectedRpc ? createPublicClient({ chain, transport: http(protectedRpc, { fetchFn }) }) : pub;
+    await sender.sendRawTransaction({ serializedTransaction: serialized });
   } catch (err) {
+    // privat gesendet: öffentliche Knoten kennen die Tx nicht → Fehler heißt hier nie „sicher nicht gesendet“
+    if (protectedRpc) return { txHash: hash, status: 'pending', error: UNKNOWN, approvalTx, nonce: request.nonce ?? null };
     // abgelehnt oder doch angekommen? Nur „sicher unbekannt beim Knoten“ zählt als nicht gesendet
     const known = await pub.getTransaction({ hash }).then(
       () => true,
       (e: unknown) => ((e as { name?: string }).name === 'TransactionNotFoundError' ? false : null),
     );
     if (known === false) return { txHash: hash, status: 'failed', error: `Abgelehnt: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`, approvalTx };
-    return { txHash: hash, status: 'pending', error: UNKNOWN, approvalTx };
+    return { txHash: hash, status: 'pending', error: UNKNOWN, approvalTx, nonce: request.nonce ?? null };
   }
   try {
     const receipt = await pub.waitForTransactionReceipt({ hash, timeout: 180_000 });
@@ -248,7 +275,7 @@ export async function executeEvmSwap(
       ? { txHash: hash, status: 'filled', error: null, approvalTx }
       : { txHash: hash, status: 'failed', error: 'Swap on-chain zurückgewiesen (revert).', approvalTx };
   } catch {
-    return { txHash: hash, status: 'pending', error: UNKNOWN, approvalTx };
+    return { txHash: hash, status: 'pending', error: UNKNOWN, approvalTx, nonce: request.nonce ?? null };
   }
 }
 
@@ -258,7 +285,7 @@ export async function executeLiveSwap(p: { quote: SwapQuote; address: string; se
 
 /** Ab hier gilt eine nirgends gefundene Solana-Signatur als nie gelandet (Blockhash ≈ 60–90 s gültig). */
 export const SOLANA_UNSEEN_FAIL_MS = 5 * 60_000;
-/** EVM: unbekannte Tx (weder Beleg noch im Mempool) erst nach 2 h als verworfen werten. */
+/** EVM: ohne Beleg frühestens nach 2 h und nur bei anders verbrauchter Nonce als „nie gelandet“ werten. */
 export const EVM_UNSEEN_FAIL_MS = 2 * 60 * 60_000;
 
 /**
@@ -270,6 +297,8 @@ export async function checkLiveSwapStatus(
   txHash: string,
   ageMs: number,
   fetchFn: Fetch = fetch,
+  /** EVM: Absender + Nonce der Tx — nur damit ist „nie gelandet“ sicher feststellbar */
+  sent: { from?: string; nonce?: number | null } = {},
 ): Promise<{ status: 'filled' | 'failed' | 'pending'; error: string | null }> {
   if (SWAP_CHAINS[chain].kind === 'solana') {
     const st = (await rpc(chain, 'getSignatureStatuses', [[txHash], { searchTransactionHistory: true }], fetchFn)) as {
@@ -284,9 +313,12 @@ export async function checkLiveSwapStatus(
   const receipt = (await rpc(chain, 'eth_getTransactionReceipt', [txHash], fetchFn)) as { status?: string } | null;
   if (receipt?.status === '0x1') return { status: 'filled', error: null };
   if (receipt?.status === '0x0') return { status: 'failed', error: 'Swap on-chain zurückgewiesen (revert).' };
-  if (!receipt && ageMs > EVM_UNSEEN_FAIL_MS) {
-    const known = await rpc(chain, 'eth_getTransactionByHash', [txHash], fetchFn);
-    if (!known) return { status: 'failed', error: 'Transaktion vom Netz verworfen (nie in einen Block gekommen).' };
+  // Ohne Beleg ist eine Tx erst sicher „nie gelandet“, wenn ihre Nonce von einer ANDEREN Tx
+  // verbraucht wurde (dann kann sie nie mehr in einen Block). Ein einzelner Knoten, der sie
+  // nicht kennt, beweist nichts — sie kann in anderen Mempools stecken.
+  if (!receipt && ageMs > EVM_UNSEEN_FAIL_MS && sent.from && typeof sent.nonce === 'number') {
+    const count = BigInt((await rpc(chain, 'eth_getTransactionCount', [sent.from, 'latest'], fetchFn)) as string);
+    if (count > BigInt(sent.nonce)) return { status: 'failed', error: 'Transaktion nie in einen Block gekommen (Nonce inzwischen anders verbraucht).' };
   }
   return { status: 'pending', error: null };
 }

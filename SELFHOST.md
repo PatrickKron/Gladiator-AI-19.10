@@ -48,7 +48,7 @@ docker compose --env-file .env --profile app up -d --build
 docker compose --env-file .env --profile app run --rm app setup-data   # echte Startdaten (einmalig)
 ```
 
-Der App-Container legt beim Start die Tabellen an, liefert Oberfläche + API auf `http://127.0.0.1:3010` aus und läuft als normaler Benutzer (nicht root). Er nutzt dieselbe `.env` und biegt nur die Adressen von Datenbank und Redis auf die Compose-Dienste um. Passwort zurücksetzen: `docker compose --env-file .env --profile app run --rm app set-password <email>`. Ohne `--profile app` startet Compose wie bisher nur Datenbank und Redis. Die CI startet genau diesen Container bei jedem Push und prüft `/health`.
+Der App-Container legt beim Start die Tabellen an, liefert Oberfläche + API auf `http://127.0.0.1:3010` aus und läuft als normaler Benutzer (nicht root). Er läuft im Host-Netz und nutzt dieselbe `.env` unverändert (Datenbank 127.0.0.1:5433, Redis 6380, Oberfläche nur lokal) — Auto-Login aus dem Tailnet und alles andere verhalten sich wie ohne Container. Docker auf Linux vorausgesetzt (Host-Netz). Passwort zurücksetzen: `docker compose --env-file .env --profile app run --rm app set-password <email>`. Ohne `--profile app` startet Compose wie bisher nur Datenbank und Redis. Die CI startet genau diesen Container bei jedem Push und prüft `/health`.
 
 ## Dauerbetrieb (systemd)
 
@@ -67,6 +67,7 @@ Für den Dauerbetrieb Webserver und Worker getrennt laufen lassen, damit recheni
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Benachrichtigungen zusätzlich per Telegram |
 | `FRED_API_KEY` | weitere Makro-Datenreihen |
 | `HEALTHCHECKS_URL` | externer Ausfall-Alarm (Dead-Man-Switch) |
+| `MEV_PROTECT=0` | Live-Swaps auf Ethereum NICHT privat über Flashbots Protect senden (Standard: privat, Schutz vor Sandwich-Angriffen); eigener Endpunkt: `MEV_PROTECT_RPC_ETHEREUM` |
 | `WALLET_KEYS_ENABLED=1` | eigene Trading-Wallets mit Schlüssel für Spot-Swaps erlauben (nur beim Selbsthosten; Schlüssel verschlüsselt, keine Überweisungen/Abhebungen) |
 | `RPC_URL_SOLANA`, `RPC_URL_ETHEREUM`, `RPC_URL_BASE`, `RPC_URL_ARBITRUM`, `RPC_URL_BSC` | eigene RPC-Endpunkte statt der öffentlichen |
 | `RPC_URL_LOGS_ETHEREUM`, `RPC_URL_LOGS_BASE`, `RPC_URL_LOGS_ARBITRUM`, `RPC_URL_LOGS_BSC` | eigener Knoten für „Wallets beobachten“ auf EVM (braucht `eth_getLogs` ohne Vertragsadresse); ohne Angabe probiert Gladiator eine Liste öffentlicher Knoten |

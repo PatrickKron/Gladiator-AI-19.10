@@ -367,6 +367,7 @@ async function executeLive(db: Db, p: PreparedSwap, side: 'buy' | 'sell', ctx: E
     status: result.status,
     error: result.error,
     onchain,
+    nonce: result.nonce ?? null,
   });
   const verb = `${ctx.origin ? `${ctx.origin}: ` : ''}${side === 'buy' ? 'Kauf' : 'Verkauf'}`;
   await notifySafe(db, {
