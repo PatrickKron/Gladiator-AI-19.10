@@ -4,6 +4,7 @@ import { trpc } from '../api.js';
 import { TokenChart } from '../components/TokenChart.js';
 import { TokenDiscovery } from '../components/TokenDiscovery.js';
 import { WatchedWallets } from '../components/WatchedWallets.js';
+import { buildAutoOrders, loadAutoOrders, saveAutoOrders, type AutoOrdersSetting } from '../lib/auto-orders.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
 import { avgEntryUsd, bpsLabel, fmtAmount, fmtPct, fmtUsd, initialsPercent, pnlPercent, slippageChoices, swapReasonKey } from '../lib/swap-format.js';
@@ -207,6 +208,12 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
   const lang = i18n.language;
 
   const [ordersVersion, setOrdersVersion] = useState(0);
+  const [auto, setAuto] = useState<AutoOrdersSetting>(() => loadAutoOrders(wallet.id));
+  const changeAuto = (next: AutoOrdersSetting) => {
+    setAuto(next);
+    saveAutoOrders(wallet.id, next);
+  };
+  const autoBuilt = buildAutoOrders(auto);
   const ticketRef = useRef<HTMLDivElement>(null);
 
   const loadPortfolio = useCallback(async () => {
@@ -269,14 +276,20 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
         slippageBps: slippage,
         ...pending,
         ...(wallet.mode === 'live' ? { confirmLive: true } : {}),
+        ...(pending.side === 'buy' && autoBuilt.value ? { autoOrders: autoBuilt.value } : {}),
       });
       const q = r.quote;
+      const autoText = r.autoOrders
+        .map((o) => (o.error ? `${t(`swap.kind_${o.kind}`)}: ${o.error}` : `${t(`swap.kind_${o.kind}`)} @ ${fmtUsd(o.triggerPriceUsd, lang)}`))
+        .join(' · ');
       setMsg({
         ok: true,
         text:
           t('swap.done', { inAmount: fmtAmount(q.inAmount, lang), inSymbol: q.inSymbol, outAmount: fmtAmount(q.outAmount, lang), outSymbol: q.outSymbol }) +
-          (r.trade.txHash ? ` · Tx ${r.trade.txHash.slice(0, 10)}…` : ''),
+          (r.trade.txHash ? ` · Tx ${r.trade.txHash.slice(0, 10)}…` : '') +
+          (autoText ? ` · ${autoText}` : ''),
       });
+      if (r.autoOrders.length > 0) setOrdersVersion((v) => v + 1);
       setQuote(null);
       setPending(null);
       await loadPortfolio();
@@ -368,6 +381,25 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
                 {t('swap.available', { amount: fmtAmount(nativeHolding.amount, lang), symbol: chain.native.symbol })}
               </p>
             )}
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+              <label className="flex items-center gap-1.5" title={t('swap.autoHint')}>
+                <input type="checkbox" checked={auto.enabled} onChange={(e) => changeAuto({ ...auto, enabled: e.target.checked })} />
+                {t('swap.autoTpSl')}
+              </label>
+              {auto.enabled && (
+                <>
+                  <label className="flex items-center gap-1">
+                    TP +
+                    <input className="field num w-14 px-1.5 py-0.5 text-[11px]" inputMode="decimal" value={auto.takeProfitPct} onChange={(e) => changeAuto({ ...auto, takeProfitPct: e.target.value })} />%
+                  </label>
+                  <label className="flex items-center gap-1">
+                    SL −
+                    <input className="field num w-14 px-1.5 py-0.5 text-[11px]" inputMode="decimal" value={auto.stopLossPct} onChange={(e) => changeAuto({ ...auto, stopLossPct: e.target.value })} />%
+                  </label>
+                  {autoBuilt.error && <span style={{ color: 'var(--color-warn)' }}>{t('swap.autoInvalid')}</span>}
+                </>
+              )}
+            </div>
 
             <p className="label mt-3">{t('swap.sell')}</p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -436,12 +468,20 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
                 ))}
               </ul>
             )}
+            {pending?.side === 'buy' && autoBuilt.value && (
+              <p className="mt-2 text-[11px]" style={{ color: wallet.mode === 'live' ? 'var(--color-warn)' : 'var(--color-mut)' }}>
+                {t(wallet.mode === 'live' ? 'swap.autoLiveNote' : 'swap.autoNote', {
+                  tp: autoBuilt.value.takeProfitPct !== undefined ? `+${autoBuilt.value.takeProfitPct} %` : '—',
+                  sl: autoBuilt.value.stopLossPct !== undefined ? `−${autoBuilt.value.stopLossPct} %` : '—',
+                })}
+              </p>
+            )}
             <div className="mt-3 flex gap-2">
               <button
                 type="button"
                 className="btn px-3 py-1.5 text-sm"
                 style={wallet.mode === 'live' ? { borderColor: 'var(--color-warn)' } : undefined}
-                disabled={busy || !quote.verdict.allowed || (wallet.mode === 'live' && !wallet.liveApproved)}
+                disabled={busy || !quote.verdict.allowed || (pending?.side === 'buy' && autoBuilt.error) || (wallet.mode === 'live' && !wallet.liveApproved)}
                 onClick={() => void confirm()}
               >
                 {wallet.mode === 'paper' ? t('swap.confirmPaper') : t('swap.confirmLive')}
@@ -918,7 +958,7 @@ function LimitsPanel({ config, wallet, onSaved }: { config: Config; wallet: Wall
   );
 }
 
-const ORDER_KINDS: OrderKind[] = ['take_profit', 'stop_loss', 'trailing_stop', 'limit_buy', 'dca'];
+const ORDER_KINDS: OrderKind[] = ['take_profit', 'stop_loss', 'trailing_stop', 'limit_buy', 'dca', 'alert_above', 'alert_below'];
 /** DCA-Abstände in Minuten */
 const DCA_INTERVALS = [15, 60, 240, 720, 1440, 10_080];
 
@@ -955,16 +995,17 @@ function OrderForm({
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const price = token.priceUsd!;
   const dca = kind === 'dca';
+  const alert = kind === 'alert_above' || kind === 'alert_below';
   const runsN = Number(runs);
   const cap = capPct.trim() === '' ? null : price * (1 + Number(capPct.replace(',', '.')) / 100);
   const amountN = Number(buyAmount.replace(',', '.'));
   const off = Number(offset.replace(',', '.'));
-  const sign = kind === 'take_profit' ? 1 : -1;
+  const sign = kind === 'take_profit' || kind === 'alert_above' ? 1 : -1;
   const trigger = kind === 'trailing_stop' ? null : price * (1 + (sign * off) / 100);
-  const needsHolding = kind !== 'limit_buy' && !dca;
+  const needsHolding = kind !== 'limit_buy' && !dca && !alert;
   const valid = dca
     ? amountN > 0 && Number.isInteger(runsN) && runsN >= 2 && runsN <= 500 && (cap === null || (Number.isFinite(cap) && cap > 0))
-    : Number.isFinite(off) && off > 0 && (kind === 'take_profit' || off < 100) && (!needsHolding || held);
+    : Number.isFinite(off) && off > 0 && (sign === 1 || off < 100) && (!needsHolding || held);
 
   async function create() {
     setBusy(true);
@@ -982,7 +1023,7 @@ function OrderForm({
         runsTotal: dca ? runsN : undefined,
         maxPriceUsd: dca && cap !== null ? cap : undefined,
         slippageBps,
-        confirmLive: wallet.mode === 'live' ? confirmLive : undefined,
+        confirmLive: wallet.mode === 'live' && !alert ? confirmLive : undefined,
       });
       setMsg({ ok: true, text: t('swap.orderCreated') });
       onCreated();
@@ -1005,7 +1046,7 @@ function OrderForm({
             style={{ borderColor: k === kind ? 'var(--color-cyan)' : 'var(--color-line)', color: k === kind ? 'var(--color-ink)' : 'var(--color-mut)' }}
             onClick={() => {
               setKind(k);
-              setOffset(k === 'take_profit' ? '50' : k === 'trailing_stop' ? '15' : '20');
+              setOffset(k === 'take_profit' || k === 'alert_above' ? '50' : k === 'trailing_stop' ? '15' : '20');
               setMsg(null);
             }}
           >
@@ -1041,10 +1082,12 @@ function OrderForm({
       ) : (
       <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
         <label>
-          {kind === 'take_profit' ? t('swap.offsetUp') : kind === 'trailing_stop' ? t('swap.trailPct') : t('swap.offsetDown')}
+          {sign === 1 ? t('swap.offsetUp') : kind === 'trailing_stop' ? t('swap.trailPct') : t('swap.offsetDown')}
           <input className={field} value={offset} inputMode="decimal" onChange={(e) => setOffset(e.target.value)} />
         </label>
-        {kind === 'limit_buy' ? (
+        {alert ? (
+          <p className="self-end text-[11px]" style={{ color: 'var(--color-mut)' }}>{t('swap.alertOnly')}</p>
+        ) : kind === 'limit_buy' ? (
           <label>
             {t('swap.buyAmount', { symbol: nativeSymbol })}
             <input className={field} value={buyAmount} inputMode="decimal" onChange={(e) => setBuyAmount(e.target.value)} />
@@ -1083,7 +1126,7 @@ function OrderForm({
           : t('swap.triggerHint', { price: trigger !== null && Number.isFinite(trigger) ? fmtUsd(trigger, lang) : '—', now: fmtUsd(price, lang) })}
       </p>
       {needsHolding && !held && <p className="mt-1 text-[11px]" style={{ color: 'var(--color-warn)' }}>{t('swap.noHolding')}</p>}
-      {wallet.mode === 'live' && (
+      {wallet.mode === 'live' && !alert && (
         <label className="mt-2 flex items-center gap-2 text-[11px]" style={{ color: 'var(--color-warn)' }}>
           <input type="checkbox" checked={confirmLive} onChange={(e) => setConfirmLive(e.target.checked)} />
           {t('swap.orderConfirmLive')}
@@ -1092,7 +1135,7 @@ function OrderForm({
       <button
         type="button"
         className="btn mt-2 px-3 py-1.5 text-sm"
-        disabled={busy || !valid || (wallet.mode === 'live' && (!wallet.liveApproved || !confirmLive))}
+        disabled={busy || !valid || (wallet.mode === 'live' && !alert && (!wallet.liveApproved || !confirmLive))}
         onClick={() => void create()}
       >
         {t('swap.createOrder')}

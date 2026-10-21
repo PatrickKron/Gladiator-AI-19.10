@@ -218,6 +218,13 @@
       "when": 1792531707645,
       "tag": "0030_ambitious_brood",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1792559231297,
+      "tag": "0031_red_riptide",
+      "breakpoints": true
     }
   ]
 }

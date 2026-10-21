@@ -52,6 +52,15 @@ describe('dcaAfterRun', () => {
 });
 
 describe('validateNewOrder', () => {
+  it('Preisalarme: über/unter, gleiche Plausibilität', () => {
+    expect(evaluateSwapOrder({ kind: 'alert_above', triggerPriceUsd: 2, trailPct: null, peakPriceUsd: null }, 1.99).trigger).toBe(false);
+    expect(evaluateSwapOrder({ kind: 'alert_above', triggerPriceUsd: 2, trailPct: null, peakPriceUsd: null }, 2).trigger).toBe(true);
+    expect(evaluateSwapOrder({ kind: 'alert_below', triggerPriceUsd: 1, trailPct: null, peakPriceUsd: null }, 0.9).trigger).toBe(true);
+    expect(validateNewOrder({ kind: 'alert_above', triggerPriceUsd: 0.9, trailPct: null, peakPriceUsd: null }, 1)).toMatch(/über dem aktuellen/);
+    expect(validateNewOrder({ kind: 'alert_below', triggerPriceUsd: 1.1, trailPct: null, peakPriceUsd: null }, 1)).toMatch(/unter dem aktuellen/);
+    expect(validateNewOrder({ kind: 'alert_above', triggerPriceUsd: 1.1, trailPct: null, peakPriceUsd: null }, 1)).toBeNull();
+  });
+
   it('lehnt Orders ab, die sofort auslösen würden', () => {
     expect(validateNewOrder({ kind: 'take_profit', triggerPriceUsd: 0.9, trailPct: null, peakPriceUsd: null }, 1)).toMatch(/über dem aktuellen/);
     expect(validateNewOrder({ kind: 'stop_loss', triggerPriceUsd: 1.1, trailPct: null, peakPriceUsd: null }, 1)).toMatch(/unter dem aktuellen/);
@@ -244,5 +253,23 @@ describe.skipIf(!process.env.DATABASE_URL)('runSwapOrders (echte DB, Paper)', ()
     expect(await status(sl.id)).toMatchObject({ status: 'cancelled', error: 'Bestand verkauft' });
     expect(await status(dca.id)).toMatchObject({ status: 'open', runsDone: 1 });
     await db.update(schema.swapOrders).set({ status: 'cancelled' }).where(eq(schema.swapOrders.id, dca.id));
+  });
+
+  it('Preisalarm: meldet sich beim Kurs, handelt nie, bleibt bei TP-Verkauf bestehen', async () => {
+    const trades = async () => (await db.select().from(schema.swapTrades).where(eq(schema.swapTrades.walletId, walletId))).length;
+    const before = await trades();
+    const up = await addOrder({ kind: 'alert_above', triggerPriceUsd: '0.00005' });
+    const down = await addOrder({ kind: 'alert_below', triggerPriceUsd: '0.000001' });
+    bonkUsd = 0.00004;
+    await runSwapOrders(db);
+    expect((await status(up.id)).status).toBe('open');
+    bonkUsd = 0.00006;
+    await runSwapOrders(db);
+    expect((await status(up.id)).status).toBe('filled');
+    expect(await trades()).toBe(before); // kein Swap
+    const notes = await db.select().from(schema.notifications).where(eq(schema.notifications.userId, userId));
+    expect(notes.find((n) => n.title.startsWith('Bonk über'))).toMatchObject({ kind: 'price_alert' });
+    expect((await status(down.id)).status).toBe('open');
+    await db.update(schema.swapOrders).set({ status: 'cancelled' }).where(eq(schema.swapOrders.id, down.id));
   });
 });
