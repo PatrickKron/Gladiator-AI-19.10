@@ -7,7 +7,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, schema, type Db } from '@gladiator/db';
-import { fundPaperWallet, SOL_MINT, walletBalances } from '@gladiator/exchange';
+import { ERC20_TRANSFER_TOPIC, fundPaperWallet, padTopic, SOL_MINT, SWAP_CHAINS, walletBalances } from '@gladiator/exchange';
 import type pg from 'pg';
 import { setSwapFetchForTests } from './swap-service.js';
 import { runWalletCopy } from './wallet-copy.js';
@@ -180,5 +180,137 @@ describe.skipIf(!process.env.DATABASE_URL)('runWalletCopy (echte DB, Paper)', ()
     for (let i = 0; i < 10 && !(await ownChecked()); i++) expect((await runWalletCopy(db, -1)).checked).toBe(1);
     expect(await ownChecked()).toBe(true);
     await db.delete(schema.watchedWallets).where(eq(schema.watchedWallets.id, extra!.id));
+  });
+});
+
+/* ---------- EVM (Base): Transfer-Logs statt Signaturen ---------- */
+
+const EVM_WHALE = '0x5555555555555555555555555555555555555555';
+const MEME = '0x6666666666666666666666666666666666666666';
+const ROUTER = '0x7777777777777777777777777777777777777777';
+const WETH = SWAP_CHAINS.base.wrappedNative;
+type EvmTxSpec = { hash: string; block: number; side: 'buy' | 'sell' };
+let evmBlock = 30_000_000;
+let evmTxs: EvmTxSpec[] = [];
+
+const evmNet = (async (url: string, init?: RequestInit) => {
+  const u = String(url);
+  const json = (b: unknown) => new Response(JSON.stringify(b));
+  if (u.includes('dexscreener')) {
+    const addrs = u.split('/').pop()!.split(',');
+    return json(addrs.map((a) => ({ chainId: 'base', baseToken: { address: a, symbol: a.toLowerCase() === WETH.toLowerCase() ? 'WETH' : 'MEME' }, priceUsd: a.toLowerCase() === WETH.toLowerCase() ? '3000' : '0.5', liquidity: { usd: 1e7 } })));
+  }
+  if (u.includes('kyberswap')) {
+    const q = new URL(u).searchParams;
+    const amountIn = BigInt(q.get('amountIn')!);
+    const buy = q.get('tokenOut')!.toLowerCase() === MEME;
+    // 1 ETH = 6000 MEME (beide 18 Nachkommastellen)
+    const out = buy ? amountIn * 6000n : amountIn / 6000n;
+    const usd = buy ? (Number(amountIn) / 1e18) * 3000 : (Number(amountIn) / 1e18) * 0.5;
+    return json({ code: 0, data: { routeSummary: { amountIn: amountIn.toString(), amountOut: out.toString(), amountInUsd: String(usd), amountOutUsd: String(usd * 0.997), gasUsd: '0.01', route: [[{ exchange: 'uniswap-v3' }]] }, routerAddress: ROUTER } });
+  }
+  if (u.includes('gopluslabs')) return new Response('nicht erreichbar', { status: 503 });
+  const body = JSON.parse(String(init?.body)) as { method: string; params: unknown[] };
+  const rpc = (result: unknown) => json({ jsonrpc: '2.0', id: 1, result });
+  const hex = (n: number | bigint) => `0x${n.toString(16)}`;
+  const word = (n: bigint) => `0x${n.toString(16).padStart(64, '0')}`;
+  switch (body.method) {
+    case 'eth_blockNumber':
+      return rpc(hex(evmBlock));
+    case 'eth_getLogs': {
+      const f = body.params[0] as { fromBlock: string; toBlock: string; topics: (string | null)[] };
+      const [lo, hi] = [Number(BigInt(f.fromBlock)), Number(BigInt(f.toBlock))];
+      const outgoing = f.topics[1] !== null && f.topics[1] !== undefined;
+      const logs = evmTxs
+        .filter((t) => t.block >= lo && t.block <= hi && (outgoing ? t.side === 'sell' : t.side === 'buy'))
+        .map((t) => ({
+          address: MEME,
+          topics: [ERC20_TRANSFER_TOPIC, padTopic(t.side === 'buy' ? ROUTER : EVM_WHALE), padTopic(t.side === 'buy' ? EVM_WHALE : ROUTER)],
+          data: word(900n * 10n ** 18n),
+          transactionHash: t.hash,
+          blockNumber: hex(t.block),
+          logIndex: '0x0',
+        }));
+      return rpc(logs);
+    }
+    case 'eth_getTransactionByHash': {
+      const t = evmTxs.find((x) => x.hash === body.params[0]);
+      return rpc(t ? { from: EVM_WHALE, to: ROUTER, value: t.side === 'buy' ? hex(10n ** 17n) : '0x0' } : null);
+    }
+    case 'eth_getBlockByNumber':
+      return rpc({ timestamp: hex(1_700_000_000) });
+    case 'eth_call':
+      return rpc(word(18n)); // decimals()
+    case 'eth_getBalance':
+      return rpc('0x0');
+  }
+  return new Response('?', { status: 404 });
+}) as unknown as typeof fetch;
+
+describe.skipIf(!process.env.DATABASE_URL)('runWalletCopy EVM (echte DB, Paper, Base)', () => {
+  let db: Db;
+  let pool: pg.Pool;
+  let userId: string;
+  let walletId: string;
+  let watchedId: string;
+  const RUN = `${process.pid}-${Date.now()}-evm`;
+  const backdate = () => db.update(schema.watchedWallets).set({ lastCheckedAt: null }).where(eq(schema.watchedWallets.id, watchedId));
+  const seen = () => db.select().from(schema.watchedWalletSwaps).where(eq(schema.watchedWalletSwaps.watchedId, watchedId));
+  const meme = async () => BigInt((await walletBalances(db, walletId)).find((b) => b.token.toLowerCase() === MEME)?.amountAtomic ?? '0');
+
+  beforeAll(async () => {
+    setSwapFetchForTests(evmNet);
+    ({ db, pool } = createDb());
+    const [u] = await db.insert(schema.users).values({ email: `walletcopy-${RUN}@test.invalid` }).returning();
+    userId = u!.id;
+    const [w] = await db
+      .insert(schema.swapWallets)
+      .values({ userId, chain: 'base', label: 'Base Copy', address: `paper:${RUN}`, maxTradeUsd: '10000', maxSlippageBps: 500, maxPriceImpactPct: '5', minLiquidityUsd: '0', maxTokenTaxPct: '5' })
+      .returning();
+    walletId = w!.id;
+    await fundPaperWallet(db, walletId, 'base', '1', 3000);
+    const [ww] = await db
+      .insert(schema.watchedWallets)
+      .values({ userId, chain: 'base', address: EVM_WHALE, label: 'Base-Wal', copyMode: 'paper', copyWalletId: walletId, copyAmount: '0.05' })
+      .returning();
+    watchedId = ww!.id;
+  });
+
+  afterAll(async () => {
+    setSwapFetchForTests(null);
+    await db.execute(sql`DELETE FROM users WHERE id = ${userId}`);
+    await pool.end();
+  });
+
+  it('erster Lauf: letzte Blöcke als Verlauf, Cursor = aktueller Block, nichts kopiert', async () => {
+    evmTxs = [{ hash: `0xold${RUN}`, block: evmBlock - 10, side: 'buy' }];
+    await runWalletCopy(db);
+    const rows = await seen();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ side: 'buy', token: MEME, copyStatus: 'none', copyNote: 'vor Beobachtungsbeginn', nativeAtomic: (10n ** 17n).toString() });
+    const w = (await db.select().from(schema.watchedWallets).where(eq(schema.watchedWallets.id, watchedId)))[0]!;
+    expect(w.lastSignature).toBe(String(evmBlock));
+    expect(await meme()).toBe(0n);
+  });
+
+  it('neuer Kauf in neuem Block → Nachkauf 0,05 ETH; Verkauf → Bestand raus; nichts doppelt', async () => {
+    evmBlock += 5;
+    evmTxs.push({ hash: `0xbuy${RUN}`, block: evmBlock - 1, side: 'buy' });
+    await backdate();
+    await runWalletCopy(db);
+    expect((await seen()).find((s) => s.signature === `0xbuy${RUN}`)).toMatchObject({ copyStatus: 'filled' });
+    expect(await meme()).toBe(5n * 10n ** 16n * 6000n);
+
+    // derselbe Block nochmal → Cursor verhindert Doppel-Kopie
+    await backdate();
+    await runWalletCopy(db);
+    expect(await meme()).toBe(5n * 10n ** 16n * 6000n);
+
+    evmBlock += 3;
+    evmTxs.push({ hash: `0xsell${RUN}`, block: evmBlock, side: 'sell' });
+    await backdate();
+    await runWalletCopy(db);
+    expect((await seen()).find((s) => s.signature === `0xsell${RUN}`)).toMatchObject({ side: 'sell', copyStatus: 'filled', nativeAtomic: null });
+    expect(await meme()).toBe(0n);
   });
 });

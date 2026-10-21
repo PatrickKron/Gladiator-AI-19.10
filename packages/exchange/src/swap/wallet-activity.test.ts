@@ -29,12 +29,12 @@ function tx(p: {
 describe('deriveSwapFromTx', () => {
   it('Kauf: SOL raus, ein Token rein (neues Token-Konto, Gebühr herausgerechnet)', () => {
     const s = deriveSwapFromTx('sig1', tx({ sol: [2_000_000_000, 1_000_000_000 - 5_000], tokens: [{ mint: BONK, pre: null, post: '500000000' }] }), ME);
-    expect(s).toMatchObject({ side: 'buy', token: BONK, tokenAtomic: 500_000_000n, solLamports: 1_000_000_000n, counterToken: null, time: 1_700_000_000 });
+    expect(s).toMatchObject({ side: 'buy', token: BONK, tokenAtomic: 500_000_000n, nativeAtomic: 1_000_000_000n, counterToken: null, time: 1_700_000_000 });
   });
 
   it('Verkauf: Token raus, SOL rein', () => {
     const s = deriveSwapFromTx('sig2', tx({ sol: [1_000_000_000, 1_400_000_000 - 5_000], tokens: [{ mint: BONK, pre: '500000000', post: '0' }] }), ME);
-    expect(s).toMatchObject({ side: 'sell', token: BONK, tokenAtomic: 500_000_000n, solLamports: 400_000_000n });
+    expect(s).toMatchObject({ side: 'sell', token: BONK, tokenAtomic: 500_000_000n, nativeAtomic: 400_000_000n });
   });
 
   it('wrapped SOL zählt als SOL', () => {
@@ -43,12 +43,12 @@ describe('deriveSwapFromTx', () => {
       tx({ sol: [1_000_000_000, 1_000_000_000 - 5_000], tokens: [{ mint: SOL_MINT, pre: '300000000', post: '0', decimals: 9 }, { mint: BONK, pre: '0', post: '100' }] }),
       ME,
     );
-    expect(s).toMatchObject({ side: 'buy', token: BONK, solLamports: 300_000_000n });
+    expect(s).toMatchObject({ side: 'buy', token: BONK, nativeAtomic: 300_000_000n });
   });
 
   it('Token ↔ Token (USDC → BONK) = Kauf von BONK mit Gegen-Token', () => {
     const s = deriveSwapFromTx('sig4', tx({ sol: [1_000_000_000, 1_000_000_000 - 5_000], tokens: [{ mint: USDC, pre: '5000000', post: '0', decimals: 6 }, { mint: BONK, pre: null, post: '250' }] }), ME);
-    expect(s).toMatchObject({ side: 'buy', token: BONK, counterToken: USDC, solLamports: null });
+    expect(s).toMatchObject({ side: 'buy', token: BONK, counterToken: USDC, nativeAtomic: null });
   });
 
   it('kein Swap: Überweisung, Airdrop, Kontomiete, fehlgeschlagene Tx, fremde Token-Konten', () => {

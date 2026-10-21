@@ -7,14 +7,18 @@ import { Empty, ErrorBox, Panel } from './ui.js';
 
 /**
  * Wallets beobachten + Copy-Trading (Vision-Punkt 5, „wie Trojan“): fremde
- * Solana-Wallets, deren Swaps der Worker direkt von der Kette liest. Kopiert
- * wird nur in eine Solana-Paper-Wallet — echte Copy-Trades gibt es nicht.
+ * Wallets (Solana und EVM-Ketten), deren Swaps der Worker direkt von der
+ * Kette liest. Kopiert wird nur in eine Paper-Wallet derselben Kette — echte
+ * Copy-Trades gibt es nicht.
  */
 
 type Watched = Awaited<ReturnType<typeof trpc.swaps.watched.query>>[number];
 type Activity = Awaited<ReturnType<typeof trpc.swaps.watchedActivity.query>>[number];
-type PaperWallet = { id: string; label: string };
+type PaperWallet = { id: string; label: string; chain: string };
+/** Ketten-Infos aus swaps.config (Name, native Währung, Explorer). */
+export type WatchChain = { id: ChainId; name: string; kind: 'solana' | 'evm'; nativeSymbol: string; explorerTx: string };
 type CopyMode = Watched['copyMode'];
+type ChainId = NonNullable<Parameters<typeof trpc.swaps.addWatched.mutate>[0]['chain']>;
 
 const field = 'field num w-full px-2.5 py-1.5 text-sm';
 const chip = 'rounded border px-2.5 py-1 text-xs';
@@ -26,7 +30,13 @@ const COPY_COLOR: Record<Activity['copyStatus'], string> = {
 };
 
 function short(a: string): string {
-  return `${a.slice(0, 4)}…${a.slice(-4)}`;
+  return a.startsWith('0x') ? `${a.slice(0, 6)}…${a.slice(-4)}` : `${a.slice(0, 4)}…${a.slice(-4)}`;
+}
+
+/** Explorer-Link für Konto bzw. Transaktion (Solscan: /account/, EVM-Scanner: /address/). */
+function explorer(c: WatchChain | undefined, kind: 'tx' | 'account', id: string): string {
+  const tx = c?.explorerTx ?? 'https://solscan.io/tx/';
+  return kind === 'tx' ? `${tx}${id}` : tx.replace(/\/tx\/$/, c?.kind === 'evm' ? '/address/' : '/account/') + id;
 }
 
 function errText(err: unknown, fallback: string): string {
@@ -42,7 +52,9 @@ function CopyFields({
   setTarget,
   amount,
   setAmount,
+  nativeSymbol,
 }: {
+  nativeSymbol: string;
   paperWallets: PaperWallet[];
   mode: CopyMode;
   setMode: (m: CopyMode) => void;
@@ -85,7 +97,7 @@ function CopyFields({
             </select>
           </label>
           <label className="text-xs">
-            {t('swap.copyAmount')}
+            {t('swap.copyAmount', { symbol: nativeSymbol })}
             <input className={field} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(',', '.'))} />
           </label>
         </>
@@ -94,13 +106,16 @@ function CopyFields({
   );
 }
 
-export function WatchedWallets({ paperWallets, onCopied }: { paperWallets: PaperWallet[]; onCopied: () => void }) {
+export function WatchedWallets({ chains, paperWallets: allPaper, onCopied }: { chains: WatchChain[]; paperWallets: PaperWallet[]; onCopied: () => void }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
   const [list, setList] = useState<Watched[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [chain, setChain] = useState<ChainId>('solana');
   const [address, setAddress] = useState('');
+  const c = chains.find((x) => x.id === chain);
+  const paperWallets = allPaper.filter((w) => w.chain === chain);
   const [label, setLabel] = useState('');
   const [mode, setMode] = useState<CopyMode>('off');
   const [target, setTarget] = useState('');
@@ -126,6 +141,7 @@ export function WatchedWallets({ paperWallets, onCopied }: { paperWallets: Paper
     setBusy(true);
     try {
       const w = await trpc.swaps.addWatched.mutate({
+        chain,
         address: address.trim(),
         label: label.trim() || short(address.trim()),
         copyMode: mode,
@@ -147,9 +163,28 @@ export function WatchedWallets({ paperWallets, onCopied }: { paperWallets: Paper
     <Panel label={t('swap.watchTitle')} className="mt-4">
       <p className="mt-2 text-xs" style={{ color: 'var(--color-mut)' }}>{t('swap.watchIntro')}</p>
       {error && <ErrorBox message={error} />}
-      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+      <div className="mt-3 grid gap-3 sm:grid-cols-4">
+        <label className="text-xs">
+          {t('swap.chain')}
+          <select
+            className={field}
+            value={chain}
+            onChange={(e) => {
+              setChain(e.target.value as ChainId);
+              setMode('off');
+              setTarget('');
+              setAmount(e.target.value === 'solana' ? '0.1' : '0.01');
+            }}
+          >
+            {chains.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="text-xs sm:col-span-2">
-          {t('swap.watchAddress')}
+          {t('swap.watchAddress', { chain: c?.name ?? chain })}
           <input className={`${field} font-mono`} value={address} spellCheck={false} onChange={(e) => setAddress(e.target.value)} />
         </label>
         <label className="text-xs">
@@ -157,8 +192,8 @@ export function WatchedWallets({ paperWallets, onCopied }: { paperWallets: Paper
           <input className={field} value={label} maxLength={40} onChange={(e) => setLabel(e.target.value)} />
         </label>
       </div>
-      <CopyFields paperWallets={paperWallets} mode={mode} setMode={setMode} target={target || paperWallets[0]?.id || ''} setTarget={setTarget} amount={amount} setAmount={setAmount} />
-      <button type="button" className="btn mt-3 px-3 py-1.5 text-sm" disabled={busy || address.trim().length < 32} onClick={() => void add()}>
+      <CopyFields nativeSymbol={c?.nativeSymbol ?? ''} paperWallets={paperWallets} mode={mode} setMode={setMode} target={target || paperWallets[0]?.id || ''} setTarget={setTarget} amount={amount} setAmount={setAmount} />
+      <button type="button" className="btn mt-3 px-3 py-1.5 text-sm" disabled={busy || address.trim().length < (c?.kind === 'evm' ? 42 : 32)} onClick={() => void add()}>
         {busy ? t('common.loading') : t('swap.watchAdd')}
       </button>
 
@@ -171,7 +206,8 @@ export function WatchedWallets({ paperWallets, onCopied }: { paperWallets: Paper
             lang={lang}
             open={openId === w.id}
             onToggle={() => setOpenId((cur) => (cur === w.id ? null : w.id))}
-            paperWallets={paperWallets}
+            chain={chains.find((x) => x.id === w.chain)}
+            paperWallets={allPaper.filter((p) => p.chain === w.chain)}
             onChanged={load}
             onCopied={onCopied}
           />
@@ -183,6 +219,7 @@ export function WatchedWallets({ paperWallets, onCopied }: { paperWallets: Paper
 
 function WatchedRow({
   w,
+  chain,
   lang,
   open,
   onToggle,
@@ -191,6 +228,7 @@ function WatchedRow({
   onCopied,
 }: {
   w: Watched;
+  chain: WatchChain | undefined;
   lang: string;
   open: boolean;
   onToggle: () => void;
@@ -257,14 +295,14 @@ function WatchedRow({
     <li className="rounded border p-2 text-xs" style={{ borderColor: 'var(--color-line)' }}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <button type="button" className="text-left" onClick={onToggle} aria-expanded={open}>
-          <b>{w.label}</b>{' '}
+          <b>{w.label}</b> <span style={{ color: 'var(--color-mut)' }}>{chain?.name ?? w.chain}</span>{' '}
           <span className="num" style={{ color: 'var(--color-mut)' }}>
             {short(w.address)}
           </span>
         </button>
         <span className="flex flex-wrap items-center gap-2" style={{ color: 'var(--color-mut)' }}>
           <span style={{ color: w.copyMode === 'paper' ? 'var(--color-cyan)' : undefined }}>
-            {w.copyMode === 'paper' ? t('swap.copyingInto', { amount: w.copyAmount, wallet: copyTargetLabel ?? '—' }) : t('swap.copyMode_off')}
+            {w.copyMode === 'paper' ? t('swap.copyingInto', { amount: w.copyAmount, symbol: chain?.nativeSymbol ?? '', wallet: copyTargetLabel ?? '—' }) : t('swap.copyMode_off')}
           </span>
           {w.lastError ? (
             <span style={{ color: 'var(--color-warn)' }} title={w.lastError}>
@@ -281,8 +319,8 @@ function WatchedRow({
           {error && <ErrorBox message={error} />}
           {w.lastError && <p style={{ color: 'var(--color-warn)' }}>{w.lastError}</p>}
           <div className="flex flex-wrap gap-1.5">
-            <a className={chip} style={{ borderColor: 'var(--color-line)' }} href={`https://solscan.io/account/${w.address}`} target="_blank" rel="noreferrer">
-              Solscan ↗
+            <a className={chip} style={{ borderColor: 'var(--color-line)' }} href={explorer(chain, 'account', w.address)} target="_blank" rel="noreferrer">
+              Explorer ↗
             </a>
             <button type="button" className={chip} style={{ borderColor: 'var(--color-line)' }} onClick={() => setEditing((e) => !e)}>
               {t('swap.watchEdit')}
@@ -297,7 +335,7 @@ function WatchedRow({
                 {t('swap.label')}
                 <input className={field} value={label} maxLength={40} onChange={(e) => setLabel(e.target.value)} />
               </label>
-              <CopyFields paperWallets={paperWallets} mode={mode} setMode={setMode} target={target} setTarget={setTarget} amount={amount} setAmount={setAmount} />
+              <CopyFields nativeSymbol={chain?.nativeSymbol ?? ''} paperWallets={paperWallets} mode={mode} setMode={setMode} target={target} setTarget={setTarget} amount={amount} setAmount={setAmount} />
               <button type="button" className="btn mt-2 px-3 py-1 text-xs" onClick={() => void save()}>
                 {t('swap.watchSave')}
               </button>
@@ -311,7 +349,12 @@ function WatchedRow({
                 <span>
                   <b style={{ color: a.side === 'buy' ? 'var(--color-pos)' : 'var(--color-neg)' }}>{t(a.side === 'buy' ? 'swap.buy' : 'swap.sell')}</b>{' '}
                   {fmtAmount(a.amount, lang)} {a.symbol ?? short(a.token)}
-                  {a.sol !== null && <span style={{ color: 'var(--color-mut)' }}> · {fmtAmount(a.sol, lang)} SOL</span>}
+                  {a.native !== null && (
+                    <span style={{ color: 'var(--color-mut)' }}>
+                      {' '}
+                      · {fmtAmount(a.native, lang)} {chain?.nativeSymbol}
+                    </span>
+                  )}
                   {a.counterToken !== null && <span style={{ color: 'var(--color-mut)' }}> · {t('swap.watchVia', { token: short(a.counterToken) })}</span>}
                 </span>
                 <span className="flex items-center gap-2">
@@ -319,7 +362,7 @@ function WatchedRow({
                     {t(`swap.copy_${a.copyStatus}`)}
                   </span>
                   {a.txTime && <span style={{ color: 'var(--color-mut)' }}>{new Date(a.txTime).toLocaleString(lang, { dateStyle: 'short', timeStyle: 'short' })}</span>}
-                  <a href={`https://solscan.io/tx/${a.signature}`} target="_blank" rel="noreferrer" style={{ color: 'var(--color-cyan)' }}>
+                  <a href={explorer(chain, 'tx', a.signature)} target="_blank" rel="noreferrer" style={{ color: 'var(--color-cyan)' }}>
                     ↗
                   </a>
                 </span>
