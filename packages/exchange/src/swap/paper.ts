@@ -223,30 +223,7 @@ export async function recordLiveSwap(
   },
 ): Promise<typeof swapTrades.$inferSelect> {
   return db.transaction(async (tx) => {
-    let plan: PaperSwapPlan | null = null;
-    if (p.status === 'filled') {
-      const rows = await tx.select().from(swapBalances).where(eq(swapBalances.walletId, p.walletId)).for('update');
-      const find = (token: string): BalanceRow | null => {
-        const r = rows.find((b) => b.token === token);
-        return r ? { token: r.token, symbol: r.symbol, decimals: r.decimals, amountAtomic: BigInt(r.amountAtomic), costUsd: Number(r.costUsd) } : null;
-      };
-      // Einstand rechnen; reicht der gespiegelte Bestand nicht (Kette war schneller), zählt die Kette
-      const inBal = find(p.quote.inToken.address);
-      const need = BigInt(p.quote.inAtomic) + (p.side === 'buy' ? networkFeeAtomic(p.quote, p.nativePriceUsd) : 0n);
-      const padded = inBal && inBal.amountAtomic < need ? { ...inBal, amountAtomic: need } : inBal;
-      plan = planPaperSwap({ side: p.side, quote: p.quote, nativePriceUsd: p.nativePriceUsd, inBalance: padded, outBalance: find(p.quote.outToken.address) });
-      for (const b of plan.balances) {
-        const chainAmount = p.onchain?.get(b.token);
-        const amount = chainAmount ?? (b.amountAtomic < 0n ? 0n : b.amountAtomic);
-        await tx
-          .insert(swapBalances)
-          .values({ walletId: p.walletId, token: b.token, symbol: b.symbol, decimals: b.decimals, amountAtomic: amount.toString(), costUsd: b.costUsd.toFixed(8) })
-          .onConflictDoUpdate({
-            target: [swapBalances.walletId, swapBalances.token],
-            set: { amountAtomic: amount.toString(), costUsd: b.costUsd.toFixed(8), updatedAt: sql`now()` },
-          });
-      }
-    }
+    const plan = p.status === 'filled' ? await bookLiveFill(tx, p) : null;
     const [trade] = await tx
       .insert(swapTrades)
       .values({
@@ -271,8 +248,82 @@ export async function recordLiveSwap(
         route: p.quote.route,
         txHash: p.txHash,
         error: p.error,
+        // Ausgang unklar: genug festhalten, um später exakt wie ein ausgeführter Swap zu verbuchen
+        pendingContext: p.status === 'pending' ? { quote: { ...p.quote, raw: null }, nativePriceUsd: p.nativePriceUsd } : null,
       })
       .returning();
     return trade!;
   });
 }
+
+type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+
+/** Bestände nach einem ausgeführten Live-Swap: Einstand aus dem Angebot, Mengen aus der Kette (falls gelesen). */
+async function bookLiveFill(
+  tx: Tx,
+  p: { walletId: string; side: 'buy' | 'sell'; quote: SwapQuote; nativePriceUsd: number; onchain: Map<string, bigint> | null },
+): Promise<PaperSwapPlan> {
+  const rows = await tx.select().from(swapBalances).where(eq(swapBalances.walletId, p.walletId)).for('update');
+  const find = (token: string): BalanceRow | null => {
+    const r = rows.find((b) => b.token === token);
+    return r ? { token: r.token, symbol: r.symbol, decimals: r.decimals, amountAtomic: BigInt(r.amountAtomic), costUsd: Number(r.costUsd) } : null;
+  };
+  // Einstand rechnen; reicht der gespiegelte Bestand nicht (Kette war schneller), zählt die Kette
+  const inBal = find(p.quote.inToken.address);
+  const need = BigInt(p.quote.inAtomic) + (p.side === 'buy' ? networkFeeAtomic(p.quote, p.nativePriceUsd) : 0n);
+  const padded = inBal && inBal.amountAtomic < need ? { ...inBal, amountAtomic: need } : inBal;
+  const plan = planPaperSwap({ side: p.side, quote: p.quote, nativePriceUsd: p.nativePriceUsd, inBalance: padded, outBalance: find(p.quote.outToken.address) });
+  for (const b of plan.balances) {
+    const chainAmount = p.onchain?.get(b.token);
+    const amount = chainAmount ?? (b.amountAtomic < 0n ? 0n : b.amountAtomic);
+    await tx
+      .insert(swapBalances)
+      .values({ walletId: p.walletId, token: b.token, symbol: b.symbol, decimals: b.decimals, amountAtomic: amount.toString(), costUsd: b.costUsd.toFixed(8) })
+      .onConflictDoUpdate({
+        target: [swapBalances.walletId, swapBalances.token],
+        set: { amountAtomic: amount.toString(), costUsd: b.costUsd.toFixed(8), updatedAt: sql`now()` },
+      });
+  }
+  return plan;
+}
+
+/**
+ * Klärt einen „Ausgang unklar“-Swap, sobald die Kette Bescheid gibt: ausgeführt
+ * → genau wie ein sofort bestätigter Swap verbucht (Angebot + Kurs von damals,
+ * Mengen von der Kette); fehlgeschlagen → nur der Status. Idempotent: nur aus
+ * `pending` heraus, Zeile gesperrt. Gibt den neuen Stand zurück, null = schon geklärt.
+ */
+export async function resolvePendingLiveSwap(
+  db: Db,
+  tradeId: string,
+  outcome: { status: 'filled' | 'failed'; error: string | null; onchain: Map<string, bigint> | null },
+): Promise<typeof swapTrades.$inferSelect | null> {
+  return db.transaction(async (tx) => {
+    const [t] = await tx.select().from(swapTrades).where(eq(swapTrades.id, tradeId)).for('update');
+    if (!t || t.status !== 'pending') return null;
+    let plan: PaperSwapPlan | null = null;
+    if (outcome.status === 'filled') {
+      const ctx = t.pendingContext;
+      if (!ctx) throw new Error('Swap ohne gespeichertes Angebot — kann nicht verbucht werden.');
+      plan = await bookLiveFill(tx, { walletId: t.walletId, side: t.side, quote: ctx.quote as unknown as SwapQuote, nativePriceUsd: ctx.nativePriceUsd, onchain: outcome.onchain });
+    }
+    const [updated] = await tx
+      .update(swapTrades)
+      .set({
+        status: outcome.status,
+        error: outcome.error,
+        pendingContext: null,
+        ...(plan
+          ? {
+              valueUsd: plan.valueUsd.toFixed(8),
+              feeUsd: plan.feeUsd.toFixed(8),
+              realizedPnlUsd: plan.realizedPnlUsd == null ? null : plan.realizedPnlUsd.toFixed(8),
+            }
+          : {}),
+      })
+      .where(and(eq(swapTrades.id, tradeId), eq(swapTrades.status, 'pending')))
+      .returning();
+    return updated ?? null;
+  });
+}
+

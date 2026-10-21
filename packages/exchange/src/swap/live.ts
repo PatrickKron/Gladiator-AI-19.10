@@ -39,7 +39,7 @@ export type LiveSwapOpts = {
   beforeSign?: () => Promise<void>;
 };
 
-const UNKNOWN = 'Gesendet, Ausgang unklar — bitte NICHT erneut ausführen; Status im Explorer prüfen.';
+const UNKNOWN = 'Gesendet, Ausgang unklar — bitte NICHT erneut ausführen; Gladiator prüft den Status jede Minute auf der Kette.';
 
 /** Jupiter-Angebot: Mints, Menge und Slippage müssen genau der bestätigten Anfrage entsprechen. */
 function assertJupiterQuote(q: SwapQuote): void {
@@ -254,6 +254,41 @@ export async function executeEvmSwap(
 
 export async function executeLiveSwap(p: { quote: SwapQuote; address: string; secret: string }, fetchFn: Fetch = fetch, opts: LiveSwapOpts = {}): Promise<LiveSwapResult> {
   return SWAP_CHAINS[p.quote.chain].kind === 'solana' ? executeSolanaSwap(p, fetchFn, opts) : executeEvmSwap(p, fetchFn, opts);
+}
+
+/** Ab hier gilt eine nirgends gefundene Solana-Signatur als nie gelandet (Blockhash ≈ 60–90 s gültig). */
+export const SOLANA_UNSEEN_FAIL_MS = 5 * 60_000;
+/** EVM: unbekannte Tx (weder Beleg noch im Mempool) erst nach 2 h als verworfen werten. */
+export const EVM_UNSEEN_FAIL_MS = 2 * 60 * 60_000;
+
+/**
+ * Stand eines gesendeten Swaps auf der Kette („Ausgang unklar“ klären).
+ * pending = noch keine Aussage möglich — nie raten.
+ */
+export async function checkLiveSwapStatus(
+  chain: SwapChainId,
+  txHash: string,
+  ageMs: number,
+  fetchFn: Fetch = fetch,
+): Promise<{ status: 'filled' | 'failed' | 'pending'; error: string | null }> {
+  if (SWAP_CHAINS[chain].kind === 'solana') {
+    const st = (await rpc(chain, 'getSignatureStatuses', [[txHash], { searchTransactionHistory: true }], fetchFn)) as {
+      value?: ({ confirmationStatus?: string; err?: unknown } | null)[];
+    };
+    const s = st.value?.[0] ?? null;
+    if (s?.err) return { status: 'failed', error: `On-chain fehlgeschlagen: ${JSON.stringify(s.err)}` };
+    if (s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized')) return { status: 'filled', error: null };
+    if (!s && ageMs > SOLANA_UNSEEN_FAIL_MS) return { status: 'failed', error: 'Transaktion abgelaufen (nie in einen Block gekommen).' };
+    return { status: 'pending', error: null };
+  }
+  const receipt = (await rpc(chain, 'eth_getTransactionReceipt', [txHash], fetchFn)) as { status?: string } | null;
+  if (receipt?.status === '0x1') return { status: 'filled', error: null };
+  if (receipt?.status === '0x0') return { status: 'failed', error: 'Swap on-chain zurückgewiesen (revert).' };
+  if (!receipt && ageMs > EVM_UNSEEN_FAIL_MS) {
+    const known = await rpc(chain, 'eth_getTransactionByHash', [txHash], fetchFn);
+    if (!known) return { status: 'failed', error: 'Transaktion vom Netz verworfen (nie in einen Block gekommen).' };
+  }
+  return { status: 'pending', error: null };
 }
 
 /** On-chain-Bestände (kleinste Einheit) der nativen Währung + angefragter Tokens. */

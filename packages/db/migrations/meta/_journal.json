@@ -225,6 +225,13 @@
       "when": 1792559231297,
       "tag": "0031_red_riptide",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1792564146469,
+      "tag": "0032_wonderful_vapor",
+      "breakpoints": true
     }
   ]
 }

@@ -1930,7 +1930,7 @@ export const fr: Catalog = {
   },
   swap: {
     trade_failed: "échoué",
-    trade_pending: "issue incertaine — vérifier l'explorateur",
+    trade_pending: "issue incertaine — vérifiée sur la chaîne chaque minute",
     positionsTitle: "Toutes les positions",
     unrealized: "Non réalisé",
     wallet: "Wallet",

@@ -10,7 +10,7 @@ import { parseTransaction, decodeFunctionData, parseAbi, type Hex } from 'viem';
 import { describe, expect, it } from 'vitest';
 import { EVM_NATIVE, SWAP_CHAINS, toAtomic } from './chains.js';
 import { base58Decode, generateWalletKey } from './keys.js';
-import { buildKyberSwap, executeEvmSwap, executeSolanaSwap, fetchOnchainBalances, jupiterExpect, jupiterSwapRequest, KYBER_ROUTERS, kyberExpect } from './live.js';
+import { buildKyberSwap, checkLiveSwapStatus, EVM_UNSEEN_FAIL_MS, executeEvmSwap, SOLANA_UNSEEN_FAIL_MS, executeSolanaSwap, fetchOnchainBalances, jupiterExpect, jupiterSwapRequest, KYBER_ROUTERS, kyberExpect } from './live.js';
 import { fetchSwapQuote, JUPITER_API, KYBER_API, type SwapQuote } from './quotes.js';
 import { parseSolanaTx, signSolanaTx } from './solana-tx.js';
 import { assertJupiterSwapTx } from './solana-guard.js';
@@ -157,6 +157,33 @@ describe('Solana-Live-Swap (Netz injiziert)', () => {
     const n = net(null, { feePayer: generateWalletKey('solana').address });
     await expect(executeSolanaSwap({ quote: solQuote(), address: k.address, secret: k.secret }, n.f, { pollMs: 1 })).rejects.toThrow(/Gebührenzahler/);
     expect(n.sent).toHaveLength(0);
+  });
+});
+
+describe('checkLiveSwapStatus („Ausgang unklar“ klären, Netz injiziert)', () => {
+  const rpcFake = (answers: Record<string, unknown>) =>
+    (async (_url: string, init: RequestInit) => {
+      const { method, params } = JSON.parse(String(init.body)) as { method: string; params: unknown[] };
+      if (method === 'getSignatureStatuses') expect((params[1] as { searchTransactionHistory: boolean }).searchTransactionHistory).toBe(true);
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: answers[method] ?? null }));
+    }) as unknown as typeof fetch;
+  const sol = (s: unknown, ageMs = 1_000) => checkLiveSwapStatus('solana', 'sig', ageMs, rpcFake({ getSignatureStatuses: { value: [s] } }));
+
+  it('Solana: bestätigt → filled; Fehler → failed; unbekannt → erst offen, nach Ablauf failed; nur „processed“ → offen', async () => {
+    expect(await sol({ confirmationStatus: 'finalized', err: null })).toEqual({ status: 'filled', error: null });
+    expect((await sol({ confirmationStatus: 'confirmed', err: { InstructionError: [2, { Custom: 6001 }] } })).status).toBe('failed');
+    expect((await sol(null)).status).toBe('pending');
+    expect(await sol(null, SOLANA_UNSEEN_FAIL_MS + 1)).toMatchObject({ status: 'failed', error: expect.stringMatching(/abgelaufen/) });
+    expect((await sol({ confirmationStatus: 'processed', err: null }, SOLANA_UNSEEN_FAIL_MS + 1)).status).toBe('pending');
+  });
+
+  it('EVM: Beleg 0x1 → filled, 0x0 → failed; ohne Beleg offen — verworfen erst nach langer Zeit und nur, wenn der Knoten die Tx nicht kennt', async () => {
+    const evm = (answers: Record<string, unknown>, ageMs = 1_000) => checkLiveSwapStatus('base', '0xabc', ageMs, rpcFake(answers));
+    expect((await evm({ eth_getTransactionReceipt: { status: '0x1' } })).status).toBe('filled');
+    expect((await evm({ eth_getTransactionReceipt: { status: '0x0' } })).status).toBe('failed');
+    expect((await evm({})).status).toBe('pending');
+    expect((await evm({ eth_getTransactionByHash: { hash: '0xabc' } }, EVM_UNSEEN_FAIL_MS + 1)).status).toBe('pending');
+    expect(await evm({}, EVM_UNSEEN_FAIL_MS + 1)).toMatchObject({ status: 'failed', error: expect.stringMatching(/verworfen/) });
   });
 });
 

@@ -13,7 +13,7 @@ import { decryptSecret, importWalletKey, SOL_MINT } from '@gladiator/exchange';
 import type pg from 'pg';
 import { appRouter } from './index.js';
 import { setLiveSwapExecutorForTests, setSwapFetchForTests } from './swaps.js';
-import { executePreparedSwap, prepareSwap } from '@gladiator/jobs';
+import { executePreparedSwap, prepareSwap, resolvePendingSwaps } from '@gladiator/jobs';
 import { buildContext, createCallerFactory } from '../trpc.js';
 import { register } from '../auth/service.js';
 
@@ -31,6 +31,8 @@ let chainBonk = 0n;
 let chainLamports = 3_000_000_000n;
 /** manipuliertes Angebot: Aggregator behauptet 10 % des fairen Ergebnisses bei „0,1 % Preis-Einfluss“ */
 let rugQuote = false;
+/** Antwort der Kette auf getSignatureStatuses (Klärung „Ausgang unklar“) */
+let sigStatus: unknown = null;
 const fakeNet = (async (url: string, init?: RequestInit) => {
   const u = String(url);
   const json = (b: unknown) => new Response(JSON.stringify(b));
@@ -53,6 +55,7 @@ const fakeNet = (async (url: string, init?: RequestInit) => {
     return ok({ value: { owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', data: { parsed: { type: 'mint', info: { mintAuthority: null, freezeAuthority: null } } } } });
   }
   if (body.method === 'getBalance') return ok({ value: Number(chainLamports) });
+  if (body.method === 'getSignatureStatuses') return ok({ value: [sigStatus] });
   if (body.method === 'getTokenAccountsByOwner') {
     return ok({ value: chainBonk > 0n ? [{ account: { data: { parsed: { info: { tokenAmount: { amount: chainBonk.toString() } } } } } }] : [] });
   }
@@ -228,6 +231,41 @@ describe.skipIf(!hasDb)('Eigene Trading-Wallet (live)', () => {
     expect(pf.trades[0]!.txHash).toMatch(/^tx-/);
     const notes = await db.select().from(schema.notifications).where(eq(schema.notifications.userId, userId));
     expect(notes.some((n) => /Ausgang unklar/.test(n.title))).toBe(true);
+  });
+
+  it('„Ausgang unklar“ wird gegen die Kette geklärt: gelandet → verbucht wie ausgeführt; nie gelandet → fehlgeschlagen; ohne Aussage bleibt es offen', async () => {
+    const pendingTrade = async () => (await a.swaps.portfolio({ walletId })).trades.find((t) => t.status === 'pending');
+    const tx = (await pendingTrade())!;
+    const bonkBefore = chainBonk;
+    // Kette weiß noch nichts → bleibt offen (nie raten)
+    sigStatus = null;
+    expect(await resolvePendingSwaps(db, { walletId })).toMatchObject({ checked: 1, filled: 0, failed: 0 });
+    expect((await pendingTrade())?.id).toBe(tx.id);
+
+    // Swap ist doch gelandet: Kette zeigt die neuen Bestände
+    chainLamports -= 100_000_000n + 5_000n;
+    chainBonk += 75_000_000_000n;
+    sigStatus = { confirmationStatus: 'finalized', err: null };
+    expect(await resolvePendingSwaps(db, { walletId })).toMatchObject({ filled: 1 });
+    const pf = await a.swaps.portfolio({ walletId });
+    const resolved = pf.trades.find((t) => t.id === tx.id)!;
+    expect(resolved).toMatchObject({ status: 'filled' });
+    expect(Number(resolved.valueUsd)).toBeCloseTo(15, 6); // 0,1 SOL × 150 $
+    expect(Number(pf.holdings.find((h) => h.symbol === 'Bonk')?.amount)).toBeCloseTo(Number(bonkBefore + 75_000_000_000n) / 1e5, 5);
+    const notes = await db.select().from(schema.notifications).where(eq(schema.notifications.userId, userId));
+    expect(notes.some((n) => n.title === 'Kauf doch ausgeführt: Bonk')).toBe(true);
+    // zweiter Lauf ändert nichts mehr
+    expect(await resolvePendingSwaps(db, { walletId })).toMatchObject({ checked: 0 });
+
+    // neuer unklarer Swap, der nie in einen Block kam
+    nextStatus = 'pending';
+    await expect(a.swaps.execute({ walletId, side: 'buy', token: BONK, amount: '0.1', confirmLive: true })).rejects.toThrow(/NICHT erneut/);
+    nextStatus = 'filled';
+    sigStatus = null;
+    const later = new Date(Date.now() + 10 * 60_000);
+    expect(await resolvePendingSwaps(db, { walletId, now: later })).toMatchObject({ failed: 1 });
+    expect((await a.swaps.portfolio({ walletId })).trades[0]).toMatchObject({ status: 'failed' });
+    expect(chainBonk).toBe(bonkBefore + 75_000_000_000n);
   });
 
   it('Freigabe zurückziehen sperrt sofort (Preisalarme bleiben); Entfernen löscht den Schlüssel erst nach Bestätigung', async () => {

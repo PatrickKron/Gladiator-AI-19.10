@@ -1,0 +1,1 @@
+ALTER TABLE "swap_trades" ADD COLUMN "pending_context" jsonb;

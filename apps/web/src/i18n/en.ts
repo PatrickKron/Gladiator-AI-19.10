@@ -1930,7 +1930,7 @@ export const en: Catalog = {
   },
   swap: {
     trade_failed: "failed",
-    trade_pending: "outcome unclear — check explorer",
+    trade_pending: "outcome unclear — checked against the chain every minute",
     positionsTitle: "All positions",
     unrealized: "Unrealized",
     wallet: "Wallet",
