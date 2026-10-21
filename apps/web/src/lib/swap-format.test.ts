@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { de } from '../i18n/de.js';
-import { bpsLabel, fmtAmount, fmtUsd, pricePrecision, slippageChoices, swapReasonKey, poolAge, avgEntryUsd, initialsPercent, pnlPercent } from './swap-format.js';
+import { bpsLabel, fmtAmount, fmtUsd, pricePrecision, slippageChoices, swapReasonKey, poolAge, avgEntryUsd, initialsPercent, pnlPercent, parseCompactUsd, mcapTriggerPrice } from './swap-format.js';
 
 describe('swap-format', () => {
   it('fmtUsd: normale Beträge, Meme-Preise, kompakt', () => {
@@ -76,5 +76,22 @@ describe('pnlPercent / avgEntryUsd', () => {
     expect(avgEntryUsd(180, '9000000')).toBeCloseTo(0.00002, 10);
     expect(avgEntryUsd(0, '5')).toBeNull();
     expect(avgEntryUsd(10, '0')).toBeNull();
+  });
+});
+
+describe('Ziel nach Marktkapitalisierung', () => {
+  it('Kurzschreibweise: 10M, 2,5k, 1.2b, $750000; Unsinn → null', () => {
+    expect(parseCompactUsd('10M')).toBe(10_000_000);
+    expect(parseCompactUsd('2,5k')).toBe(2_500);
+    expect(parseCompactUsd(' 1.2b ')).toBe(1_200_000_000);
+    expect(parseCompactUsd('$750000')).toBe(750_000);
+    for (const bad of ['', 'abc', '10x', '-5m', '0', '1.2.3m']) expect(parseCompactUsd(bad)).toBeNull();
+  });
+
+  it('Auslösekurs skaliert mit der Marktkapitalisierung (gleiche Menge im Umlauf)', () => {
+    // Kurs 0,0002 $ bei MC 2 Mio. → Ziel 10 Mio. = 5× → 0,001 $
+    expect(mcapTriggerPrice(0.0002, 2_000_000, 10_000_000)).toBeCloseTo(0.001, 12);
+    expect(mcapTriggerPrice(0.0002, 0, 10_000_000)).toBeNull();
+    expect(mcapTriggerPrice(0.0002, 2_000_000, 0)).toBeNull();
   });
 });

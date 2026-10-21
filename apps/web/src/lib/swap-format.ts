@@ -85,3 +85,26 @@ export function avgEntryUsd(costUsd: number | null, amount: string): number | nu
   if (costUsd === null || !(costUsd > 0) || !(n > 0)) return null;
   return costUsd / n;
 }
+
+/**
+ * Betrag in Kurzschreibweise lesen, wie Meme-Trader Marktkapitalisierungen
+ * angeben: „10M“, „2,5k“, „1.2b“, „750000“ (k = Tausend, m = Million,
+ * b = Milliarde). Ungültig → null.
+ */
+export function parseCompactUsd(input: string): number | null {
+  const m = /^\s*\$?\s*(\d+(?:[.,]\d+)?)\s*([kmb])?\s*$/i.exec(input);
+  if (!m) return null;
+  const n = Number(m[1]!.replace(',', '.'));
+  const mult = { k: 1e3, m: 1e6, b: 1e9 }[(m[2] ?? '').toLowerCase() as 'k' | 'm' | 'b'] ?? 1;
+  const v = n * mult;
+  return Number.isFinite(v) && v > 0 ? v : null;
+}
+
+/**
+ * Auslösekurs für ein Ziel nach Marktkapitalisierung: Bei gleicher Menge im
+ * Umlauf verhält sich der Preis wie die Marktkapitalisierung → Kurs × Ziel / jetzt.
+ */
+export function mcapTriggerPrice(priceUsd: number, mcapNowUsd: number, mcapTargetUsd: number): number | null {
+  if (!(priceUsd > 0) || !(mcapNowUsd > 0) || !(mcapTargetUsd > 0)) return null;
+  return (priceUsd * mcapTargetUsd) / mcapNowUsd;
+}
