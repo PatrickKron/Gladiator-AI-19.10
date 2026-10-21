@@ -29,10 +29,14 @@ export async function resolvePendingSwaps(db: Db, opts: { now?: Date; walletId?:
     out.checked++;
     const chain = wallet.chain as SwapChainId;
     try {
-      const st = await checkLiveSwapStatus(chain, trade.txHash!, now.getTime() - trade.createdAt.getTime(), swapNet());
+      const st = await checkLiveSwapStatus(chain, trade.txHash!, now.getTime() - trade.createdAt.getTime(), swapNet(), {
+        from: wallet.address,
+        nonce: trade.pendingContext?.nonce ?? null,
+      });
       if (st.status === 'pending') continue;
-      const onchain =
-        st.status === 'filled' ? await fetchOnchainBalances(chain, wallet.address, [trade.inToken, trade.outToken], swapNet()).catch(() => null) : null;
+      // gelandet: Mengen MÜSSEN von der Kette kommen (der Spiegel kann den Swap schon enthalten →
+      // sonst doppelt gebucht); nicht lesbar → im nächsten Takt erneut
+      const onchain = st.status === 'filled' ? await fetchOnchainBalances(chain, wallet.address, [trade.inToken, trade.outToken], swapNet()) : null;
       const done = await resolvePendingLiveSwap(db, trade.id, { status: st.status, error: st.error, onchain });
       if (!done) continue; // inzwischen anderswo geklärt
       const verb = trade.side === 'buy' ? 'Kauf' : 'Verkauf';

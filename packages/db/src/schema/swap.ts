@@ -95,7 +95,7 @@ export const swapTrades = pgTable(
      * damit der Worker den Swap nach Klärung auf der Kette genau so verbucht,
      * wie er ausgeführt wurde. Nach der Klärung wieder null.
      */
-    pendingContext: jsonb('pending_context').$type<{ quote: Record<string, unknown>; nativePriceUsd: number }>(),
+    pendingContext: jsonb('pending_context').$type<{ quote: Record<string, unknown>; nativePriceUsd: number; nonce?: number | null }>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

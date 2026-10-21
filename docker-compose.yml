@@ -48,9 +48,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    ports:
-      # nur lokal — von anderen Geräten über Tailscale (deploy/MOBILE.md), nie offen ins Internet
-      - "127.0.0.1:3010:3010"
+    # Host-Netz: dieselbe .env wie ohne Container (DB 127.0.0.1:5433, Redis 6380, API nur
+    # auf 127.0.0.1:3010). So sieht die App echte Client-Adressen (Auto-Login nur
+    # localhost/Tailnet, Stream-Limit je Gerät) statt der Docker-Bridge — nie offen ins Internet.
+    network_mode: host
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s

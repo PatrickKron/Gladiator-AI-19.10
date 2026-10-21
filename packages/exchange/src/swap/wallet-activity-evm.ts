@@ -37,6 +37,9 @@ export const UNISWAP_V4_POOL_MANAGER: Record<Exclude<SwapChainId, 'solana'>, str
 /** `Swap`-Ereignis des PoolManagers (Signatur aus @uniswap/v4-core 1.0.2, IPoolManager; PoolId = bytes32). */
 export const V4_SWAP_TOPIC = keccak256(toBytes('Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)'));
 
+/** `ModifyLiquidity` des PoolManagers (@uniswap/v4-core 1.0.2) — Liquidität rein/raus, kein Verkauf. */
+export const V4_MODIFY_LIQUIDITY_TOPIC = keccak256(toBytes('ModifyLiquidity(bytes32,address,int24,int24,int256,bytes32)'));
+
 /** keccak256("Transfer(address,address,uint256)") */
 export const ERC20_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
@@ -178,11 +181,13 @@ export function unwrappedIn(chain: SwapChainId, receiptLogs: { address: string; 
   return withdrawn > burned ? withdrawn : burned;
 }
 
-/** Hat der Uniswap-v4-PoolManager der Kette in diesem Receipt ein `Swap` gemeldet? */
+/** Hat der Uniswap-v4-PoolManager der Kette in diesem Receipt ein `Swap` gemeldet (und keine Liquiditätsänderung)? */
 export function v4SwapIn(chain: SwapChainId, receiptLogs: { address: string; topics: string[] }[]): boolean {
   if (chain === 'solana') return false;
   const pm = UNISWAP_V4_POOL_MANAGER[chain];
-  return receiptLogs.some((l) => lc(l.address) === pm && lc(l.topics[0] ?? '') === V4_SWAP_TOPIC);
+  const fromPm = receiptLogs.filter((l) => lc(l.address) === pm).map((l) => lc(l.topics[0] ?? ''));
+  // „Zap“ (Teil tauschen + Liquidität hinzufügen in einer Tx) ist kein Verkauf
+  return fromPm.includes(V4_SWAP_TOPIC) && !fromPm.includes(V4_MODIFY_LIQUIDITY_TOPIC);
 }
 
 /** Pause vor dem einen Wiederholungsversuch bei HTTP 429 (Tests setzen 0). */
