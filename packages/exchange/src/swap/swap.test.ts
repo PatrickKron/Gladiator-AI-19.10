@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { EVM_NATIVE, fromAtomic, isTokenAddress, SOL_MINT, SWAP_CHAINS, toAtomic } from './chains.js';
 import { fetchSwapQuote, jupiterQuote, kyberQuote } from './quotes.js';
-import { fetchPairDepths, fetchTokenDecimals, fetchTokenInfo, pickBestPair } from './token-info.js';
+import { fetchPairDepths, fetchTokenDecimals, fetchTokenInfo, isConstantProductPair, pickBestPair, pickRugPair } from './token-info.js';
 
 const USDC_SOL = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
@@ -123,6 +123,24 @@ describe('Aggregator-Antworten', () => {
     );
     expect(best?.dexId).toBe('best');
   });
+
+  it('Rug-Schutz-Pool: nur konstantes Produkt (v3/v4/CLMM/DLMM/Whirlpool/Bonding-Curve fallen raus)', () => {
+    expect(isConstantProductPair({ dexId: 'raydium' })).toBe(true);
+    expect(isConstantProductPair({ dexId: 'raydium', labels: ['CPMM'] })).toBe(true);
+    expect(isConstantProductPair({ dexId: 'uniswap', labels: ['v2'] })).toBe(true);
+    expect(isConstantProductPair({ dexId: 'pumpswap' })).toBe(true);
+    for (const labels of [['v3'], ['v4'], ['CLMM'], ['DLMM'], ['wp']]) expect(isConstantProductPair({ dexId: 'x', labels })).toBe(false);
+    expect(isConstantProductPair({ dexId: 'orca' })).toBe(false);
+    expect(isConstantProductPair({ dexId: 'pumpfun' })).toBe(false);
+    const mint = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+    const pairs = [
+      { chainId: 'solana', dexId: 'raydium', labels: ['CLMM'], pairAddress: 'clmm', baseToken: { address: mint }, liquidity: { usd: 9e6 } },
+      { chainId: 'solana', dexId: 'raydium', pairAddress: 'amm', baseToken: { address: mint }, liquidity: { usd: 1e6 } },
+    ];
+    expect(pickBestPair(pairs, 'solana', mint)?.pairAddress).toBe('clmm');
+    expect(pickRugPair(pairs, 'solana', mint)?.pairAddress).toBe('amm');
+    expect(pickRugPair(pairs.slice(0, 1), 'solana', mint)).toBeNull();
+  });
 });
 
 describe('echte Daten (Jupiter, KyberSwap, DexScreener, RPC)', () => {
@@ -160,8 +178,10 @@ describe('echte Daten (Jupiter, KyberSwap, DexScreener, RPC)', () => {
     expect(info.symbol).toBe('SOL');
     expect(info.priceUsd).toBeGreaterThan(1);
     expect(info.liquidityUsd).toBeGreaterThan(100_000);
-    // Rug-Schutz: Pool-Tiefe des liquidesten Pools (Token-Mengen aus DexScreener) ist echt und > 0
-    const depths = await fetchPairDepths('solana', [info.pairAddress!]);
-    expect(depths.get(info.pairAddress!)).toBeGreaterThan(0);
+    // Rug-Schutz: liquidester Pool mit konstantem Produkt; Tiefe (Token-Mengen aus DexScreener) echt und > 0
+    expect(info.rugPairAddress).toBeTruthy();
+    const depths = await fetchPairDepths('solana', [info.rugPairAddress!]);
+    expect(depths.get(info.rugPairAddress!)?.depth).toBeGreaterThan(0);
+    expect(depths.get(info.rugPairAddress!)?.liquidityUsd).toBeGreaterThan(0);
   }, 30_000);
 });

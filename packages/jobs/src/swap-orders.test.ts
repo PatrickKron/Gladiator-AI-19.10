@@ -51,13 +51,20 @@ describe('evaluateRugGuard', () => {
     expect(evaluateSwapOrder({ kind: 'rug_guard', triggerPriceUsd: null, trailPct: 50, peakPriceUsd: null }, 1).trigger).toBe(false);
   });
 
-  it('Umzug statt Rug: neuer, tiefer Pool (≥ halbe Start-Liquidität) wird übernommen; sonst nicht', () => {
-    const o = { pairAddress: 'Alt', peakLiquidityUsd: 100_000 };
-    expect(rugGuardMigrates(o, { pairAddress: 'Neu', liquidityUsd: 60_000, depth: 5 })).toBe(true);
-    expect(rugGuardMigrates(o, { pairAddress: 'Neu', liquidityUsd: 40_000, depth: 5 })).toBe(false);
-    expect(rugGuardMigrates(o, { pairAddress: 'Alt', liquidityUsd: 900_000, depth: 5 })).toBe(false);
-    expect(rugGuardMigrates(o, null)).toBe(false);
-    expect(rugGuardMigrates({ ...o, peakLiquidityUsd: null }, { pairAddress: 'Neu', liquidityUsd: 60_000, depth: 5 })).toBe(false);
+  it('Umzug statt Rug: neuer, tiefer Pool (≥ halbe Liquidität beim Höchststand, kursbereinigt) wird übernommen; sonst nicht', () => {
+    const o = { pairAddress: 'Alt', peakLiquidityUsd: 100_000, peakPriceUsd: 1 };
+    expect(rugGuardMigrates(o, { pairAddress: 'Neu', liquidityUsd: 60_000, depth: 5 }, 1)).toBe(true);
+    expect(rugGuardMigrates(o, { pairAddress: 'Neu', liquidityUsd: 40_000, depth: 5 }, 1)).toBe(false);
+    expect(rugGuardMigrates(o, { pairAddress: 'Alt', liquidityUsd: 900_000, depth: 5 }, 1)).toBe(false);
+    expect(rugGuardMigrates(o, null, 1)).toBe(false);
+    expect(rugGuardMigrates({ ...o, peakLiquidityUsd: null }, { pairAddress: 'Neu', liquidityUsd: 60_000, depth: 5 }, 1)).toBe(false);
+    // Kurs seit dem Höchststand −75 %: bei konstantem Produkt hat der Pool nur noch √0,25 = 50 % der USD-Liquidität
+    // → ein Umzug mit 30 000 $ (≥ 0,5 × 50 000) ist echt, nicht erst ab 50 000
+    expect(rugGuardMigrates(o, { pairAddress: 'Neu', liquidityUsd: 30_000, depth: 5 }, 0.25)).toBe(true);
+    expect(rugGuardMigrates(o, { pairAddress: 'Neu', liquidityUsd: 20_000, depth: 5 }, 0.25)).toBe(false);
+    // Kursanstieg senkt die Hürde nie unter die Hälfte des Höchststands; Altbestand ohne Kurs = unbereinigt
+    expect(rugGuardMigrates(o, { pairAddress: 'Neu', liquidityUsd: 40_000, depth: 5 }, 4)).toBe(false);
+    expect(rugGuardMigrates({ ...o, peakPriceUsd: null }, { pairAddress: 'Neu', liquidityUsd: 30_000, depth: 5 }, 0.25)).toBe(false);
   });
 
   it('Plausibilität: Abfall 10 bis 90 %', () => {

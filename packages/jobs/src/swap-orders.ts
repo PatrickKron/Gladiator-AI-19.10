@@ -1,6 +1,6 @@
 import { and, eq, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import { schema, type Db } from '@gladiator/db';
-import { fetchPairDepths, fetchTokenMarket, walletBalances, type SwapChainId, type TokenMarket } from '@gladiator/exchange';
+import { fetchPairDepths, fetchTokenMarket, walletBalances, type PoolDepth, type SwapChainId, type TokenMarket } from '@gladiator/exchange';
 import { notifySafe } from './notify.js';
 import { executePreparedSwap, prepareSwap, swapNet, type SwapWalletRow } from './swap-service.js';
 
@@ -94,12 +94,20 @@ export function evaluateRugGuard(o: { dropPct: number | null; peakDepth: number 
  * Token in einen NEUEN, tiefen Pool umgezogen ist (z. B. Abschluss einer
  * pump.fun-Bonding-Curve), wird der neue Pool übernommen statt verkauft. Ein Rug
  * erzeugt keinen neuen tiefen Pool: Er muss mindestens die Hälfte der
- * USD-Liquidität haben, die der alte Pool beim Anlegen hatte.
+ * USD-Liquidität haben, die der alte Pool beim Tiefen-Höchststand hatte —
+ * kursbereinigt, denn bei konstantem Produkt wächst die USD-Liquidität mit
+ * √Kurs (ein Kursrutsch seitdem verhindert sonst jeden Umzug).
  */
-export function rugGuardMigrates(o: { pairAddress: string | null; peakLiquidityUsd: number | null }, best: { pairAddress: string | null; liquidityUsd: number | null; depth: number | null } | null): boolean {
+export function rugGuardMigrates(
+  o: { pairAddress: string | null; peakLiquidityUsd: number | null; peakPriceUsd: number | null },
+  best: { pairAddress: string | null; liquidityUsd: number | null; depth: number | null } | null,
+  priceUsd: number,
+): boolean {
   if (!best || !best.pairAddress || !o.pairAddress || best.pairAddress === o.pairAddress) return false;
   if (o.peakLiquidityUsd === null || !(o.peakLiquidityUsd > 0) || best.liquidityUsd === null || best.depth === null || !(best.depth > 0)) return false;
-  return best.liquidityUsd >= o.peakLiquidityUsd * 0.5;
+  // Altbestand ohne Kurs zum Höchststand: unbereinigt (strenger) vergleichen
+  const scale = o.peakPriceUsd !== null && o.peakPriceUsd > 0 && priceUsd > 0 ? Math.sqrt(Math.min(priceUsd / o.peakPriceUsd, 1)) : 1;
+  return best.liquidityUsd >= o.peakLiquidityUsd * scale * 0.5;
 }
 
 /** Plausibilität beim Anlegen: eine Order, die sofort auslösen würde, ist fast immer ein Tippfehler. */
@@ -221,7 +229,7 @@ export async function runSwapOrders(db: Db): Promise<SwapOrdersResult> {
     byChain.get(c)!.add(r.order.token);
   }
   const prices = new Map<string, number>();
-  const depths = new Map<string, number>();
+  const depths = new Map<string, PoolDepth>();
   const markets = new Map<string, TokenMarket>();
   for (const [chain, tokens] of byChain) {
     try {
@@ -244,20 +252,29 @@ export async function runSwapOrders(db: Db): Promise<SwapOrdersResult> {
     out.checked++;
     if (order.kind === 'rug_guard') {
       // nur der beim Anlegen festgehaltene Pool zählt; fehlt er in der Antwort → nichts entscheiden
-      const depth = order.pairAddress ? (depths.get(`${wallet.chain}:${order.pairAddress}`) ?? null) : null;
+      const pool = order.pairAddress ? (depths.get(`${wallet.chain}:${order.pairAddress}`) ?? null) : null;
       const before = order.peakDepth === null ? null : Number(order.peakDepth);
-      const rg = evaluateRugGuard({ dropPct: order.trailPct === null ? null : Number(order.trailPct), peakDepth: before }, depth);
+      const rg = evaluateRugGuard({ dropPct: order.trailPct === null ? null : Number(order.trailPct), peakDepth: before }, pool?.depth ?? null);
       if (rg.peakDepth !== null && rg.peakDepth !== before) {
-        await db.update(swapOrders).set({ peakDepth: String(rg.peakDepth) }).where(eq(swapOrders.id, order.id));
+        // neuer Höchststand: USD-Liquidität + Kurs dazu merken (Maßstab für einen späteren Umzug)
+        await db
+          .update(swapOrders)
+          .set({ peakDepth: String(rg.peakDepth), ...(pool?.liquidityUsd != null ? { peakLiquidityUsd: String(pool.liquidityUsd), peakPriceUsd: String(price) } : {}) })
+          .where(eq(swapOrders.id, order.id));
       }
       if (rg.trigger) {
         const best = markets.get(`${wallet.chain}:${order.token}`) ?? null;
-        const peakUsd = order.peakLiquidityUsd === null ? null : Number(order.peakLiquidityUsd);
-        if (rugGuardMigrates({ pairAddress: order.pairAddress, peakLiquidityUsd: peakUsd }, best)) {
+        const num = (v: string | null) => (v === null ? null : Number(v));
+        if (rugGuardMigrates({ pairAddress: order.pairAddress, peakLiquidityUsd: num(order.peakLiquidityUsd), peakPriceUsd: num(order.peakPriceUsd) }, best, price)) {
           // Token ist umgezogen: neuen Pool beobachten, nicht verkaufen
           await db
             .update(swapOrders)
-            .set({ pairAddress: best!.pairAddress, peakDepth: String(best!.depth), peakLiquidityUsd: best!.liquidityUsd === null ? null : String(best!.liquidityUsd) })
+            .set({
+              pairAddress: best!.pairAddress,
+              peakDepth: String(best!.depth),
+              peakLiquidityUsd: best!.liquidityUsd === null ? null : String(best!.liquidityUsd),
+              peakPriceUsd: String(price),
+            })
             .where(and(eq(swapOrders.id, order.id), eq(swapOrders.status, 'open')));
           await notifySafe(db, {
             userId: wallet.userId,

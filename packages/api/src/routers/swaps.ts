@@ -590,13 +590,15 @@ export const swapsRouter = router({
       if (problem) throw new TRPCError({ code: 'BAD_REQUEST', message: problem });
       // Rug-Schutz: liquidesten Pool festhalten und dessen Tiefe als Ausgangsstand
       const rug = input.kind === 'rug_guard';
-      let rugDepth: number | null = null;
+      // (nur Pools mit konstantem Produkt — in v3/CLMM/DLMM fällt die Tiefe schon bei einem Kursrutsch)
+      let rugPool: { depth: number; liquidityUsd: number | null } | null = null;
       if (rug) {
-        if (info.pairAddress) {
-          const d = await fetchPairDepths(chain, [info.pairAddress], swapNet()).catch((err: unknown) => asTrpc(netError(err)));
-          rugDepth = d.get(info.pairAddress) ?? null;
+        if (!info.rugPairAddress) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Kein Pool mit konstantem Produkt (nur v3/CLMM/DLMM oder Bonding-Curve) — Rug-Schutz hier nicht verlässlich.' });
         }
-        if (!(rugDepth !== null && rugDepth > 0)) throw new TRPCError({ code: 'BAD_GATEWAY', message: 'Keine Pool-Liquidität bekannt — Rug-Schutz nicht möglich.' });
+        const d = await fetchPairDepths(chain, [info.rugPairAddress], swapNet()).catch((err: unknown) => asTrpc(netError(err)));
+        rugPool = d.get(info.rugPairAddress) ?? null;
+        if (!(rugPool !== null && rugPool.depth > 0)) throw new TRPCError({ code: 'BAD_GATEWAY', message: 'Keine Pool-Liquidität bekannt — Rug-Schutz nicht möglich.' });
       }
       const [o] = await ctx.db
         .insert(swapOrders)
@@ -607,10 +609,11 @@ export const swapsRouter = router({
           kind: input.kind,
           triggerPriceUsd: input.kind === 'trailing_stop' || dca || rug ? null : String(input.triggerPriceUsd),
           trailPct: input.kind === 'trailing_stop' || rug ? String(input.trailPct) : null,
-          peakPriceUsd: input.kind === 'trailing_stop' ? String(info.priceUsd) : null,
-          peakLiquidityUsd: rug && info.liquidityUsd !== null ? String(info.liquidityUsd) : null,
-          pairAddress: rug ? info.pairAddress : null,
-          peakDepth: rug ? String(rugDepth) : null,
+          // Rug-Schutz: Kurs zum Stand der festgehaltenen Pool-Liquidität (Umzug kursbereinigt vergleichen)
+          peakPriceUsd: input.kind === 'trailing_stop' || rug ? String(info.priceUsd) : null,
+          peakLiquidityUsd: rug && rugPool?.liquidityUsd != null ? String(rugPool.liquidityUsd) : null,
+          pairAddress: rug ? info.rugPairAddress : null,
+          peakDepth: rug ? String(rugPool!.depth) : null,
           sellPercent: buy || alert ? null : String(input.sellPercent ?? 100),
           buyAmount: buy ? input.buyAmount! : null,
           slippageBps: input.slippageBps ?? null,

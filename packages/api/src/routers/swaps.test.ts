@@ -199,6 +199,8 @@ describe.skipIf(!hasDb)('Wallet-Trading: Paper-Swaps über das Swap-Gate', () =>
     // fester Pool + Ausgangs-Tiefe √(Basis × Quote) des Pools
     expect(rugRow).toMatchObject({ pairAddress: `Pool${BONK.slice(0, 20)}` });
     expect(Number(rugRow!.peakDepth)).toBeCloseTo(Math.sqrt(400_000_000 * 1_000), 6);
+    // Kurs zum Stand der Pool-Liquidität (Umzug kursbereinigt prüfen)
+    expect(Number(rugRow!.peakPriceUsd)).toBe(0.00002);
     expect(list.map((o) => o.kind).sort()).toEqual(['rug_guard', 'take_profit', 'trailing_stop']);
     expect(list.find((o) => o.kind === 'trailing_stop')).toMatchObject({ peakPriceUsd: 0.00002, sellPercent: 100, status: 'open' });
     await expect(b.swaps.cancelOrder({ orderId: tp.id })).rejects.toThrow(/nicht gefunden/);

@@ -255,8 +255,10 @@ export async function executeEvmSwap(
   const hash = keccak256(serialized);
   const protectedRpc = mevProtectRpc(chainId);
   try {
-    // Ethereum: privat über Flashbots Protect (kein öffentlicher Mempool → kein Sandwich)
-    const sender = protectedRpc ? createPublicClient({ chain, transport: http(protectedRpc, { fetchFn }) }) : pub;
+    // Ethereum: privat über Flashbots Protect (kein öffentlicher Mempool → kein Sandwich).
+    // Ohne Wiederholung: eine wiederholte Einreichung kann „already known“ melden und
+    // würde einen angenommenen Swap fälschlich als abgelehnt werten.
+    const sender = protectedRpc ? createPublicClient({ chain, transport: http(protectedRpc, { fetchFn, retryCount: 0 }) }) : pub;
     await sender.sendRawTransaction({ serializedTransaction: serialized });
   } catch (err) {
     if (protectedRpc) {
