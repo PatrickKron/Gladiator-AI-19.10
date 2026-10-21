@@ -1,3 +1,4 @@
+import { keccak256, toBytes } from 'viem';
 import { isStablecoin, SWAP_CHAINS, type SwapChainId } from './chains.js';
 import { fetchTokenDecimals } from './token-info.js';
 import { tokenVsStable, type ObservedSwap, type WalletSwapsPage } from './wallet-activity.js';
@@ -11,13 +12,30 @@ import { tokenVsStable, type ObservedSwap, type WalletSwapsPage } from './wallet
  * Ein Verkauf zählt nur mit SICHTBAREM Erlös: WETH/Stablecoin an die Wallet
  * oder ein Unwrap (`Withdrawal` des Wrapped-Native-Vertrags) in derselben
  * Transaktion — so werden Überweisungen, Bridges, Staking, Multisend nie als
- * Verkauf kopiert. Airdrops und NFTs sind nie ein Swap.
+ * Verkauf kopiert. Airdrops und NFTs sind nie ein Swap. Uniswap v4 zahlt
+ * natives ETH ohne WETH aus (kein Log): Dort zählt ein Verkauf, wenn der Token
+ * an den PoolManager geht UND der PoolManager in derselben Tx ein `Swap`
+ * meldet — Erlös ehrlich „unbekannt“ (null).
  */
 
 type Fetch = typeof fetch;
 
 /** keccak256("Withdrawal(address,uint256)") — WETH/WBNB auspacken (Router zahlt natives ETH aus) */
 export const WETH_WITHDRAWAL_TOPIC = '0x7fcf532c15f0a6db0bd6d0e038bea71d30d808c7d98cb3bf7268a95bf5081b65';
+
+/**
+ * Uniswap-v4-PoolManager je Kette — aus dem offiziellen Paket @uniswap/sdk-core
+ * 7.19.4 (`v4PoolManagerAddress`, gegengelesen 2026-10-21).
+ */
+export const UNISWAP_V4_POOL_MANAGER: Record<Exclude<SwapChainId, 'solana'>, string> = {
+  ethereum: '0x000000000004444c5dc75cb358380d2e3de08a90',
+  base: '0x498581ff718922c3f8e6a244956af099b2652b2b',
+  arbitrum: '0x360e68faccca8ca495c1b759fd9eee466db9fb32',
+  bsc: '0x28e2ea090877bf75740558f6bfb36a5ffee9e9df',
+};
+
+/** `Swap`-Ereignis des PoolManagers (Signatur aus @uniswap/v4-core 1.0.2, IPoolManager; PoolId = bytes32). */
+export const V4_SWAP_TOPIC = keccak256(toBytes('Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)'));
 
 /** keccak256("Transfer(address,address,uint256)") */
 export const ERC20_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
@@ -80,6 +98,8 @@ export function deriveEvmSwap(
   time: number | null,
   /** in derselben Tx ausgepacktes Wrapped Native (Router-Auszahlung in ETH), aus dem Receipt */
   unwrapped = 0n,
+  /** der Uniswap-v4-PoolManager hat in dieser Tx ein `Swap` gemeldet (aus dem Receipt) */
+  v4Swap = false,
 ): ObservedSwap | null {
   const me = lc(owner);
   const wrapped = lc(SWAP_CHAINS[chain].wrappedNative);
@@ -122,6 +142,15 @@ export function deriveEvmSwap(
     const [token, d] = downs[0]!;
     return { ...base, side: 'sell', token, tokenAtomic: -d, tokenDecimals: decimals(token), nativeAtomic: native > 0n ? native : unwrapped, counterToken: null };
   }
+  // Token → natives ETH über Uniswap v4: Token ging (ganz) an den PoolManager, der ein Swap meldet; Erlös nicht sichtbar
+  if (v4Swap && sentByOwner && downs.length === 1 && ups.length === 0 && native === 0n && unwrapped === 0n) {
+    const [token, d] = downs[0]!;
+    const pm = SWAP_CHAINS[chain].kind === 'evm' ? UNISWAP_V4_POOL_MANAGER[chain as Exclude<SwapChainId, 'solana'>] : null;
+    const toPm = logs
+      .filter((l) => l.topics.length === 3 && lc(l.topics[0]!) === ERC20_TRANSFER_TOPIC && lc(l.address) === token && topicAddr(l.topics[1]!) === me)
+      .every((l) => topicAddr(l.topics[2]!) === pm);
+    if (pm && toPm) return { ...base, side: 'sell', token, tokenAtomic: -d, tokenDecimals: decimals(token), nativeAtomic: null, counterToken: null };
+  }
   // Token ↔ Stablecoin
   const wrap = (list: [string, bigint][]) => list.map(([t, d]) => [t, { delta: d, decimals: decimals(t) }] as [string, { delta: bigint; decimals: number }]);
   return tokenVsStable(hash, time, native === 0n, wrap(ups), wrap(downs), (t) => isStablecoin(chain, t));
@@ -132,9 +161,8 @@ const ZERO_TOPIC = `0x${'0'.repeat(64)}`;
 /**
  * Summe ausgepackter Wrapped-Native-Beträge in einem Receipt: WETH9-`Withdrawal`
  * bzw. — Arbitrums aeWETH meldet kein Withdrawal — ein Burn (`Transfer` an 0x0)
- * des Wrapped-Native-Vertrags. Bekannte Lücke: Pools mit nativem ETH ohne WETH
- * (Uniswap v4) zeigen den Erlös nirgends im Receipt → solche Verkäufe bleiben
- * unerkannt statt geraten.
+ * des Wrapped-Native-Vertrags. Pools mit nativem ETH ohne WETH (Uniswap v4)
+ * zeigen den Erlös nirgends im Receipt → siehe `v4SwapIn`.
  */
 export function unwrappedIn(chain: SwapChainId, receiptLogs: { address: string; topics: string[]; data: string }[]): bigint {
   const wrapped = lc(SWAP_CHAINS[chain].wrappedNative);
@@ -148,6 +176,13 @@ export function unwrappedIn(chain: SwapChainId, receiptLogs: { address: string; 
   }
   // nie doppelt zählen, falls ein Vertrag beides meldet
   return withdrawn > burned ? withdrawn : burned;
+}
+
+/** Hat der Uniswap-v4-PoolManager der Kette in diesem Receipt ein `Swap` gemeldet? */
+export function v4SwapIn(chain: SwapChainId, receiptLogs: { address: string; topics: string[] }[]): boolean {
+  if (chain === 'solana') return false;
+  const pm = UNISWAP_V4_POOL_MANAGER[chain];
+  return receiptLogs.some((l) => lc(l.address) === pm && lc(l.topics[0] ?? '') === V4_SWAP_TOPIC);
 }
 
 /** Pause vor dem einen Wiederholungsversuch bei HTTP 429 (Tests setzen 0). */
@@ -289,11 +324,13 @@ async function readSwaps(
     }
     // Erlös-Nachweis für Verkäufe gegen natives ETH: Unwrap im Receipt (nur bei eigenen Tx nötig)
     let unwrapped = 0n;
+    let v4Swap = false;
     if (lc(tx.from) === lc(owner)) {
       const receipt = (await rpc(chain, url, 'eth_getTransactionReceipt', [hash], fetchFn)) as { logs?: EvmLog[] } | null;
       unwrapped = unwrappedIn(chain, receipt?.logs ?? []);
+      v4Swap = v4SwapIn(chain, receipt?.logs ?? []);
     }
-    const s = deriveEvmSwap(chain, hash, tx, logs, owner, (t) => decimals.get(t) ?? -1, blockTime.get(blockNo) ?? null, unwrapped);
+    const s = deriveEvmSwap(chain, hash, tx, logs, owner, (t) => decimals.get(t) ?? -1, blockTime.get(blockNo) ?? null, unwrapped, v4Swap);
     if (s && s.tokenDecimals >= 0) swaps.push(s);
   }
   return { swaps: swaps.reverse(), newestSignature: cursor.toString(), gap: false };
