@@ -2,7 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { and, desc, eq, max, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
-import { readProposalState, runLabBacktest, runLabWalkForward, type OptimizationProposalResults } from '@gladiator/backtest';
+import { readProposalState, runLabBacktest, runLabWalkForward, type OptimizationProposalResults, runMonteCarlo } from '@gladiator/backtest';
 import { parseInstructionDsl } from '@gladiator/strategy-engine';
 import { SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
 import { deriveAdaptiveGates } from '@gladiator/risk';
@@ -130,6 +130,8 @@ export const labRouter = router({
             ts: p.ts.toISOString(),
             equity: Math.round(p.equity * 100) / 100,
           })),
+          /** Alle R-Multiples (netto) in Original-Reihenfolge — Grundlage der Monte-Carlo-Simulation. */
+          rMultiples: out.result.trades.map((t) => Math.round(t.rMultiple * 10_000) / 10_000),
           trades: out.result.trades.slice(-200).map((t) => ({
             entryTs: t.entryTs.toISOString(),
             exitTs: t.exitTs.toISOString(),
@@ -433,6 +435,24 @@ export const labRouter = router({
     }),
 
   /** Verlauf der Läufe (für Vergleich v2 vs v3 etc.). */
+  /**
+   * Monte-Carlo über die Trade-Reihenfolge (Repo-Masterliste, Phase 4): rein,
+   * deterministisch über den Seed; nur die beobachteten Trades werden neu
+   * angeordnet — nichts erfunden.
+   */
+  monteCarlo: protectedProcedure
+    .input(
+      z.object({
+        rMultiples: z.array(z.number().finite()).min(1).max(10_000),
+        startEquity: z.number().positive().max(1e9).default(10_000),
+        riskPct: z.number().min(0.1).max(5).default(1),
+        runs: z.number().int().min(100).max(5000).default(1000),
+        seed: z.number().int().min(0).max(2_147_483_647).default(42),
+        mode: z.enum(['shuffle', 'bootstrap']).default('shuffle'),
+      }),
+    )
+    .mutation(({ input }) => runMonteCarlo(input)),
+
   runs: protectedProcedure
     .input(z.object({ limit: z.number().int().min(1).max(100).default(25) }))
     .query(async ({ ctx, input }) => {
