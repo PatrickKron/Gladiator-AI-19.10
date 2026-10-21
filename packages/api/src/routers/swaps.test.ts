@@ -204,6 +204,21 @@ describe.skipIf(!hasDb)('Wallet-Trading: Paper-Swaps über das Swap-Gate', () =>
     await a.swaps.cancelOrder({ orderId: o.id });
   });
 
+  it('Positionen über alle Wallets: nur Tokens (kein natives SOL), Wert + PnL aus echten Kursen; fremde unsichtbar', async () => {
+    const r = await a.swaps.positions();
+    const bonk = r.positions.filter((p) => p.symbol === 'Bonk');
+    expect(bonk.length).toBeGreaterThan(0);
+    expect(r.positions.some((p) => p.token === SOL_MINT)).toBe(false);
+    for (const p of bonk) {
+      expect(p.priceUsd).toBe(BONK_USD);
+      expect(p.valueUsd).toBeCloseTo(Number(p.amount) * BONK_USD, 8);
+      expect(p.pnlUsd).toBeCloseTo(p.valueUsd! - p.costUsd, 8);
+    }
+    expect(r.totalValueUsd).toBeCloseTo(r.positions.reduce((s, p) => s + p.valueUsd!, 0), 8);
+    expect(r.problems).toEqual([]);
+    expect((await b.swaps.positions()).positions).toEqual([]);
+  });
+
   it('fremde Wallets sind unsichtbar', async () => {
     expect(await b.swaps.wallets()).toEqual([]);
     await expect(b.swaps.portfolio({ walletId })).rejects.toThrow(/nicht gefunden/);

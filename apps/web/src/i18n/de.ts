@@ -1922,6 +1922,9 @@ export const de = {
     err_unknown: 'Unbekannter Fehler.',
   },
   swap: {
+    positionsTitle: "Alle Positionen",
+    unrealized: "Unrealisiert",
+    wallet: "Wallet",
     kind_alert_above: "Alarm über",
     kind_alert_below: "Alarm unter",
     alertOnly: "Nur Meldung (Glocke + Push) — es wird nichts gekauft oder verkauft.",
