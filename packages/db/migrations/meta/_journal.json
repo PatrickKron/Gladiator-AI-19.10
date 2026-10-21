@@ -267,6 +267,13 @@
       "when": 1792577209874,
       "tag": "0037_spooky_ender_wiggin",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1792590478130,
+      "tag": "0038_aspiring_rattler",
+      "breakpoints": true
     }
   ]
 }

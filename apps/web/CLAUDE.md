@@ -16,3 +16,4 @@ Regeln:
 - type-only Import von @gladiator/api (AppRouter) — nie Server-Code in den Client bundlen.
 - Fonts selbst gehostet (@fontsource) — kein CDN.
 - Deutsch als UI-Sprache; i18n kommt mit Phase 6.
+- Indikator-Bibliothek: im Browser nur `lightweight-charts-indicators/render` importieren (Zeichnen); gerechnet wird auf dem Server (`@gladiator/indicators`) — das Hauptpaket darf nie ins Bundle (15 MB).

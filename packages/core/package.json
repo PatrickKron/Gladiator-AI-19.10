@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./drawings": "./src/drawings.ts",
     "./wallet-address": "./src/wallet-address.ts",
-    "./trading-settings": "./src/trading-settings.ts"
+    "./trading-settings": "./src/trading-settings.ts",
+    "./indicator-inputs": "./src/indicator-inputs.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

@@ -1,0 +1,21 @@
+{
+  "name": "@gladiator/indicators",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "lightweight-charts-indicators": "^0.16.8",
+    "oakscriptjs": "^0.12.3",
+    "@gladiator/core": "*"
+  },
+  "devDependencies": {
+    "@gladiator/market-data": "*",
+    "@gladiator/strategy-engine": "*"
+  }
+}
