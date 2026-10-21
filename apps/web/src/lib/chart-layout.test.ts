@@ -15,26 +15,36 @@ describe('Mehrfach-Charts: Layout und Zellen', () => {
 
   it('normalizeCells liefert genau layout − 1 Zusatz-Zellen (auffüllen, abschneiden, Ungültiges verwerfen)', () => {
     expect(normalizeCells([], 1, 'BTC/USDT')).toEqual([]);
-    expect(normalizeCells([], 2, 'BTC/USDT')).toEqual([{ symbol: 'BTC/USDT', tf: '4h' }]);
+    expect(normalizeCells([], 2, 'BTC/USDT')).toEqual([{ symbol: 'BTC/USDT', tf: '4h', venue: 'binance' }]);
     expect(normalizeCells([], 4, 'BTC/USDT')).toEqual([
-      { symbol: 'BTC/USDT', tf: '4h' },
-      { symbol: 'BTC/USDT', tf: '1d' },
-      { symbol: 'BTC/USDT', tf: '15m' },
+      { symbol: 'BTC/USDT', tf: '4h', venue: 'binance' },
+      { symbol: 'BTC/USDT', tf: '1d', venue: 'binance' },
+      { symbol: 'BTC/USDT', tf: '15m', venue: 'binance' },
     ]);
-    // vorhandene bleiben vorn, Ungültiges (leeres Symbol, fremder TF) fällt weg
-    const cells = normalizeCells([{ symbol: 'ETH/USDT', tf: '1h' }, { symbol: '', tf: '1h' }, { symbol: 'SOL/USDT', tf: '7m' as never }], 4, 'BTC/USDT');
+    // vorhandene bleiben vorn, Ungültiges (leeres Symbol, fremder TF) fällt weg, unbekannte Quelle → Binance
+    const cells = normalizeCells(
+      [
+        { symbol: 'ETH/USDT', tf: '1h', venue: 'binance' },
+        { symbol: '', tf: '1h', venue: 'binance' },
+        { symbol: 'SOL/USDT', tf: '7m' as never, venue: 'binance' },
+        { symbol: 'AAPL', tf: '1d', venue: 'nasdaq' as never },
+      ],
+      4,
+      'BTC/USDT',
+    );
     expect(cells).toEqual([
-      { symbol: 'ETH/USDT', tf: '1h' },
-      { symbol: 'BTC/USDT', tf: '1d' },
-      { symbol: 'BTC/USDT', tf: '15m' },
+      { symbol: 'ETH/USDT', tf: '1h', venue: 'binance' },
+      { symbol: 'AAPL', tf: '1d', venue: 'binance' },
+      { symbol: 'BTC/USDT', tf: '15m', venue: 'binance' },
     ]);
-    expect(normalizeCells(cells, 2, 'BTC/USDT')).toEqual([{ symbol: 'ETH/USDT', tf: '1h' }]);
+    expect(normalizeCells(cells, 2, 'BTC/USDT')).toEqual([{ symbol: 'ETH/USDT', tf: '1h', venue: 'binance' }]);
+    expect(normalizeCells([{ symbol: 'AAPL', tf: '1d', venue: 'twelvedata' }], 2, 'BTC/USDT')).toEqual([{ symbol: 'AAPL', tf: '1d', venue: 'twelvedata' }]);
   });
 
   it('speichert und lädt Layout + Zellen; kaputte Werte → Standard', () => {
     expect(loadChartLayout()).toEqual({ layout: 1, cells: [] });
-    saveChartLayout(4, [{ symbol: 'ETH/USDT', tf: '4h' }]);
-    expect(loadChartLayout()).toEqual({ layout: 4, cells: [{ symbol: 'ETH/USDT', tf: '4h' }] });
+    saveChartLayout(4, [{ symbol: 'ETH/USDT', tf: '4h', venue: 'binance' }]);
+    expect(loadChartLayout()).toEqual({ layout: 4, cells: [{ symbol: 'ETH/USDT', tf: '4h', venue: 'binance' }] });
     localStorage.setItem('gladiator.chartLayout', '{"layout":3,"cells":"x"}');
     expect(loadChartLayout()).toEqual({ layout: 1, cells: [] });
     localStorage.setItem('gladiator.chartLayout', 'kein json');

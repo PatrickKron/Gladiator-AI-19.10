@@ -25,9 +25,9 @@
 - **Keine Betriebs-Keys hinterlegt** (`app_secrets` leer), **keine Börse verbunden** (`exchange_connections` leer).
 - Signale: 306 erzeugt — 304 `expired`, 2 `filled`. 3 Strategie-Versionen im Status `paper`.
 
-## Stand Session 13/14 (2026-10-21, Cloud, bis PR #65 gemergt)
+## Stand Session 13/14 (2026-10-21, Cloud, bis PR #66 gemergt)
 
-- GitHub `main` enthält alles bis PR #65; **der Server ist noch auf altem Stand** — Ausrollen (`git pull origin main && git push server main`) spielt die Migrationen bis **0039** automatisch ein (u. a. 0032 „Ausgang unklar“-Kontext, 0033/0034 Rug-Schutz, 0035/0036 Dev-Verkauf-Schutz, 0037 Copy-Mindestgröße, 0038 Chart-Indikatoren, 0039 gespeicherte Screens). `npm install` nicht vergessen (neue Pakete `lightweight-charts-indicators`, `oakscriptjs`). Alternativ Container: `docker compose --profile app up -d` (`SELFHOST.md`).
+- GitHub `main` enthält alles bis PR #66; **der Server ist noch auf altem Stand** — Ausrollen (`git pull origin main && git push server main`) spielt die Migrationen bis **0039** automatisch ein (u. a. 0032 „Ausgang unklar“-Kontext, 0033/0034 Rug-Schutz, 0035/0036 Dev-Verkauf-Schutz, 0037 Copy-Mindestgröße, 0038 Chart-Indikatoren, 0039 gespeicherte Screens). `npm install` nicht vergessen (neue Pakete `lightweight-charts-indicators`, `oakscriptjs`). Alternativ Container: `docker compose --profile app up -d` (`SELFHOST.md`).
 - Neu heute: Prüfung jeder Aggregator-Transaktion vor dem Signieren, „Ausgang unklar“ klärt sich selbst, MEV-Schutz (Flashbots), Steuer-Export der Swaps (EUR/EZB), MC-Orders, Rug-Schutz (nur Pools mit konstantem Produkt, folgt Pool-Umzügen), Sicherheitscheck mit Top-10/LP-Sperre/Ersteller, Dev-Verkauf-Schutz (EVM, nur echte Verkäufe an Pools/Router), Schutz-Abzeichen an den Beständen.
 - Bekannte Grenzen: Dev-Verkauf über frische Zwischen-Wallet/unbekannten Aggregator unsichtbar; Rug-Schutz entscheidet nichts, wenn DexScreener den Pool ganz weglässt; Solana-LP-Sperre/Ersteller liefert GoPlus nicht.
 
@@ -41,7 +41,7 @@ Ziel: die Chart-, Indikator-, Screener-, Replay- und Backtest-Funktionen der 20 
 - [x] **Phase 3 · Chart-Replay** (PR #63): Bar-Replay am Voll-Chart (Schritt vor/zurück, Play/Pause, Tempo 1/2/4×, Schieber); je Stichtag rechnet der Server alles aus den Kerzen bis dahin (look-ahead-frei, auch als Repainting-Prüfung). Offen: Replay-Trades (Paper-Order im Replay, Ergebnis am Ende) — wenn gewünscht.
 - [x] **Phase 3b · Mehrfach-Charts** (PR #64): Ansicht 1 / 2 / 4 auf der Chart-Seite, Zusatz-Zellen mit eigenem Symbol + Zeitrahmen (im Browser gemerkt), Indikatoren/Zeichnungen je Symbol aus der DB. Offen: Fadenkreuz/Zeitachse über Zellen synchronisieren.
 - [x] **Phase 4 · Backtest-Labor** (PR #65): Monte-Carlo über die Trade-Reihenfolge (Mischen/Bootstrap, deterministischer Seed, Verteilung von Rendite/Drawdown/Verlustserie, Ruin, Kapital-Fächer) — netto; Strategievergleich (Tabelle + Equity-Overlay) gab es schon. Offen: Monte-Carlo für gespeicherte Läufe (Trades speichern).
-- [ ] **Phase 5 · Aktien/Forex** zuletzt: Alpaca-Adapter (Markt­daten + Paper) — ohne Key ehrlich „nicht verbunden“; yfinance/OpenBB nicht (Lizenz/ToS).
+- [x] **Phase 5 · Aktien/Forex** (PR #66): Twelve-Data-/Yahoo-Kerzen (gab es schon) jetzt im Haupt-Chart, in den Mehrfach-Charts und im Screener (Quelle je Symbol, Deep-Link `venue=`); ohne Key und ohne Kerzen ehrlich „nicht verbunden“. **Alpaca bewusst nicht** als dritte Kerzenquelle (eine Wahrheit); erst sinnvoll als Aktien-Paper-/Live-Broker — eigener Schritt, wenn Patrick das will (braucht Alpaca-Konto + Keys). yfinance/OpenBB nicht (Lizenz/ToS).
 
 Repo-Entscheidungen (Lizenz, Architektur, eine Wahrheit):
 - **Übernommen:** deepentropy `lightweight-charts-indicators` (MIT; nur Standard + Kerzenmuster, Community-Ports nicht), CCXT (schon im Einsatz), Ideen/Struktur aus OpenCharts, LuxAlgo Vela und Jesse (Screener, Replay, Layouts, Vergleich) — nachgebaut auf unserer Engine.
