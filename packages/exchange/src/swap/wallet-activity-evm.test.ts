@@ -14,6 +14,9 @@ import {
   padTopic,
   setEvmRetryDelayForTests,
   unwrappedIn,
+  UNISWAP_V4_POOL_MANAGER,
+  V4_SWAP_TOPIC,
+  v4SwapIn,
   WETH_WITHDRAWAL_TOPIC,
   type EvmLog,
 } from './wallet-activity-evm.js';
@@ -61,6 +64,28 @@ describe('deriveEvmSwap', () => {
     expect(unwrappedIn('arbitrum', [transfer(ARB_WETH, ROUTER, ZERO, 8n), transfer(MEME, ROUTER, ZERO, 50n)])).toBe(8n);
     // meldet ein Vertrag beides, nie doppelt zählen
     expect(unwrappedIn('base', [w(WETH, 5n), transfer(WETH, ROUTER, ZERO, 5n)])).toBe(5n);
+  });
+
+  it('Uniswap v4 (natives ETH ohne WETH): Token an den PoolManager + dessen Swap-Ereignis = Verkauf, Erlös ehrlich unbekannt', () => {
+    const PM = UNISWAP_V4_POOL_MANAGER.base;
+    const tx = { from: ME, to: ROUTER, value: '0x0' };
+    expect(deriveEvmSwap('base', '0xabc', tx, [transfer(MEME, ME, PM, 9n)], ME, dec, null, 0n, true)).toMatchObject({ side: 'sell', token: MEME, tokenAtomic: 9n, nativeAtomic: null, counterToken: null });
+    // ohne Swap-Ereignis (z. B. Liquidität hinzufügen) → kein Verkauf
+    expect(deriveEvmSwap('base', '0xabc', tx, [transfer(MEME, ME, PM, 9n)], ME, dec, null, 0n, false)).toBeNull();
+    // Token ging (auch) woanders hin → nicht raten
+    expect(deriveEvmSwap('base', '0xabc', tx, [transfer(MEME, ME, PM, 9n), transfer(MEME, ME, POOL, 1n)], ME, dec, null, 0n, true)).toBeNull();
+    // PoolManager einer anderen Kette zählt nicht
+    expect(deriveEvmSwap('base', '0xabc', tx, [transfer(MEME, ME, UNISWAP_V4_POOL_MANAGER.ethereum, 9n)], ME, dec, null, 0n, true)).toBeNull();
+    // nicht von der Wallet selbst ausgelöst → kein eigener Verkauf
+    expect(deriveEvmSwap('base', '0xabc', { ...tx, from: POOL }, [transfer(MEME, ME, PM, 9n)], ME, dec, null, 0n, true)).toBeNull();
+  });
+
+  it('v4-Swap-Ereignis im Receipt: nur vom PoolManager derselben Kette', () => {
+    const ev = (addr: string) => ({ address: addr, topics: [V4_SWAP_TOPIC, `0x${'ab'.repeat(32)}`, padTopic(ROUTER)] });
+    expect(v4SwapIn('base', [transfer(MEME, ME, POOL, 1n), ev(UNISWAP_V4_POOL_MANAGER.base.toUpperCase().replace('0X', '0x'))])).toBe(true);
+    expect(v4SwapIn('base', [ev(POOL)])).toBe(false);
+    expect(v4SwapIn('base', [ev(UNISWAP_V4_POOL_MANAGER.arbitrum)])).toBe(false);
+    expect(v4SwapIn('solana', [ev(UNISWAP_V4_POOL_MANAGER.base)])).toBe(false);
   });
 
   it('natives ETH ↔ Stablecoin ist kein Token-Handel', () => {
@@ -217,4 +242,24 @@ describe('echte Daten (Base-RPC)', () => {
     const again = await fetchEvmWalletSwaps('base', '0x6fF5693b99212Da76ad316178A184AB56D299b43', { cursor: r.newestSignature, maxBlocks: 20, maxTxs: 4 });
     expect(again.swaps.every((s) => !r.swaps.some((x) => x.signature === s.signature))).toBe(true);
   }, 90_000);
+
+  it('Uniswap-v4-PoolManager auf Base meldet laufend Swap-Ereignisse mit genau unserer Signatur (Adresse + Topic stimmen)', async () => {
+    const pm = UNISWAP_V4_POOL_MANAGER.base;
+    const post = async (method: string, params: unknown[]) => {
+      for (const url of EVM_LOG_RPCS.base) {
+        try {
+          const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+          const body = (await res.json()) as { result?: unknown };
+          if (res.ok && body.result !== undefined) return body.result;
+        } catch {
+          // nächster öffentlicher Knoten
+        }
+      }
+      throw new Error(`kein Base-RPC beantwortet ${method}`);
+    };
+    const head = BigInt((await post('eth_blockNumber', [])) as string);
+    const logs = (await post('eth_getLogs', [{ address: pm, topics: [V4_SWAP_TOPIC], fromBlock: `0x${(head - 200n).toString(16)}`, toBlock: `0x${head.toString(16)}` }])) as { address: string; topics: string[] }[];
+    expect(logs.length).toBeGreaterThan(0);
+    expect(v4SwapIn('base', logs)).toBe(true);
+  }, 60_000);
 });
