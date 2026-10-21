@@ -34,6 +34,30 @@ services:
       timeout: 5s
       retries: 5
 
+  # Optional: die App selbst als Container (nur mit `--profile app`). Ohne Profil
+  # startet Compose wie bisher nur Datenbank + Redis.
+  app:
+    profiles: ["app"]
+    build: .
+    image: gladiator-app
+    container_name: gladiator-app
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      # nur lokal — von anderen Geräten über Tailscale (deploy/MOBILE.md), nie offen ins Internet
+      - "127.0.0.1:3010:3010"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
 volumes:
   gladiator_pgdata:
   gladiator_redisdata:

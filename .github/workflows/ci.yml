@@ -35,3 +35,32 @@ jobs:
       - run: npm run typecheck
       - run: npm run db:migrate
       - run: npm test
+
+  # Selbsthosten als Container: frische .env (setup:env), Compose mit Profil „app“,
+  # Container muss migrieren, starten und /health mit db=up beantworten.
+  selfhost-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run setup:env
+      - run: docker compose --env-file .env --profile app up -d --build
+      - name: App antwortet (Migration + Start im Container)
+        run: |
+          for i in $(seq 1 60); do
+            if body=$(curl -fsS http://127.0.0.1:3010/health); then
+              echo "$body"
+              echo "$body" | grep -q '"db":"up"' && exit 0
+            fi
+            sleep 5
+          done
+          docker compose --env-file .env --profile app logs app | tail -100
+          exit 1
+      - name: Web-Oberfläche wird ausgeliefert
+        run: curl -fsS http://127.0.0.1:3010/ | grep -qi '<div id="root"'
+      - if: always()
+        run: docker compose --env-file .env --profile app down -v

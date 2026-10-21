@@ -38,6 +38,18 @@ Danach auf dem Server im Browser `http://127.0.0.1:3010` öffnen. Die API lausch
 
 Der erste Benutzer, der sich registriert, wird Besitzer der Instanz. Weitere Registrierungen sind danach gesperrt.
 
+## Alternative: alles als Container
+
+Wer Node nicht auf dem Server installieren will, braucht nur Docker. Die `.env` wird einmalig erzeugt (dafür einmal Node, z. B. auf dem eigenen Rechner, oder die `.env.example` von Hand ausfüllen):
+
+```bash
+npm ci && npm run setup:env          # .env mit zufälligen Geheimnissen
+docker compose --env-file .env --profile app up -d --build
+docker compose --env-file .env --profile app run --rm app setup-data   # echte Startdaten (einmalig)
+```
+
+Der App-Container legt beim Start die Tabellen an, liefert Oberfläche + API auf `http://127.0.0.1:3010` aus und läuft als normaler Benutzer (nicht root). Er nutzt dieselbe `.env` und biegt nur die Adressen von Datenbank und Redis auf die Compose-Dienste um. Passwort zurücksetzen: `docker compose --env-file .env --profile app run --rm app set-password <email>`. Ohne `--profile app` startet Compose wie bisher nur Datenbank und Redis. Die CI startet genau diesen Container bei jedem Push und prüft `/health`.
+
 ## Dauerbetrieb (systemd)
 
 Für den Dauerbetrieb Webserver und Worker getrennt laufen lassen, damit rechenintensive Jobs die Oberfläche nicht ausbremsen. Vorlage und Schritte stehen in `deploy/gladiator-worker.service` (Webserver mit `ROLE=web`, Worker mit `ROLE=worker`).
@@ -71,7 +83,7 @@ Unter Handel & Vermögen › Wallet-Trading: Token-Adresse einfügen → Preis, 
 3. Etwas SOL/ETH/BNB an die Adresse senden (Käufe + Netzwerkgebühren).
 4. „FREIGEBEN“ eintippen → Live freigegeben. Jeder Swap wird danach noch einzeln bestätigt.
 
-Der Schlüssel liegt nur verschlüsselt in der Datenbank (AES-256-GCM mit `ENCRYPTION_KEY`). Gebaut werden ausschließlich Aggregator-Swaps mit der eigenen Adresse als Empfänger (Solana: Jupiter, eigene Wallet muss alleiniger Gebührenzahler sein; EVM: nur der offizielle KyberSwap-Router, `approve` exakt in Verkaufshöhe). „Wallet entfernen“ löscht den gespeicherten Schlüssel.
+Der Schlüssel liegt nur verschlüsselt in der Datenbank (AES-256-GCM mit `ENCRYPTION_KEY`). Gebaut werden ausschließlich Aggregator-Swaps mit der eigenen Adresse als Empfänger (Solana: Jupiter, eigene Wallet muss alleiniger Gebührenzahler sein; EVM: nur der offizielle KyberSwap-Router, `approve` exakt in Verkaufshöhe). Vor dem Signieren prüft Gladiator jede vom Aggregator gelieferte Transaktion selbst: Solana-Anweisungen gegen eine Positivliste (nur Swap-Bausteine für die eigene Wallet, Ziel-Konto, Menge, Mindestmenge und Gebühren der Jupiter-Route dekodiert), KyberSwap-Aufrufdaten dekodiert (Empfänger, Tokens, Menge, Mindestmenge, keine Fremdgebühren). Live wird der Wert des Angebots zusätzlich unabhängig über DexScreener-Kurse nachgerechnet. Bricht die Verbindung nach dem Senden ab, steht der Swap als „Ausgang unklar“ in der Historie — dann nicht erneut ausführen, sondern im Explorer nachsehen. „Wallet entfernen“ löscht den gespeicherten Schlüssel.
 
 ## Tests
 
