@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { de } from '../i18n/de.js';
-import { bpsLabel, fmtAmount, fmtUsd, pricePrecision, slippageChoices, swapReasonKey, poolAge, avgEntryUsd, initialsPercent, pnlPercent, parseCompactUsd, mcapTriggerPrice } from './swap-format.js';
+import { bpsLabel, fmtAmount, fmtUsd, pricePrecision, slippageChoices, swapReasonKey, poolAge, avgEntryUsd, initialsPercent, pnlPercent, parseCompactUsd, mcapTriggerPrice, protectionKinds } from './swap-format.js';
 
 describe('swap-format', () => {
   it('fmtUsd: normale Beträge, Meme-Preise, kompakt', () => {
@@ -102,5 +102,23 @@ describe('Ziel nach Marktkapitalisierung', () => {
     expect(mcapTriggerPrice(0.0002, 2_000_000, 10_000_000)).toBeCloseTo(0.001, 12);
     expect(mcapTriggerPrice(0.0002, 0, 10_000_000)).toBeNull();
     expect(mcapTriggerPrice(0.0002, 2_000_000, 0)).toBeNull();
+  });
+});
+
+describe('protectionKinds', () => {
+  it('nur offene Schutz-Orders dieses Tokens, feste Reihenfolge, EVM ohne Groß-/Kleinschreibung', () => {
+    const T = '0xAbCdEf0000000000000000000000000000000001';
+    const orders = [
+      { token: T.toLowerCase(), kind: 'dev_sell', status: 'open' },
+      { token: T, kind: 'stop_loss', status: 'open' },
+      { token: T, kind: 'take_profit', status: 'cancelled' },
+      { token: T, kind: 'limit_buy', status: 'open' },
+      { token: T, kind: 'alert_above', status: 'open' },
+      { token: '0x0000000000000000000000000000000000000002', kind: 'rug_guard', status: 'open' },
+    ];
+    expect(protectionKinds(orders, T)).toEqual(['stop_loss', 'dev_sell']);
+    // Solana-Adressen unterscheiden Groß-/Kleinschreibung
+    expect(protectionKinds([{ token: 'AbC', kind: 'rug_guard', status: 'open' }], 'abc')).toEqual([]);
+    expect(protectionKinds([], T)).toEqual([]);
   });
 });

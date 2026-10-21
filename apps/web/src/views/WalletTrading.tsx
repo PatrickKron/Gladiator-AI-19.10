@@ -8,7 +8,7 @@ import { WatchedWallets } from '../components/WatchedWallets.js';
 import { buildAutoOrders, loadAutoOrders, saveAutoOrders, type AutoOrdersSetting } from '../lib/auto-orders.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
-import { avgEntryUsd, bpsLabel, fmtAmount, fmtPct, fmtUsd, initialsPercent, mcapTriggerPrice, parseCompactUsd, pnlPercent, slippageChoices, swapReasonKey } from '../lib/swap-format.js';
+import { avgEntryUsd, bpsLabel, fmtAmount, fmtPct, fmtUsd, initialsPercent, mcapTriggerPrice, parseCompactUsd, pnlPercent, protectionKinds, slippageChoices, swapReasonKey } from '../lib/swap-format.js';
 
 /**
  * Wallet-Trading (Vision-Punkt 5, „wie Trojan, für alle Wallets"):
@@ -230,6 +230,8 @@ function WalletView({
   const lang = i18n.language;
 
   const [ordersVersion, setOrdersVersion] = useState(0);
+  // offene Orders (aus dem Order-Panel) → Schutz-Anzeige an den Beständen
+  const [walletOrders, setWalletOrders] = useState<Order[]>([]);
   const [auto, setAuto] = useState<AutoOrdersSetting>(() => loadAutoOrders(wallet.id));
   const changeAuto = (next: AutoOrdersSetting) => {
     setAuto(next);
@@ -575,6 +577,7 @@ function WalletView({
                   {portfolio.holdings.map((h) => {
                     const pct = h.native ? null : pnlPercent(h.pnlUsd, h.costUsd);
                     const entry = h.native ? null : avgEntryUsd(h.costUsd, h.amount);
+                    const guards = h.native ? [] : protectionKinds(walletOrders, h.token);
                     return (
                     <tr key={h.token} className="border-t" style={{ borderColor: 'var(--color-line)' }}>
                       <td className="py-1.5">
@@ -584,6 +587,16 @@ function WalletView({
                           <button type="button" className="underline decoration-dotted" onClick={() => void lookup(h.token)} title={h.token}>
                             {h.symbol}
                           </button>
+                        )}
+                        {guards.length > 0 && (
+                          // offene Schutz-Orders für diesen Bestand
+                          <span className="mt-0.5 flex flex-wrap gap-1" title={guards.map((k) => t(`swap.kind_${k}`)).join(' · ')}>
+                            {guards.map((k) => (
+                              <span key={k} className="rounded border px-1 text-[9px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-cyan)' }}>
+                                {t(`swap.short_${k}`)}
+                              </span>
+                            ))}
+                          </span>
                         )}
                       </td>
                       <td className="text-right">
@@ -608,7 +621,7 @@ function WalletView({
           )}
         </Panel>
 
-        <OrdersPanel walletId={wallet.id} version={ordersVersion} onChanged={() => void loadPortfolio()} />
+        <OrdersPanel walletId={wallet.id} version={ordersVersion} onChanged={() => void loadPortfolio()} onOrders={setWalletOrders} />
 
         <Panel label={t('swap.history')} stagger={3}>
           {portfolio && portfolio.trades.length === 0 && <Empty text={t('swap.noTrades')} />}
@@ -1290,7 +1303,7 @@ const ORDER_STATUS_COLOR: Record<string, string> = {
 };
 
 /** Offene + letzte Orders der Wallet; offene lassen sich stornieren. Aktualisiert alle 30 s (Worker-Takt 1 min). */
-function OrdersPanel({ walletId, version, onChanged }: { walletId: string; version: number; onChanged: () => void }) {
+function OrdersPanel({ walletId, version, onChanged, onOrders }: { walletId: string; version: number; onChanged: () => void; onOrders?: (orders: Order[]) => void }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
   const [orders, setOrders] = useState<Order[] | null>(null);
@@ -1298,6 +1311,11 @@ function OrdersPanel({ walletId, version, onChanged }: { walletId: string; versi
   // Ref statt Abhängigkeit: der Aufrufer übergibt jedes Mal eine neue Funktion
   const onChangedRef = useRef(onChanged);
   onChangedRef.current = onChanged;
+  const onOrdersRef = useRef(onOrders);
+  onOrdersRef.current = onOrders;
+  useEffect(() => {
+    if (orders) onOrdersRef.current?.(orders);
+  }, [orders]);
 
   const load = useCallback(async () => {
     try {
