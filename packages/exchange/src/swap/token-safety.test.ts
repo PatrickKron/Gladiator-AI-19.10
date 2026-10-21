@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { fetchTokenDiscovery } from './discovery.js';
-import { fetchSolanaTop10Pct, fetchTokenSafety, goPlusSolanaTop10Pct, goPlusTop10Pct, judgeGoPlus, judgeSolanaMint, solanaTop10Pct, TOP10_WARN_PCT } from './token-safety.js';
+import { fetchSolanaTop10Pct, fetchTokenSafety, goPlusLpLockedPct, goPlusSolanaTop10Pct, goPlusTop10Pct, judgeGoPlus, judgeSolanaMint, LP_LOCKED_WARN_PCT, solanaTop10Pct, TOP10_WARN_PCT } from './token-safety.js';
 
 const TOKEN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const TOKEN22 = 'TokenzQdBNbLqP5VEhdkAS6EHFLp88EzTEbtKFFuh6';
@@ -82,6 +82,24 @@ describe('Top-10-Konzentration', () => {
     expect(goPlusSolanaTop10Pct(undefined)).toBeNull();
   });
 
+  it('GoPlus: gesperrte + verbrannte LP-Anteile; Warnung unter der Schwelle; ohne LP-Halter null', () => {
+    const lp = [
+      { address: '0x000000000000000000000000000000000000dEaD', percent: '0.60', is_locked: 0 },
+      { address: '0x663a5c229c09b049e36dcc11a9b0d4a8eb9db214', percent: '0.25', is_locked: 1 },
+      { address: '0x1111111111111111111111111111111111111111', percent: '0.15', is_locked: 0 },
+    ];
+    expect(goPlusLpLockedPct(lp)).toBe(85);
+    expect(goPlusLpLockedPct([])).toBeNull();
+    expect(goPlusLpLockedPct(undefined)).toBeNull();
+    expect(judgeGoPlus({ is_honeypot: '0', lp_holders: lp })).toMatchObject({ lpLockedPct: 85, warnings: [] });
+    const open = judgeGoPlus({ is_honeypot: '0', lp_holders: [{ address: '0x1111111111111111111111111111111111111111', percent: '1', is_locked: 0 }] });
+    expect(open.lpLockedPct).toBe(0);
+    expect(open.lpLockedPct!).toBeLessThan(LP_LOCKED_WARN_PCT);
+    expect(open.warnings).toContain('lp_unlocked');
+    // Kauf wird nie blockiert (nur Warnung)
+    expect(open.severe).toEqual([]);
+  });
+
   it('GoPlus: Verträge und gesperrte Bestände zählen nicht; Warnung ab der Schwelle', () => {
     const holders = [
       { percent: '0.30', is_contract: 1, is_locked: 0 },
@@ -152,5 +170,13 @@ describe('echte Daten (Solana-RPC, GoPlus)', () => {
     expect(r.taxPct).toBe(0);
     // Circle kann USDC pausieren — Warnung, kein Block
     expect(r.severe).toEqual([]);
+  }, 30_000);
+
+  it('PEPE auf Ethereum über GoPlus: LP-Anteile (Uniswap v2) gesperrt/verbrannt als echter Anteil', async () => {
+    const r = await fetchTokenSafety('ethereum', '0x6982508145454Ce325dDbE47a25d4ec3d2311933');
+    expect(r).toMatchObject({ checked: true, source: 'goplus' });
+    expect(r.lpLockedPct, JSON.stringify(r)).not.toBeNull();
+    expect(r.lpLockedPct!).toBeGreaterThanOrEqual(0);
+    expect(r.lpLockedPct!).toBeLessThanOrEqual(100);
   }, 30_000);
 });
