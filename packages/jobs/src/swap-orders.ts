@@ -281,8 +281,18 @@ export async function runSwapOrders(db: Db): Promise<SwapOrdersResult> {
     if (price === undefined) continue;
     out.checked++;
     if (order.kind === 'dev_sell') {
-      if (!order.watchAddress || order.watchBalance === null || order.watchBlock === null) continue;
+      if (!order.watchAddress || order.watchBalance === null) continue;
       const chain = wallet.chain as SwapChainId;
+      if (order.watchBlock === null) {
+        // Altbestand ohne Startblock: ab jetzt beobachten (nie still liegen lassen)
+        try {
+          const start = await fetchTokenOutflows(chain, order.token, order.watchAddress, null, swapNet());
+          await db.update(swapOrders).set({ watchBlock: start.cursor, watchSold: '0' }).where(eq(swapOrders.id, order.id));
+        } catch (err) {
+          out.errors.push(`Dev-Verkäufe ${order.symbol}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        continue;
+      }
       let sold: bigint;
       let cursor: string;
       try {

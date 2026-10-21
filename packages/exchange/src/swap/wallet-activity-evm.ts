@@ -346,14 +346,18 @@ async function readSwaps(
  * höchstens `EVM_MAX_BLOCKS` Blöcke je Abruf — liegt der Cursor weiter zurück,
  * holt der nächste Abruf den Rest (lückenlos, nichts übersprungen). Ohne Cursor:
  * nur den Startpunkt (aktuelle bestätigte Blocknummer) bestimmen.
+ * Liquidität hinzufügen ist kein Verkauf: Transaktionen, in denen `sender` etwas
+ * GEPRÄGT bekommt (LP-Token bzw. Positions-NFT von 0x0), fallen heraus.
  */
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+
 export async function fetchTokenOutflows(
   chain: SwapChainId,
   token: string,
   sender: string,
   cursor: bigint | null,
   fetchFn: Fetch = fetch,
-): Promise<{ transfers: { to: string; amount: bigint }[]; cursor: string }> {
+): Promise<{ transfers: { to: string; amount: bigint; tx: string }[]; cursor: string }> {
   const problems: string[] = [];
   for (const url of logRpcCandidates(chain)) {
     try {
@@ -365,9 +369,15 @@ export async function fetchTokenOutflows(
       const from = cursor + 1n;
       const to = latest - from + 1n > BigInt(EVM_MAX_BLOCKS) ? from + BigInt(EVM_MAX_BLOCKS) - 1n : latest;
       const logs = (await rpc(chain, url, 'eth_getLogs', [{ address: token, fromBlock: hex(from), toBlock: hex(to), topics: [ERC20_TRANSFER_TOPIC, padTopic(sender)] }], fetchFn)) as EvmLog[];
-      const transfers = (logs ?? [])
+      let transfers = (logs ?? [])
         .filter((l) => lc(l.address) === lc(token) && l.topics[2])
-        .map((l) => ({ to: `0x${l.topics[2]!.slice(26)}`.toLowerCase(), amount: l.data && l.data !== '0x' ? BigInt(l.data) : 0n }));
+        .map((l) => ({ to: `0x${l.topics[2]!.slice(26)}`.toLowerCase(), amount: l.data && l.data !== '0x' ? BigInt(l.data) : 0n, tx: l.transactionHash }));
+      if (transfers.length > 0) {
+        // Prägungen an den Absender (LP-Token v2, Positions-NFT v3/v4) im selben Bereich → diese Tx = Liquidität, kein Verkauf
+        const mints = (await rpc(chain, url, 'eth_getLogs', [{ fromBlock: hex(from), toBlock: hex(to), topics: [ERC20_TRANSFER_TOPIC, padTopic(ZERO_ADDRESS), padTopic(sender)] }], fetchFn)) as EvmLog[];
+        const lpTx = new Set((mints ?? []).map((l) => l.transactionHash));
+        transfers = transfers.filter((t) => !lpTx.has(t.tx));
+      }
       return { transfers, cursor: to.toString() };
     } catch (err) {
       problems.push(`${new URL(url).host}: ${err instanceof Error ? err.message : String(err)}`);
