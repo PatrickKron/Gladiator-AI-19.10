@@ -21,8 +21,8 @@ export type ObservedSwap = {
   /** Menge des Tokens (kleinste Einheit) */
   tokenAtomic: bigint;
   tokenDecimals: number;
-  /** Gegenwert in SOL (Lamports, ohne Netzwerkgebühr); null, wenn gegen einen anderen Token getauscht */
-  solLamports: bigint | null;
+  /** Gegenwert in nativer Währung (kleinste Einheit, ohne Netzwerkgebühr); null, wenn gegen einen anderen Token getauscht oder nicht sichtbar */
+  nativeAtomic: bigint | null;
   /** Gegen-Token, wenn nicht SOL (z. B. USDC) */
   counterToken: string | null;
 };
@@ -88,17 +88,17 @@ export function deriveSwapFromTx(signature: string, tx: ParsedTx, owner: string)
   // SOL → Token
   if (solSide === 'out' && ups.length === 1 && downs.length === 0) {
     const [mint, d] = ups[0]!;
-    return { signature, time: tx.blockTime ?? null, side: 'buy', token: mint, tokenAtomic: d.delta, tokenDecimals: d.decimals, solLamports: -sol, counterToken: null };
+    return { signature, time: tx.blockTime ?? null, side: 'buy', token: mint, tokenAtomic: d.delta, tokenDecimals: d.decimals, nativeAtomic: -sol, counterToken: null };
   }
   // Token → SOL
   if (solSide === 'in' && downs.length === 1 && ups.length === 0) {
     const [mint, d] = downs[0]!;
-    return { signature, time: tx.blockTime ?? null, side: 'sell', token: mint, tokenAtomic: -d.delta, tokenDecimals: d.decimals, solLamports: sol, counterToken: null };
+    return { signature, time: tx.blockTime ?? null, side: 'sell', token: mint, tokenAtomic: -d.delta, tokenDecimals: d.decimals, nativeAtomic: sol, counterToken: null };
   }
   // Token ↔ Token (z. B. USDC → Meme): Kauf des zunehmenden Tokens
   if (solSide === null && ups.length === 1 && downs.length === 1) {
     const [mint, d] = ups[0]!;
-    return { signature, time: tx.blockTime ?? null, side: 'buy', token: mint, tokenAtomic: d.delta, tokenDecimals: d.decimals, solLamports: null, counterToken: downs[0]![0] };
+    return { signature, time: tx.blockTime ?? null, side: 'buy', token: mint, tokenAtomic: d.delta, tokenDecimals: d.decimals, nativeAtomic: null, counterToken: downs[0]![0] };
   }
   return null;
 }

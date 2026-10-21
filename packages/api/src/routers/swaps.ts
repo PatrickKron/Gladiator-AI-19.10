@@ -46,17 +46,17 @@ const MAX_WATCHED = 25;
 const copyInput = z.object({
   copyMode: z.enum(['off', 'paper']),
   copyWalletId: z.string().uuid().nullable(),
-  /** SOL je Kopie */
-  copyAmount: z.string().regex(/^\d+(\.\d+)?$/).refine((v) => Number(v) > 0 && Number(v) <= 1000, 'Betrag: über 0 bis 1000 SOL.').nullable(),
+  /** Betrag je Kopie in nativer Währung (SOL, ETH, BNB) */
+  copyAmount: z.string().regex(/^\d+(\.\d+)?$/).refine((v) => Number(v) > 0 && Number(v) <= 1000, 'Betrag: über 0 bis 1000.').nullable(),
 });
 
-/** Copy-Ziel prüfen: nur eigene, aktive Solana-PAPER-Wallets (echtes Copy-Trading gibt es nicht). */
-async function checkCopyTarget(db: Db, userId: string, input: z.infer<typeof copyInput>): Promise<void> {
+/** Copy-Ziel prüfen: nur eigene, aktive PAPER-Wallets derselben Kette (echtes Copy-Trading gibt es nicht). */
+async function checkCopyTarget(db: Db, userId: string, chain: SwapChainId, input: z.infer<typeof copyInput>): Promise<void> {
   if (input.copyMode === 'off') return;
   if (!input.copyWalletId || !input.copyAmount) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Zum Kopieren Ziel-Wallet und Betrag wählen.' });
   const w = await ownWallet(db, userId, input.copyWalletId);
-  if (w.chain !== 'solana' || w.mode !== 'paper') {
-    throw new TRPCError({ code: 'BAD_REQUEST', message: 'Kopiert wird nur in eine Solana-Paper-Wallet.' });
+  if (w.chain !== chain || w.mode !== 'paper') {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: `Kopiert wird nur in eine ${SWAP_CHAINS[chain].name}-Paper-Wallet.` });
   }
 }
 
@@ -584,19 +584,25 @@ export const swapsRouter = router({
   }),
 
   addWatched: protectedProcedure
-    .input(z.object({ address: z.string().trim(), label: z.string().trim().min(1).max(40) }).merge(copyInput))
+    .input(z.object({ chain: chainSchema.default('solana'), address: z.string().trim(), label: z.string().trim().min(1).max(40) }).merge(copyInput))
     .mutation(async ({ ctx, input }) => {
-      if (!isTokenAddress('solana', input.address)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Keine gültige Solana-Adresse.' });
-      await checkCopyTarget(ctx.db, ctx.user.id, input);
-      const existing = await ctx.db.select({ id: watchedWallets.id, address: watchedWallets.address }).from(watchedWallets).where(eq(watchedWallets.userId, ctx.user.id));
-      if (existing.some((e) => e.address === input.address)) throw new TRPCError({ code: 'CONFLICT', message: 'Diese Wallet wird schon beobachtet.' });
+      const evm = SWAP_CHAINS[input.chain].kind === 'evm';
+      if (!isTokenAddress(input.chain, input.address)) throw new TRPCError({ code: 'BAD_REQUEST', message: `Keine gültige ${SWAP_CHAINS[input.chain].name}-Adresse.` });
+      // EVM-Adressen einheitlich klein (Groß-/Kleinschreibung ist nur Prüfsumme)
+      const address = evm ? input.address.toLowerCase() : input.address;
+      await checkCopyTarget(ctx.db, ctx.user.id, input.chain, input);
+      const existing = await ctx.db
+        .select({ id: watchedWallets.id, chain: watchedWallets.chain, address: watchedWallets.address })
+        .from(watchedWallets)
+        .where(eq(watchedWallets.userId, ctx.user.id));
+      if (existing.some((e) => e.chain === input.chain && e.address === address)) throw new TRPCError({ code: 'CONFLICT', message: 'Diese Wallet wird schon beobachtet.' });
       if (existing.length >= MAX_WATCHED) throw new TRPCError({ code: 'BAD_REQUEST', message: `Höchstens ${MAX_WATCHED} beobachtete Wallets.` });
       const [row] = await ctx.db
         .insert(watchedWallets)
         .values({
           userId: ctx.user.id,
-          chain: 'solana',
-          address: input.address,
+          chain: input.chain,
+          address,
           label: input.label,
           copyMode: input.copyMode,
           copyWalletId: input.copyMode === 'paper' ? input.copyWalletId : null,
@@ -609,7 +615,12 @@ export const swapsRouter = router({
   updateWatched: protectedProcedure
     .input(z.object({ id: z.string().uuid(), label: z.string().trim().min(1).max(40) }).merge(copyInput))
     .mutation(async ({ ctx, input }) => {
-      await checkCopyTarget(ctx.db, ctx.user.id, input);
+      const [cur] = await ctx.db
+        .select({ chain: watchedWallets.chain })
+        .from(watchedWallets)
+        .where(and(eq(watchedWallets.id, input.id), eq(watchedWallets.userId, ctx.user.id)));
+      if (!cur) throw new TRPCError({ code: 'NOT_FOUND', message: 'Beobachtete Wallet nicht gefunden.' });
+      await checkCopyTarget(ctx.db, ctx.user.id, cur.chain as SwapChainId, input);
       const rows = await ctx.db
         .update(watchedWallets)
         .set({
@@ -636,10 +647,11 @@ export const swapsRouter = router({
   /** Erkannte Swaps einer beobachteten Wallet (neueste zuerst) mit Symbol, Menge und Kopie-Ergebnis. */
   watchedActivity: protectedProcedure.input(z.object({ id: z.string().uuid() })).query(async ({ ctx, input }) => {
     const [w] = await ctx.db
-      .select({ id: watchedWallets.id })
+      .select({ id: watchedWallets.id, chain: watchedWallets.chain })
       .from(watchedWallets)
       .where(and(eq(watchedWallets.id, input.id), eq(watchedWallets.userId, ctx.user.id)));
     if (!w) throw new TRPCError({ code: 'NOT_FOUND', message: 'Beobachtete Wallet nicht gefunden.' });
+    const chain = w.chain as SwapChainId;
     const rows = await ctx.db
       .select()
       .from(watchedWalletSwaps)
@@ -650,7 +662,7 @@ export const swapsRouter = router({
     await Promise.all(
       [...new Set(rows.map((r) => r.token))].map(async (t) => {
         try {
-          symbols.set(t, (await cachedTokenInfo('solana', t)).symbol);
+          symbols.set(t, (await cachedTokenInfo(chain, t)).symbol);
         } catch {
           // Symbol unbekannt → Adresse gekürzt anzeigen (nie geraten)
         }
@@ -663,7 +675,7 @@ export const swapsRouter = router({
       token: r.token,
       symbol: symbols.get(r.token) ?? null,
       amount: fromAtomic(r.tokenAtomic, r.tokenDecimals),
-      sol: r.solLamports === null ? null : fromAtomic(r.solLamports, 9),
+      native: r.nativeAtomic === null ? null : fromAtomic(r.nativeAtomic, SWAP_CHAINS[chain].native.decimals),
       counterToken: r.counterToken,
       txTime: r.txTime,
       copyStatus: r.copyStatus,

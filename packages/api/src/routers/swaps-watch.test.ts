@@ -94,6 +94,19 @@ describe.skipIf(!hasDb)('Beobachtete Wallets (API)', () => {
     });
   });
 
+  it('EVM-Kette: Adresse je Kette geprüft und klein gespeichert; Copy-Ziel muss auf derselben Kette liegen', async () => {
+    const EVM = '0xAbCdEf0123456789aBcDeF0123456789AbCdEf01';
+    await expect(a.swaps.addWatched({ chain: 'base', address: WHALE, label: 'X', ...off })).rejects.toThrow(/Base-Adresse/);
+    const basePaper = await a.swaps.createPaperWallet({ chain: 'base', label: 'Base Copy', startAmount: '1', limits: LIMITS });
+    const solPaper = (await a.swaps.wallets()).find((w) => w.chain === 'solana')!;
+    await expect(a.swaps.addWatched({ chain: 'base', address: EVM, label: 'Base-Wal', copyMode: 'paper', copyWalletId: solPaper.id, copyAmount: '0.01' })).rejects.toThrow(/Base-Paper-Wallet/);
+    const w = await a.swaps.addWatched({ chain: 'base', address: EVM, label: 'Base-Wal', copyMode: 'paper', copyWalletId: basePaper.id, copyAmount: '0.01' });
+    expect(w).toMatchObject({ chain: 'base', address: EVM.toLowerCase(), copyMode: 'paper', copyWalletId: basePaper.id });
+    await expect(a.swaps.addWatched({ chain: 'base', address: EVM.toLowerCase(), label: 'Nochmal', ...off })).rejects.toThrow(/schon beobachtet/);
+    await expect(a.swaps.updateWatched({ id: w.id, label: 'Base-Wal', copyMode: 'paper', copyWalletId: solPaper.id, copyAmount: '0.01' })).rejects.toThrow(/Base-Paper-Wallet/);
+    await a.swaps.removeWatched({ id: w.id });
+  });
+
   it('Aktivität: Mengen exakt, nur eigene Wallets sichtbar', async () => {
     const [w] = await a.swaps.watched();
     await db.insert(schema.watchedWalletSwaps).values({
@@ -103,14 +116,14 @@ describe.skipIf(!hasDb)('Beobachtete Wallets (API)', () => {
       token: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
       tokenAtomic: '123456789',
       tokenDecimals: 5,
-      solLamports: '1500000000',
+      nativeAtomic: '1500000000',
       txTime: new Date(),
       copyStatus: 'filled',
       copyNote: '0.25 SOL → 1234 Bonk',
     });
     const act = await a.swaps.watchedActivity({ id: w!.id });
     expect(act).toHaveLength(1);
-    expect(act[0]).toMatchObject({ side: 'buy', symbol: 'Bonk', amount: '1234.56789', sol: '1.5', copyStatus: 'filled' });
+    expect(act[0]).toMatchObject({ side: 'buy', symbol: 'Bonk', amount: '1234.56789', native: '1.5', copyStatus: 'filled' });
 
     expect(await b.swaps.watched()).toEqual([]);
     await expect(b.swaps.watchedActivity({ id: w!.id })).rejects.toThrow(/nicht gefunden/);

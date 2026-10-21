@@ -103,7 +103,8 @@ export function WalletTrading() {
           {wallet && <WalletView key={wallet.id} config={config} wallet={wallet} onWalletChanged={loadWallets} />}
 
           <WatchedWallets
-            paperWallets={wallets.filter((w) => w.chain === 'solana' && w.mode === 'paper').map((w) => ({ id: w.id, label: w.label }))}
+            chains={config.chains.map((c) => ({ id: c.id, name: c.name, kind: c.kind, nativeSymbol: c.native.symbol, explorerTx: c.explorerTx }))}
+            paperWallets={wallets.filter((w) => w.mode === 'paper').map((w) => ({ id: w.id, label: w.label, chain: w.chain }))}
             onCopied={() => void loadWallets()}
           />
 

@@ -1,6 +1,6 @@
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { schema, type Db } from '@gladiator/db';
-import { fetchSolanaWalletSwaps, walletBalances, type ObservedSwap } from '@gladiator/exchange';
+import { fetchEvmWalletSwaps, fetchSolanaWalletSwaps, SWAP_CHAINS, walletBalances, type ObservedSwap, type SwapChainId } from '@gladiator/exchange';
 import { notifySafe } from './notify.js';
 import { cachedTokenInfo, executePreparedSwap, prepareSwap, swapNet } from './swap-service.js';
 
@@ -8,7 +8,7 @@ const { watchedWallets, watchedWalletSwaps, swapWallets } = schema;
 
 /**
  * Beobachtete Wallets + Copy-Trading (Vision-Punkt 5, „wie Trojan“). Der
- * schnelle Worker-Takt liest je beobachteter Solana-Wallet die neuen
+ * schnelle Worker-Takt liest je beobachteter Wallet (Solana oder EVM-Kette) die neuen
  * Transaktionen von der Kette, speichert erkannte Swaps und kopiert sie im
  * Paper-Modus: Kauf → fester Betrag in der gewählten Paper-Wallet (gleiches
  * Gate, gleicher Sicherheitscheck wie im Ticket), Verkauf → ganzen eigenen
@@ -30,9 +30,18 @@ export type WalletCopyResult = { checked: number; deferred: number; detected: nu
 
 type WatchedRow = typeof watchedWallets.$inferSelect;
 
-async function shortSymbol(token: string): Promise<string> {
+/** Swaps seit dem Cursor lesen — Solana: Signatur, EVM: Blocknummer. */
+async function fetchSwaps(chain: SwapChainId, address: string, cursor: string | null) {
+  return SWAP_CHAINS[chain].kind === 'solana'
+    ? fetchSolanaWalletSwaps(address, { limit: WATCH_TX_LIMIT, until: cursor }, swapNet())
+    : fetchEvmWalletSwaps(chain, address, { cursor }, swapNet());
+}
+
+const sameToken = (chain: SwapChainId, a: string, b: string) => (SWAP_CHAINS[chain].kind === 'evm' ? a.toLowerCase() === b.toLowerCase() : a === b);
+
+async function shortSymbol(chain: SwapChainId, token: string): Promise<string> {
   try {
-    return (await cachedTokenInfo('solana', token)).symbol;
+    return (await cachedTokenInfo(chain, token)).symbol;
   } catch {
     return `${token.slice(0, 4)}…${token.slice(-4)}`;
   }
@@ -45,16 +54,19 @@ async function copySwap(db: Db, w: WatchedRow, s: ObservedSwap): Promise<{ statu
     .select()
     .from(swapWallets)
     .where(and(eq(swapWallets.id, w.copyWalletId), isNull(swapWallets.archivedAt)));
-  // Doppelte Absicherung: nur Paper-Wallets derselben Person auf Solana
-  if (!wallet || wallet.userId !== w.userId || wallet.mode !== 'paper' || wallet.chain !== 'solana') {
-    return { status: 'skipped', note: 'Ziel-Wallet fehlt oder ist keine Solana-Paper-Wallet' };
+  // Doppelte Absicherung: nur Paper-Wallets derselben Person auf derselben Kette
+  if (!wallet || wallet.userId !== w.userId || wallet.mode !== 'paper' || wallet.chain !== w.chain) {
+    return { status: 'skipped', note: 'Ziel-Wallet fehlt oder ist keine Paper-Wallet dieser Kette' };
   }
+  const chain = w.chain as SwapChainId;
+  let token = s.token;
   if (s.side === 'sell') {
-    const held = (await walletBalances(db, wallet.id)).find((b) => b.token === s.token);
+    const held = (await walletBalances(db, wallet.id)).find((b) => sameToken(chain, b.token, s.token));
     if (!held || BigInt(held.amountAtomic) === 0n) return { status: 'skipped', note: 'kein eigener Bestand' };
+    token = held.token;
   }
   try {
-    const p = await prepareSwap(db, wallet, s.side === 'buy' ? { side: 'buy', token: s.token, amount: w.copyAmount } : { side: 'sell', token: s.token, percent: 100 });
+    const p = await prepareSwap(db, wallet, s.side === 'buy' ? { side: 'buy', token, amount: w.copyAmount } : { side: 'sell', token, percent: 100 });
     if (!p.verdict.allowed) return { status: 'skipped', note: `Gate: ${p.verdict.reasons.join(', ')}` };
     const r = await executePreparedSwap(db, p, s.side, { userId: w.userId, ip: null, actor: 'system', confirmedLive: false, origin: `Copy-Trade ${w.label}` });
     return { status: 'filled', note: `${p.quote.inAmount} ${p.quote.inToken.symbol} → ${p.quote.outAmount} ${p.quote.outToken.symbol}`, tradeId: r.tradeId };
@@ -66,9 +78,9 @@ async function copySwap(db: Db, w: WatchedRow, s: ObservedSwap): Promise<{ statu
 /** Eine beobachtete Wallet prüfen. Erster Lauf: nur Verlauf merken, nichts kopieren. */
 export async function checkWatchedWallet(db: Db, w: WatchedRow, out: WalletCopyResult): Promise<void> {
   out.checked++;
-  let res: Awaited<ReturnType<typeof fetchSolanaWalletSwaps>>;
+  let res: Awaited<ReturnType<typeof fetchSwaps>>;
   try {
-    res = await fetchSolanaWalletSwaps(w.address, { limit: WATCH_TX_LIMIT, until: w.lastSignature }, swapNet());
+    res = await fetchSwaps(w.chain as SwapChainId, w.address, w.lastSignature);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     out.errors.push(`${w.label}: ${msg}`);
@@ -87,7 +99,7 @@ export async function checkWatchedWallet(db: Db, w: WatchedRow, out: WalletCopyR
         token: s.token,
         tokenAtomic: s.tokenAtomic.toString(),
         tokenDecimals: s.tokenDecimals,
-        solLamports: s.solLamports === null ? null : s.solLamports.toString(),
+        nativeAtomic: s.nativeAtomic === null ? null : s.nativeAtomic.toString(),
         counterToken: s.counterToken,
         txTime: s.time === null ? null : new Date(s.time * 1000),
         copyStatus: 'none',
@@ -104,7 +116,7 @@ export async function checkWatchedWallet(db: Db, w: WatchedRow, out: WalletCopyR
       .update(watchedWalletSwaps)
       .set({ copyStatus: c.status, copyNote: c.note, copyTradeId: c.tradeId ?? null })
       .where(eq(watchedWalletSwaps.id, row.id));
-    const symbol = await shortSymbol(s.token);
+    const symbol = await shortSymbol(w.chain as SwapChainId, s.token);
     const verb = s.side === 'buy' ? 'Kauf' : 'Verkauf';
     if (c.status === 'filled') {
       out.copied++;
@@ -144,10 +156,7 @@ export async function runWalletCopy(db: Db, budgetMs = WATCH_BUDGET_MS): Promise
     .select()
     .from(watchedWallets)
     .where(
-      and(
-        eq(watchedWallets.chain, 'solana'),
-        or(isNull(watchedWallets.lastCheckedAt), sql`${watchedWallets.lastCheckedAt} < now() - ${sql.raw(`interval '${WATCH_INTERVAL_SECONDS} seconds'`)}`),
-      ),
+      or(isNull(watchedWallets.lastCheckedAt), sql`${watchedWallets.lastCheckedAt} < now() - ${sql.raw(`interval '${WATCH_INTERVAL_SECONDS} seconds'`)}`),
     )
     // nie geprüfte zuerst, dann die am längsten wartenden
     .orderBy(sql`${watchedWallets.lastCheckedAt} ASC NULLS FIRST`);

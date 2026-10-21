@@ -156,8 +156,8 @@ export const swapOrders = pgTable(
 
 /**
  * Beobachtete Wallets + Copy-Trading (Vision-Punkt 5, „wie Trojan“): fremde
- * Solana-Wallets, deren Swaps direkt von der Kette gelesen werden (ohne
- * Schlüssel). Copy-Modus `paper` kauft jeden erkannten Kauf mit festem Betrag
+ * Wallets (Solana und EVM-Ketten), deren Swaps direkt von der Kette gelesen
+ * werden (ohne Schlüssel). Copy-Modus `paper` kauft jeden erkannten Kauf mit festem Betrag
  * in einer Paper-Swap-Wallet nach und verkauft den ganzen Bestand, wenn die
  * beobachtete Wallet verkauft. Echtes Copy-Trading gibt es bewusst nicht.
  */
@@ -171,11 +171,11 @@ export const watchedWallets = pgTable(
     chain: text('chain').notNull().default('solana'),
     address: text('address').notNull(),
     label: text('label').notNull(),
-    /** Neueste bereits verarbeitete Signatur — nichts wird doppelt kopiert. */
+    /** Lese-Cursor — Solana: neueste verarbeitete Signatur, EVM: zuletzt gelesener Block. Nichts wird doppelt kopiert. */
     lastSignature: text('last_signature'),
     copyMode: text('copy_mode').$type<'off' | 'paper'>().notNull().default('off'),
     copyWalletId: uuid('copy_wallet_id').references(() => swapWallets.id, { onDelete: 'set null' }),
-    /** Betrag je Kopie in nativer Währung (Dezimal-String, z. B. „0.1“ SOL). */
+    /** Betrag je Kopie in nativer Währung (Dezimal-String, z. B. „0.1“ SOL bzw. ETH). */
     copyAmount: text('copy_amount'),
     lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
     lastError: text('last_error'),
@@ -200,7 +200,8 @@ export const watchedWalletSwaps = pgTable(
     token: text('token').notNull(),
     tokenAtomic: numeric('token_atomic').notNull(),
     tokenDecimals: integer('token_decimals').notNull(),
-    solLamports: numeric('sol_lamports'),
+    /** Gegenwert in nativer Währung (kleinste Einheit: Lamports, Wei …); Spaltenname historisch */
+    nativeAtomic: numeric('sol_lamports'),
     counterToken: text('counter_token'),
     txTime: timestamp('tx_time', { withTimezone: true }),
     copyStatus: text('copy_status').$type<'none' | 'filled' | 'skipped' | 'failed'>().notNull().default('none'),
