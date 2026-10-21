@@ -377,6 +377,18 @@ export function Einstellungen() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Status je Gruppe (Welle E): was ist verbunden, was fehlt — direkt in den Tabs sichtbar.
+  const [status, setStatus] = useState<{ exchanges: number | null; keysSet: number | null; keysTotal: number | null }>({ exchanges: null, keysSet: null, keysTotal: null });
+  useEffect(() => {
+    void trpc.exchanges.list
+      .query()
+      .then((rows) => setStatus((st) => ({ ...st, exchanges: rows.length })))
+      .catch(() => undefined);
+    void trpc.secrets.list
+      .query()
+      .then((rows) => setStatus((st) => ({ ...st, keysSet: rows.filter((r) => r.source !== null).length, keysTotal: rows.length })))
+      .catch(() => undefined);
+  }, []);
 
   async function load() {
     try {
@@ -452,9 +464,9 @@ export function Einstellungen() {
         active={tab}
         onChange={setTab}
         tabs={[
-          { id: 'risiko', label: t('ia.tab_settingsRisk') },
-          { id: 'boersen', label: t('ia.tab_settingsExchanges') },
-          { id: 'keys', label: t('ia.tab_settingsKeys') },
+          { id: 'risiko', label: `${t('ia.tab_settingsRisk')}${currentProfile ? ` · ${t(`settings.profile_${currentProfile}`)}` : ''}` },
+          { id: 'boersen', label: `${t('ia.tab_settingsExchanges')}${status.exchanges !== null ? ` · ${status.exchanges}` : ''}` },
+          { id: 'keys', label: `${t('ia.tab_settingsKeys')}${status.keysSet !== null ? ` · ${status.keysSet}/${status.keysTotal}` : ''}` },
           { id: 'daten', label: t('ia.tab_settingsData') },
         ]}
       />

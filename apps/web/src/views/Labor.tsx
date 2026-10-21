@@ -184,24 +184,38 @@ export function Labor() {
 
   const paramOverrides = { rsiLookbackBars, retestWindowBars, emaProximityPct };
 
-  async function onRun() {
+  type RunConfig = {
+    strategyId: string;
+    symbol: string;
+    timeframe: (typeof TIMEFRAMES)[number];
+    setupType: (typeof SETUPS)[number];
+    from: string;
+    to: string;
+    params: typeof paramOverrides;
+    versionId: string;
+    riskPct: number;
+    trailPct: number | undefined;
+  };
+
+  /** Backtest mit einer Konfiguration rechnen — Formular-Lauf und „Öffnen“ eines alten Laufs nutzen denselben Weg. */
+  async function runWith(cfg: RunConfig) {
     setBusy('bt');
     setError(null);
-    saveLabConfig({ symbol, timeframe, setupType, riskPct }); // „Letzte Konfiguration" merken
+    saveLabConfig({ symbol: cfg.symbol, timeframe: cfg.timeframe, setupType: cfg.setupType, riskPct: cfg.riskPct }); // „Letzte Konfiguration" merken
     try {
-      const fromIso = new Date(from).toISOString();
-      const toIso = new Date(`${to}T23:59:59Z`).toISOString();
+      const fromIso = new Date(cfg.from).toISOString();
+      const toIso = cfg.to.length > 10 ? new Date(cfg.to).toISOString() : new Date(`${cfg.to}T23:59:59Z`).toISOString();
       const res = await trpc.lab.runBacktest.mutate({
-        strategyId: strategyId === 'builtin' ? undefined : strategyId,
-        symbol,
-        timeframe,
-        setupType,
+        strategyId: cfg.strategyId === 'builtin' ? undefined : cfg.strategyId,
+        symbol: cfg.symbol,
+        timeframe: cfg.timeframe,
+        setupType: cfg.setupType,
         from: fromIso,
         to: toIso,
-        params: paramOverrides,
-        versionId: versionId || undefined,
-        riskPctPerTrade: riskPct,
-        ...(trailPct !== undefined ? { trailPct } : {}),
+        params: cfg.params,
+        versionId: cfg.versionId || undefined,
+        riskPctPerTrade: cfg.riskPct,
+        ...(cfg.trailPct !== undefined ? { trailPct: cfg.trailPct } : {}),
       });
       setRun(res);
       setRunWindow({ from: fromIso, to: toIso });
@@ -212,6 +226,42 @@ export function Labor() {
     } finally {
       setBusy(null);
     }
+  }
+
+  function onRun() {
+    return runWith({ strategyId, symbol, timeframe, setupType, from, to, params: paramOverrides, versionId, riskPct, trailPct });
+  }
+
+  /**
+   * Alten Lauf öffnen (Welle E): Konfiguration aus der Zeile übernehmen und auf
+   * denselben DB-Kerzen neu rechnen — Kurven und Trades werden nicht gespeichert,
+   * die Rechnung ist deterministisch, nichts wird erfunden.
+   */
+  function openRun(r: RunRow) {
+    const c = (r.config ?? {}) as { strategy?: string; setupType?: string; riskPctPerTrade?: number; trailPct?: number | null; params?: Partial<typeof paramOverrides> };
+    const dsl = c.strategy ? dslStrategies.find((d) => d.slug === c.strategy) : undefined;
+    const nextStrategy = dsl ? dsl.id : 'builtin';
+    const nextSetup = SETUPS.includes(c.setupType as (typeof SETUPS)[number]) ? (c.setupType as (typeof SETUPS)[number]) : setupType;
+    const nextTf = TIMEFRAMES.includes(r.timeframe as (typeof TIMEFRAMES)[number]) ? (r.timeframe as (typeof TIMEFRAMES)[number]) : timeframe;
+    const nextFrom = new Date(r.fromTs).toISOString().slice(0, 10);
+    const nextTo = new Date(r.toTs).toISOString();
+    const nextParams = { ...paramOverrides, ...(c.params ?? {}) };
+    const nextRisk = typeof c.riskPctPerTrade === 'number' ? c.riskPctPerTrade : riskPct;
+    const nextTrail = typeof c.trailPct === 'number' ? c.trailPct : undefined;
+    setStrategyId(nextStrategy);
+    setSymbol(r.symbol as typeof symbol);
+    setTimeframe(nextTf);
+    setSetupType(nextSetup);
+    setFrom(nextFrom);
+    setTo(nextTo.slice(0, 10));
+    setRsiLookback(nextParams.rsiLookbackBars);
+    setRetestWindow(nextParams.retestWindowBars);
+    setEmaProximity(nextParams.emaProximityPct);
+    setRiskPct(nextRisk);
+    setTrailPctInput(nextTrail === undefined ? '' : String(nextTrail));
+    setVersionId(dsl ? '' : (r.versionId ?? ''));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return runWith({ strategyId: nextStrategy, symbol: r.symbol, timeframe: nextTf, setupType: nextSetup, from: nextFrom, to: nextTo, params: nextParams, versionId: dsl ? '' : (r.versionId ?? ''), riskPct: nextRisk, trailPct: nextTrail });
   }
 
   async function onWalkForward() {
@@ -971,7 +1021,12 @@ export function Labor() {
                       />
                     </td>
                     <td className="py-1.5 pr-3">{new Date(r.createdAt).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' })}</td>
-                    <td className="py-1.5 pr-3">v{r.version} · {r.symbol} {r.timeframe} · {(r.config as { setupType?: string })?.setupType}</td>
+                    <td className="py-1.5 pr-3">
+                      <button type="button" onClick={() => void openRun(r)} disabled={busy !== null} className="underline-offset-2 hover:underline disabled:opacity-50" style={{ color: 'var(--color-cyan)' }} title={t('labor.openRunHint')}>
+                        {t('labor.openRun')}
+                      </button>
+                      <span className="ml-2">v{r.version} · {r.symbol} {r.timeframe} · {(r.config as { setupType?: string; strategy?: string })?.setupType ?? (r.config as { strategy?: string })?.strategy}</span>
+                    </td>
                     <td className="py-1.5 pr-3 text-right" style={{ color: Number(r.netReturn) >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>{fmt(Number(r.netReturn))}</td>
                     <td className="py-1.5 pr-3 text-right">{fmt(Number(r.maxDrawdown))}</td>
                     <td className="py-1.5 pr-3 text-right">{r.profitFactor === null ? '—' : fmt(Number(r.profitFactor))}</td>

@@ -42,7 +42,6 @@ const Pakete = lazyView(() => import('./views/Pakete.js'), 'Pakete');
 const Magazine = lazyView(() => import('./views/Magazine.js'), 'Magazine');
 const Kalender = lazyView(() => import('./views/Kalender.js'), 'Kalender');
 const Agenten = lazyView(() => import('./views/Agenten.js'), 'Agenten');
-const Werkstatt = lazyView(() => import('./views/Werkstatt.js'), 'Werkstatt');
 const Strategien = lazyView(() => import('./views/Strategien.js'), 'Strategien');
 const Intelligenz = lazyView(() => import('./views/Intelligenz.js'), 'Intelligenz');
 const Einstellungen = lazyView(() => import('./views/Einstellungen.js'), 'Einstellungen');
@@ -77,7 +76,6 @@ const ROUTES = {
   '#/vermoegen': Vermoegen,
   '#/agenten': Agenten,
   '#/strategien': Strategien,
-  '#/werkstatt': Werkstatt,
   '#/labor': Labor,
   '#/intelligenz': Intelligenz,
   '#/einstellungen': Einstellungen,

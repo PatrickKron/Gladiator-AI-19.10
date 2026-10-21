@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
-import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
+import { Empty, ErrorBox, Loading, PageHeader, Panel, TabBar } from '../components/ui.js';
 import { FeatureCard } from './Funktionen.js';
 import { NAV_PAGES } from '../lib/navigation.js';
+import { useHashTab } from '../lib/use-hash-tab.js';
+import { Werkstatt } from './Werkstatt.js';
+
+const AGENT_TABS = ['uebersicht', 'werkstatt'] as const;
+type AgentTab = (typeof AGENT_TABS)[number];
 
 /**
  * Agenten-Übersicht (Phase 5/6): EIGENE Agenten des Users (Werkstatt/RL, mit
@@ -140,9 +145,24 @@ export function Agenten() {
     statsByAgent.set(s.agent, list);
   }
 
+  const [tab, setTab] = useHashTab<AgentTab>('#/agenten', AGENT_TABS, 'uebersicht');
+
   return (
     <div>
-      <PageHeader title={t('agents.title')} subtitle={t('agents.subtitle')} />
+      <PageHeader title={t('agents.title')} subtitle={tab === 'werkstatt' ? t('workshop.title') : t('agents.subtitle')} />
+      <TabBar
+        label={t('agents.title')}
+        active={tab}
+        onChange={setTab}
+        tabs={[
+          { id: 'uebersicht', label: t('agents.tabOverview') },
+          { id: 'werkstatt', label: t('ia.page_agentWorkshop') },
+        ]}
+      />
+      {tab === 'werkstatt' ? (
+        <Werkstatt embedded />
+      ) : (
+        <>
       {error && <ErrorBox message={error} />}
 
       {/* Eigene Agenten zuerst — inkl. Erstellen-Einstieg (Werkstatt/RL) */}
@@ -272,6 +292,8 @@ export function Agenten() {
           <p className="reveal mt-6 text-center text-xs leading-relaxed" style={{ color: 'var(--color-mut)', '--stagger': 6 } as React.CSSProperties}>
             {t('agents.guardrail')}
           </p>
+        </>
+      )}
         </>
       )}
     </div>

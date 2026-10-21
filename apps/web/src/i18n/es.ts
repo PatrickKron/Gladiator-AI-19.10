@@ -1168,6 +1168,9 @@ export const es: Catalog = {
     title: 'Laboratorio de estrategias',
   },
   labor: {
+    openRun: "Abrir",
+    openRunHint: "Recalcula la ejecución con la misma configuración sobre las mismas velas de la BD — nada se inventa.",
+    reopened: "Ejecución del {{date}} recalculada.",
     backtestTitle: 'Backtest · neto de comisiones/slippage/funding',
     symbol: 'Símbolo',
     timeframe: 'Timeframe',
@@ -1655,6 +1658,7 @@ export const es: Catalog = {
     sizingBlocked: 'El risk gate bloquearía:',
   },
   agents: {
+    tabOverview: "Resumen",
     myTitle: 'Mis agentes',
     myHint: 'Aquí creas tus propios agentes: agentes de trading con reglas, eventos y riesgo individuales en el Taller — agentes RL que aprenden en Modelos de IA.',
     createWorkshopCta: 'Crear agente de trading (Taller)',

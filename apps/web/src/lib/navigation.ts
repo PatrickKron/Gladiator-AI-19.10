@@ -169,6 +169,11 @@ export const PAGES = [
     descKey: 'ia.desc_agents',
     icon: 'M12 8a4 4 0 100-8 4 4 0 000 8zm-7 13a7 7 0 0114 0M2 21h20',
     keywords: ['schwarm', 'swarm', 'bots', 'übersicht', 'llm'],
+    // Welle E: Agenten-Werkstatt ist ein Tab der Agenten-Seite (eine Seite statt zwei)
+    tabs: [
+      { id: 'uebersicht', labelKey: 'agents.tabOverview', keywords: ['meine agenten', 'schwarm', 'llm', 'urteile'] },
+      { id: 'werkstatt', labelKey: 'ia.page_agentWorkshop', keywords: ['sub-agent', 'agent bauen', 'vorlage', 'template', 'pausieren', 'duplizieren', 'werkstatt'] },
+    ],
   },
   {
     id: 'strategies',
@@ -184,15 +189,6 @@ export const PAGES = [
       { id: 'builtin', labelKey: 'builder.tabBuiltin', keywords: ['eingebaut', 'dsl'] },
       { id: 'pine', labelKey: 'builder.tabPine', keywords: ['pine', 'tradingview', 'pinescript', 'import'] },
     ],
-  },
-  {
-    id: 'agentWorkshop',
-    hash: '#/werkstatt',
-    area: 'agents',
-    labelKey: 'ia.page_agentWorkshop',
-    descKey: 'ia.desc_agentWorkshop',
-    icon: 'M14.7 6.3a4 4 0 00-5.4 5.3L3 18v3h3l6.9-6.9a4 4 0 005.3-5.4l-2.6 2.6-2.3-.6-.6-2.3z',
-    keywords: ['sub-agent', 'agent bauen', 'vorlage', 'template', 'pausieren', 'duplizieren'],
   },
   {
     id: 'lab',
@@ -295,6 +291,8 @@ const REDIRECTS: { from: string; tab: string | null; to: string; keepQuery?: boo
   // Welle 3: Konten unter #/traden — alte Seiten (auch aus Benachrichtigungen) bleiben gültig
   // Welle 5: Strategie-Workshop ist ein Tab unter Strategien
   { from: '#/strategie-workshop', tab: null, to: '#/strategien?tab=workshop' },
+  // Welle E: Agenten-Werkstatt lebt als Tab unter Agenten
+  { from: '#/werkstatt', tab: null, to: '#/agenten?tab=werkstatt' },
   { from: '#/demo', tab: null, to: '#/traden?tab=demo' },
   { from: '#/wallet', tab: null, to: '#/traden?tab=wallet' },
   { from: '#/trading', tab: null, to: '#/traden?tab=positionen', keepQuery: true },
