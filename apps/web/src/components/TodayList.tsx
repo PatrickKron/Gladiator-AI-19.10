@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { EmptyState } from './ui.js';
 import { trpc } from '../api.js';
 import { buildTodayItems, type TodayEvent, type TodayItem, type TodayNotification, type TodayProposal, type TodaySignal } from '../lib/today-items.js';
 import { appLocale } from '../lib/locale.js';
@@ -144,9 +145,9 @@ export function TodayList({ onSignalCount }: { onSignalCount?: (n: number) => vo
       {signals === null ? (
         <p className="label animate-pulse py-3">{t('common.loading')}</p>
       ) : items.length === 0 ? (
-        <p className="glass px-4 py-3 text-sm" style={{ color: 'var(--color-mut)' }}>
-          {t('today.empty')}
-        </p>
+        <div className="glass px-4 pb-4">
+          <EmptyState text={t('today.empty')} actionLabel={t('today.emptyCta')} href="#/screener" />
+        </div>
       ) : (
         <div className="flex flex-col gap-2">{items.map(render)}</div>
       )}

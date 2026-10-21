@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
-import { PageHeader } from '../components/ui.js';
+import { EmptyState, PageHeader } from '../components/ui.js';
 import { BacktestChart } from '../components/BacktestChart.js';
 import { loadLabConfig, saveLabConfig, type LabConfig } from '../lib/lab-config.js';
 import { CHART_TFS, type ChartTf } from '../lib/chart-url.js';
@@ -993,7 +993,14 @@ export function Labor() {
       <section className="glass mt-6 p-6">
         <h2 className="label">{t('labor.historyTitle')}</h2>
         {runs.length === 0 ? (
-          <p className="mt-3 text-sm" style={{ color: 'var(--color-mut)' }}>{t('labor.noRuns')}</p>
+          <EmptyState
+            text={t('labor.noRuns')}
+            actionLabel={t('labor.noRunsCta')}
+            onAction={() => {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+              void onRun();
+            }}
+          />
         ) : (
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-sm">

@@ -28,6 +28,7 @@ import { IndicatorMenu, type PineStrategy } from './IndicatorMenu.js';
 import { IndicatorSettings } from './IndicatorSettings.js';
 import { applyTick, liveBarSeconds, type Bar } from '../lib/live-candle.js';
 import { ensurePriceStream, onTick } from '../lib/prices.js';
+import { getUiMode, onUiModeChange } from '../lib/ui-mode.js';
 import { applyDrawingClick, pickDrawing, pointFromChart, translatePoints, type DrawingTool } from '../lib/chart-drawings.js';
 import type { DrawingPoint } from '@gladiator/core/drawings';
 import { DrawingsPrimitive, type ChartDrawing } from './chart-drawings-primitive.js';
@@ -273,6 +274,11 @@ export function AssetChart({
     });
   const [viewOpen, setViewOpen] = useState(false);
   const [drawOpen, setDrawOpen] = useState(false);
+  // Einfach-Modus (Welle F): Bibliothek, Zeichnen und Replay in EINEM „Werkzeuge"-Popover — Profi zeigt sie einzeln.
+  const [uiMode, setUiModeState] = useState(() => getUiMode());
+  useEffect(() => onUiModeChange(() => setUiModeState(getUiMode())), []);
+  const simple = uiMode === 'einfach';
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [data, setData] = useState<ChartData | null>(null);
   const [signals, setSignals] = useState<SignalMarker[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'empty'>('loading');
@@ -1245,6 +1251,7 @@ export function AssetChart({
       onClick={() => {
         selectTool(tool === key ? 'none' : key);
         setDrawOpen(false);
+        setToolsOpen(false);
       }}
       aria-pressed={tool === key}
       className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px]"
@@ -1252,6 +1259,67 @@ export function AssetChart({
     >
       {label}
     </button>
+  );
+
+  const libraryButton = (
+    <button
+      type="button"
+      onClick={() => {
+        setMenuOpen(true);
+        setToolsOpen(false);
+      }}
+      className="tbtn"
+      aria-haspopup="dialog"
+      aria-expanded={menuOpen}
+      aria-pressed={instances.length > 0 || strategySlugs.length > 0}
+    >
+      ＋ {t('chart.library')}
+      {instances.length > 0 ? <span className="num"> {instances.length}</span> : null}
+      {strategySlugs.length > 0 ? (
+        <span className="num" style={{ color: 'var(--color-warn)' }}>
+          {' '}
+          ▣{strategySlugs.length}
+        </span>
+      ) : null}
+    </button>
+  );
+  const replayButton = (
+    <button
+      type="button"
+      onClick={() => {
+        if (replay) setReplay(null);
+        else startReplay();
+        setToolsOpen(false);
+      }}
+      className="tbtn tbtn--warn"
+      aria-pressed={replay !== null}
+    >
+      ⏮ {t('chart.replay.button')}
+    </button>
+  );
+  const drawRows = (
+    <div role="group" aria-label={t('chart.draw.title')}>
+      {toolRow('hline', `― ${t('chart.draw.hline')}`)}
+      {toolRow('trend', `╱ ${t('chart.draw.trend')}`)}
+      {toolRow('fib', `≡ ${t('chart.draw.fib')}`)}
+      {toolRow('move', `✥ ${t('chart.draw.move')}`)}
+      {toolRow('delete', `✕ ${t('chart.draw.delete')}`)}
+      <button
+        type="button"
+        onClick={() => {
+          clearDrawings();
+          setDrawOpen(false);
+          setToolsOpen(false);
+        }}
+        disabled={drawings.length === 0}
+        className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] disabled:opacity-40"
+        style={{ color: 'var(--color-neg)' }}
+        title={t('chart.draw.count', { count: drawings.length })}
+      >
+        {t('chart.draw.clear')}
+        {drawings.length > 0 ? <span className="num"> ({drawings.length})</span> : null}
+      </button>
+    </div>
   );
 
   return (
@@ -1281,49 +1349,24 @@ export function AssetChart({
         <button type="button" className="tbtn" aria-pressed={smcOn} onClick={toggleSmc} title={t('chart.smcHint')}>
           {t('chart.smc')}
         </button>
-        <button
-          type="button"
-          onClick={() => setMenuOpen(true)}
-          className="tbtn"
-          aria-haspopup="dialog"
-          aria-expanded={menuOpen}
-          aria-pressed={instances.length > 0 || strategySlugs.length > 0}
-        >
-          ＋ {t('chart.library')}
-          {instances.length > 0 ? <span className="num"> {instances.length}</span> : null}
-          {strategySlugs.length > 0 ? (
-            <span className="num" style={{ color: 'var(--color-warn)' }}>
-              {' '}
-              ▣{strategySlugs.length}
-            </span>
-          ) : null}
-        </button>
-        <ToolPopover label={t('chart.drawMenu')} active={tool !== 'none'} open={drawOpen} onToggle={() => setDrawOpen((o) => !o)} onClose={() => setDrawOpen(false)}>
-          <div role="group" aria-label={t('chart.draw.title')}>
-            {toolRow('hline', `― ${t('chart.draw.hline')}`)}
-            {toolRow('trend', `╱ ${t('chart.draw.trend')}`)}
-            {toolRow('fib', `≡ ${t('chart.draw.fib')}`)}
-            {toolRow('move', `✥ ${t('chart.draw.move')}`)}
-            {toolRow('delete', `✕ ${t('chart.draw.delete')}`)}
-            <button
-              type="button"
-              onClick={() => {
-                clearDrawings();
-                setDrawOpen(false);
-              }}
-              disabled={drawings.length === 0}
-              className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] disabled:opacity-40"
-              style={{ color: 'var(--color-neg)' }}
-              title={t('chart.draw.count', { count: drawings.length })}
-            >
-              {t('chart.draw.clear')}
-              {drawings.length > 0 ? <span className="num"> ({drawings.length})</span> : null}
-            </button>
-          </div>
-        </ToolPopover>
-        <button type="button" onClick={() => (replay ? setReplay(null) : startReplay())} className="tbtn tbtn--warn" aria-pressed={replay !== null}>
-          ⏮ {t('chart.replay.button')}
-        </button>
+        {simple ? (
+          <ToolPopover label={t('chart.tools')} active={tool !== 'none' || replay !== null} open={toolsOpen} onToggle={() => setToolsOpen((o) => !o)} onClose={() => setToolsOpen(false)}>
+            <div className="flex flex-wrap gap-1.5 px-1 pb-1">
+              {libraryButton}
+              {replayButton}
+            </div>
+            <p className="label px-1.5 pt-2 pb-1">{t('chart.draw.title')}</p>
+            {drawRows}
+          </ToolPopover>
+        ) : (
+          <>
+            {libraryButton}
+            <ToolPopover label={t('chart.drawMenu')} active={tool !== 'none'} open={drawOpen} onToggle={() => setDrawOpen((o) => !o)} onClose={() => setDrawOpen(false)}>
+              {drawRows}
+            </ToolPopover>
+            {replayButton}
+          </>
+        )}
       </div>
 
       {replayMsg && (

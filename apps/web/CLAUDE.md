@@ -22,3 +22,6 @@ Regeln:
 - type-only Import von @gladiator/api (AppRouter) — nie Server-Code in den Client bundlen.
 - Fonts selbst gehostet (@fontsource) — kein CDN. i18n: alle Texte über Keys, fünf Sprachen.
 - Indikator-Bibliothek: im Browser nur `lightweight-charts-indicators/render` importieren.
+- Leer-Zustände: `EmptyState` (ui.tsx) mit ehrlichem Text + EINER Aktion — nie ein leerer Bildschirm ohne nächsten Schritt.
+- Einfach/Profi: Registry-Flag `advanced: true` steckt Profi-Seiten hinter „Mehr“ (`subnavPages()`); Komplexes aufklappen, nie entfernen.
+- Kontrast: `lib/contrast.test.ts` liest styles.css und erzwingt AA (Text 4,5:1). Volle Blau-Flächen mit weißer Schrift nutzen `--color-blue-solid`.

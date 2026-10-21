@@ -374,6 +374,7 @@ export const en: Catalog = {
     loadFailed: "{{n}} data source(s) could not be loaded — some sections may be incomplete.",
   },
   nav: {
+    more: "More",
     calm: "Calm & clear",
     wealth: 'Wealth',
     trade: 'Trade',
@@ -637,6 +638,7 @@ export const en: Catalog = {
     analysisPromptHint: 'Optional: if set, the AI additionally evaluates the situation (EXECUTE/SKIP) once the rules are met, before a signal is created. Placeholders {symbol} {side} {vix} {dxy_change} {grs} are filled with live data. Without ANTHROPIC_API_KEY the agent keeps running rule-based only.',
   },
   screener: {
+    notRunCta: "Run the screener",
     title: "Market screener",
     subtitle: "Conditions across every symbol with real candles — computed on the server with the same indicator library and Smart-Money engine as the chart.",
     hint: "Universe = symbols with real candles in the DB (base + favourites). What the screener finds, the chart shows with the same numbers.",
@@ -724,6 +726,7 @@ export const en: Catalog = {
     "hint_risk-off": "Risk-off: volatility high, liquidity thin — trade smaller, tighter stops, mind the gates.",
   },
   chart: {
+    tools: "Tools",
     view: "View",
     viewHint: "What the chart shows — your choice stays in the browser.",
     builtin: "Built-in",
@@ -869,6 +872,7 @@ export const en: Catalog = {
     empty: 'No matches',
   },
   today: {
+    emptyCta: "Scan the markets",
     title: "Important today",
     all: "All signals",
     empty: "Nothing urgent. The engine scans every 5 minutes — new signals, impact events and alerts show up here.",
@@ -954,6 +958,7 @@ export const en: Catalog = {
     aiAgentsNone: 'No agents yet — create one under AI Models.',
   },
   discover: {
+    myEmptyCta: "Show all assets",
     title: 'Discover',
     subtitle: 'All {{assets}} instruments from {{packages}} packages — search, filter, favorite, and trade crypto directly in the demo account.',
     searchPlaceholder: 'Search by ticker or name — e.g. BTC, Apple, Gold …',
@@ -994,6 +999,7 @@ export const en: Catalog = {
     assetCount: '{{n}} instruments',
   },
   signals: {
+    emptyCta: "Run the screener",
     why: "Why",
     riskLine: "Risk",
     openTicket: "Open ticket",
@@ -1168,6 +1174,7 @@ export const en: Catalog = {
     title: 'Strategy lab',
   },
   labor: {
+    noRunsCta: "Run a backtest",
     openRun: "Open",
     openRunHint: "Recompute the run with the same configuration on the same DB candles — nothing is invented.",
     reopened: "Run from {{date}} recomputed.",
@@ -1658,6 +1665,7 @@ export const en: Catalog = {
     sizingBlocked: 'Risk gate would block:',
   },
   agents: {
+    myEmptyCta: "Build your first agent",
     tabOverview: "Overview",
     myTitle: 'My agents',
     myHint: 'Create your own agents here: trading agents with individual rules, events and risk in the Workshop — learning RL agents under AI Models.',
@@ -2020,6 +2028,7 @@ export const en: Catalog = {
     noDataHint: 'Data appears once RL agents run episodes and daily snapshots are generated.',
   },
   profile: {
+    viewSimpleHint: "Simple: pro pages sit behind “More” in the segment bar and the chart shows a short toolbar. Pro: everything visible.",
     resetTitle: "Reset view",
     viewTitle: "View",
     viewHint: "Simple shows the essentials, Pro adds columns and details — switch any time.",
@@ -2048,6 +2057,7 @@ export const en: Catalog = {
     oneUser: 'One user type with full access — no roles, no tiers (scope decision 2026-07-02).',
   },
   demo: {
+    noHistoryCta: "Make your first paper trade",
     previewCosts: "Fee + slippage",
     advanced: "Advanced",
     closedTitle: "Position closed",
@@ -2431,6 +2441,23 @@ export const en: Catalog = {
     ambientRainHint: "The old look behind the content — a deliberate choice. Shortcut: g, then m.",
     saverHint: "Touch or press a key to continue",
     preview: "Test the burst",
+  },
+  setup: {
+    title: "Your start",
+    doneTitle: "All set up",
+    count: "{{n}} of {{total}}",
+    step_risk: "Set your risk rules",
+    step_watch: "Watch your first market",
+    step_paperTrade: "Make your first paper trade",
+    step_notify: "Set up notifications",
+    step_exchange: "Connect an exchange",
+    hint_risk: "Decide how much you risk per trade — every order passes through this gate.",
+    hint_watch: "Mark an asset with ☆ — it appears under “My markets”.",
+    hint_paperTrade: "Practise with play money against real order books — nothing can happen.",
+    hint_notify: "Add a Telegram bot or enable push in the bell — signals and alerts will reach you.",
+    hint_exchange: "Connect first, read first — the app may trade only after your approval per exchange.",
+    doneHint: "You are ready to go. You can hide this card now.",
+    hide: "Hide",
   },
   hotkeys: {
     title: "Keyboard shortcuts",

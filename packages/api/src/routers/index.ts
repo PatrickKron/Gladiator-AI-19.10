@@ -18,6 +18,7 @@ import { rlRouter } from './rl.js';
 import { riskRouter } from './risk.js';
 import { secretsRouter } from './secrets.js';
 import { settingsRouter } from './settings.js';
+import { setupRouter } from './setup.js';
 import { signalsRouter } from './signals.js';
 import { strategiesRouter } from './strategies.js';
 import { subAgentsRouter } from './sub-agents.js';
@@ -47,6 +48,7 @@ export const appRouter = router({
   secrets: secretsRouter,
   swaps: swapsRouter,
   settings: settingsRouter,
+  setup: setupRouter,
   signals: signalsRouter,
   strategies: strategiesRouter,
   subAgents: subAgentsRouter,

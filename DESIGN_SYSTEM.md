@@ -24,8 +24,10 @@
    nur für Adressen, Hashes, Protokoll, Code.
 8. **Handy zuerst** — Tableiste mit fünf Bereichen, einzeiliger Kopf, Karten in Daumen-Größe.
 9. **Spaß durch Momente, nicht durch Effekte** — Kurve zeichnet sich beim Öffnen, Ergebniskarte
-   nach einem Trade, Regen-Impuls bei echten Ereignissen. Kein Dauer-Geflimmer;
-   `prefers-reduced-motion` wird respektiert.
+   nach einem Trade, Regen-Impuls bei echten Ereignissen, „Dein Start" füllt sich bei jedem
+   erledigten Schritt. Kein Dauer-Geflimmer; `prefers-reduced-motion` wird respektiert.
+10. **Kein leerer Bildschirm ohne nächsten Schritt** — jeder Leer-Zustand sagt ehrlich, was fehlt,
+   und bietet EINE Aktion (`EmptyState`: Link oder Handler, Sekundär-Fläche).
 
 ## 2. Farben (`@theme` in `apps/web/src/styles.css`)
 
@@ -39,6 +41,7 @@
 | `--color-ink` | `#f2f4f8` | Text |
 | `--color-mut` | `#8a93a6` | Sekundärtext, Labels |
 | `--color-blue` | `#3b82f6` | Akzent: Aktion, aktiver Zustand |
+| `--color-blue-solid` | `#2b6bdb` | volle Fläche mit weißer Schrift (Primär-Knopf) — Weiß darauf ≥ 4,5:1 |
 | `--color-cyan` | `#60a5fa` | helleres Akzentblau (Alias, Icons aktiv, Links) |
 | `--color-violet` | `#94a3b8` | neutrales Grau-Blau (Alias für „sekundär/nicht verbunden") |
 | `--color-magenta` | `#f59e0b` | Bernstein (Alias: Demo-Kennzeichen, Hinweise) |
@@ -48,6 +51,11 @@
 
 Die Alias-Namen `cyan`/`violet`/`magenta` bleiben aus Kompatibilität (viele Aufrufer); neue
 Stellen nutzen `blue`, `mut`, `warn`. Hartkodierte Alt-Farben wurden auf diese Werte abgebildet.
+
+**Kontrast (WCAG AA, geprüft in `apps/web/src/lib/contrast.test.ts`):** Text (`ink`, `mut`) und
+farbiger Text (`blue`, `cyan`, `violet`, `pos`, `neg`, `warn`) erreichen auf allen drei Flächen
+≥ 4,5:1; Weiß auf dem Primär-Knopf nur mit `blue-solid`; Chips tönen den Hintergrund mit 10–12 %,
+Chip-Rot wird dafür auf `color-mix(neg 80 %, white)` aufgehellt. Der Test liest die echte CSS-Datei.
 
 ## 3. Typografie
 
@@ -76,7 +84,10 @@ Alle eigenen Klassen liegen in `@layer components`, damit Tailwind-Utilities (`h
   Heute · Markt · Traden · Strategie · Mehr. Desktop: Seitenleiste `.areanav`; Handy: `.tabbar`
   unten (Sicherheitsbereich eingerechnet).
 - **Unterseiten als Segmente** `.subnav` über dem Inhalt (nur wenn der Bereich mehr als eine
-  Seite hat). Kein Link ändert sich; `resolveRedirect()` bleibt.
+  Seite hat). Kein Link ändert sich; `resolveRedirect()` bleibt. **Einfach-Modus:** Seiten mit
+  `advanced: true` (Screener, Marktlage, Labor, KI-Modelle, Protokoll) stehen hinter „Mehr ▾" in
+  einer zweiten Zeile (`subnavPages()`, getestet); die aktive Seite bleibt immer sichtbar. Im Chart
+  fasst „Werkzeuge ▾" Bibliothek, Zeichnen und Replay zusammen. Profi zeigt alles einzeln.
 - Kopfzeile einzeilig: Kennzeichen (Paper, Demo, Kill-Switch), Suche ⌘K, Benachrichtigungen,
   Feed-Status. Einfach/Profi, Session, Sprache, Abmelden nur auf dem Desktop; auf dem Handy im
   Profil (Ansicht, Sprache, Sitzung).
@@ -125,5 +136,9 @@ Hover auf einer Markt-Karte hebt weiterhin die Spalten des Symbols hervor.
       (Konfiguration zurück ins Formular, deterministisch auf denselben Kerzen neu gerechnet),
       Agenten + Werkstatt als eine Seite mit Tabs (alte Links leiten um), Einstellungen mit
       Status in den Tabs (Risiko-Profil, Börsen-Anzahl, gesetzte Keys).
-- [ ] **F · Spaß & Feinschliff**: Kurven-Animation, Erfolgsmomente, Einrichtungs-Fortschritt,
-      Leer-Zustände mit nächstem Schritt, Kontrast-Audit.
+- [x] **F · Spaß & Feinschliff** (PR #73): „Dein Start — n von 5" auf Heute aus echten Zuständen
+      (Risiko gespeichert, Favorit, Demo-Order, Push/Telegram, Börse; Erfolgsmoment = grüner
+      Regen-Impuls bei neu erledigtem Schritt, Balken füllt sich, ausblendbar), Leer-Zustände mit
+      nächstem Schritt (`EmptyState`), Tastenkürzel-Hilfe auch als Knopf im Profil, Einfach-Modus
+      spürbar (Profi-Seiten hinter „Mehr", Chart mit „Werkzeuge ▾"), Kontrast-Audit AA als Test
+      (`contrast.test.ts`: Primär-Knopf auf `--color-blue-solid`, Chip-Rot aufgehellt).

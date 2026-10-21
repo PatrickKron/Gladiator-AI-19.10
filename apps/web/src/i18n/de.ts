@@ -373,6 +373,7 @@ export const de = {
     loadFailed: "{{n}} Datenquelle(n) konnten nicht geladen werden — angezeigte Bereiche können unvollständig sein.",
   },
   nav: {
+    more: "Mehr",
     calm: "Ruhe & Klarheit",
     wealth: 'Vermögen',
     trade: 'Traden',
@@ -636,6 +637,7 @@ export const de = {
     analysisPromptHint: 'Optional: Wenn gesetzt, bewertet die KI bei erfüllten Regeln zusätzlich die Lage (EXECUTE/SKIP), bevor ein Signal entsteht. Platzhalter {symbol} {side} {vix} {dxy_change} {grs} werden mit Live-Daten gefüllt. Ohne ANTHROPIC_API_KEY läuft der Agent rein regelbasiert weiter.',
   },
   screener: {
+    notRunCta: "Screener starten",
     title: "Markt-Screener",
     subtitle: "Bedingungen über alle Symbole mit echten Kerzen — gerechnet auf dem Server mit derselben Indikator-Bibliothek und Smart-Money-Engine wie der Chart.",
     hint: "Universum = Symbole mit echten Kerzen in der DB (Basis + Favoriten). Was der Screener findet, zeigt der Chart mit denselben Zahlen.",
@@ -723,6 +725,7 @@ export const de = {
     "hint_risk-off": "Risikoscheu: Volatilität hoch, Liquidität dünn — kleiner handeln, Stops enger, Gates beachten.",
   },
   chart: {
+    tools: "Werkzeuge",
     view: "Ansicht",
     viewHint: "Was der Chart zeigt — die Wahl bleibt im Browser.",
     builtin: "Eingebaut",
@@ -868,6 +871,7 @@ export const de = {
     empty: 'Keine Treffer',
   },
   today: {
+    emptyCta: "Märkte durchsuchen",
     title: "Heute wichtig",
     all: "Alle Signale",
     empty: "Nichts Dringendes. Die Engine scannt alle 5 Minuten — neue Signale, Termine mit Impact und Ereignisse erscheinen hier.",
@@ -953,6 +957,7 @@ export const de = {
     aiAgentsNone: 'Noch keine Agenten — unter KI-Modelle erstellen.',
   },
   discover: {
+    myEmptyCta: "Alle Assets zeigen",
     title: 'Entdecken',
     subtitle: 'Alle {{assets}} Instrumente aus {{packages}} Paketen — suchen, filtern, favorisieren und Krypto direkt im Demo-Konto traden.',
     searchPlaceholder: 'Suche nach Ticker oder Name — z. B. BTC, Apple, Gold …',
@@ -993,6 +998,7 @@ export const de = {
     assetCount: '{{n}} Instrumente',
   },
   signals: {
+    emptyCta: "Screener starten",
     why: "Warum",
     riskLine: "Risiko",
     openTicket: "Ticket öffnen",
@@ -1167,6 +1173,7 @@ export const de = {
     title: 'Strategie-Labor',
   },
   labor: {
+    noRunsCta: "Backtest starten",
     openRun: "Öffnen",
     openRunHint: "Lauf mit derselben Konfiguration neu rechnen — auf denselben DB-Kerzen, nichts wird erfunden.",
     reopened: "Lauf vom {{date}} neu gerechnet.",
@@ -1657,6 +1664,7 @@ export const de = {
     sizingBlocked: 'Risk-Gate würde blocken:',
   },
   agents: {
+    myEmptyCta: "Ersten Agenten bauen",
     tabOverview: "Übersicht",
     myTitle: 'Meine Agenten',
     myHint: 'Hier erstellst du eigene Agenten: Trading-Agenten mit individuellen Regeln, Ereignissen und Risiko in der Agenten-Werkstatt — lernende RL-Agenten unter KI-Modelle.',
@@ -2019,6 +2027,7 @@ export const de = {
     noDataHint: 'Daten entstehen, sobald RL-Agenten Episoden laufen und tägliche Snapshots erzeugt werden.',
   },
   profile: {
+    viewSimpleHint: "Einfach: Profi-Seiten stehen in der Segmentleiste hinter „Mehr“, der Chart zeigt eine kurze Werkzeugzeile. Profi: alles sichtbar.",
     resetTitle: "Ansicht zurücksetzen",
     viewTitle: "Ansicht",
     viewHint: "Einfach zeigt das Wesentliche, Profi mehr Spalten und Details — jederzeit umschaltbar.",
@@ -2047,6 +2056,7 @@ export const de = {
     oneUser: 'Ein User-Typ mit vollem Zugriff — keine Rollen, keine Tiers (Scope-Entscheidung 2026-07-02).',
   },
   demo: {
+    noHistoryCta: "Ersten Paper-Trade machen",
     previewCosts: "Gebühr + Slippage",
     advanced: "Erweitert",
     closedTitle: "Position geschlossen",
@@ -2430,6 +2440,23 @@ export const de = {
     ambientRainHint: "Die alte Optik hinter dem Inhalt — bewusst als Wahl. Kürzel: g, dann m.",
     saverHint: "Berühren oder Taste drücken, um fortzufahren",
     preview: "Impuls testen",
+  },
+  setup: {
+    title: "Dein Start",
+    doneTitle: "Alles eingerichtet",
+    count: "{{n}} von {{total}}",
+    step_risk: "Risiko-Regeln festlegen",
+    step_watch: "Ersten Markt beobachten",
+    step_paperTrade: "Ersten Paper-Trade machen",
+    step_notify: "Benachrichtigungen einrichten",
+    step_exchange: "Börse verbinden",
+    hint_risk: "Lege fest, wie viel du je Trade riskierst — jede Order läuft durch dieses Gate.",
+    hint_watch: "Markiere ein Asset mit ☆ — es erscheint unter „Meine Märkte“.",
+    hint_paperTrade: "Mit Spielgeld gegen echte Orderbücher üben — nichts kann passieren.",
+    hint_notify: "Telegram-Bot eintragen oder Push in der Glocke aktivieren — Signale und Alarme kommen dann zu dir.",
+    hint_exchange: "Erst verbinden, dann lesen — handeln darf die App nur nach deiner Freigabe je Börse.",
+    doneHint: "Du bist startklar. Diese Karte kannst du jetzt ausblenden.",
+    hide: "Ausblenden",
   },
   hotkeys: {
     title: "Tastenkürzel",

@@ -4,7 +4,7 @@ import { VENUE_NAMES, VenueCompare } from '../components/VenueCompare.js';
 import { trpc } from '../api.js';
 import { AssetSelect } from '../components/AssetSelect.js';
 import { EquityChart, MetricCard, fmt } from '../components/EquityChart.js';
-import { Empty, ErrorBox, Loading, Panel } from '../components/ui.js';
+import { Empty, EmptyState, ErrorBox, Loading, Panel } from '../components/ui.js';
 import { clearPendingTradeSymbol, peekPendingTradeSymbol } from '../lib/trade-symbol.js';
 import { getLatest, onTick } from '../lib/prices.js';
 import { getUiMode } from '../lib/ui-mode.js';
@@ -186,7 +186,9 @@ export function DemoTrading() {
         </Panel>
       </section>
 
-      <OrderTicket onPlaced={() => void load()} />
+      <div id="demo-ticket">
+        <OrderTicket onPlaced={() => void load()} />
+      </div>
 
       {/* Tabs */}
       <div className="mt-5 flex gap-1 overflow-x-auto border-b" style={{ borderColor: 'var(--color-line)' }}>
@@ -895,12 +897,17 @@ function OrdersPanel({ orders, onChanged }: { orders: OpenOrder[]; onChanged: ()
   );
 }
 
+/** Nächster Schritt aus leeren Zuständen (Welle F): zum Ticket auf derselben Seite. */
+function scrollToTicket() {
+  document.getElementById('demo-ticket')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function HistoryPanel({ history }: { history: Trade[] }) {
   const { t } = useTranslation();
   return (
     <Panel label={t('demo.historyTitle')} stagger={6} className="mt-5">
       {history.length === 0 ? (
-        <Empty text={t('demo.noHistory')} />
+        <EmptyState text={t('demo.noHistory')} actionLabel={t('demo.noHistoryCta')} onAction={scrollToTicket} />
       ) : (
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-sm">
@@ -956,7 +963,7 @@ function PerformancePanel({ perf }: { perf: Perf | null }) {
       {perf === null ? (
         <Loading />
       ) : !('netPnl' in perf) ? (
-        <Empty text={t('demo.noHistory')} />
+        <EmptyState text={t('demo.noHistory')} actionLabel={t('demo.noHistoryCta')} onAction={scrollToTicket} />
       ) : (
         <>
           <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">

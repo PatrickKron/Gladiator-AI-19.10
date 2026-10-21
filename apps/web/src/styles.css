@@ -19,6 +19,8 @@
   --color-ink: #f2f4f8;
   --color-mut: #8a93a6;
   --color-blue: #3b82f6;
+  /* Volle Fläche mit weißer Schrift (Primär-Knopf): tiefer, damit Weiß darauf AA erreicht (≥ 4,5:1). */
+  --color-blue-solid: #2b6bdb;
   --color-cyan: #60a5fa;
   --color-violet: #94a3b8;
   --color-magenta: #f59e0b;
@@ -115,7 +117,7 @@ html {
 
 /* Primär-Aktion: EIN blauer Knopf je Bildschirm. */
 .btn-primary {
-  background: var(--color-blue);
+  background: var(--color-blue-solid);
   border: 1px solid transparent;
   border-radius: 0.75rem;
   color: white;
@@ -181,7 +183,7 @@ html {
   white-space: nowrap;
 }
 .chip--pos { color: var(--color-pos); border-color: color-mix(in srgb, var(--color-pos) 40%, transparent); background: color-mix(in srgb, var(--color-pos) 10%, transparent); }
-.chip--neg { color: var(--color-neg); border-color: color-mix(in srgb, var(--color-neg) 40%, transparent); background: color-mix(in srgb, var(--color-neg) 10%, transparent); }
+.chip--neg { color: color-mix(in srgb, var(--color-neg) 80%, white); border-color: color-mix(in srgb, var(--color-neg) 40%, transparent); background: color-mix(in srgb, var(--color-neg) 10%, transparent); }
 .chip--acc { color: var(--color-cyan); border-color: color-mix(in srgb, var(--color-blue) 50%, transparent); background: color-mix(in srgb, var(--color-blue) 12%, transparent); }
 .chip--warn { color: var(--color-warn); border-color: color-mix(in srgb, var(--color-warn) 50%, transparent); background: color-mix(in srgb, var(--color-warn) 10%, transparent); }
 .chip--mut { color: var(--color-mut); }
@@ -249,6 +251,42 @@ html {
 }
 .subnav a:hover { color: var(--color-ink); }
 .subnav a[aria-current="page"] { color: var(--color-ink); background: var(--color-bg2); border-color: var(--color-line2); }
+/* Einfach-Modus (Welle F): Profi-Seiten des Bereichs hinter „Mehr" — zweite Zeile statt Popover, damit nichts abgeschnitten wird. */
+.subnav-more {
+  flex: 0 0 auto;
+  padding: 0.4rem 0.8rem;
+  border-radius: 9999px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-mut);
+  border: 1px solid var(--color-line);
+  white-space: nowrap;
+}
+.subnav-more:hover, .subnav-more[aria-expanded="true"] { color: var(--color-ink); border-color: var(--color-line2); }
+.subnav--more a { font-size: 0.75rem; }
+
+/* Dein Start (Welle F): Fortschrittsbalken und Schritt-Punkte — ein Moment, kein Effekt. */
+.setup-bar { height: 4px; border-radius: 9999px; background: var(--color-bg3); overflow: hidden; }
+.setup-bar > span { display: block; height: 100%; background: var(--color-blue); transition: width 700ms var(--ease-out-soft); }
+.setup-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  border: 1px solid var(--color-line2);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-bg);
+}
+.setup-dot--done { background: var(--color-pos); border-color: var(--color-pos); animation: pop 360ms var(--ease-spring) both; }
+@keyframes pop { from { transform: scale(0.6); } to { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .setup-bar > span { transition: none; }
+  .setup-dot--done { animation: none; }
+}
 
 /* Bildschirmschoner: Vollbild-Regen aus echten Ticks, Uhrzeit, Favoriten-Kurse. */
 .screensaver {

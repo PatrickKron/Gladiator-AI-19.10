@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
-import { PageHeader } from '../components/ui.js';
+import { EmptyState, PageHeader } from '../components/ui.js';
 import { buildChartUrl, CHART_TFS, CHART_VENUES, type ChartTf, type ChartVenue } from '../lib/chart-url.js';
 import { cachedCatalog, loadCatalog } from '../lib/indicator-catalog.js';
 import { clampNumber, type MenuEntry, type MenuInput } from '../lib/indicator-menu.js';
@@ -487,7 +487,7 @@ export function Screener() {
       </div>
 
       <div className="glass p-4">
-        {!result && <p className="text-sm" style={{ color: 'var(--color-mut)' }}>{t('screener.notRun')}</p>}
+        {!result && <EmptyState text={t('screener.notRun')} actionLabel={t('screener.notRunCta')} onAction={() => void run()} />}
         {result && rows.length === 0 && <p className="text-sm" style={{ color: 'var(--color-mut)' }}>{t('screener.noMatches')}</p>}
         {result && rows.length > 0 && (
           // Treffer als Karten (Welle C): Symbol, Kurs, Veränderung, je Bedingung ein Chip — Klick öffnet den Chart im selben Zeitrahmen

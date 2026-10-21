@@ -374,6 +374,7 @@ export const it: Catalog = {
     loadFailed: "{{n}} fonte/i di dati non caricata/e — alcune sezioni potrebbero essere incomplete.",
   },
   nav: {
+    more: "Altro",
     calm: "Calma e chiarezza",
     wealth: 'Patrimonio',
     trade: 'Trading',
@@ -637,6 +638,7 @@ export const it: Catalog = {
     analysisPromptHint: 'Opzionale: se impostato, l’IA valuta anche la situazione (EXECUTE/SKIP) quando le regole sono soddisfatte, prima di creare un segnale. I segnaposto {symbol} {side} {vix} {dxy_change} {grs} vengono riempiti con dati live. Senza ANTHROPIC_API_KEY l’agente continua solo su base regole.',
   },
   screener: {
+    notRunCta: "Avvia lo screener",
     title: "Screener di mercato",
     subtitle: "Condizioni su tutti i simboli con candele reali — calcolate sul server con la stessa libreria di indicatori e lo stesso motore Smart Money del grafico.",
     hint: "Universo = simboli con candele reali nel DB (base + preferiti). Ciò che lo screener trova, il grafico lo mostra con gli stessi numeri.",
@@ -724,6 +726,7 @@ export const it: Catalog = {
     "hint_risk-off": "Risk-off: volatilità alta, liquidità sottile — opera più piccolo, stop più stretti, attenzione ai gate.",
   },
   chart: {
+    tools: "Strumenti",
     view: "Vista",
     viewHint: "Cosa mostra il grafico — la scelta resta nel browser.",
     builtin: "Integrati",
@@ -869,6 +872,7 @@ export const it: Catalog = {
     empty: 'Nessun risultato',
   },
   today: {
+    emptyCta: "Esplora i mercati",
     title: "Importante oggi",
     all: "Tutti i segnali",
     empty: "Niente di urgente. Il motore scansiona ogni 5 minuti — nuovi segnali, eventi con impatto e avvisi compaiono qui.",
@@ -954,6 +958,7 @@ export const it: Catalog = {
     aiAgentsNone: 'Ancora nessun agente — creane uno in Modelli IA.',
   },
   discover: {
+    myEmptyCta: "Mostra tutti gli asset",
     title: 'Scopri',
     subtitle: 'Tutti i {{assets}} strumenti in {{packages}} pacchetti — cerca, filtra, aggiungi ai preferiti e fai trading di cripto direttamente nel conto demo.',
     searchPlaceholder: 'Cerca per ticker o nome — es. BTC, Apple, Gold …',
@@ -994,6 +999,7 @@ export const it: Catalog = {
     assetCount: '{{n}} strumenti',
   },
   signals: {
+    emptyCta: "Avvia lo screener",
     why: "Perché",
     riskLine: "Rischio",
     openTicket: "Apri ticket",
@@ -1168,6 +1174,7 @@ export const it: Catalog = {
     title: 'Laboratorio strategie',
   },
   labor: {
+    noRunsCta: "Avvia un backtest",
     openRun: "Apri",
     openRunHint: "Ricalcola il run con la stessa configurazione sulle stesse candele del DB — nulla è inventato.",
     reopened: "Run del {{date}} ricalcolato.",
@@ -1658,6 +1665,7 @@ export const it: Catalog = {
     sizingBlocked: 'Il risk gate bloccherebbe:',
   },
   agents: {
+    myEmptyCta: "Crea il tuo primo agente",
     tabOverview: "Panoramica",
     myTitle: 'I miei agenti',
     myHint: "Qui crei i tuoi agenti: agenti di trading con regole, eventi e rischio individuali nell'Officina — agenti RL che apprendono in Modelli IA.",
@@ -2020,6 +2028,7 @@ export const it: Catalog = {
     noDataHint: 'I dati compaiono quando gli agenti RL eseguono episodi e vengono generati snapshot giornalieri.',
   },
   profile: {
+    viewSimpleHint: "Semplice: le pagine pro stanno dietro «Altro» nella barra dei segmenti e il grafico mostra una barra breve. Pro: tutto visibile.",
     resetTitle: "Ripristina vista",
     viewTitle: "Vista",
     viewHint: "Semplice mostra l’essenziale, Pro aggiunge colonne e dettagli — cambia quando vuoi.",
@@ -2048,6 +2057,7 @@ export const it: Catalog = {
     oneUser: 'Un solo tipo di utente con accesso completo — niente ruoli, niente tier (decisione di scope 2026-07-02).',
   },
   demo: {
+    noHistoryCta: "Fai il tuo primo trade paper",
     previewCosts: "Commissione + slippage",
     advanced: "Avanzate",
     closedTitle: "Posizione chiusa",
@@ -2431,6 +2441,23 @@ export const it: Catalog = {
     ambientRainHint: "Il vecchio aspetto dietro i contenuti — una scelta consapevole. Scorciatoia: g, poi m.",
     saverHint: "Tocca o premi un tasto per continuare",
     preview: "Prova l’impulso",
+  },
+  setup: {
+    title: "Il tuo inizio",
+    doneTitle: "Tutto configurato",
+    count: "{{n}} di {{total}}",
+    step_risk: "Definisci le regole di rischio",
+    step_watch: "Segui il tuo primo mercato",
+    step_paperTrade: "Fai il tuo primo trade paper",
+    step_notify: "Configura le notifiche",
+    step_exchange: "Collega un exchange",
+    hint_risk: "Decidi quanto rischi per trade: ogni ordine passa da questo gate.",
+    hint_watch: "Segna un asset con ☆: comparirà in «I miei mercati».",
+    hint_paperTrade: "Esercitati con denaro finto su order book reali: non può succedere nulla.",
+    hint_notify: "Inserisci un bot Telegram o attiva il push nella campanella: segnali e avvisi ti raggiungeranno.",
+    hint_exchange: "Prima collega e leggi: l’app opera solo dopo la tua approvazione per exchange.",
+    doneHint: "Sei pronto. Ora puoi nascondere questa scheda.",
+    hide: "Nascondi",
   },
   hotkeys: {
     title: "Scorciatoie da tastiera",

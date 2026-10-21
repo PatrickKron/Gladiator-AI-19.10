@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AREAS, NAV_PAGES as PAGES, findPage, navEntries, pageForHash, resolveRedirect, searchNav, type NavEntry } from './navigation.js';
+import { AREAS, NAV_PAGES, NAV_PAGES as PAGES, findPage, navEntries, pageForHash, resolveRedirect, searchNav, subnavPages, type NavEntry } from './navigation.js';
 import { de } from '../i18n/de.js';
 
 /** Übersetzer-Stub: schlägt Keys im DE-Katalog nach (wie i18next). */
@@ -119,6 +119,31 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
     it('leere Suche zeigt die Seiten in Sidebar-Reihenfolge', () => {
       const res = searchNav(entries, '', 5);
       expect(res.map((e) => e.hash)).toEqual(PAGES.slice(0, 5).map((p) => p.hash));
+    });
+  });
+
+  describe('Welle F: Segmentleiste im Einfach-Modus', () => {
+    it('Profi zeigt alle Seiten des Bereichs, nichts hinter „Mehr"', () => {
+      const r = subnavPages('agents', 'profi', '#/strategien');
+      expect(r.shown.map((p) => p.id)).toEqual(['agents', 'strategies', 'lab', 'aiModels']);
+      expect(r.more).toEqual([]);
+    });
+    it('Einfach: Labor und KI-Modelle hinter „Mehr", Agenten und Strategien bleiben', () => {
+      const r = subnavPages('agents', 'einfach', '#/strategien');
+      expect(r.shown.map((p) => p.id)).toEqual(['agents', 'strategies']);
+      expect(r.more.map((p) => p.id)).toEqual(['lab', 'aiModels']);
+    });
+    it('die aktive Seite bleibt immer sichtbar, auch wenn sie „advanced" ist', () => {
+      const r = subnavPages('agents', 'einfach', '#/labor');
+      expect(r.shown.map((p) => p.id)).toEqual(['agents', 'strategies', 'lab']);
+      expect(r.more.map((p) => p.id)).toEqual(['aiModels']);
+    });
+    it('jede Seite bleibt erreichbar: shown + more = alle Seiten des Bereichs, kein Hash ändert sich', () => {
+      for (const area of ['market', 'trade', 'agents', 'system', 'today'] as const) {
+        const all = NAV_PAGES.filter((p) => p.area === area).map((p) => p.hash);
+        const r = subnavPages(area, 'einfach', '#/');
+        expect([...r.shown, ...r.more].map((p) => p.hash).sort()).toEqual([...all].sort());
+      }
     });
   });
 

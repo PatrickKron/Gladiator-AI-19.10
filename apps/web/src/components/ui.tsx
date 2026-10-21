@@ -67,6 +67,32 @@ export function Empty({ text }: { text: string }) {
   );
 }
 
+/**
+ * Leer-Zustand mit nächstem Schritt (Welle F): ehrlicher Text + EINE Aktion —
+ * Link (`href`) oder Handler (`onAction`). Sekundär-Fläche, damit die Hauptaktion
+ * des Bildschirms die einzige blaue bleibt.
+ */
+export function EmptyState({ text, actionLabel, href, onAction }: { text: string; actionLabel?: string; href?: string; onAction?: () => void }) {
+  const cls = 'btn mt-3 inline-flex items-center gap-1.5 px-3.5 py-1.5 text-sm';
+  return (
+    <div className="mt-4">
+      <p className="text-sm leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+        {text}
+      </p>
+      {actionLabel &&
+        (href ? (
+          <a href={href} className={cls}>
+            {actionLabel} <span aria-hidden="true">→</span>
+          </a>
+        ) : (
+          <button type="button" className={cls} onClick={onAction}>
+            {actionLabel} <span aria-hidden="true">→</span>
+          </button>
+        ))}
+    </div>
+  );
+}
+
 /** Ehrlicher „nicht verbunden"-Zustand — Pflicht statt Fake (Regel 1). */
 export function NotConnected({ detail }: { detail: string }) {
   const { t } = useTranslation();
