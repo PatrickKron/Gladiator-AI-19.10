@@ -994,6 +994,9 @@ export const en: Catalog = {
     assetCount: '{{n}} instruments',
   },
   signals: {
+    why: "Why",
+    riskLine: "Risk",
+    openTicket: "Open ticket",
     subtitleList: 'All setups as compact rows — newest first, expired dimmed at the end. Click a row for chart, swarm reasoning and details. Sources: engine scan (every 5 min), TradingView webhook, DSL instruction, manual.',
     rowsSummary: '{{n}} signals',
     expiredSummary: '{{n}} of them expired',
@@ -2041,6 +2044,11 @@ export const en: Catalog = {
     oneUser: 'One user type with full access — no roles, no tiers (scope decision 2026-07-02).',
   },
   demo: {
+    previewCosts: "Fee + slippage",
+    advanced: "Advanced",
+    closedTitle: "Position closed",
+    closedResult: "Result",
+    closedOk: "Continue",
     leverage: 'Leverage',
     leverageHint: 'With leverage you only commit part of the position value as margin. Profits and losses apply to the full value; if the price reaches the liquidation price, the margin is lost.',
     leverageLimit: 'Limit {{max}}× (Settings › Trading)',

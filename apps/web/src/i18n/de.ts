@@ -993,6 +993,9 @@ export const de = {
     assetCount: '{{n}} Instrumente',
   },
   signals: {
+    why: "Warum",
+    riskLine: "Risiko",
+    openTicket: "Ticket öffnen",
     subtitleList: 'Alle Setups als kompakte Zeilen — neueste zuerst, Abgelaufene gedimmt am Ende. Zeile anklicken für Chart, Schwarm-Begründungen und Details. Quellen: Engine-Scan (alle 5 min), TradingView-Webhook, DSL-Anweisung, manuell.',
     rowsSummary: '{{n}} Signale',
     expiredSummary: 'davon {{n}} abgelaufen',
@@ -2040,6 +2043,11 @@ export const de = {
     oneUser: 'Ein User-Typ mit vollem Zugriff — keine Rollen, keine Tiers (Scope-Entscheidung 2026-07-02).',
   },
   demo: {
+    previewCosts: "Gebühr + Slippage",
+    advanced: "Erweitert",
+    closedTitle: "Position geschlossen",
+    closedResult: "Ergebnis",
+    closedOk: "Weiter",
     leverage: 'Hebel',
     leverageHint: 'Mit Hebel bindest du nur einen Teil des Positionswerts als Einsatz (Margin). Gewinne und Verluste wirken auf den vollen Wert; erreicht der Kurs den Liquidationspreis, ist der Einsatz verloren.',
     leverageLimit: 'Obergrenze {{max}}× (Einstellungen › Trading)',
