@@ -1929,6 +1929,8 @@ export const es: Catalog = {
     err_unknown: 'Error desconocido.',
   },
   swap: {
+    trade_failed: "fallido",
+    trade_pending: "resultado incierto — revisa el explorador",
     positionsTitle: "Todas las posiciones",
     unrealized: "No realizado",
     wallet: "Wallet",

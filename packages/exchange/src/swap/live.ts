@@ -1,8 +1,10 @@
-import { createPublicClient, createWalletClient, encodeFunctionData, http, parseAbi, type Chain } from 'viem';
+import { createPublicClient, createWalletClient, encodeFunctionData, http, keccak256, parseAbi, type Chain } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { arbitrum, base, bsc, mainnet } from 'viem/chains';
 import { isNativeToken, rpcUrl, SWAP_CHAINS, type SwapChainId } from './chains.js';
 import { JUPITER_API, KYBER_API, type SwapQuote } from './quotes.js';
+import { assertKyberSwap, decodeKyberDesc } from './kyber-guard.js';
+import { assertJupiterSwapTx } from './solana-guard.js';
 import { signSolanaTx } from './solana-tx.js';
 
 /**
@@ -26,7 +28,42 @@ const ERC20 = parseAbi([
   'function allowance(address owner, address spender) view returns (uint256)',
 ]);
 
-export type LiveSwapResult = { txHash: string; status: 'filled' | 'failed'; error: string | null; approvalTx: string | null };
+/**
+ * `pending` = gesendet, Ausgang unbekannt (Netz/Timeout NACH dem Senden) — nie
+ * als „nichts passiert“ werten, sonst kauft man womöglich doppelt.
+ */
+export type LiveSwapResult = { txHash: string; status: 'filled' | 'failed' | 'pending'; error: string | null; approvalTx: string | null };
+
+export type LiveSwapOpts = {
+  /** Unmittelbar vor dem Signieren: Freigabe/Order erneut prüfen — wirft → nichts signiert, nichts gesendet. */
+  beforeSign?: () => Promise<void>;
+};
+
+const UNKNOWN = 'Gesendet, Ausgang unklar — bitte NICHT erneut ausführen; Status im Explorer prüfen.';
+
+/** Jupiter-Angebot: Mints, Menge und Slippage müssen genau der bestätigten Anfrage entsprechen. */
+function assertJupiterQuote(q: SwapQuote): void {
+  const raw = q.raw as { inputMint?: string; outputMint?: string; inAmount?: string; slippageBps?: number };
+  if (raw.inputMint !== q.inToken.address || raw.outputMint !== q.outToken.address || raw.inAmount !== q.inAtomic || raw.slippageBps !== q.slippageBps) {
+    throw new Error('Swap verweigert: Jupiter-Angebot passt nicht zur bestätigten Anfrage.');
+  }
+}
+
+/** Anfrage an Jupiter `/swap` — exportiert, damit der Echtdaten-Test genau dieselbe Transaktion bauen lässt. */
+export function jupiterSwapRequest(quote: SwapQuote, address: string) {
+  return {
+    quoteResponse: quote.raw,
+    userPublicKey: address,
+    wrapAndUnwrapSol: true,
+    dynamicComputeUnitLimit: true,
+    prioritizationFeeLamports: { priorityLevelWithMaxLamports: { maxLamports: 1_000_000, priorityLevel: 'high' } },
+  };
+}
+
+/** Erwartungen des Solana-Wächters aus dem bestätigten Angebot. */
+export function jupiterExpect(q: SwapQuote) {
+  return { inMint: q.inToken.address, outMint: q.outToken.address, inAmount: BigInt(q.inAtomic), quotedOutAmount: BigInt(q.outAtomic), slippageBps: q.slippageBps };
+}
 
 async function postJson(url: string, body: unknown, fetchFn: Fetch, timeoutMs = 15_000): Promise<unknown> {
   const res = await fetchFn(url, {
@@ -52,58 +89,119 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export async function executeSolanaSwap(
   p: { quote: SwapQuote; address: string; secret: string },
   fetchFn: Fetch = fetch,
-  opts: { pollMs?: number; timeoutMs?: number } = {},
+  opts: { pollMs?: number; timeoutMs?: number } & LiveSwapOpts = {},
 ): Promise<LiveSwapResult> {
-  const built = (await postJson(
-    `${JUPITER_API}/swap`,
-    {
-      quoteResponse: p.quote.raw,
-      userPublicKey: p.address,
-      wrapAndUnwrapSol: true,
-      dynamicComputeUnitLimit: true,
-      prioritizationFeeLamports: { priorityLevelWithMaxLamports: { maxLamports: 1_000_000, priorityLevel: 'high' } },
-    },
-    fetchFn,
-  )) as { swapTransaction?: string; lastValidBlockHeight?: number };
+  assertJupiterQuote(p.quote);
+  const built = (await postJson(`${JUPITER_API}/swap`, jupiterSwapRequest(p.quote, p.address), fetchFn)) as { swapTransaction?: string; lastValidBlockHeight?: number };
   if (!built.swapTransaction) throw new Error('Jupiter: keine Transaktion erhalten.');
+  // Inhalt prüfen: genau der bestätigte Jupiter-Swap für uns, nie Überweisungen/Freigaben an andere
+  assertJupiterSwapTx(Uint8Array.from(Buffer.from(built.swapTransaction, 'base64')), p.address, jupiterExpect(p.quote));
+  await opts.beforeSign?.();
   const signed = signSolanaTx(built.swapTransaction, p.secret, p.address);
-  const sig = (await rpc('solana', 'sendTransaction', [signed.tx, { encoding: 'base64', maxRetries: 3, preflightCommitment: 'confirmed' }], fetchFn)) as string;
+  // Signatur = Transaktions-Id steht VOR dem Senden fest
+  const sig = signed.signature;
+  try {
+    await rpc('solana', 'sendTransaction', [signed.tx, { encoding: 'base64', maxRetries: 3, preflightCommitment: 'confirmed' }], fetchFn);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // JSON-RPC-Fehler = Knoten hat abgelehnt (Preflight) → nicht gesendet; sonst (Netz/Timeout) unklar
+    if (msg.startsWith('RPC solana sendTransaction:')) return { txHash: sig, status: 'failed', error: `Abgelehnt: ${msg}`, approvalTx: null };
+    return { txHash: sig, status: 'pending', error: UNKNOWN, approvalTx: null };
+  }
 
   const deadline = Date.now() + (opts.timeoutMs ?? 90_000);
   while (Date.now() < deadline) {
     await sleep(opts.pollMs ?? 2_000);
-    const st = (await rpc('solana', 'getSignatureStatuses', [[sig], { searchTransactionHistory: false }], fetchFn)) as {
-      value?: ({ confirmationStatus?: string; err?: unknown } | null)[];
-    };
-    const s = st.value?.[0];
-    if (s?.err) return { txHash: sig, status: 'failed', error: `On-chain fehlgeschlagen: ${JSON.stringify(s.err)}`, approvalTx: null };
-    if (s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized')) return { txHash: sig, status: 'filled', error: null, approvalTx: null };
-    if (built.lastValidBlockHeight) {
-      const height = (await rpc('solana', 'getBlockHeight', [{ commitment: 'confirmed' }], fetchFn)) as number;
-      if (height > built.lastValidBlockHeight) return { txHash: sig, status: 'failed', error: 'Transaktion abgelaufen (nicht in einen Block gekommen).', approvalTx: null };
+    try {
+      const st = (await rpc('solana', 'getSignatureStatuses', [[sig], { searchTransactionHistory: false }], fetchFn)) as {
+        value?: ({ confirmationStatus?: string; err?: unknown } | null)[];
+      };
+      const s = st.value?.[0];
+      if (s?.err) return { txHash: sig, status: 'failed', error: `On-chain fehlgeschlagen: ${JSON.stringify(s.err)}`, approvalTx: null };
+      if (s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized')) return { txHash: sig, status: 'filled', error: null, approvalTx: null };
+      if (built.lastValidBlockHeight) {
+        const height = (await rpc('solana', 'getBlockHeight', [{ commitment: 'confirmed' }], fetchFn)) as number;
+        if (height > built.lastValidBlockHeight) {
+          // abgelaufen — aber zwischen beiden Abfragen kann sie noch gelandet sein: einmal in der Historie nachsehen
+          const again = (await rpc('solana', 'getSignatureStatuses', [[sig], { searchTransactionHistory: true }], fetchFn)) as {
+            value?: ({ confirmationStatus?: string; err?: unknown } | null)[];
+          };
+          const s2 = again.value?.[0];
+          if (s2?.err) return { txHash: sig, status: 'failed', error: `On-chain fehlgeschlagen: ${JSON.stringify(s2.err)}`, approvalTx: null };
+          if (s2) return { txHash: sig, status: s2.confirmationStatus === 'processed' ? 'pending' : 'filled', error: s2.confirmationStatus === 'processed' ? UNKNOWN : null, approvalTx: null };
+          return { txHash: sig, status: 'failed', error: 'Transaktion abgelaufen (nicht in einen Block gekommen).', approvalTx: null };
+        }
+      }
+    } catch {
+      // Abfrage-Fehler (z. B. 429) heißt nicht „nicht passiert“ — weiter versuchen
     }
   }
-  return { txHash: sig, status: 'failed', error: 'Keine Bestätigung innerhalb von 90 s — Status bitte im Explorer prüfen.', approvalTx: null };
+  return { txHash: sig, status: 'pending', error: UNKNOWN, approvalTx: null };
+}
+
+/** Erwartungen des KyberSwap-Wächters aus dem bestätigten Angebot. */
+export function kyberExpect(q: SwapQuote, owner: string) {
+  return {
+    owner,
+    srcToken: q.inToken.address,
+    dstToken: q.outToken.address,
+    amountIn: BigInt(q.inAtomic),
+    minOut: BigInt(q.minOutAtomic),
+    nativeIn: isNativeToken(q.chain, q.inToken.address),
+  };
+}
+
+/**
+ * KyberSwap `/route/build` mit recipient = eigene Adresse, nur bekannter Router.
+ * KyberSwap rechnet beim Bauen den Kurs neu und setzt die Mindestmenge daraus —
+ * fällt sie unter die BESTÄTIGTE, wird einmal mit engerer Slippage neu gebaut
+ * (so dass die Mindestmenge wieder ≥ bestätigt ist), statt die Grenze aufzuweichen.
+ */
+export async function buildKyberSwap(
+  quote: SwapQuote,
+  address: string,
+  fetchFn: Fetch = fetch,
+): Promise<{ data: `0x${string}`; router: `0x${string}`; value: bigint }> {
+  const chainId = quote.chain as Exclude<SwapChainId, 'solana'>;
+  const slug = SWAP_CHAINS[chainId].kyberSlug!;
+  const raw = quote.raw as { routeSummary?: unknown };
+  const minOut = BigInt(quote.minOutAtomic);
+  const nativeIn = isNativeToken(chainId, quote.inToken.address);
+  const build = async (slippageBps: number) => {
+    const res = (await postJson(
+      `${KYBER_API}/${slug}/api/v1/route/build`,
+      { routeSummary: raw.routeSummary, sender: address, recipient: address, slippageTolerance: slippageBps, source: 'gladiator' },
+      fetchFn,
+    )) as { code?: number; message?: string; data?: { data?: string; routerAddress?: string; amountOut?: string; transactionValue?: string } };
+    const d = res.data;
+    if (res.code !== 0 || !d?.data || !d.routerAddress) throw new Error(`KyberSwap: Route nicht baubar (${res.message ?? 'leere Antwort'}).`);
+    const router = d.routerAddress.toLowerCase() as `0x${string}`;
+    if (!KYBER_ROUTERS.has(router)) throw new Error(`KyberSwap: unbekannter Router ${router} — verweigert.`);
+    const data = d.data as `0x${string}`;
+    const out = d.amountOut !== undefined ? BigInt(d.amountOut) : null;
+    if (out !== null && out < minOut) throw new Error('Kurs hat sich bewegt: Ergebnis unter der Mindestmenge — bitte neu anfragen.');
+    const value = d.transactionValue !== undefined ? BigInt(d.transactionValue) : nativeIn ? BigInt(quote.inAtomic) : 0n;
+    return { data, router, value, out, minReturn: decodeKyberDesc(data).minReturnAmount };
+  };
+  let b = await build(quote.slippageBps);
+  if (b.minReturn < minOut && b.out !== null) {
+    // engere Toleranz, damit out × (1 − s) ≥ bestätigte Mindestmenge
+    const tighter = Number(((b.out - minOut) * 10_000n) / b.out);
+    if (tighter < 1) throw new Error('Kurs hat sich bewegt: Ergebnis an der Mindestmenge — bitte neu anfragen.');
+    b = await build(Math.min(tighter, quote.slippageBps));
+  }
+  return { data: b.data, router: b.router, value: b.value };
 }
 
 /** EVM: KyberSwap baut die Route mit recipient = eigene Adresse; bei Token-Verkauf vorher exakter approve. */
 export async function executeEvmSwap(
   p: { quote: SwapQuote; address: string; secret: string },
   fetchFn: Fetch = fetch,
+  opts: LiveSwapOpts = {},
 ): Promise<LiveSwapResult> {
   const chainId = p.quote.chain as Exclude<SwapChainId, 'solana'>;
-  const slug = SWAP_CHAINS[chainId].kyberSlug!;
-  const raw = p.quote.raw as { routeSummary?: unknown };
-  const res = (await postJson(
-    `${KYBER_API}/${slug}/api/v1/route/build`,
-    { routeSummary: raw.routeSummary, sender: p.address, recipient: p.address, slippageTolerance: p.quote.slippageBps, source: 'gladiator' },
-    fetchFn,
-  )) as { code?: number; message?: string; data?: { data?: string; routerAddress?: string; amountIn?: string; amountOut?: string; transactionValue?: string } };
-  const d = res.data;
-  if (res.code !== 0 || !d?.data || !d.routerAddress) throw new Error(`KyberSwap: Route nicht baubar (${res.message ?? 'leere Antwort'}).`);
-  const router = d.routerAddress.toLowerCase() as `0x${string}`;
-  if (!KYBER_ROUTERS.has(router)) throw new Error(`KyberSwap: unbekannter Router ${router} — verweigert.`);
-  if (d.amountOut && BigInt(d.amountOut) < BigInt(p.quote.minOutAtomic)) throw new Error('Kurs hat sich bewegt: Ergebnis unter der Mindestmenge — bitte neu anfragen.');
+  const d = await buildKyberSwap(p.quote, p.address, fetchFn);
+  const router = d.router;
 
   const account = privateKeyToAccount(p.secret as `0x${string}`);
   if (account.address.toLowerCase() !== p.address.toLowerCase()) throw new Error('Schlüssel passt nicht zur Wallet-Adresse.');
@@ -115,6 +213,10 @@ export async function executeEvmSwap(
   const amountIn = BigInt(p.quote.inAtomic);
   let approvalTx: string | null = null;
   const nativeIn = isNativeToken(chainId, p.quote.inToken.address);
+  const value = d.value;
+  // Calldata dekodieren und gegen das bestätigte Angebot prüfen (Empfänger, Tokens, Mengen, Gebühren, value)
+  assertKyberSwap(d.data, value, kyberExpect(p.quote, p.address));
+  await opts.beforeSign?.();
   if (!nativeIn) {
     const token = p.quote.inToken.address as `0x${string}`;
     const allowance = await pub.readContract({ address: token, abi: ERC20, functionName: 'allowance', args: [account.address, router] });
@@ -125,16 +227,33 @@ export async function executeEvmSwap(
       if (r.status !== 'success') return { txHash: approvalTx, status: 'failed', error: 'Freigabe (approve) on-chain fehlgeschlagen.', approvalTx };
     }
   }
-  const value = d.transactionValue !== undefined ? BigInt(d.transactionValue) : nativeIn ? amountIn : 0n;
-  const hash = await wallet.sendTransaction({ to: router, data: d.data as `0x${string}`, value });
-  const receipt = await pub.waitForTransactionReceipt({ hash, timeout: 180_000 });
-  return receipt.status === 'success'
-    ? { txHash: hash, status: 'filled', error: null, approvalTx }
-    : { txHash: hash, status: 'failed', error: 'Swap on-chain zurückgewiesen (revert).', approvalTx };
+  // lokal signieren → Hash steht VOR dem Senden fest
+  const request = await wallet.prepareTransactionRequest({ to: router, data: d.data as `0x${string}`, value });
+  const serialized = await wallet.signTransaction(request);
+  const hash = keccak256(serialized);
+  try {
+    await pub.sendRawTransaction({ serializedTransaction: serialized });
+  } catch (err) {
+    // abgelehnt oder doch angekommen? Nur „sicher unbekannt beim Knoten“ zählt als nicht gesendet
+    const known = await pub.getTransaction({ hash }).then(
+      () => true,
+      (e: unknown) => ((e as { name?: string }).name === 'TransactionNotFoundError' ? false : null),
+    );
+    if (known === false) return { txHash: hash, status: 'failed', error: `Abgelehnt: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`, approvalTx };
+    return { txHash: hash, status: 'pending', error: UNKNOWN, approvalTx };
+  }
+  try {
+    const receipt = await pub.waitForTransactionReceipt({ hash, timeout: 180_000 });
+    return receipt.status === 'success'
+      ? { txHash: hash, status: 'filled', error: null, approvalTx }
+      : { txHash: hash, status: 'failed', error: 'Swap on-chain zurückgewiesen (revert).', approvalTx };
+  } catch {
+    return { txHash: hash, status: 'pending', error: UNKNOWN, approvalTx };
+  }
 }
 
-export async function executeLiveSwap(p: { quote: SwapQuote; address: string; secret: string }, fetchFn: Fetch = fetch): Promise<LiveSwapResult> {
-  return SWAP_CHAINS[p.quote.chain].kind === 'solana' ? executeSolanaSwap(p, fetchFn) : executeEvmSwap(p, fetchFn);
+export async function executeLiveSwap(p: { quote: SwapQuote; address: string; secret: string }, fetchFn: Fetch = fetch, opts: LiveSwapOpts = {}): Promise<LiveSwapResult> {
+  return SWAP_CHAINS[p.quote.chain].kind === 'solana' ? executeSolanaSwap(p, fetchFn, opts) : executeEvmSwap(p, fetchFn, opts);
 }
 
 /** On-chain-Bestände (kleinste Einheit) der nativen Währung + angefragter Tokens. */

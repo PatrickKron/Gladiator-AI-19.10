@@ -60,12 +60,16 @@ export async function jupiterQuote(
   const q = (await getJson(`${JUPITER_API}/quote?${qs}`, fetchFn)) as {
     inAmount?: string;
     outAmount?: string;
-    otherAmountThreshold?: string;
     priceImpactPct?: string;
     routePlan?: { swapInfo?: { label?: string } }[];
+    swapMode?: string;
+    platformFee?: { amount?: string } | null;
     error?: string;
   };
   if (!q.outAmount || !q.inAmount) throw new Error(`Jupiter: keine Route (${q.error ?? 'leere Antwort'}).`);
+  // Menge muss die ANGEFRAGTE sein (nicht nur die, die der Aggregator selbst nennt), keine Gebühr an Dritte
+  if (q.inAmount !== p.inAtomic.toString() || (q.swapMode !== undefined && q.swapMode !== 'ExactIn')) throw new Error('Jupiter: Angebot passt nicht zur Anfrage.');
+  if (q.platformFee && BigInt(q.platformFee.amount ?? '0') > 0n) throw new Error('Jupiter: Angebot enthält eine Plattform-Gebühr.');
   return {
     chain: 'solana',
     aggregator: 'jupiter',
@@ -73,7 +77,8 @@ export async function jupiterQuote(
     outToken: p.outToken,
     inAtomic: q.inAmount,
     outAtomic: q.outAmount,
-    minOutAtomic: q.otherAmountThreshold ?? minOut(BigInt(q.outAmount), p.slippageBps).toString(),
+    // selbst gerechnet (so prüft es auch das Programm: quoted_out × (1 − Slippage)), nie die Angabe übernehmen
+    minOutAtomic: minOut(BigInt(q.outAmount), p.slippageBps).toString(),
     inAmount: fromAtomic(q.inAmount, p.inToken.decimals),
     outAmount: fromAtomic(q.outAmount, p.outToken.decimals),
     slippageBps: p.slippageBps,
@@ -112,6 +117,7 @@ export async function kyberQuote(
   };
   const s = r.data?.routeSummary;
   if (r.code !== 0 || !s) throw new Error(`KyberSwap: keine Route (${r.message ?? 'leere Antwort'}).`);
+  if (s.amountIn !== p.inAtomic.toString()) throw new Error('KyberSwap: Angebot passt nicht zur Anfrage.');
   const inUsd = Number(s.amountInUsd);
   const outUsd = Number(s.amountOutUsd);
   // Preis-Einfluss aus den USD-Werten der Route (Pool-Gebühren eingeschlossen)

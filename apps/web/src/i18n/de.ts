@@ -1928,6 +1928,8 @@ export const de = {
     err_unknown: 'Unbekannter Fehler.',
   },
   swap: {
+    trade_failed: "fehlgeschlagen",
+    trade_pending: "Ausgang unklar — im Explorer prüfen",
     positionsTitle: "Alle Positionen",
     unrealized: "Unrealisiert",
     wallet: "Wallet",

@@ -166,6 +166,11 @@ async function createAutoOrders(
   if (auto.takeProfitPct !== undefined) wanted.push({ kind: 'take_profit', trigger: entry * (1 + auto.takeProfitPct / 100) });
   if (auto.stopLossPct !== undefined) wanted.push({ kind: 'stop_loss', trigger: entry * (1 - auto.stopLossPct / 100) });
   const results: AutoOrderResult[] = [];
+  if (w.mode === 'live') {
+    // Freigabe während des Kaufs zurückgezogen → keine Live-Orders mehr anlegen
+    const [fresh] = await ctx.db.select({ liveApprovedAt: swapWallets.liveApprovedAt }).from(swapWallets).where(eq(swapWallets.id, w.id));
+    if (!fresh?.liveApprovedAt) return wanted.map((x) => ({ kind: x.kind, triggerPriceUsd: x.trigger, orderId: null, error: 'Live-Freigabe inzwischen zurückgezogen — nicht angelegt.' }));
+  }
   for (const x of wanted) {
     const problem = !(x.trigger > 0) ? 'Kein Kaufkurs bestimmbar.' : validateNewOrder({ kind: x.kind, triggerPriceUsd: x.trigger, trailPct: null, peakPriceUsd: null }, now);
     if (problem) {

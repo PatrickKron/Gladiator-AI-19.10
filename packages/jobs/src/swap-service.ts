@@ -143,6 +143,15 @@ export type PreparedSwap = {
   verdict: SwapVerdict;
 };
 
+/** Wertverlust des Angebots in % nach unabhängigen Kursen (DexScreener); null = Kurs fehlt. */
+export function independentLossPct(side: 'buy' | 'sell', q: SwapQuote, nativePriceUsd: number, tokenPriceUsd: number | null): number | null {
+  if (!(tokenPriceUsd !== null && tokenPriceUsd > 0) || !(nativePriceUsd > 0)) return null;
+  const inUsd = Number(q.inAmount) * (side === 'buy' ? nativePriceUsd : tokenPriceUsd);
+  const outUsd = Number(q.outAmount) * (side === 'buy' ? tokenPriceUsd : nativePriceUsd);
+  if (!(inUsd > 0) || !Number.isFinite(outUsd)) return null;
+  return Math.max(0, ((inUsd - outUsd) / inUsd) * 100);
+}
+
 export async function prepareSwap(db: Db, wallet: SwapWalletRow, req: SwapRequest): Promise<PreparedSwap> {
   const chain = wallet.chain as SwapChainId;
   const native = SWAP_CHAINS[chain].native;
@@ -194,6 +203,10 @@ export async function prepareSwap(db: Db, wallet: SwapWalletRow, req: SwapReques
     throw netError(err);
   }
   const valueUsd = Number(req.side === 'buy' ? quote.inAmount : quote.outAmount) * nativePriceUsd;
+  // Live: Verlust NICHT nur nach Angabe des Aggregators — unabhängig mit den DexScreener-Kursen
+  // nachgerechnet; ein manipuliertes Angebot (zu wenig heraus) fällt so am Preis-Einfluss-Limit auf
+  const independent = independentLossPct(req.side, quote, nativePriceUsd, info.priceUsd);
+  const priceImpactPct = wallet.mode === 'live' && independent !== null ? Math.max(quote.priceImpactPct, independent) : quote.priceImpactPct;
   const safety = req.side === 'buy' ? await cachedTokenSafety(chain, req.token) : null;
   // Empfänger = eigene Wallet: Swaps werden nie mit fremdem Empfänger gebaut (Live-Schritt nutzt dieselbe Adresse)
   const verdict = judgeSwap(
@@ -204,7 +217,7 @@ export async function prepareSwap(db: Db, wallet: SwapWalletRow, req: SwapReques
       recipient: wallet.address,
       valueUsd,
       slippageBps,
-      priceImpactPct: quote.priceImpactPct,
+      priceImpactPct,
       liquidityUsd: info.liquidityUsd,
     },
     limitsOf(wallet),
@@ -270,15 +283,30 @@ export async function executePreparedSwap(db: Db, p: PreparedSwap, side: 'buy' |
  * Ergebnis verbuchen, auditieren, benachrichtigen.
  */
 async function executeLive(db: Db, p: PreparedSwap, side: 'buy' | 'sell', ctx: ExecuteContext): Promise<ExecuteResult> {
-  // Wallet FRISCH lesen: zwischen Auslösen und Signieren liegen Sekunden (Angebot,
-  // Sicherheitscheck) — wurde die Freigabe inzwischen zurückgezogen oder die
-  // Wallet entfernt, wird nichts gesendet.
-  const [w] = await db.select().from(schema.swapWallets).where(eq(schema.swapWallets.id, p.wallet.id));
-  if (!w || w.archivedAt) throw new SwapError('PRECONDITION_FAILED', 'Wallet wurde entfernt — nichts gesendet.');
-  if (ctx.orderId) {
-    const [o] = await db.select({ status: schema.swapOrders.status }).from(schema.swapOrders).where(eq(schema.swapOrders.id, ctx.orderId));
-    if (o?.status !== 'executing') throw new SwapError('PRECONDITION_FAILED', 'Order wurde inzwischen gestoppt — nichts gesendet.');
-  }
+  // Wallet FRISCH lesen — jetzt und noch einmal unmittelbar vor dem Signieren
+  // (Angebot, Sicherheitscheck und Bau der Route dauern Sekunden): wurde die
+  // Freigabe inzwischen zurückgezogen, die Wallet entfernt oder die Order
+  // gestoppt, wird nichts signiert und nichts gesendet.
+  const recheck = async () => {
+    const [fresh] = await db.select().from(schema.swapWallets).where(eq(schema.swapWallets.id, p.wallet.id));
+    if (!fresh || fresh.archivedAt) throw new SwapError('PRECONDITION_FAILED', 'Wallet wurde entfernt — nichts gesendet.');
+    if (!fresh.liveApprovedAt) throw new SwapError('PRECONDITION_FAILED', 'Diese Wallet ist noch nicht für Live-Swaps freigegeben.');
+    if (ctx.orderId) {
+      const [o] = await db
+        .select({ status: schema.swapOrders.status, createdAt: schema.swapOrders.createdAt })
+        .from(schema.swapOrders)
+        .where(eq(schema.swapOrders.id, ctx.orderId));
+      if (o?.status !== 'executing') throw new SwapError('PRECONDITION_FAILED', 'Order wurde inzwischen gestoppt — nichts gesendet.');
+      // Orders aus einer FRÜHEREN Freigabe-Periode laufen nie (Freigabe zurückgezogen und neu erteilt)
+      if (o.createdAt < fresh.liveApprovedAt) throw new SwapError('PRECONDITION_FAILED', 'Order stammt aus einer früheren Live-Freigabe — nichts gesendet.');
+    }
+    return fresh;
+  };
+  const w = await recheck().catch((err: unknown) => {
+    // Reihenfolge der Meldungen wie bisher: Betreiber-Schalter zuerst
+    if (!liveKeysAllowed()) throw new SwapError('FORBIDDEN', 'Live-Wallets sind auf dieser Instanz abgeschaltet (WALLET_KEYS_ENABLED).');
+    throw err;
+  });
   if (!liveKeysAllowed()) throw new SwapError('FORBIDDEN', 'Live-Wallets sind auf dieser Instanz abgeschaltet (WALLET_KEYS_ENABLED).');
   if (!w.liveApprovedAt) throw new SwapError('PRECONDITION_FAILED', 'Diese Wallet ist noch nicht für Live-Swaps freigegeben.');
   if (!ctx.confirmedLive) throw new SwapError('PRECONDITION_FAILED', 'Live-Swap bitte ausdrücklich bestätigen.');
@@ -314,7 +342,11 @@ async function executeLive(db: Db, p: PreparedSwap, side: 'buy' | 'sell', ctx: E
 
   let result: Awaited<ReturnType<typeof executeLiveSwap>>;
   try {
-    result = await (liveOverride ?? executeLiveSwap)({ quote: p.quote, address: w.address, secret: decryptSecret(w.encryptedKey) }, swapNet());
+    result = await (liveOverride ?? executeLiveSwap)({ quote: p.quote, address: w.address, secret: decryptSecret(w.encryptedKey) }, swapNet(), {
+      beforeSign: async () => {
+        await recheck();
+      },
+    });
   } catch (err) {
     // vor dem Senden abgebrochen (Route nicht baubar, Sicherheitsprüfung, Netz) — nichts on-chain
     const msg = err instanceof Error ? err.message : String(err);
@@ -341,7 +373,12 @@ async function executeLive(db: Db, p: PreparedSwap, side: 'buy' | 'sell', ctx: E
     userId: ctx.userId,
     kind: 'system',
     severity: result.status === 'filled' ? 'info' : 'warn',
-    title: result.status === 'filled' ? `${verb} ausgeführt: ${p.info.symbol}` : `${verb} fehlgeschlagen: ${p.info.symbol}`,
+    title:
+      result.status === 'filled'
+        ? `${verb} ausgeführt: ${p.info.symbol}`
+        : result.status === 'pending'
+          ? `${verb} gesendet, Ausgang unklar: ${p.info.symbol}`
+          : `${verb} fehlgeschlagen: ${p.info.symbol}`,
     body:
       result.status === 'filled'
         ? `${p.quote.inAmount} ${p.quote.inToken.symbol} → ${p.quote.outAmount} ${p.quote.outToken.symbol} (${w.label}, ${SWAP_CHAINS[chain].name})`

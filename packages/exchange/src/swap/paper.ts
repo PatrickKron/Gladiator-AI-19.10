@@ -216,7 +216,8 @@ export async function recordLiveSwap(
     quote: SwapQuote;
     nativePriceUsd: number;
     txHash: string | null;
-    status: 'filled' | 'failed';
+    /** pending = gesendet, Ausgang unklar (Bestände bleiben, bis die Kette Klarheit gibt) */
+    status: 'filled' | 'failed' | 'pending';
     error: string | null;
     onchain: Map<string, bigint> | null;
   },
