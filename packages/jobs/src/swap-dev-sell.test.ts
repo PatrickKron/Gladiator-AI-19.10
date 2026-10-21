@@ -55,18 +55,20 @@ const net = (async (url: string, init?: RequestInit) => {
     case 'eth_blockNumber':
       return rpc(`0x${head.toString(16)}`);
     case 'eth_getLogs': {
-      const f = body.params[0] as { address?: string; fromBlock: string; toBlock: string; topics: string[] };
+      const f = body.params[0] as { address: string; fromBlock: string; toBlock: string; topics: string[] };
       const [lo, hi] = [Number(BigInt(f.fromBlock)), Number(BigInt(f.toBlock))];
-      if (!f.address && f.topics[1] === padTopic('0x0000000000000000000000000000000000000000') && f.topics[2] === padTopic(DEV)) {
-        // LP-Token-Prägung an den Ersteller (gleiche Tx wie sein Transfer an den Pool)
-        return rpc(lpMintBlocks.filter((b) => b >= lo && b <= hi).map((b) => ({ address: POOL, topics: f.topics, data: word(1n), transactionHash: `0x${b}`, blockNumber: `0x${b.toString(16)}` })));
-      }
-      if (f.address?.toLowerCase() !== MEME || f.topics[1] !== padTopic(DEV)) return rpc([]);
+      if (f.address.toLowerCase() !== MEME || f.topics[1] !== padTopic(DEV)) return rpc([]);
       return rpc(
         devTransfers
           .filter((t) => t.block >= lo && t.block <= hi)
           .map((t) => ({ address: MEME, topics: [ERC20_TRANSFER_TOPIC, padTopic(DEV), padTopic(t.to)], data: word(t.amount), transactionHash: `0x${t.block}`, blockNumber: `0x${t.block.toString(16)}` })),
       );
+    }
+    case 'eth_getTransactionReceipt': {
+      // Beleg: bei Liquidität zusätzlich LP-Token-Prägung (0x0 → Ersteller) in derselben Tx
+      const block = Number(String(body.params[0]).slice(2));
+      const mint = { address: POOL, topics: [ERC20_TRANSFER_TOPIC, padTopic('0x0000000000000000000000000000000000000000'), padTopic(DEV)], data: word(1n) };
+      return rpc({ logs: lpMintBlocks.includes(block) ? [mint] : [] });
     }
     case 'eth_call':
       return rpc(word(18n)); // decimals()

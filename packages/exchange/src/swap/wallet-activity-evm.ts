@@ -346,8 +346,6 @@ async function readSwaps(
  * höchstens `EVM_MAX_BLOCKS` Blöcke je Abruf — liegt der Cursor weiter zurück,
  * holt der nächste Abruf den Rest (lückenlos, nichts übersprungen). Ohne Cursor:
  * nur den Startpunkt (aktuelle bestätigte Blocknummer) bestimmen.
- * Liquidität hinzufügen ist kein Verkauf: Transaktionen, in denen `sender` etwas
- * GEPRÄGT bekommt (LP-Token bzw. Positions-NFT von 0x0), fallen heraus.
  */
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
@@ -369,19 +367,39 @@ export async function fetchTokenOutflows(
       const from = cursor + 1n;
       const to = latest - from + 1n > BigInt(EVM_MAX_BLOCKS) ? from + BigInt(EVM_MAX_BLOCKS) - 1n : latest;
       const logs = (await rpc(chain, url, 'eth_getLogs', [{ address: token, fromBlock: hex(from), toBlock: hex(to), topics: [ERC20_TRANSFER_TOPIC, padTopic(sender)] }], fetchFn)) as EvmLog[];
-      let transfers = (logs ?? [])
+      const transfers = (logs ?? [])
         .filter((l) => lc(l.address) === lc(token) && l.topics[2])
         .map((l) => ({ to: `0x${l.topics[2]!.slice(26)}`.toLowerCase(), amount: l.data && l.data !== '0x' ? BigInt(l.data) : 0n, tx: l.transactionHash }));
-      if (transfers.length > 0) {
-        // Prägungen an den Absender (LP-Token v2, Positions-NFT v3/v4) im selben Bereich → diese Tx = Liquidität, kein Verkauf
-        const mints = (await rpc(chain, url, 'eth_getLogs', [{ fromBlock: hex(from), toBlock: hex(to), topics: [ERC20_TRANSFER_TOPIC, padTopic(ZERO_ADDRESS), padTopic(sender)] }], fetchFn)) as EvmLog[];
-        const lpTx = new Set((mints ?? []).map((l) => l.transactionHash));
-        transfers = transfers.filter((t) => !lpTx.has(t.tx));
-      }
       return { transfers, cursor: to.toString() };
     } catch (err) {
       problems.push(`${new URL(url).host}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   throw new Error(`Kein ${SWAP_CHAINS[chain].name}-RPC liefert die Transfer-Logs (${problems.join(' | ')}).`);
+}
+
+/**
+ * Welche dieser Transaktionen haben `owner` etwas GEPRÄGT (Transfer von 0x0 —
+ * LP-Token v2, Positions-NFT v3/v4)? Dann war der Token-Transfer an den Pool
+ * Liquidität, kein Verkauf. Liest die Belege je Tx (adressfreie Log-Abfragen
+ * lehnen öffentliche Knoten ab); fehlt ein Beleg → Fehler, nie raten.
+ */
+export async function liquidityMintTxs(chain: SwapChainId, txs: string[], owner: string, fetchFn: Fetch = fetch): Promise<Set<string>> {
+  const out = new Set<string>();
+  const problems: string[] = [];
+  for (const url of logRpcCandidates(chain)) {
+    try {
+      for (const tx of new Set(txs)) {
+        const receipt = (await rpc(chain, url, 'eth_getTransactionReceipt', [tx], fetchFn)) as { logs?: EvmLog[] } | null;
+        if (!receipt) throw new Error(`Beleg ${tx} fehlt`);
+        const minted = (receipt.logs ?? []).some((l) => l.topics[0] === ERC20_TRANSFER_TOPIC && l.topics[1] === padTopic(ZERO_ADDRESS) && lc(l.topics[2] ?? '') === padTopic(owner));
+        if (minted) out.add(tx);
+      }
+      return out;
+    } catch (err) {
+      out.clear();
+      problems.push(`${new URL(url).host}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  throw new Error(`Kein ${SWAP_CHAINS[chain].name}-RPC liefert die Belege (${problems.join(' | ')}).`);
 }

@@ -11,6 +11,7 @@ import {
   EVM_LOG_RPCS,
   fetchEvmWalletSwaps,
   fetchTokenOutflows,
+  liquidityMintTxs,
   logRpcCandidates,
   padTopic,
   setEvmRetryDelayForTests,
@@ -275,13 +276,17 @@ describe('echte Daten (Base-RPC)', () => {
     expect(start.transfers).toEqual([]);
     const head = BigInt(start.cursor);
     expect(head).toBeGreaterThan(20_000_000n);
-    // die letzten 200 Blöcke (~7 min): der Router gibt laufend USDC aus
-    const page = await fetchTokenOutflows('base', USDC, UR, head - 200n);
+    // die letzten 40 Blöcke (~80 s; manche Knoten erlauben höchstens 50): der Router gibt laufend USDC aus
+    const page = await fetchTokenOutflows('base', USDC, UR, head - 40n);
     expect(BigInt(page.cursor)).toBeGreaterThanOrEqual(head);
     expect(page.transfers.length).toBeGreaterThan(0);
     for (const t of page.transfers) {
       expect(t.to).toMatch(/^0x[0-9a-f]{40}$/);
       expect(t.amount).toBeGreaterThanOrEqual(0n);
+      expect(t.tx).toMatch(/^0x[0-9a-f]{64}$/);
     }
+    // Swaps des Routers prägen ihm keine LP-Token → echte Belege, keine Liquidität
+    const lp = await liquidityMintTxs('base', page.transfers.slice(0, 3).map((t) => t.tx), UR);
+    expect(lp.size).toBe(0);
   }, 60_000);
 });
