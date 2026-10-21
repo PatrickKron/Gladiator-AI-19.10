@@ -53,6 +53,7 @@ const Marktlage = lazyView(() => import('./views/Marktlage.js'), 'Marktlage');
 const Funktionen = lazyView(() => import('./views/Funktionen.js'), 'Funktionen');
 const Protokoll = lazyView(() => import('./views/Protokoll.js'), 'Protokoll');
 const Traden = lazyView(() => import('./views/Traden.js'), 'Traden');
+const Screener = lazyView(() => import('./views/Screener.js'), 'Screener');
 
 type AuthState = 'restoring' | 'anonymous' | 'authenticated';
 
@@ -66,6 +67,7 @@ type AuthState = 'restoring' | 'anonymous' | 'authenticated';
 const ROUTES = {
   '#/': Dashboard,
   '#/charts': AssetDetail,
+  '#/screener': Screener,
   '#/signals': Signals,
   '#/marktlage': Marktlage,
   '#/pakete': Pakete,

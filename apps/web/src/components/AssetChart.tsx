@@ -21,6 +21,7 @@ import { paneLayout, type PaneSpec } from '../lib/chart-panes.js';
 import { loadTf, pickTf, saveTf } from '../lib/chart-tf.js';
 import { CHART_TFS, type ChartTf } from '../lib/chart-url.js';
 import { loadStrategySlugs, saveStrategySlugs } from '../lib/chart-strategy-markers.js';
+import { cachedCatalog, loadCatalog } from '../lib/indicator-catalog.js';
 import { CATEGORY_KEYS, firstPlotTime, instanceLabel, legendColor, visiblePlotIds, type InstanceStyle, type MenuEntry } from '../lib/indicator-menu.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 import { IndicatorMenu, type PineStrategy } from './IndicatorMenu.js';
@@ -122,24 +123,6 @@ const baseChartOptions = (timeframe: Timeframe, height: number) => ({
 /** Gespeicherte Instanz eines Bibliotheks-Indikators (DB-Zeile, Browser-Form). */
 type IndicatorInstance = { id: string; indicatorId: string; inputs: Record<string, unknown>; style: InstanceStyle; position: number };
 type ComputedItem = Awaited<ReturnType<typeof trpc.indicators.compute.query>>['items'][number];
-
-// Katalog einmal je Sitzung laden (reine Metadaten, ~160 Einträge).
-let catalogCache: MenuEntry[] | null = null;
-let catalogPromise: Promise<MenuEntry[]> | null = null;
-function loadCatalog(): Promise<MenuEntry[]> {
-  if (catalogCache) return Promise.resolve(catalogCache);
-  catalogPromise ??= trpc.indicators.catalog
-    .query()
-    .then((rows) => {
-      catalogCache = rows as MenuEntry[];
-      return catalogCache;
-    })
-    .catch((e: unknown) => {
-      catalogPromise = null;
-      throw e;
-    });
-  return catalogPromise;
-}
 
 function toInstance(row: { id: string; indicatorId: string; inputs: unknown; style: unknown; position: number }): IndicatorInstance {
   return {
@@ -365,7 +348,7 @@ export function AssetChart({
   // Katalog einmal je Sitzung; Instanzen je Nutzer+Symbol in der DB; gerechnet
   // wird auf dem Server (@gladiator/indicators, dieselben Kerzen wie die Engine);
   // der Browser zeichnet die Ergebnisse mit dem IndicatorRenderer der Bibliothek.
-  const [catalog, setCatalog] = useState<MenuEntry[] | 'error' | null>(catalogCache);
+  const [catalog, setCatalog] = useState<MenuEntry[] | 'error' | null>(cachedCatalog());
   const [instances, setInstances] = useState<IndicatorInstance[]>([]);
   const [computed, setComputed] = useState<Map<string, ComputedItem>>(() => new Map());
   const [computing, setComputing] = useState(false);
