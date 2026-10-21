@@ -33,6 +33,8 @@ export type TokenSafety = {
    * nicht gesperrte LP kann der Ersteller jederzeit abziehen (Rug); null = nicht prüfbar.
    */
   lpLockedPct?: number | null;
+  /** Anteil am Gesamtangebot, den die Ersteller-Wallet noch hält (in %); null = nicht prüfbar. */
+  creatorPct?: number | null;
   error: string | null;
 };
 
@@ -40,6 +42,8 @@ export type TokenSafety = {
 export const TOP10_WARN_PCT = 30;
 /** Unter diesem gesperrten/verbrannten LP-Anteil: Warnung (Liquidität kann abgezogen werden). */
 export const LP_LOCKED_WARN_PCT = 80;
+/** Ab diesem Anteil der Ersteller-Wallet: Warnung (ein Verkauf des Erstellers drückt den Kurs). */
+export const CREATOR_WARN_PCT = 5;
 
 type Fetch = typeof fetch;
 
@@ -174,7 +178,11 @@ export function judgeGoPlus(r: GoPlusResult | undefined): TokenSafety {
   if (top10Pct !== null && top10Pct > TOP10_WARN_PCT) warnings.push('top10_concentrated');
   const lpLockedPct = goPlusLpLockedPct(r.lp_holders as Parameters<typeof goPlusLpLockedPct>[0]);
   if (lpLockedPct !== null && lpLockedPct < LP_LOCKED_WARN_PCT) warnings.push('lp_unlocked');
-  return { checked: true, source: 'goplus', severe, warnings, taxPct, top10Pct, lpLockedPct, error: null };
+  // Ersteller-Anteil (GoPlus `creator_percent`, 0–1); fehlt er, ehrlich null
+  const creatorRaw = r.creator_percent === undefined || r.creator_percent === '' ? Number.NaN : Number(r.creator_percent);
+  const creatorPct = Number.isFinite(creatorRaw) ? Math.round(creatorRaw * 100 * 100) / 100 : null;
+  if (creatorPct !== null && creatorPct > CREATOR_WARN_PCT) warnings.push('creator_holds');
+  return { checked: true, source: 'goplus', severe, warnings, taxPct, top10Pct, lpLockedPct, creatorPct, error: null };
 }
 
 /**

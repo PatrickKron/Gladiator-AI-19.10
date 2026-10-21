@@ -912,7 +912,7 @@ function SafetyBadges({ safety }: { safety: Safety | null }) {
       <span style={{ color: 'var(--color-mut)' }}>{t('swap.safety')}:</span>
       {safety.severe.length === 0 && safety.warnings.length === 0 && badge('ok', 'var(--color-pos)')}
       {safety.severe.map((f) => badge(f, 'var(--color-neg)'))}
-      {safety.warnings.filter((f) => f !== 'top10_concentrated' && f !== 'lp_unlocked').map((f) => badge(f, 'var(--color-warn)'))}
+      {safety.warnings.filter((f) => !['top10_concentrated', 'lp_unlocked', 'creator_holds'].includes(f)).map((f) => badge(f, 'var(--color-warn)'))}
       {safety.top10Pct != null && (
         // Top-10-Wallets (ohne Pools/Locks): gelb ab der Warnschwelle, sonst nur zur Info
         <span
@@ -937,6 +937,19 @@ function SafetyBadges({ safety }: { safety: Safety | null }) {
           title={t('swap.lpLockedHint')}
         >
           {t('swap.lpLocked', { pct: fmtPct(safety.lpLockedPct, i18n.language) })}
+        </span>
+      )}
+      {safety.creatorPct != null && (
+        // Ersteller-Wallet hält noch: gelb über der Warnschwelle, sonst nur zur Info
+        <span
+          className="rounded border px-1.5 py-0.5"
+          style={{
+            borderColor: safety.warnings.includes('creator_holds') ? 'var(--color-warn)' : 'var(--color-line)',
+            color: safety.warnings.includes('creator_holds') ? 'var(--color-warn)' : 'var(--color-mut)',
+          }}
+          title={t('swap.creatorHint')}
+        >
+          {t('swap.creator', { pct: fmtPct(safety.creatorPct, i18n.language) })}
         </span>
       )}
       {safety.taxPct !== null && safety.taxPct > 0 && (
