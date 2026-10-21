@@ -64,15 +64,68 @@ const DEFAULT_TOGGLES: Record<ToggleKey, boolean> = {
   ema: true,
   bollinger: false,
   volume: true,
-  structure: true,
-  zones: true,
-  liquidity: true,
+  structure: false,
+  zones: false,
+  liquidity: false,
   pd: false,
   signals: true,
-  rsi: true,
+  rsi: false,
   macd: false,
   atr: false,
 };
+const TOGGLES_KEY = 'gladiator.chartToggles';
+const SMC_KEYS: ToggleKey[] = ['structure', 'zones', 'liquidity'];
+const BUILTIN_KEYS: ToggleKey[] = ['ema', 'bollinger', 'volume', 'rsi', 'macd', 'atr'];
+const SMC_ALL_KEYS: ToggleKey[] = ['structure', 'zones', 'liquidity', 'pd', 'signals'];
+
+/** Ansicht (welche Serien der Chart zeigt) ist eine Browser-Vorliebe — Unbekanntes → Standard. */
+function loadToggles(): Record<ToggleKey, boolean> {
+  try {
+    const raw = localStorage.getItem(TOGGLES_KEY);
+    if (!raw) return DEFAULT_TOGGLES;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const out = { ...DEFAULT_TOGGLES };
+    for (const k of Object.keys(DEFAULT_TOGGLES) as ToggleKey[]) if (typeof parsed[k] === 'boolean') out[k] = parsed[k] as boolean;
+    return out;
+  } catch {
+    return DEFAULT_TOGGLES;
+  }
+}
+function saveToggles(t: Record<ToggleKey, boolean>): void {
+  try {
+    localStorage.setItem(TOGGLES_KEY, JSON.stringify(t));
+  } catch {
+    // nur Komfort
+  }
+}
+
+/** Kleines Popover unter einem Werkzeug-Knopf (Ansicht, Zeichnen): Klick außerhalb oder Esc schließt. */
+function ToolPopover({ label, active, open, onToggle, onClose, children }: { label: string; active?: boolean; open: boolean; onToggle: () => void; onClose: () => void; children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('mousedown', onDoc);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open, onClose]);
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" className="tbtn" aria-expanded={open} aria-pressed={active} onClick={onToggle}>
+        {label} <span aria-hidden="true">▾</span>
+      </button>
+      {open && <div className="popover">{children}</div>}
+    </div>
+  );
+}
 
 type SignalMarker = {
   createdAt: string;
@@ -152,6 +205,7 @@ export function AssetChart({
   rememberTf = true,
   onTimeframeChange,
   venue = 'binance',
+  mainHeight = MAIN_HEIGHT,
 }: {
   symbol: string;
   /** Kerzenquelle: 'binance' (Krypto, Live-Ticks) oder 'twelvedata'/'yahoo' (Aktien/ETF/Forex, nur DB-Kerzen). */
@@ -164,6 +218,8 @@ export function AssetChart({
   /** false = Zelle eines Mehrfach-Layouts: Zeitrahmen nicht je Symbol merken (die Zelle hält ihn selbst). */
   rememberTf?: boolean;
   onTimeframeChange?: (tf: Timeframe) => void;
+  /** Höhe des Kurs-Charts in px (Vollfläche auf der Chart-Seite, kleiner in Zellen). */
+  mainHeight?: number;
 }) {
   const { t } = useTranslation();
   // Timeframe pro Asset gemerkt (P0.2): Query-Override > gemerkt > Default.
@@ -200,7 +256,23 @@ export function AssetChart({
     };
   }, [symbol, venue]);
   const shownTfs = CHART_TFS.filter((f) => availableTfs.includes(f) || f === tf);
-  const [toggles, setToggles] = useState<Record<ToggleKey, boolean>>(DEFAULT_TOGGLES);
+  const [toggles, setTogglesState] = useState<Record<ToggleKey, boolean>>(loadToggles);
+  const setToggle = (key: ToggleKey, on: boolean) =>
+    setTogglesState((prev) => {
+      const next = { ...prev, [key]: on };
+      saveToggles(next);
+      return next;
+    });
+  const smcOn = SMC_KEYS.every((k) => toggles[k]);
+  const toggleSmc = () =>
+    setTogglesState((prev) => {
+      const next = { ...prev };
+      for (const k of SMC_KEYS) next[k] = !smcOn;
+      saveToggles(next);
+      return next;
+    });
+  const [viewOpen, setViewOpen] = useState(false);
+  const [drawOpen, setDrawOpen] = useState(false);
   const [data, setData] = useState<ChartData | null>(null);
   const [signals, setSignals] = useState<SignalMarker[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'empty'>('loading');
@@ -649,8 +721,8 @@ export function AssetChart({
         specs.push({ key: `ind:${inst.id}`, label: instanceLabel(entry, { ...entry.defaultInputs, ...inst.inputs }) });
       }
     }
-    return paneLayout(specs, MAIN_HEIGHT, PANE_HEIGHT);
-  }, [data, toggles, catalog, instances]);
+    return paneLayout(specs, mainHeight, PANE_HEIGHT);
+  }, [data, toggles, catalog, instances, mainHeight]);
 
   /** Nur wenn sich die erste Wert-Kerze eines Indikators ändert, soll der Warmup (und damit der Chart) neu gebaut werden. */
   const indWarmupKey = useMemo(
@@ -1147,32 +1219,36 @@ export function AssetChart({
   const settingsInst = settingsFor ? instances.find((i) => i.id === settingsFor) : undefined;
   const settingsEntry = settingsInst ? entryOf(settingsInst.indicatorId) : undefined;
 
-  const chip = (key: ToggleKey, label: string) => (
-    <button
-      key={key}
-      onClick={() => setToggles((prev) => ({ ...prev, [key]: !prev[key] }))}
-      className="rounded border px-2 py-0.5 text-[11px] transition-colors"
-      style={{
-        borderColor: toggles[key] ? 'rgba(96,165,250,0.5)' : 'var(--color-line)',
-        color: toggles[key] ? 'var(--color-cyan)' : 'var(--color-mut)',
-        background: toggles[key] ? 'rgba(96,165,250,0.08)' : 'transparent',
-      }}
-    >
-      {label}
-    </button>
+  const viewRow = (key: ToggleKey, label: string) => (
+    <label key={key}>
+      <input type="checkbox" className="accent-[#3b82f6]" checked={toggles[key]} onChange={(e) => setToggle(key, e.target.checked)} />
+      <span style={{ color: toggles[key] ? 'var(--color-ink)' : 'var(--color-mut)' }}>{label}</span>
+    </label>
   );
-
-  const toolChip = (key: Exclude<DrawingTool, 'none'>, label: string) => (
+  const viewLabel: Record<ToggleKey, string> = {
+    ema: 'EMA 20/50/200',
+    bollinger: 'Bollinger',
+    volume: t('chart.volume'),
+    rsi: 'RSI 14',
+    macd: 'MACD 12/26/9',
+    atr: 'ATR 14',
+    structure: 'BOS/CHoCH',
+    zones: 'OB/FVG',
+    liquidity: t('chart.liquidity'),
+    pd: t('chart.pd'),
+    signals: 'Signale',
+  };
+  const toolRow = (key: Exclude<DrawingTool, 'none'>, label: string) => (
     <button
       key={key}
-      onClick={() => selectTool(key)}
-      aria-pressed={tool === key}
-      className="rounded border px-2 py-0.5 text-[11px] transition-colors"
-      style={{
-        borderColor: tool === key ? 'rgba(96,165,250,0.5)' : 'var(--color-line)',
-        color: tool === key ? 'var(--color-cyan)' : 'var(--color-mut)',
-        background: tool === key ? 'rgba(96,165,250,0.08)' : 'transparent',
+      type="button"
+      onClick={() => {
+        selectTool(tool === key ? 'none' : key);
+        setDrawOpen(false);
       }}
+      aria-pressed={tool === key}
+      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px]"
+      style={{ color: tool === key ? 'var(--color-ink)' : 'var(--color-mut)', background: tool === key ? 'rgba(59,130,246,0.16)' : 'transparent' }}
     >
       {label}
     </button>
@@ -1180,91 +1256,74 @@ export function AssetChart({
 
   return (
     <div>
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <div className="flex flex-wrap gap-1">
+      {/* EINE Werkzeugzeile (Welle C): Zeitrahmen · Ansicht ▾ · Smart Money · Bibliothek · Zeichnen ▾ · Replay */}
+      <div className="toolbar mb-2" role="toolbar" aria-label={t('chart.view')}>
+        <div className="flex gap-0.5 rounded-lg p-0.5" style={{ background: 'var(--color-bg3)' }}>
           {shownTfs.map((f) => (
             <button
               key={f}
               onClick={() => changeTf(f)}
-              className="num rounded border px-2 py-0.5 text-[11px] transition-colors"
-              style={{
-                borderColor: tf === f ? 'rgba(96,165,250,0.5)' : 'var(--color-line)',
-                color: tf === f ? 'var(--color-cyan)' : 'var(--color-mut)',
-                background: tf === f ? 'rgba(96,165,250,0.08)' : 'transparent',
-              }}
+              aria-pressed={tf === f}
+              className="num rounded-md px-2 py-0.5 text-[11px] font-semibold transition-colors"
+              style={tf === f ? { background: 'rgba(59,130,246,0.2)', color: 'var(--color-ink)' } : { color: 'var(--color-mut)' }}
             >
               {f}
             </button>
           ))}
         </div>
-        <span className="mx-1 h-4 w-px" style={{ background: 'var(--color-line)' }} />
-        <div className="flex flex-wrap gap-1">
-          {chip('ema', 'EMA 20/50/200')}
-          {chip('bollinger', 'Bollinger')}
-          {chip('volume', t('chart.volume'))}
-          {chip('structure', 'BOS/CHoCH')}
-          {chip('zones', 'OB/FVG')}
-          {chip('liquidity', t('chart.liquidity'))}
-          {chip('pd', t('chart.pd'))}
-          {chip('signals', 'Signale')}
-          {chip('rsi', 'RSI')}
-          {chip('macd', 'MACD')}
-          {chip('atr', 'ATR')}
-        </div>
-        <span className="mx-1 h-4 w-px" style={{ background: 'var(--color-line)' }} />
-        {/* Indikator-Bibliothek + Strategie-Marker — violett = „meins" */}
+        <ToolPopover label={t('chart.view')} open={viewOpen} onToggle={() => setViewOpen((o) => !o)} onClose={() => setViewOpen(false)}>
+          <p className="label px-1.5 pb-1">{t('chart.builtin')}</p>
+          {BUILTIN_KEYS.map((k) => viewRow(k, viewLabel[k]))}
+          <p className="label px-1.5 pt-2 pb-1">{t('chart.smc')}</p>
+          {SMC_ALL_KEYS.map((k) => viewRow(k, viewLabel[k]))}
+          <p className="label px-1.5 pt-2">{t('chart.viewHint')}</p>
+        </ToolPopover>
+        <button type="button" className="tbtn" aria-pressed={smcOn} onClick={toggleSmc} title={t('chart.smcHint')}>
+          {t('chart.smc')}
+        </button>
         <button
+          type="button"
           onClick={() => setMenuOpen(true)}
-          className="rounded border px-2 py-0.5 text-[11px] transition-colors"
+          className="tbtn"
           aria-haspopup="dialog"
           aria-expanded={menuOpen}
-          style={{
-            borderColor: instances.length > 0 || strategySlugs.length > 0 ? 'rgba(148,163,184,0.55)' : 'var(--color-line)',
-            color: instances.length > 0 || strategySlugs.length > 0 ? 'var(--color-violet)' : 'var(--color-mut)',
-            background: menuOpen ? 'rgba(148,163,184,0.1)' : 'transparent',
-          }}
+          aria-pressed={instances.length > 0 || strategySlugs.length > 0}
         >
-          ＋ {t('chart.ind.button')}
-          {instances.length > 0 ? <span className="num"> ({instances.length})</span> : null}
+          ＋ {t('chart.library')}
+          {instances.length > 0 ? <span className="num"> {instances.length}</span> : null}
           {strategySlugs.length > 0 ? (
-            <span className="num" style={{ color: '#f59e0b' }}>
+            <span className="num" style={{ color: 'var(--color-warn)' }}>
               {' '}
               ▣{strategySlugs.length}
             </span>
           ) : null}
         </button>
-        <button
-          onClick={() => (replay ? setReplay(null) : startReplay())}
-          className="rounded border px-2 py-0.5 text-[11px] transition-colors"
-          aria-pressed={replay !== null}
-          style={{
-            borderColor: replay ? 'rgba(245,182,66,0.6)' : 'var(--color-line)',
-            color: replay ? 'var(--color-warn)' : 'var(--color-mut)',
-            background: replay ? 'rgba(245,182,66,0.1)' : 'transparent',
-          }}
-        >
+        <ToolPopover label={t('chart.drawMenu')} active={tool !== 'none'} open={drawOpen} onToggle={() => setDrawOpen((o) => !o)} onClose={() => setDrawOpen(false)}>
+          <div role="group" aria-label={t('chart.draw.title')}>
+            {toolRow('hline', `― ${t('chart.draw.hline')}`)}
+            {toolRow('trend', `╱ ${t('chart.draw.trend')}`)}
+            {toolRow('fib', `≡ ${t('chart.draw.fib')}`)}
+            {toolRow('move', `✥ ${t('chart.draw.move')}`)}
+            {toolRow('delete', `✕ ${t('chart.draw.delete')}`)}
+            <button
+              type="button"
+              onClick={() => {
+                clearDrawings();
+                setDrawOpen(false);
+              }}
+              disabled={drawings.length === 0}
+              className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] disabled:opacity-40"
+              style={{ color: 'var(--color-neg)' }}
+              title={t('chart.draw.count', { count: drawings.length })}
+            >
+              {t('chart.draw.clear')}
+              {drawings.length > 0 ? <span className="num"> ({drawings.length})</span> : null}
+            </button>
+          </div>
+        </ToolPopover>
+        <button type="button" onClick={() => (replay ? setReplay(null) : startReplay())} className="tbtn tbtn--warn" aria-pressed={replay !== null}>
           ⏮ {t('chart.replay.button')}
         </button>
-        <span className="mx-1 h-4 w-px" style={{ background: 'var(--color-line)' }} />
-        {/* Zeichenwerkzeuge (Plan §5) — gleicher Chip-Stil wie die Indikator-Schalter */}
-        <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t('chart.draw.title')}>
-          <span className="label mr-0.5">{t('chart.draw.title')}</span>
-          {toolChip('hline', `― ${t('chart.draw.hline')}`)}
-          {toolChip('trend', `╱ ${t('chart.draw.trend')}`)}
-          {toolChip('fib', `≡ ${t('chart.draw.fib')}`)}
-          {toolChip('move', `✥ ${t('chart.draw.move')}`)}
-          {toolChip('delete', `✕ ${t('chart.draw.delete')}`)}
-          <button
-            onClick={clearDrawings}
-            disabled={drawings.length === 0}
-            className="rounded border px-2 py-0.5 text-[11px] transition-colors disabled:opacity-40"
-            style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
-            title={t('chart.draw.count', { count: drawings.length })}
-          >
-            {t('chart.draw.clear')}
-            {drawings.length > 0 ? <span className="num"> ({drawings.length})</span> : null}
-          </button>
-        </div>
       </div>
 
       {replayMsg && (

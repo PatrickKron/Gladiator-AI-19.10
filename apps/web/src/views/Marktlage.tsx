@@ -4,6 +4,7 @@ import { MacroPanels } from '../components/MacroPanels.js';
 import { RiskPanels } from '../components/RiskPanels.js';
 import { Entscheidung } from './Entscheidung.js';
 import { DataSourcesPanel } from '../components/DataSourcesPanel.js';
+import { RegimeStrip } from '../components/RegimeStrip.js';
 import { useHashTab } from '../lib/use-hash-tab.js';
 
 /**
@@ -27,6 +28,7 @@ export function Marktlage() {
   return (
     <div>
       <PageHeader title={t('ia.page_marketState')} subtitle={subtitle[tab]} />
+      <RegimeStrip />
       <TabBar
         label={t('ia.page_marketState')}
         active={tab}

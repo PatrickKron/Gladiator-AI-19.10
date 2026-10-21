@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { PageHeader, Panel } from '../components/ui.js';
+import { Panel } from '../components/ui.js';
 import { AssetSelect, getSelectedAsset, getSelectedVenue, setSelectedAsset, setSelectedVenue } from '../components/AssetSelect.js';
 import { AssetChart } from '../components/AssetChart.js';
 import { OrderBookPanel } from '../components/OrderBookPanel.js';
@@ -111,39 +111,41 @@ export function AssetDetail() {
 
   return (
     <div>
-      <PageHeader
-        title={t('ia.page_chart')}
-        subtitle={t('asset.subtitle')}
-        right={
-          <div className="flex items-center gap-3">
-            {price != null && (
-              <span className="num text-sm">
-                {price.toLocaleString(appLocale(), { maximumFractionDigits: price >= 1000 ? 0 : 4 })} $
-                {change != null && (
-                  <span className="ml-1.5 text-xs" style={{ color: change >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
-                    {change >= 0 ? '▲' : '▼'} {Math.abs(change).toFixed(2)} %
-                  </span>
-                )}
-              </span>
-            )}
-            <FavStarSymbol symbol={asset} />
-            <AssetSelect value={asset} venue={venue} onChange={changeAsset} />
+      {/* Kompakter Kopf (Welle C): Asset · Kurs · Ansicht 1/2/4 · Kontext — der Chart bekommt die Fläche */}
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex items-center gap-2">
+          <AssetSelect value={asset} venue={venue} onChange={changeAsset} />
+          <FavStarSymbol symbol={asset} />
+        </div>
+        {price != null && (
+          <span className="num flex items-center gap-2 text-sm font-semibold">
+            {price.toLocaleString(appLocale(), { maximumFractionDigits: price >= 1000 ? 0 : 4 })} $
+            {change != null && <span className={`chip ${change >= 0 ? 'chip--pos' : 'chip--neg'}`}>{change >= 0 ? '▲' : '▼'} {Math.abs(change).toFixed(2)} %</span>}
+          </span>
+        )}
+        <div className="ml-auto flex items-center gap-1.5">
+          <div className="flex gap-0.5 rounded-lg p-0.5" style={{ background: 'var(--color-bg3)' }} role="group" aria-label={t('asset.layout')}>
+            {CHART_LAYOUTS.map((l) => (
+              <button
+                key={l}
+                type="button"
+                onClick={() => {
+                  changeLayout(l);
+                  if (tab !== 'chart') changeTab('chart');
+                }}
+                aria-pressed={layout === l && tab === 'chart'}
+                title={t(`asset.layout_${l}`)}
+                className="rounded-md px-2 py-0.5 text-[12px] transition-colors"
+                style={layout === l && tab === 'chart' ? { background: 'rgba(59,130,246,0.2)', color: 'var(--color-ink)' } : { color: 'var(--color-mut)' }}
+              >
+                {l === 1 ? '▭' : l === 2 ? '▯▯' : '⊞'}
+              </button>
+            ))}
           </div>
-        }
-      />
-
-      {/* Tab-Leiste */}
-      <div className="mb-5 flex gap-1 overflow-x-auto border-b" style={{ borderColor: 'var(--color-line)' }}>
-        {ASSET_TABS.map((tb) => (
-          <button
-            key={tb}
-            onClick={() => changeTab(tb)}
-            className="shrink-0 border-b-2 px-4 py-2 text-sm transition-colors"
-            style={tab === tb ? { borderColor: 'var(--color-cyan)', color: 'var(--color-ink)' } : { borderColor: 'transparent', color: 'var(--color-mut)' }}
-          >
-            {t(`asset.tab_${tb}`)}
+          <button type="button" className="tbtn" aria-pressed={tab === 'kontext'} onClick={() => changeTab(tab === 'kontext' ? 'chart' : 'kontext')}>
+            {t('chart.context')}
           </button>
-        ))}
+        </div>
       </div>
 
       {tab === 'chart' && (
@@ -153,30 +155,11 @@ export function AssetDetail() {
             <Watchlist value={asset} onSelect={changeAsset} />
           </div>
           <div className="min-w-0">
-            <div className="mb-2 flex flex-wrap items-center gap-1.5" role="group" aria-label={t('asset.layout')}>
-              <span className="label mr-1">{t('asset.layout')}</span>
-              {CHART_LAYOUTS.map((l) => (
-                <button
-                  key={l}
-                  type="button"
-                  onClick={() => changeLayout(l)}
-                  aria-pressed={layout === l}
-                  className="rounded border px-2 py-0.5 text-[11px] transition-colors"
-                  style={{
-                    borderColor: layout === l ? 'rgba(96,165,250,0.5)' : 'var(--color-line)',
-                    color: layout === l ? 'var(--color-cyan)' : 'var(--color-mut)',
-                    background: layout === l ? 'rgba(96,165,250,0.08)' : 'transparent',
-                  }}
-                >
-                  {l === 1 ? '▭' : l === 2 ? '▯▯' : '⊞'} {t(`asset.layout_${l}`)}
-                </button>
-              ))}
-              {layout > 1 && <span className="label ml-2">{t('asset.layoutHint')}</span>}
-            </div>
             <div className={`grid gap-4 ${layoutGridClass(layout)}`}>
-              <Panel label={venue === 'binance' ? asset : `${asset} · ${venue === 'twelvedata' ? 'Twelve Data' : 'Yahoo'}`} stagger={1}>
-                <AssetChart symbol={asset} venue={venue} timeframeOverride={linked.tf ?? undefined} />
-              </Panel>
+              <section className="glass reveal p-3" style={{ '--stagger': 1 } as React.CSSProperties}>
+                {venue !== 'binance' && <p className="label mb-1 px-1">{`${asset} · ${venue === 'twelvedata' ? 'Twelve Data' : 'Yahoo'}`}</p>}
+                <AssetChart symbol={asset} venue={venue} timeframeOverride={linked.tf ?? undefined} mainHeight={layout === 1 ? 460 : 340} />
+              </section>
               {cells.map((cell, i) => (
                 <Panel key={i} label={`${cell.symbol} · ${cell.tf}`} stagger={1}>
                   <div className="mb-2 flex justify-end">
@@ -187,12 +170,12 @@ export function AssetDetail() {
               ))}
             </div>
             {venue === 'binance' ? (
-              <>
-                <button type="button" onClick={toggleBook} className="label mt-3 rounded border px-2 py-1" style={{ borderColor: 'var(--color-line)' }}>
-                  {bookOpen ? t('market.hideBook') : t('market.showBook')}
+              <div className="mt-3">
+                <button type="button" onClick={toggleBook} className="tbtn" aria-expanded={bookOpen}>
+                  {t('chart.orderbook')} {bookOpen ? '▴' : '▾'}
                 </button>
                 {bookOpen && <OrderBookPanel symbol={asset} />}
-              </>
+              </div>
             ) : (
               <p className="label mt-3">{t('market.bookCryptoOnly')}</p>
             )}
