@@ -1923,6 +1923,9 @@ export const es: Catalog = {
     err_unknown: 'Error desconocido.',
   },
   swap: {
+    avgEntryHint: "Precio medio de entrada (coste incl. comisiones ÷ cantidad)",
+    initials: "Recuperar inversión ({{pct}})",
+    initialsHint: "Vende lo justo para recuperar el coste (incl. ~1 % de margen por comisiones); el resto sigue como posición gratuita.",
     copyStats: "Copias: {{buys}} compras · {{sells}} ventas ({{wins}} con ganancia) · invertido {{invested}} ·",
     copyRealized: "realizado {{pnl}} (paper)",
     kind_dca: "DCA",

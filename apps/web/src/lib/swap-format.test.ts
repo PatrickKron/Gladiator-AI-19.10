@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { de } from '../i18n/de.js';
-import { bpsLabel, fmtAmount, fmtUsd, pricePrecision, slippageChoices, swapReasonKey, poolAge } from './swap-format.js';
+import { bpsLabel, fmtAmount, fmtUsd, pricePrecision, slippageChoices, swapReasonKey, poolAge, avgEntryUsd, initialsPercent, pnlPercent } from './swap-format.js';
 
 describe('swap-format', () => {
   it('fmtUsd: normale Beträge, Meme-Preise, kompakt', () => {
@@ -52,5 +52,29 @@ describe('poolAge', () => {
     expect(poolAge('2026-10-17T12:00:00Z', 'en', now)).toBe('3 days ago');
     expect(poolAge(null, 'en', now)).toBe('—');
     expect(poolAge('kaputt', 'en', now)).toBe('—');
+  });
+});
+
+describe('initialsPercent', () => {
+  it('Einstand zurück mit 1 % Puffer, aufgerundet; nur im Gewinn', () => {
+    expect(initialsPercent(100, 400)).toBe(25.25); // 101 / 400
+    expect(initialsPercent(100, 300)).toBe(33.67);
+    expect(initialsPercent(100, 100)).toBeNull(); // kein Gewinn
+    expect(initialsPercent(100, 80)).toBeNull();
+    expect(initialsPercent(100, 100.5)).toBeNull(); // Puffer ≥ 100 % → Komplettverkauf
+    expect(initialsPercent(0, 50)).toBeNull();
+    expect(initialsPercent(null, 50)).toBeNull();
+  });
+});
+
+describe('pnlPercent / avgEntryUsd', () => {
+  it('Prozent vom Einstand und Ø-Einstieg; fehlende Werte null', () => {
+    expect(pnlPercent(50, 200)).toBe(25);
+    expect(pnlPercent(-20, 80)).toBe(-25);
+    expect(pnlPercent(null, 80)).toBeNull();
+    expect(pnlPercent(5, 0)).toBeNull();
+    expect(avgEntryUsd(180, '9000000')).toBeCloseTo(0.00002, 10);
+    expect(avgEntryUsd(0, '5')).toBeNull();
+    expect(avgEntryUsd(10, '0')).toBeNull();
   });
 });

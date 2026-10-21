@@ -60,3 +60,28 @@ export function poolAge(iso: string | null, lang: string, now = Date.now()): str
   if (sec < 86_400) return rtf.format(-Math.round(sec / 3600), 'hour');
   return rtf.format(-Math.round(sec / 86_400), 'day');
 }
+
+/**
+ * „Einsatz zurückholen“ (Trojan: „Sell Initials“): Anteil des Bestands in %,
+ * dessen Verkauf den Einstand zurückbringt — mit 1 % Puffer für Pool-Gebühr
+ * und Preis-Einfluss, auf 0,01 % aufgerundet. Nur sinnvoll im Gewinn; sonst
+ * null (dann wäre es ein Komplettverkauf).
+ */
+export function initialsPercent(costUsd: number | null, valueUsd: number | null): number | null {
+  if (costUsd === null || valueUsd === null || !(costUsd > 0) || !(valueUsd > costUsd)) return null;
+  const pct = Math.ceil(((costUsd * 1.01) / valueUsd) * 10_000) / 100;
+  return pct >= 100 ? null : pct;
+}
+
+/** Gewinn/Verlust in % des Einstands; ohne Einstand oder Wert null (nie 0 geraten). */
+export function pnlPercent(pnlUsd: number | null, costUsd: number | null): number | null {
+  if (pnlUsd === null || costUsd === null || !(costUsd > 0) || !Number.isFinite(pnlUsd)) return null;
+  return (pnlUsd / costUsd) * 100;
+}
+
+/** Durchschnittlicher Einstiegspreis je Token (USD), aus Einstand und Menge. */
+export function avgEntryUsd(costUsd: number | null, amount: string): number | null {
+  const n = Number(amount);
+  if (costUsd === null || !(costUsd > 0) || !(n > 0)) return null;
+  return costUsd / n;
+}
