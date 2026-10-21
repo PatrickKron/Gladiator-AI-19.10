@@ -41,7 +41,7 @@ describe('evaluateSwapOrder', () => {
 describe('evaluateRugGuard', () => {
   it('Liquiditäts-Hoch zieht nach; Auslösung erst beim Abfall um den Prozentsatz; ohne Liquidität nie', () => {
     let st = { dropPct: 50, peakLiquidityUsd: 100_000 as number | null };
-    let r = evaluateRugGuard(st, 150_000);
+    const r = evaluateRugGuard(st, 150_000);
     expect(r).toEqual({ trigger: false, peakLiquidityUsd: 150_000 });
     st = { ...st, peakLiquidityUsd: r.peakLiquidityUsd };
     expect(evaluateRugGuard(st, 76_000).trigger).toBe(false);
