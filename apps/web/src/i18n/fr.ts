@@ -1923,6 +1923,7 @@ export const fr: Catalog = {
     err_unknown: 'Erreur inconnue.',
   },
   swap: {
+    avgEntryHint: "Prix d'entrée moyen (coût frais inclus ÷ quantité)",
     initials: "Récupérer la mise ({{pct}})",
     initialsHint: "Vend juste assez pour récupérer la mise (avec ~1 % de marge pour les frais) — le reste continue en position gratuite.",
     copyStats: "Copies : {{buys}} achats · {{sells}} ventes ({{wins}} gagnantes) · investi {{invested}} ·",

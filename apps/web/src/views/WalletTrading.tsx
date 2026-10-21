@@ -6,7 +6,7 @@ import { TokenDiscovery } from '../components/TokenDiscovery.js';
 import { WatchedWallets } from '../components/WatchedWallets.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
-import { bpsLabel, fmtAmount, fmtPct, fmtUsd, initialsPercent, slippageChoices, swapReasonKey } from '../lib/swap-format.js';
+import { avgEntryUsd, bpsLabel, fmtAmount, fmtPct, fmtUsd, initialsPercent, pnlPercent, slippageChoices, swapReasonKey } from '../lib/swap-format.js';
 
 /**
  * Wallet-Trading (Vision-Punkt 5, „wie Trojan, für alle Wallets"):
@@ -501,7 +501,10 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
                   </tr>
                 </thead>
                 <tbody>
-                  {portfolio.holdings.map((h) => (
+                  {portfolio.holdings.map((h) => {
+                    const pct = h.native ? null : pnlPercent(h.pnlUsd, h.costUsd);
+                    const entry = h.native ? null : avgEntryUsd(h.costUsd, h.amount);
+                    return (
                     <tr key={h.token} className="border-t" style={{ borderColor: 'var(--color-line)' }}>
                       <td className="py-1.5">
                         {h.native ? (
@@ -512,13 +515,22 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
                           </button>
                         )}
                       </td>
-                      <td className="text-right">{fmtAmount(h.amount, lang)}</td>
+                      <td className="text-right">
+                        {fmtAmount(h.amount, lang)}
+                        {entry !== null && (
+                          <span className="block text-[10px]" style={{ color: 'var(--color-mut)' }} title={t('swap.avgEntryHint')}>
+                            Ø {fmtUsd(entry, lang)}
+                          </span>
+                        )}
+                      </td>
                       <td className="text-right">{h.valueUsd === null ? '—' : fmtUsd(h.valueUsd, lang)}</td>
                       <td className="text-right" style={{ color: h.pnlUsd === null ? undefined : h.pnlUsd >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
                         {h.pnlUsd === null ? '—' : fmtUsd(h.pnlUsd, lang)}
+                        {pct !== null && <span className="block text-[10px]">{`${pct > 0 ? '+' : ''}${fmtPct(pct, lang)}`}</span>}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </>

@@ -72,3 +72,16 @@ export function initialsPercent(costUsd: number | null, valueUsd: number | null)
   const pct = Math.ceil(((costUsd * 1.01) / valueUsd) * 10_000) / 100;
   return pct >= 100 ? null : pct;
 }
+
+/** Gewinn/Verlust in % des Einstands; ohne Einstand oder Wert null (nie 0 geraten). */
+export function pnlPercent(pnlUsd: number | null, costUsd: number | null): number | null {
+  if (pnlUsd === null || costUsd === null || !(costUsd > 0) || !Number.isFinite(pnlUsd)) return null;
+  return (pnlUsd / costUsd) * 100;
+}
+
+/** Durchschnittlicher Einstiegspreis je Token (USD), aus Einstand und Menge. */
+export function avgEntryUsd(costUsd: number | null, amount: string): number | null {
+  const n = Number(amount);
+  if (costUsd === null || !(costUsd > 0) || !(n > 0)) return null;
+  return costUsd / n;
+}
