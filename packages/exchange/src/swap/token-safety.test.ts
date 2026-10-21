@@ -119,15 +119,18 @@ describe('echte Daten (Solana-RPC, GoPlus)', () => {
     const fresh = (await fetchTokenDiscovery('solana', 'new')).slice(0, 5);
     expect(fresh.length).toBeGreaterThan(0);
     const results: (number | null)[] = [];
+    const problems: string[] = [];
     for (const t of fresh) {
       try {
         results.push(await fetchSolanaTop10Pct(t.address));
-      } catch {
+      } catch (err) {
+        problems.push(`${t.symbol}: ${err instanceof Error ? err.message : String(err)}`);
         results.push(null);
       }
     }
     const ok = results.filter((x): x is number => x !== null);
-    expect(ok.length).toBeGreaterThan(0);
+    // bei Fehlschlag die echten RPC-Antworten zeigen (Diagnose)
+    expect(ok.length, problems.join(' | ')).toBeGreaterThan(0);
     for (const pct of ok) {
       expect(pct).toBeGreaterThanOrEqual(0);
       expect(pct).toBeLessThanOrEqual(100);
