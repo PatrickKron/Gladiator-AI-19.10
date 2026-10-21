@@ -912,7 +912,20 @@ function SafetyBadges({ safety }: { safety: Safety | null }) {
       <span style={{ color: 'var(--color-mut)' }}>{t('swap.safety')}:</span>
       {safety.severe.length === 0 && safety.warnings.length === 0 && badge('ok', 'var(--color-pos)')}
       {safety.severe.map((f) => badge(f, 'var(--color-neg)'))}
-      {safety.warnings.map((f) => badge(f, 'var(--color-warn)'))}
+      {safety.warnings.filter((f) => f !== 'top10_concentrated').map((f) => badge(f, 'var(--color-warn)'))}
+      {safety.top10Pct != null && (
+        // Top-10-Wallets (ohne Pools/Locks): gelb ab der Warnschwelle, sonst nur zur Info
+        <span
+          className="rounded border px-1.5 py-0.5"
+          style={{
+            borderColor: safety.warnings.includes('top10_concentrated') ? 'var(--color-warn)' : 'var(--color-line)',
+            color: safety.warnings.includes('top10_concentrated') ? 'var(--color-warn)' : 'var(--color-mut)',
+          }}
+          title={t('swap.top10Hint')}
+        >
+          {t('swap.top10', { pct: fmtPct(safety.top10Pct, i18n.language) })}
+        </span>
+      )}
       {safety.taxPct !== null && safety.taxPct > 0 && (
         <span className="rounded border px-1.5 py-0.5" style={{ borderColor: 'var(--color-warn)', color: 'var(--color-warn)' }}>
           {t('swap.tax', { pct: fmtPct(safety.taxPct, i18n.language) })}

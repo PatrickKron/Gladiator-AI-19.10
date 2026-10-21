@@ -122,6 +122,19 @@ function isOnCurve(bytes: Uint8Array): boolean {
   }
 }
 
+/**
+ * Liegt die Adresse auf der Ed25519-Kurve? Ja = normale Wallet (hat einen
+ * privaten Schlüssel); nein = Programm-Adresse (PDA: Pools, Bonding-Curves,
+ * Lock-Verträge …).
+ */
+export function isOnCurveAddress(address: string): boolean {
+  try {
+    return isOnCurve(base58Decode(address));
+  } catch {
+    return false;
+  }
+}
+
 /** Program Derived Address (wie `findProgramAddressSync`). */
 export function findProgramAddress(seeds: Uint8Array[], programId: string): string {
   const pid = base58Decode(programId);
