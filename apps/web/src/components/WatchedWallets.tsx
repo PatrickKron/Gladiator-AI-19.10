@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
-import { fmtAmount } from '../lib/swap-format.js';
+import { fmtAmount, fmtUsd } from '../lib/swap-format.js';
 import { Empty, ErrorBox, Panel } from './ui.js';
 
 /**
@@ -314,6 +314,19 @@ function WatchedRow({
         </span>
       </div>
 
+      {(w.copyStats.buys > 0 || w.copyStats.sells > 0) && (
+        <p className="num mt-1" style={{ color: 'var(--color-mut)' }}>
+          {t('swap.copyStats', {
+            buys: w.copyStats.buys,
+            sells: w.copyStats.sells,
+            wins: w.copyStats.wins,
+            invested: fmtUsd(w.copyStats.investedUsd, lang),
+          })}{' '}
+          <span style={{ color: w.copyStats.realizedPnlUsd > 0 ? 'var(--color-pos)' : w.copyStats.realizedPnlUsd < 0 ? 'var(--color-neg)' : undefined }}>
+            {t('swap.copyRealized', { pnl: `${w.copyStats.realizedPnlUsd > 0 ? '+' : ''}${fmtUsd(w.copyStats.realizedPnlUsd, lang)}` })}
+          </span>
+        </p>
+      )}
       {open && (
         <div className="mt-2">
           {error && <ErrorBox message={error} />}

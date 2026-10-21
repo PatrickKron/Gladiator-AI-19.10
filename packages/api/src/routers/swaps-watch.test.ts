@@ -134,6 +134,29 @@ describe.skipIf(!hasDb)('Beobachtete Wallets (API)', () => {
     expect(await a.swaps.watched()).toEqual([]);
   });
 
+  it('Copy-Statistik: aus den verknüpften Paper-Trades (Käufe, Verkäufe, Treffer, investiert, realisiert)', async () => {
+    const paper = (await a.swaps.wallets()).find((w) => w.chain === 'solana' && w.mode === 'paper')!;
+    const w = await a.swaps.addWatched({ address: WHALE, label: 'Stats', copyMode: 'paper', copyWalletId: paper.id, copyAmount: '0.1' });
+    expect((await a.swaps.watched()).find((x) => x.id === w.id)!.copyStats).toEqual({ buys: 0, sells: 0, wins: 0, investedUsd: 0, realizedPnlUsd: 0 });
+    const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+    const trade = async (side: 'buy' | 'sell', valueUsd: string, pnl: string | null) => {
+      const [t] = await db
+        .insert(schema.swapTrades)
+        .values({ walletId: paper.id, side, mode: 'paper', status: 'filled', aggregator: 'jupiter', inToken: 'x', inSymbol: 'X', inAtomic: '1', inDecimals: 9, outToken: 'y', outSymbol: 'Y', outAtomic: '1', outDecimals: 5, valueUsd, realizedPnlUsd: pnl, slippageBps: 100 })
+        .returning();
+      return t!.id;
+    };
+    const link = async (sig: string, side: 'buy' | 'sell', tradeId: string | null, status: 'filled' | 'skipped') =>
+      db.insert(schema.watchedWalletSwaps).values({ watchedId: w.id, signature: `${sig}-${RUN}`, side, token: BONK, tokenAtomic: '1', tokenDecimals: 5, copyStatus: status, copyTradeId: tradeId });
+    await link('b1', 'buy', await trade('buy', '15', null), 'filled');
+    await link('b2', 'buy', await trade('buy', '15', null), 'filled');
+    await link('s1', 'sell', await trade('sell', '20', '5'), 'filled');
+    await link('s2', 'sell', await trade('sell', '12', '-3'), 'filled');
+    await link('s3', 'sell', null, 'skipped'); // übersprungen → zählt nicht
+    expect((await a.swaps.watched()).find((x) => x.id === w.id)!.copyStats).toEqual({ buys: 2, sells: 2, wins: 1, investedUsd: 30, realizedPnlUsd: 2 });
+    await a.swaps.removeWatched({ id: w.id });
+  });
+
   it('Token entdecken: echte Felder durchgereicht, 60 s gecacht', async () => {
     const r = await a.swaps.discover({ chain: 'solana', kind: 'trending' });
     expect(r).toEqual([expect.objectContaining({ symbol: 'Bonk', pool: 'PoolBonk', priceUsd: 0.00002, liquidityUsd: 500000, volume24hUsd: null })]);

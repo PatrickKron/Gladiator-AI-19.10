@@ -1923,6 +1923,8 @@ export const fr: Catalog = {
     err_unknown: 'Erreur inconnue.',
   },
   swap: {
+    copyStats: "Copies : {{buys}} achats · {{sells}} ventes ({{wins}} gagnantes) · investi {{invested}} ·",
+    copyRealized: "réalisé {{pnl}} (paper)",
     kind_dca: "DCA",
     dcaInterval: "Intervalle",
     dcaEvery_15: "toutes les 15 min",

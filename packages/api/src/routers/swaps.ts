@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema, type Db } from '@gladiator/db';
 import {
@@ -580,7 +580,36 @@ export const swapsRouter = router({
 
   /** Beobachtete Wallets (Copy-Trading, Solana). */
   watched: protectedProcedure.query(async ({ ctx }) => {
-    return ctx.db.select().from(watchedWallets).where(eq(watchedWallets.userId, ctx.user.id)).orderBy(desc(watchedWallets.createdAt));
+    const rows = await ctx.db.select().from(watchedWallets).where(eq(watchedWallets.userId, ctx.user.id)).orderBy(desc(watchedWallets.createdAt));
+    if (rows.length === 0) return [];
+    // Copy-Statistik aus den echten Paper-Trades der Kopien (über copy_trade_id verknüpft)
+    const stats = await ctx.db
+      .select({
+        watchedId: watchedWalletSwaps.watchedId,
+        buys: sql<number>`count(*) FILTER (WHERE ${swapTrades.side} = 'buy')::int`,
+        sells: sql<number>`count(*) FILTER (WHERE ${swapTrades.side} = 'sell')::int`,
+        wins: sql<number>`count(*) FILTER (WHERE ${swapTrades.side} = 'sell' AND ${swapTrades.realizedPnlUsd} > 0)::int`,
+        investedUsd: sql<string | null>`sum(${swapTrades.valueUsd}) FILTER (WHERE ${swapTrades.side} = 'buy')`,
+        realizedPnlUsd: sql<string | null>`sum(${swapTrades.realizedPnlUsd}) FILTER (WHERE ${swapTrades.side} = 'sell')`,
+      })
+      .from(watchedWalletSwaps)
+      .innerJoin(swapTrades, eq(swapTrades.id, watchedWalletSwaps.copyTradeId))
+      .where(inArray(watchedWalletSwaps.watchedId, rows.map((r) => r.id)))
+      .groupBy(watchedWalletSwaps.watchedId);
+    const byId = new Map(stats.map((x) => [x.watchedId, x]));
+    return rows.map((r) => {
+      const x = byId.get(r.id);
+      return {
+        ...r,
+        copyStats: {
+          buys: x?.buys ?? 0,
+          sells: x?.sells ?? 0,
+          wins: x?.wins ?? 0,
+          investedUsd: x?.investedUsd == null ? 0 : Number(x.investedUsd),
+          realizedPnlUsd: x?.realizedPnlUsd == null ? 0 : Number(x.realizedPnlUsd),
+        },
+      };
+    });
   }),
 
   addWatched: protectedProcedure

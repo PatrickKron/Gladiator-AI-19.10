@@ -1922,6 +1922,8 @@ export const de = {
     err_unknown: 'Unbekannter Fehler.',
   },
   swap: {
+    copyStats: "Kopien: {{buys}} Käufe · {{sells}} Verkäufe ({{wins}} mit Gewinn) · investiert {{invested}} ·",
+    copyRealized: "realisiert {{pnl}} (Paper)",
     kind_dca: "DCA",
     dcaInterval: "Abstand",
     dcaEvery_15: "alle 15 min",
