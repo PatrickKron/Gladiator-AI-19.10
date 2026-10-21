@@ -1,6 +1,6 @@
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { schema, type Db } from '@gladiator/db';
-import { fetchEvmWalletSwaps, fetchSolanaWalletSwaps, SWAP_CHAINS, walletBalances, type ObservedSwap, type SwapChainId } from '@gladiator/exchange';
+import { fetchEvmWalletSwaps, fetchSolanaWalletSwaps, fromAtomic, SWAP_CHAINS, toAtomic, walletBalances, type ObservedSwap, type SwapChainId } from '@gladiator/exchange';
 import { notifySafe } from './notify.js';
 import { cachedTokenInfo, executePreparedSwap, prepareSwap, swapNet } from './swap-service.js';
 
@@ -57,6 +57,15 @@ export function copySellPercent(soldPct: number | null | undefined): number {
   return Math.max(1, Math.round(soldPct * 100) / 100);
 }
 
+/**
+ * Mindestgröße für kopierte Käufe: Kleinst-Käufe des Wals (Tests, Köder) nicht
+ * nachkaufen. Ohne sichtbaren nativen Gegenwert (Kauf mit Stablecoin) gilt der Filter nicht.
+ */
+export function belowCopyMin(nativeAtomic: bigint | null, minNative: string | null, nativeDecimals: number): boolean {
+  if (!minNative || nativeAtomic === null) return false;
+  return nativeAtomic < toAtomic(minNative, nativeDecimals);
+}
+
 /** Einen erkannten Swap in der Paper-Wallet nachbilden. */
 async function copySwap(db: Db, w: WatchedRow, s: ObservedSwap): Promise<{ status: 'filled' | 'skipped' | 'failed'; note: string; tradeId?: string }> {
   if (w.copyMode !== 'paper' || !w.copyWalletId || !w.copyAmount) return { status: 'skipped', note: 'Kopieren aus' };
@@ -69,6 +78,10 @@ async function copySwap(db: Db, w: WatchedRow, s: ObservedSwap): Promise<{ statu
     return { status: 'skipped', note: 'Ziel-Wallet fehlt oder ist keine Paper-Wallet dieser Kette' };
   }
   const chain = w.chain as SwapChainId;
+  const native = SWAP_CHAINS[chain].native;
+  if (s.side === 'buy' && belowCopyMin(s.nativeAtomic, w.copyMinNative, native.decimals)) {
+    return { status: 'skipped', note: `Wal-Kauf ${fromAtomic(s.nativeAtomic!, native.decimals)} ${native.symbol} unter der Mindestgröße ${w.copyMinNative} ${native.symbol}` };
+  }
   let token = s.token;
   if (s.side === 'sell') {
     const held = (await walletBalances(db, wallet.id)).find((b) => sameToken(chain, b.token, s.token));

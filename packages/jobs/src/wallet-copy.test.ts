@@ -10,9 +10,19 @@ import { createDb, schema, type Db } from '@gladiator/db';
 import { ERC20_TRANSFER_TOPIC, fundPaperWallet, padTopic, SOL_MINT, SWAP_CHAINS, walletBalances, WETH_WITHDRAWAL_TOPIC } from '@gladiator/exchange';
 import type pg from 'pg';
 import { setSwapFetchForTests } from './swap-service.js';
-import { copySellPercent, runWalletCopy } from './wallet-copy.js';
+import { belowCopyMin, copySellPercent, runWalletCopy } from './wallet-copy.js';
 
 const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+
+describe('belowCopyMin', () => {
+  it('Kleinst-Käufe des Wals unter der Mindestgröße nicht kopieren; ohne Grenze oder ohne nativen Wert immer', () => {
+    expect(belowCopyMin(100_000_000n, '0.5', 9)).toBe(true); // 0,1 SOL < 0,5
+    expect(belowCopyMin(500_000_000n, '0.5', 9)).toBe(false);
+    expect(belowCopyMin(100_000_000n, null, 9)).toBe(false);
+    expect(belowCopyMin(null, '0.5', 9)).toBe(false); // mit Stablecoin gekauft
+    expect(belowCopyMin(10n ** 16n, '0.02', 18)).toBe(true); // 0,01 ETH < 0,02
+  });
+});
 
 describe('copySellPercent', () => {
   it('Teilverkauf → derselbe Anteil; unbekannt oder fast alles → ganz raus', () => {
@@ -160,6 +170,17 @@ describe.skipIf(!process.env.DATABASE_URL)('runWalletCopy (echte DB, Paper)', ()
     await backdate();
     await runWalletCopy(db);
     expect((await seen()).find((s) => s.signature === `sell2-${RUN}`)).toMatchObject({ copyStatus: 'skipped', copyNote: 'kein eigener Bestand' });
+
+    // Mindestgröße: der Wal kauft für 1 SOL, kopiert wird erst ab 5 SOL → übersprungen, nichts gekauft
+    await db.update(schema.watchedWallets).set({ copyMinNative: '5' }).where(eq(schema.watchedWallets.id, watchedId));
+    chainTxs = [{ sig: `buy-min-${RUN}`, side: 'buy' }, ...chainTxs];
+    await backdate();
+    await runWalletCopy(db);
+    const small = (await seen()).find((s) => s.signature === `buy-min-${RUN}`)!;
+    expect(small.copyStatus).toBe('skipped');
+    expect(small.copyNote).toMatch(/Wal-Kauf 1 SOL unter der Mindestgröße 5 SOL/);
+    expect(await bonk()).toBe(0n);
+    await db.update(schema.watchedWallets).set({ copyMinNative: null }).where(eq(schema.watchedWallets.id, watchedId));
 
     await db.update(schema.watchedWallets).set({ copyMode: 'off' }).where(eq(schema.watchedWallets.id, watchedId));
     chainTxs = [{ sig: `buy3-${RUN}`, side: 'buy' }, ...chainTxs];

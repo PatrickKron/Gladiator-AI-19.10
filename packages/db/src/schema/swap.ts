@@ -198,6 +198,8 @@ export const watchedWallets = pgTable(
     copyWalletId: uuid('copy_wallet_id').references(() => swapWallets.id, { onDelete: 'set null' }),
     /** Betrag je Kopie in nativer Währung (Dezimal-String, z. B. „0.1“ SOL bzw. ETH). */
     copyAmount: text('copy_amount'),
+    /** Nur Käufe der beobachteten Wallet ab dieser Größe (native Währung, Dezimal-String) kopieren; null = alle */
+    copyMinNative: text('copy_min_native'),
     lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
     lastError: text('last_error'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

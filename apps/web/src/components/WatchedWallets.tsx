@@ -52,6 +52,8 @@ function CopyFields({
   setTarget,
   amount,
   setAmount,
+  minNative,
+  setMinNative,
   nativeSymbol,
 }: {
   nativeSymbol: string;
@@ -62,10 +64,12 @@ function CopyFields({
   setTarget: (v: string) => void;
   amount: string;
   setAmount: (v: string) => void;
+  minNative: string;
+  setMinNative: (v: string) => void;
 }) {
   const { t } = useTranslation();
   return (
-    <div className="mt-3 grid gap-3 sm:grid-cols-3">
+    <div className="mt-3 grid gap-3 sm:grid-cols-4">
       <div className="text-xs">
         {t('swap.copyMode')}
         <div className="mt-1 flex gap-1.5">
@@ -100,6 +104,10 @@ function CopyFields({
             {t('swap.copyAmount', { symbol: nativeSymbol })}
             <input className={field} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(',', '.'))} />
           </label>
+          <label className="text-xs" title={t('swap.copyMinHint')}>
+            {t('swap.copyMin', { symbol: nativeSymbol })}
+            <input className={field} inputMode="decimal" value={minNative} placeholder={t('swap.copyMinNone')} onChange={(e) => setMinNative(e.target.value.replace(',', '.'))} />
+          </label>
         </>
       )}
     </div>
@@ -120,6 +128,7 @@ export function WatchedWallets({ chains, paperWallets: allPaper, onCopied }: { c
   const [mode, setMode] = useState<CopyMode>('off');
   const [target, setTarget] = useState('');
   const [amount, setAmount] = useState('0.1');
+  const [minNative, setMinNative] = useState('');
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -147,6 +156,7 @@ export function WatchedWallets({ chains, paperWallets: allPaper, onCopied }: { c
         copyMode: mode,
         copyWalletId: mode === 'paper' ? target || paperWallets[0]?.id || null : null,
         copyAmount: mode === 'paper' ? amount : null,
+        copyMinNative: mode === 'paper' && minNative.trim() ? minNative.trim() : null,
       });
       setAddress('');
       setLabel('');
@@ -192,7 +202,7 @@ export function WatchedWallets({ chains, paperWallets: allPaper, onCopied }: { c
           <input className={field} value={label} maxLength={40} onChange={(e) => setLabel(e.target.value)} />
         </label>
       </div>
-      <CopyFields nativeSymbol={c?.nativeSymbol ?? ''} paperWallets={paperWallets} mode={mode} setMode={setMode} target={target || paperWallets[0]?.id || ''} setTarget={setTarget} amount={amount} setAmount={setAmount} />
+      <CopyFields nativeSymbol={c?.nativeSymbol ?? ''} paperWallets={paperWallets} mode={mode} setMode={setMode} target={target || paperWallets[0]?.id || ''} setTarget={setTarget} amount={amount} setAmount={setAmount} minNative={minNative} setMinNative={setMinNative} />
       <button type="button" className="btn mt-3 px-3 py-1.5 text-sm" disabled={busy || address.trim().length < (c?.kind === 'evm' ? 42 : 32)} onClick={() => void add()}>
         {busy ? t('common.loading') : t('swap.watchAdd')}
       </button>
@@ -244,6 +254,7 @@ function WatchedRow({
   const [mode, setMode] = useState<CopyMode>(w.copyMode);
   const [target, setTarget] = useState(w.copyWalletId ?? paperWallets[0]?.id ?? '');
   const [amount, setAmount] = useState(w.copyAmount ?? '0.1');
+  const [minNative, setMinNative] = useState(w.copyMinNative ?? '');
   const copyTargetLabel = paperWallets.find((p) => p.id === w.copyWalletId)?.label;
 
   // Ref statt Abhängigkeit: der Aufrufer übergibt evtl. je Render eine neue Funktion
@@ -279,6 +290,7 @@ function WatchedRow({
         copyMode: mode,
         copyWalletId: mode === 'paper' ? target || null : null,
         copyAmount: mode === 'paper' ? amount : null,
+        copyMinNative: mode === 'paper' && minNative.trim() ? minNative.trim() : null,
       });
       setEditing(false);
       await onChanged();
@@ -308,6 +320,7 @@ function WatchedRow({
         <span className="flex flex-wrap items-center gap-2" style={{ color: 'var(--color-mut)' }}>
           <span style={{ color: w.copyMode === 'paper' ? 'var(--color-cyan)' : undefined }}>
             {w.copyMode === 'paper' ? t('swap.copyingInto', { amount: w.copyAmount, symbol: chain?.nativeSymbol ?? '', wallet: copyTargetLabel ?? '—' }) : t('swap.copyMode_off')}
+            {w.copyMode === 'paper' && w.copyMinNative ? ` · ${t('swap.copyMinListed', { min: w.copyMinNative, symbol: chain?.nativeSymbol ?? '' })}` : ''}
           </span>
           {w.lastError ? (
             <span style={{ color: 'var(--color-warn)' }} title={w.lastError}>
@@ -353,7 +366,7 @@ function WatchedRow({
                 {t('swap.label')}
                 <input className={field} value={label} maxLength={40} onChange={(e) => setLabel(e.target.value)} />
               </label>
-              <CopyFields nativeSymbol={chain?.nativeSymbol ?? ''} paperWallets={paperWallets} mode={mode} setMode={setMode} target={target} setTarget={setTarget} amount={amount} setAmount={setAmount} />
+              <CopyFields nativeSymbol={chain?.nativeSymbol ?? ''} paperWallets={paperWallets} mode={mode} setMode={setMode} target={target} setTarget={setTarget} amount={amount} setAmount={setAmount} minNative={minNative} setMinNative={setMinNative} />
               <button type="button" className="btn mt-2 px-3 py-1 text-xs" onClick={() => void save()}>
                 {t('swap.watchSave')}
               </button>

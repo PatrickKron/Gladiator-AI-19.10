@@ -1,0 +1,1 @@
+ALTER TABLE "watched_wallets" ADD COLUMN "copy_min_native" text;
