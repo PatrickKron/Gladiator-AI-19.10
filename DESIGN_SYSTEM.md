@@ -111,8 +111,9 @@ Hover auf einer Markt-Karte hebt weiterhin die Spalten des Symbols hervor.
 
 - [x] **A · Fundament** (PR #68): Tokens, Flächen, Typo, Shell mit fünf Bereichen + Tableiste,
       Regen als Effekt-System, Profil → Ansicht/Effekte.
-- [ ] **B · Heute & Vermögen**: Hero mit Kurve, „Heute wichtig", drei Aktionen; Vermögen mit
-      Verlauf, Aufteilung, Kontenliste.
+- [x] **B · Heute & Vermögen** (PR #69): Hero mit Kurve aus Momentaufnahmen, drei Aktionen,
+      „Heute wichtig" (Signale, Termine, Ereignisse, Vorschläge), Details aufklappbar;
+      Vermögen mit Zeitfenster, Kurve, Aufteilung, Kontenliste mit nächstem Schritt.
 - [ ] **C · Markt**: Chart auf Vollfläche, eine Werkzeugzeile, Smart-Money-Schalter, Orderbuch
       als Schublade; Screener-Treffer als Karten; Marktlage als Ampel.
 - [ ] **D · Traden & Signale**: Kauf-Flow Betrag → Richtung → Vorschau → Bestätigen,

@@ -17,6 +17,10 @@ import { normalizeRegime, REGIME_COLORS, REGIME_ICONS, type RegimeData } from '.
 import { getUiMode, onUiModeChange, type UiMode } from '../lib/ui-mode.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 import { appLocale } from '../lib/locale.js';
+import { TodayList } from '../components/TodayList.js';
+import { WealthCurve } from '../components/WealthCurve.js';
+import { rangeChange, rangeFilter, wealthCurve } from '../lib/wealth.js';
+import { getSelectedAsset } from '../components/AssetSelect.js';
 
 /** Dashboard (09_ §3.1): Begrüßung, Live-Markt, offene Setups, Konto, System — alles echt. */
 
@@ -262,8 +266,9 @@ function fmtFavQuote(price: number, currency: string | null): string {
  * Jede Quelle fällt einzeln ehrlich aus (fehlt eine, wird die andere gezeigt
  * und die Aufschlüsselung sagt es).
  */
-function HeroWealth({ account }: { account: Account | null }) {
+function HeroWealth({ account, signalCount }: { account: Account | null; signalCount: number | null }) {
   const { t } = useTranslation();
+  const [curve, setCurve] = useState<{ points: { ts: string; equity: number }[]; unit: '€' | '$' } | null>(null);
   const [demo, setDemo] = useState<{ equity: number } | null | undefined>(undefined); // undefined = lädt
   const [real, setReal] = useState<{ connected: boolean; totalEur: number | null } | null>(null);
   // Paper-Wallets (Wallet-Trading) gehören zum Übungsgeld
@@ -279,6 +284,16 @@ function HeroWealth({ account }: { account: Account | null }) {
         if (!cancelled) setDemo(null); // ehrlich: Demo-Konto nicht ladbar
       }
       // Echtes Geld (verbundene Börsen) — ehrlich getrennt vom Übungsgeld.
+      // Verlauf aus echten stündlichen Momentaufnahmen (letzte 30 Tage)
+      try {
+        const hist = await trpc.portfolio.history.query({ limit: 800 });
+        if (!cancelled) {
+          const c = wealthCurve(hist);
+          setCurve({ points: rangeFilter(c.points, '30d', Date.now()), unit: c.unit });
+        }
+      } catch {
+        if (!cancelled) setCurve({ points: [], unit: '$' });
+      }
       try {
         const ov = await trpc.portfolio.overview.query();
         if (!cancelled) {
@@ -345,6 +360,41 @@ function HeroWealth({ account }: { account: Account | null }) {
           </p>
         </>
       )}
+      {/* Kurve aus echten Momentaufnahmen; ohne Verlauf ehrlich ein Satz statt einer Linie */}
+      {curve && curve.points.length >= 2 ? (
+        <a href="#/vermoegen" className="mt-4 block" title={t('wealth.title')}>
+          <WealthCurve points={curve.points} height={72} />
+          {(() => {
+            const ch = rangeChange(curve.points);
+            return ch ? (
+              <span className={`chip mt-2 ${ch.abs > 0 ? 'chip--pos' : ch.abs < 0 ? 'chip--neg' : 'chip--mut'}`}>
+                {ch.abs > 0 ? '▲' : ch.abs < 0 ? '▼' : '•'} {Math.abs(ch.pct).toLocaleString(appLocale(), { maximumFractionDigits: 2 })} % · {t('dashboard.curve30d')}
+              </span>
+            ) : null;
+          })()}
+        </a>
+      ) : (
+        curve && (
+          <p className="label mt-3">{t('dashboard.curveEmpty')}</p>
+        )
+      )}
+      {/* Drei Aktionen: EINE primär */}
+      <div className="mt-5 grid gap-2.5 sm:grid-cols-3">
+        <a href="#/traden?tab=demo" className="btn-primary flex flex-col gap-0.5 px-4 py-3 text-left">
+          <span className="text-sm font-semibold">{t('dashboard.actionTrade')}</span>
+          <span className="text-xs opacity-80">{t('dashboard.actionTradeSub')}</span>
+        </a>
+        <a href={buildChartUrl(getSelectedAsset(), loadTf(getSelectedAsset()) ?? '1h')} className="btn flex flex-col gap-0.5 px-4 py-3 text-left">
+          <span className="text-sm font-semibold">{t('dashboard.actionChart')}</span>
+          <span className="num text-xs" style={{ color: 'var(--color-mut)' }}>{getSelectedAsset()}</span>
+        </a>
+        <a href="#/signals" className="btn flex flex-col gap-0.5 px-4 py-3 text-left">
+          <span className="text-sm font-semibold">{t('dashboard.actionSignals')}</span>
+          <span className="text-xs" style={{ color: 'var(--color-mut)' }}>
+            {signalCount === null ? '…' : signalCount === 0 ? t('dashboard.actionSignalsNone') : t('dashboard.actionSignalsOpen', { n: signalCount })}
+          </span>
+        </a>
+      </div>
     </section>
   );
 }
@@ -679,8 +729,11 @@ export function Dashboard() {
 
       {error && <ErrorBox message={error} />}
 
-      {/* Heute-Hero: Gesamtvermögen (Demo + Paper) — die EINE große Zahl */}
-      <HeroWealth account={account} />
+      {/* Heute-Hero: Gesamtvermögen (Demo + Paper) — die EINE große Zahl, Kurve, drei Aktionen */}
+      <HeroWealth account={account} signalCount={signalRows === null ? null : signalRows.length} />
+
+      {/* Heute wichtig: Signale, Termine, Ereignisse, Vorschläge — eine Liste */}
+      <TodayList />
 
       {/* Watchlist — „Meine Märkte": Favoriten des Users (Fallback BTC/ETH/SOL), klickbar in den Chart.
           „+ Markt hinzufügen" (Patrick: „krieg ich nicht rein"): öffnet den Inline-Picker über alle Assets. */}
@@ -729,10 +782,8 @@ export function Dashboard() {
         </section>
       )}
 
-      {/* KI-Status: Regime + ML-Pipeline + RL-Agenten — Detailtiefe für den Profi-Modus */}
-      {uiMode === 'profi' && <AiStatusPanel />}
-
-      {/* Signal-Vorschau */}
+      {/* Signal-Karten (Ticket direkt aus der Karte) — nur wenn es offene gibt; den Leer-Zustand sagt „Heute wichtig“ */}
+      {signalRows !== null && signalRows.length > 0 && (
       <section className="reveal mt-8" style={{ '--stagger': 4 } as React.CSSProperties}>
         <div className="mb-4 flex items-baseline justify-between">
           <h2 className="label">{t('dashboard.signalsTitle')}</h2>
@@ -756,6 +807,18 @@ export function Dashboard() {
           </div>
         )}
       </section>
+      )}
+
+      {/* Alles Weitere aufklappbar (Prinzip 3): KI-Status, Briefings, Konto, System, Datenquellen, historische Daten */}
+      <details className="mt-8 group">
+        <summary className="glass flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm">
+          <span>
+            <span className="font-medium">{t('dashboard.details')}</span>
+            <span className="ml-2 text-xs" style={{ color: 'var(--color-mut)' }}>{t('dashboard.detailsHint')}</span>
+          </span>
+          <span className="text-xs transition-transform group-open:rotate-90" style={{ color: 'var(--color-mut)' }}>›</span>
+        </summary>
+      {uiMode === 'profi' && <AiStatusPanel />}
 
       <FavoritesBriefing />
 
@@ -889,6 +952,7 @@ export function Dashboard() {
         )}
       </Panel>
       </>)}
+      </details>
     </div>
   );
 }
