@@ -37,7 +37,9 @@ import { CostGuard, envAnthropicProvider, guardedComplete } from '@gladiator/age
 import {
   atr,
   bollinger,
+  dealingRangeAt,
   detectFvgs,
+  detectLiquidity,
   detectOrderBlocks,
   detectStructure,
   ema,
@@ -645,6 +647,40 @@ export const marketRouter = router({
       });
       const zones = allZones.sort((a, b) => b.fromTime - a.fromTime).slice(0, 12);
 
+      // Liquidität (Equal Highs/Lows + Sweeps) und Dealing Range (Premium/Discount)
+      // — eigene Engine, dieselben Pivots (8/8) wie die Struktur. Cap wie bei den
+      // Zonen: die 8 jüngsten Level, die 20 jüngsten Sweeps (`levelsTotal` ehrlich).
+      const liq = detectLiquidity(candles);
+      const allLevels = liq.levels.map((lv) => {
+        const endIdx = lv.sweptAt ?? lv.brokenAt ?? null;
+        return {
+          kind: lv.kind,
+          price: lv.price,
+          swings: lv.swingIndices.length,
+          fromTime: times[lv.swingIndices[0]!]!,
+          toTime: endIdx != null ? times[endIdx]! : lastTime,
+          active: endIdx == null,
+        };
+      });
+      const liquidity = {
+        levels: allLevels.sort((a, b) => b.fromTime - a.fromTime).slice(0, 8),
+        levelsTotal: allLevels.length,
+        sweeps: liq.sweeps
+          .slice(-20)
+          .map((sw) => ({ time: times[sw.index]!, side: sw.side, level: sw.level, source: sw.source })),
+      };
+      const dr = dealingRangeAt(candles, liq.swings, candles.length - 1);
+      const range = dr
+        ? {
+            high: dr.high,
+            low: dr.low,
+            equilibrium: dr.equilibrium,
+            fromTime: times[Math.min(dr.highIndex, dr.lowIndex)]!,
+            position: dr.position,
+            zone: dr.zone,
+          }
+        : null;
+
       return {
         symbol,
         timeframe: input.timeframe,
@@ -681,6 +717,8 @@ export const marketRouter = router({
         structure,
         zones,
         zonesTotal: allZones.length,
+        liquidity,
+        range,
       };
     }),
 

@@ -30,6 +30,7 @@ import { ensurePriceStream, onTick } from '../lib/prices.js';
 import { applyDrawingClick, pickDrawing, pointFromChart, translatePoints, type DrawingTool } from '../lib/chart-drawings.js';
 import type { DrawingPoint } from '@gladiator/core/drawings';
 import { DrawingsPrimitive, type ChartDrawing } from './chart-drawings-primitive.js';
+import { SmcBoxesPrimitive, type SmcItem } from './smc-boxes-primitive.js';
 
 /**
  * Voll-Chart mit Indikatoren (Krypto-Charting):
@@ -56,13 +57,15 @@ const C = {
   faint: 'rgba(139,148,184,0.35)',
 };
 
-type ToggleKey = 'ema' | 'bollinger' | 'volume' | 'structure' | 'zones' | 'signals' | 'rsi' | 'macd' | 'atr';
+type ToggleKey = 'ema' | 'bollinger' | 'volume' | 'structure' | 'zones' | 'liquidity' | 'pd' | 'signals' | 'rsi' | 'macd' | 'atr';
 const DEFAULT_TOGGLES: Record<ToggleKey, boolean> = {
   ema: true,
   bollinger: false,
   volume: true,
   structure: true,
   zones: true,
+  liquidity: true,
+  pd: false,
   signals: true,
   rsi: true,
   macd: false,
@@ -95,6 +98,8 @@ const SIGNAL_STATUS_LABEL: Record<SignalMarker['status'], string> = {
   rejected: 'abgel.',
   expired: 'verf.',
 };
+
+const fmtPx = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: n >= 1000 ? 1 : 4 });
 
 const MAIN_HEIGHT = 340;
 const PANE_HEIGHT = 120;
@@ -725,6 +730,10 @@ export function AssetChart({
     drawPrim.setDrawings(drawingsRef.current);
     candle.attachPrimitive(drawPrim);
     primitiveRef.current = drawPrim;
+    // Smart-Money-Flächen (Zonen, Liquidität, Premium/Discount) — Inhalte weiter unten
+    const smcPrim = new SmcBoxesPrimitive();
+    smcPrim.setTimes(barTimes);
+    candle.attachPrimitive(smcPrim);
     pendingRef.current = null;
     cleanups.push(() => {
       if (primitiveRef.current === drawPrim) primitiveRef.current = null;
@@ -820,6 +829,7 @@ export function AssetChart({
           if (nt > barTimes[barTimes.length - 1]!) {
             barTimes.push(nt);
             drawPrim.setTimes(barTimes);
+            smcPrim.setTimes(barTimes);
           }
           // Live-Kerze für die Indikator-Rechnung merken. Volumen nur, solange
           // die DB-Kerze dieselbe Zeit hat — für eine neue Kerze ist es unbekannt.
@@ -886,6 +896,13 @@ export function AssetChart({
         });
       }
     }
+    // Liquiditäts-Sweeps: Docht über ein Hoch (BSL) / unter ein Tief (SSL) ohne Schluss jenseits
+    if (toggles.liquidity) {
+      for (const sw of data.liquidity.sweeps) {
+        const buy = sw.side === 'buy-side';
+        markers.push({ time: sw.time as UTCTimestamp, position: buy ? 'aboveBar' : 'belowBar', color: buy ? C.amber : C.cyan, shape: 'circle', text: buy ? 'BSL' : 'SSL' });
+      }
+    }
     const selectedSlugs = new Set(strategySlugs);
     if (toggles.signals && signals.length > 0 && data.candles.length > 0) {
       const first = data.candles[0]!.time as number;
@@ -941,17 +958,48 @@ export function AssetChart({
       createSeriesMarkers(candle, markers);
     }
 
-    // Zonen (Order Blocks / FVG) — aktive als farbige Level-Paare
+    // Smart-Money-Flächen: Zonen als Boxen (Entstehung → Mitigation, offen bis zum
+    // rechten Rand), Liquiditäts-Level als Segmente, Premium/Discount als getönte
+    // Dealing Range — ein Primitive, bei jedem Pan/Zoom neu projiziert.
+    const smcItems: SmcItem[] = [];
     if (toggles.zones) {
       for (const z of activeZones) {
         const bull = z.kind.startsWith('bullish');
         const isFvg = z.kind.endsWith('fvg');
-        const color = bull ? 'rgba(61,220,151,0.5)' : 'rgba(255,92,108,0.5)';
-        const title = `${isFvg ? 'FVG' : 'OB'} ${bull ? '↑' : '↓'}`;
-        candle.createPriceLine({ price: z.top, color, lineWidth: 1, lineStyle: LineStyle.SparseDotted, axisLabelVisible: false, title });
-        candle.createPriceLine({ price: z.bottom, color, lineWidth: 1, lineStyle: LineStyle.SparseDotted, axisLabelVisible: false, title: '' });
+        smcItems.push({
+          kind: 'box',
+          fromTime: z.fromTime,
+          toTime: z.active ? null : z.toTime,
+          top: z.top,
+          bottom: z.bottom,
+          fill: bull ? 'rgba(61,220,151,0.10)' : 'rgba(255,92,108,0.10)',
+          stroke: bull ? 'rgba(61,220,151,0.45)' : 'rgba(255,92,108,0.45)',
+          label: `${isFvg ? 'FVG' : 'OB'} ${bull ? '↑' : '↓'}`,
+        });
       }
     }
+    if (toggles.liquidity) {
+      for (const lv of data.liquidity.levels) {
+        const eqh = lv.kind === 'eqh';
+        smcItems.push({
+          kind: 'line',
+          fromTime: lv.fromTime,
+          toTime: lv.active ? null : lv.toTime,
+          price: lv.price,
+          color: eqh ? C.amber : C.cyan,
+          width: 1,
+          ...(lv.active ? {} : { dash: [3, 3] }),
+          label: `${eqh ? 'EQH' : 'EQL'}${lv.active ? '' : ' ✓'}`,
+        });
+      }
+    }
+    if (toggles.pd && data.range) {
+      const r = data.range;
+      smcItems.push({ kind: 'box', fromTime: r.fromTime, toTime: null, top: r.high, bottom: r.equilibrium, fill: 'rgba(255,92,108,0.06)', label: 'Premium', labelColor: 'rgba(255,92,108,0.8)' });
+      smcItems.push({ kind: 'box', fromTime: r.fromTime, toTime: null, top: r.equilibrium, bottom: r.low, fill: 'rgba(61,220,151,0.06)', label: 'Discount', labelColor: 'rgba(61,220,151,0.8)' });
+      smcItems.push({ kind: 'line', fromTime: r.fromTime, toTime: null, price: r.equilibrium, color: C.faint, dash: [4, 4], label: 'EQ' });
+    }
+    smcPrim.setItems(smcItems);
 
     // Signal-Level (nur bei Einbettung in Signal-Karten)
     if (levels) {
@@ -1110,6 +1158,8 @@ export function AssetChart({
           {chip('volume', t('chart.volume'))}
           {chip('structure', 'BOS/CHoCH')}
           {chip('zones', 'OB/FVG')}
+          {chip('liquidity', t('chart.liquidity'))}
+          {chip('pd', t('chart.pd'))}
           {chip('signals', 'Signale')}
           {chip('rsi', 'RSI')}
           {chip('macd', 'MACD')}
@@ -1252,6 +1302,16 @@ export function AssetChart({
         )}
         {data && data.zonesTotal > activeZones.length && (
           <p className="label mt-1.5 px-2">{t('chart.zonesInfo', { shown: activeZones.length, total: data.zonesTotal })}</p>
+        )}
+        {toggles.liquidity && data && (
+          <p className="label mt-1.5 px-2">
+            {t('chart.liqInfo', { levels: data.liquidity.levels.filter((l) => l.active).length, total: data.liquidity.levelsTotal, sweeps: data.liquidity.sweeps.length })}
+          </p>
+        )}
+        {toggles.pd && data?.range && (
+          <p className="label mt-1.5 px-2" style={{ color: data.range.zone === 'premium' ? C.red : data.range.zone === 'discount' ? C.green : C.mut }}>
+            {t('chart.rangeInfo', { low: fmtPx(data.range.low), high: fmtPx(data.range.high), pct: Math.round(data.range.position * 100), zone: t(`chart.zone_${data.range.zone}`) })}
+          </p>
         )}
         {warmupInfo.length > 0 && (
           <p className="label mt-1.5 px-2">
