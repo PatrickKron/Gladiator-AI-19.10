@@ -148,6 +148,8 @@ export function AssetChart({
   initialTimeframe = '1h',
   timeframeOverride,
   levels,
+  rememberTf = true,
+  onTimeframeChange,
 }: {
   symbol: string;
   initialTimeframe?: Timeframe;
@@ -155,10 +157,13 @@ export function AssetChart({
   timeframeOverride?: Timeframe;
   /** Optionale Signal-Level (Entry/SL/TP) — für die Einbettung in Signal-Karten. */
   levels?: { entry: number; stopLoss: number; takeProfits: number[] };
+  /** false = Zelle eines Mehrfach-Layouts: Zeitrahmen nicht je Symbol merken (die Zelle hält ihn selbst). */
+  rememberTf?: boolean;
+  onTimeframeChange?: (tf: Timeframe) => void;
 }) {
   const { t } = useTranslation();
   // Timeframe pro Asset gemerkt (P0.2): Query-Override > gemerkt > Default.
-  const [tf, setTf] = useState<Timeframe>(() => pickTf(timeframeOverride ?? null, loadTf(symbol), initialTimeframe));
+  const [tf, setTf] = useState<Timeframe>(() => pickTf(timeframeOverride ?? null, rememberTf ? loadTf(symbol) : null, initialTimeframe));
   const firstSymbolRender = useRef(true);
   // Symbolwechsel (z. B. via Dropdown): den für dieses Asset gemerkten Timeframe laden.
   useEffect(() => {
@@ -166,11 +171,13 @@ export function AssetChart({
       firstSymbolRender.current = false;
       return;
     }
-    setTf(loadTf(symbol) ?? initialTimeframe);
-  }, [symbol, initialTimeframe]);
+    setTf((rememberTf ? loadTf(symbol) : null) ?? timeframeOverride ?? initialTimeframe);
+    // timeframeOverride absichtlich nicht als Auslöser (nur beim Symbolwechsel lesen)
+  }, [symbol, initialTimeframe, rememberTf]);
   const changeTf = (next: Timeframe) => {
     setTf(next);
-    saveTf(symbol, next);
+    if (rememberTf) saveTf(symbol, next);
+    onTimeframeChange?.(next);
   };
   // Verfügbare Timeframes je Asset (Feature A): nur die, für die echte Kerzen in
   // der DB liegen. Vor dem Laden Fallback auf die Basis-TFs; der aktuelle TF wird

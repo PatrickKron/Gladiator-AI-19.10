@@ -22,7 +22,7 @@ export function setSelectedAsset(symbol: string): void {
   }
 }
 
-export function AssetSelect({ value, onChange }: { value: string; onChange: (symbol: string) => void }) {
+export function AssetSelect({ value, onChange, persist = true, label }: { value: string; onChange: (symbol: string) => void; /** false = Zelle eines Mehrfach-Layouts: Wahl nicht als Seiten-Asset merken */ persist?: boolean; label?: string }) {
   const { t } = useTranslation();
   const [universe, setUniverse] = useState<string[]>([value]);
 
@@ -35,11 +35,11 @@ export function AssetSelect({ value, onChange }: { value: string; onChange: (sym
 
   return (
     <label className="flex items-center gap-2">
-      <span className="label">{t('assetCtx.selector')}</span>
+      <span className="label">{label ?? t('assetCtx.selector')}</span>
       <select
         value={value}
         onChange={(e) => {
-          localStorage.setItem(STORAGE_KEY, e.target.value);
+          if (persist) localStorage.setItem(STORAGE_KEY, e.target.value);
           onChange(e.target.value);
         }}
         className="field num cursor-pointer px-3 py-1.5 text-sm"

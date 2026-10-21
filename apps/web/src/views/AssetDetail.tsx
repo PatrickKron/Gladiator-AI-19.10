@@ -10,6 +10,7 @@ import { FavStarSymbol } from '../components/FavStar.js';
 import { ASSET_TABS, buildAssetUrl, parseChartHash, type AssetTab } from '../lib/chart-url.js';
 import { parseTab } from '../lib/tab-hash.js';
 import { Watchlist } from '../components/Watchlist.js';
+import { CHART_LAYOUTS, layoutGridClass, loadChartLayout, normalizeCells, saveChartLayout, type ChartCell, type ChartLayout } from '../lib/chart-layout.js';
 
 const DOCK_KEY = 'gladiator.chartBookDock';
 function bookDockOpen(): boolean {
@@ -49,6 +50,22 @@ export function AssetDetail() {
     },
     [tab],
   );
+  // Mehrfach-Charts (Repo-Masterliste, Phase 3b): Zelle 0 = Haupt-Asset, weitere Zellen eigenes Symbol + TF (Browser-Vorliebe).
+  const [layout, setLayout] = useState<ChartLayout>(() => loadChartLayout().layout);
+  const [cells, setCells] = useState<ChartCell[]>(() => normalizeCells(loadChartLayout().cells, loadChartLayout().layout, getSelectedAsset()));
+  const changeLayout = (next: ChartLayout) => {
+    const nextCells = normalizeCells(cells, next, asset);
+    setLayout(next);
+    setCells(nextCells);
+    saveChartLayout(next, nextCells);
+  };
+  const updateCell = (i: number, patch: Partial<ChartCell>) => {
+    setCells((prev) => {
+      const next = prev.map((c, j) => (j === i ? { ...c, ...patch } : c));
+      saveChartLayout(layout, next);
+      return next;
+    });
+  };
   const [bookOpen, setBookOpen] = useState(bookDockOpen);
   function toggleBook() {
     setBookOpen((o) => {
@@ -128,9 +145,39 @@ export function AssetDetail() {
             <Watchlist value={asset} onSelect={changeAsset} />
           </div>
           <div className="min-w-0">
-            <Panel label={asset} stagger={1}>
-              <AssetChart symbol={asset} timeframeOverride={linked.tf ?? undefined} />
-            </Panel>
+            <div className="mb-2 flex flex-wrap items-center gap-1.5" role="group" aria-label={t('asset.layout')}>
+              <span className="label mr-1">{t('asset.layout')}</span>
+              {CHART_LAYOUTS.map((l) => (
+                <button
+                  key={l}
+                  type="button"
+                  onClick={() => changeLayout(l)}
+                  aria-pressed={layout === l}
+                  className="rounded border px-2 py-0.5 text-[11px] transition-colors"
+                  style={{
+                    borderColor: layout === l ? 'rgba(79,209,255,0.5)' : 'var(--color-line)',
+                    color: layout === l ? 'var(--color-cyan)' : 'var(--color-mut)',
+                    background: layout === l ? 'rgba(79,209,255,0.08)' : 'transparent',
+                  }}
+                >
+                  {l === 1 ? '▭' : l === 2 ? '▯▯' : '⊞'} {t(`asset.layout_${l}`)}
+                </button>
+              ))}
+              {layout > 1 && <span className="label ml-2">{t('asset.layoutHint')}</span>}
+            </div>
+            <div className={`grid gap-4 ${layoutGridClass(layout)}`}>
+              <Panel label={asset} stagger={1}>
+                <AssetChart symbol={asset} timeframeOverride={linked.tf ?? undefined} />
+              </Panel>
+              {cells.map((cell, i) => (
+                <Panel key={i} label={`${cell.symbol} · ${cell.tf}`} stagger={1}>
+                  <div className="mb-2 flex justify-end">
+                    <AssetSelect value={cell.symbol} onChange={(sym) => updateCell(i, { symbol: sym })} persist={false} label={t('asset.cellSymbol', { n: i + 2 })} />
+                  </div>
+                  <AssetChart key={`${cell.symbol}:${i}`} symbol={cell.symbol} timeframeOverride={cell.tf} rememberTf={false} onTimeframeChange={(tf) => updateCell(i, { tf })} />
+                </Panel>
+              ))}
+            </div>
             <button type="button" onClick={toggleBook} className="label mt-3 rounded border px-2 py-1" style={{ borderColor: 'var(--color-line)' }}>
               {bookOpen ? t('market.hideBook') : t('market.showBook')}
             </button>
