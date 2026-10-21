@@ -272,3 +272,13 @@ html {
   .tick-pos, .tick-neg { animation: none; }
   .glass, .btn-primary, .btn, .areanav a { transition: none; }
 }
+
+/* Vermögenskurve zeichnet sich beim Öffnen (Prinzip 9); bei reduzierter Bewegung sofort da. */
+@keyframes wealth-draw {
+  from { clip-path: inset(0 100% 0 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+.wealth-curve { animation: wealth-draw 900ms var(--ease-out-soft) both; }
+@media (prefers-reduced-motion: reduce) {
+  .wealth-curve { animation: none; }
+}
