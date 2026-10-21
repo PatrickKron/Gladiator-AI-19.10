@@ -1376,6 +1376,8 @@ export const en: Catalog = {
     exportAllYears: "All years",
     exportBusy: "Exporting …",
     exportHint: "Tax export (§23 EStG): closed trades with holding period, fees, funding and net PnL. Paper trades are simulated and not tax-relevant.",
+    exportSwapsCsv: "Wallet swaps (CSV)",
+    exportSwapsHint: "Wallet swaps separately: every swap is a disposal — raw list in USD (average cost) for a crypto tax tool that computes FIFO in your currency.",
     netPnl: 'Net PnL',
     fees: 'Fees',
     riskCockpit: 'Risk cockpit',

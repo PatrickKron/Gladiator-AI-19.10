@@ -136,6 +136,17 @@ describe.skipIf(!hasDb)('Wallet-Trading: Paper-Swaps über das Swap-Gate', () =>
     expect(pf.trades[1]).toMatchObject({ inSymbol: 'SOL', inAmount: '1', outSymbol: 'Bonk' });
   });
 
+  it('Steuer-Export: ausgeführte Swaps als CSV (Paper-Hinweis), Jahresfilter', async () => {
+    const csv = await a.swaps.exportTrades({ format: 'csv' });
+    const lines = csv.trim().split('\n');
+    expect(lines[0]).toMatch(/^# Hinweis: Paper-Swaps sind simuliert/);
+    const rows = lines.slice(2).filter((l) => l.includes(';Solana;'));
+    expect(rows.some((l) => l.includes(';Kauf;1;SOL;'))).toBe(true);
+    expect(rows.some((l) => l.includes(';Verkauf;'))).toBe(true);
+    // anderes Jahr → nur Kopf
+    expect((await a.swaps.exportTrades({ format: 'csv', year: 2001 })).trim().split('\n')).toHaveLength(2);
+  });
+
   it('Swap-Gate greift: Betrag über dem Limit und zu wenig Liquidität', async () => {
     await expect(a.swaps.execute({ walletId, side: 'buy', token: BONK, amount: '7' })).rejects.toThrow(/trade_above_limit/);
     await a.swaps.updateWallet({ walletId, limits: { ...STANDARD, minLiquidityUsd: 1_000_000 } });

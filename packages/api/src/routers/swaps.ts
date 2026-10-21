@@ -41,6 +41,7 @@ import {
 } from '@gladiator/exchange';
 import { SWAP_LIMIT_BOUNDS, SWAP_PROFILES } from '@gladiator/risk';
 import { protectedProcedure, router } from '../trpc.js';
+import { buildSwapsCsv } from '../export/swaps-csv.js';
 
 const MAX_WATCHED = 25;
 
@@ -659,6 +660,39 @@ export const swapsRouter = router({
    * Einstand, PnL je Position; Kurse je Kette gebündelt. Fehlt ein Kurs, ist
    * der Wert null (nie geschätzt). Live-Wallets vorher mit der Kette abgleichen.
    */
+  /** Steuer-Export: alle ausgeführten Swaps aller (auch entfernten) Wallets des Users als CSV. */
+  exportTrades: protectedProcedure
+    .input(z.object({ year: z.number().int().min(2000).max(2100).optional(), format: z.literal('csv') }))
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db
+        .select({ trade: swapTrades, wallet: swapWallets })
+        .from(swapTrades)
+        .innerJoin(swapWallets, eq(swapTrades.walletId, swapWallets.id))
+        .where(eq(swapWallets.userId, ctx.user.id));
+      return buildSwapsCsv(
+        rows.map(({ trade: t, wallet: w }) => ({
+          ts: t.createdAt,
+          wallet: w.label,
+          chain: SWAP_CHAINS[w.chain as SwapChainId].name,
+          mode: t.mode,
+          side: t.side,
+          status: t.status,
+          inAmount: fromAtomic(t.inAtomic, t.inDecimals),
+          inSymbol: t.inSymbol,
+          inToken: t.inToken,
+          outAmount: fromAtomic(t.outAtomic, t.outDecimals),
+          outSymbol: t.outSymbol,
+          outToken: t.outToken,
+          valueUsd: t.valueUsd,
+          feeUsd: t.feeUsd,
+          realizedPnlUsd: t.realizedPnlUsd,
+          txHash: t.txHash,
+          aggregator: t.aggregator,
+        })),
+        { year: input.year },
+      );
+    }),
+
   positions: protectedProcedure.query(async ({ ctx }) => {
     const wallets = await ctx.db
       .select()

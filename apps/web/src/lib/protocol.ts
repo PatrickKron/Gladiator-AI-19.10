@@ -53,3 +53,7 @@ export function exportYears(now: Date = new Date()): number[] {
 export function tradesCsvFilename(year: number | null): string {
   return `gladiator-trades-${year ?? 'alle'}.csv`;
 }
+
+export function swapsCsvFilename(year: number | null): string {
+  return `gladiator-swaps-${year ?? 'alle'}.csv`;
+}
