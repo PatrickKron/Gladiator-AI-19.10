@@ -1945,7 +1945,7 @@ export const en: Catalog = {
     rugListed: "pool liquidity −{{pct}} (at creation {{liq}})",
     kind_dev_sell: "Dev-sell guard",
     devDrop: "Creator sells (%)",
-    devHint: "Sells {{share}} % as soon as the token creator's wallet has given up {{pct}} of its current holding (read from the chain every minute; creator per GoPlus). If the chain can't be read, nothing is decided. The sale goes through the same limits (slippage, price impact); if it fails there is no second attempt.",
+    devHint: "Sells {{share}} % as soon as the token creator's wallet has SOLD {{pct}} of its current holding — only transfers to the token's pools or swap routers count (read from the chain every minute; creator per GoPlus). Locks, burns and internal transfers don't trigger; if the creator sells via a fresh wallet, the guard can't see it. If the chain can't be read, nothing is decided. The sale goes through the same limits; if it fails there is no second attempt.",
     devListed: "Creator {{dev}} sells {{pct}}",
     alertOnly: "Notification only (bell + push) — nothing is bought or sold.",
     autoNote: "After the buy: take-profit {{tp}}, stop-loss {{sl}} from the buy price.",

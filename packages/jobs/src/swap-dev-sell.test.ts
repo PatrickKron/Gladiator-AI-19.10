@@ -1,16 +1,16 @@
 /**
- * Dev-Verkauf-Schutz gegen die ECHTE DB (Paper, Base): Bestand der
- * Ersteller-Wallet kommt per `balanceOf` von der (injizierten) Kette. Gibt der
- * Ersteller unter der Schwelle ab → nichts; Kette nicht lesbar → nichts
- * entscheiden; ab der Schwelle → eigener Bestand wird über denselben Swap-Pfad
- * verkauft.
+ * Dev-Verkauf-Schutz gegen die ECHTE DB (Paper, Base): Transfers der
+ * Ersteller-Wallet kommen als Transfer-Logs von der (injizierten) Kette. Nur
+ * Transfers an Pools des Tokens/Router zählen als Verkauf (Lock/Umbuchung nicht);
+ * unter der Schwelle → nichts; Kette nicht lesbar → nichts entscheiden (Cursor
+ * bleibt); ab der Schwelle → eigener Bestand wird über denselben Swap-Pfad verkauft.
  */
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, schema, type Db } from '@gladiator/db';
-import { fundPaperWallet, SWAP_CHAINS, walletBalances } from '@gladiator/exchange';
+import { ERC20_TRANSFER_TOPIC, fundPaperWallet, padTopic, SWAP_CHAINS, walletBalances } from '@gladiator/exchange';
 import type pg from 'pg';
-import { evaluateDevSell, runSwapOrders, validateNewOrder } from './swap-orders.js';
+import { devSoldAtomic, evaluateDevSell, runSwapOrders, validateNewOrder } from './swap-orders.js';
 import { setSwapFetchForTests } from './swap-service.js';
 
 const MEME = '0x6666666666666666666666666666666666666666';
@@ -18,12 +18,19 @@ const DEV = '0x8888888888888888888888888888888888888888';
 const ROUTER = '0x7777777777777777777777777777777777777777';
 const WETH = SWAP_CHAINS.base.wrappedNative;
 const E18 = 10n ** 18n;
-/** Bestand der Ersteller-Wallet (kleinste Einheit); null = Knoten antwortet nicht */
-let devBalance: bigint | null = 1000n * E18;
+const POOL = '0x9999999999999999999999999999999999999999';
+const LOCK = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+/** Kette: Spitze + Transfers der Ersteller-Wallet; down = Knoten antwortet nicht */
+let head = 1000;
+let devTransfers: { block: number; to: string; amount: bigint }[] = [];
+let down = false;
 
 const net = (async (url: string, init?: RequestInit) => {
   const u = String(url);
   const json = (b: unknown) => new Response(JSON.stringify(b));
+  if (u.includes('dexscreener') && u.includes('/token-pairs/v1/')) {
+    return json([{ chainId: 'base', dexId: 'uniswap', labels: ['v2'], pairAddress: POOL, baseToken: { address: MEME }, liquidity: { usd: 1e7, base: 1e9, quote: 300 } }]);
+  }
   if (u.includes('dexscreener')) {
     const addrs = u.split('/').pop()!.split(',');
     return json(addrs.map((a) => ({ chainId: 'base', baseToken: { address: a, symbol: a.toLowerCase() === WETH.toLowerCase() ? 'WETH' : 'MEME' }, priceUsd: a.toLowerCase() === WETH.toLowerCase() ? '3000' : '0.5', liquidity: { usd: 1e7 } })));
@@ -41,16 +48,22 @@ const net = (async (url: string, init?: RequestInit) => {
   const body = JSON.parse(String(init?.body)) as { method: string; params: unknown[] };
   const rpc = (result: unknown) => json({ jsonrpc: '2.0', id: 1, result });
   const word = (n: bigint) => `0x${n.toString(16).padStart(64, '0')}`;
+  if (down && (body.method === 'eth_getLogs' || body.method === 'eth_blockNumber')) return new Response('überlastet', { status: 503 });
   switch (body.method) {
-    case 'eth_call': {
-      const call = body.params[0] as { to: string; data: string };
-      // balanceOf(Ersteller) = 0x70a08231 + Adresse
-      if (call.data.startsWith('0x70a08231') && call.data.endsWith(DEV.slice(2))) {
-        if (devBalance === null) return new Response('überlastet', { status: 503 });
-        return rpc(word(devBalance));
-      }
-      return rpc(word(18n)); // decimals()
+    case 'eth_blockNumber':
+      return rpc(`0x${head.toString(16)}`);
+    case 'eth_getLogs': {
+      const f = body.params[0] as { address: string; fromBlock: string; toBlock: string; topics: string[] };
+      const [lo, hi] = [Number(BigInt(f.fromBlock)), Number(BigInt(f.toBlock))];
+      if (f.address.toLowerCase() !== MEME || f.topics[1] !== padTopic(DEV)) return rpc([]);
+      return rpc(
+        devTransfers
+          .filter((t) => t.block >= lo && t.block <= hi)
+          .map((t) => ({ address: MEME, topics: [ERC20_TRANSFER_TOPIC, padTopic(DEV), padTopic(t.to)], data: word(t.amount), transactionHash: `0x${t.block}`, blockNumber: `0x${t.block.toString(16)}` })),
+      );
     }
+    case 'eth_call':
+      return rpc(word(18n)); // decimals()
     case 'eth_getBalance':
       return rpc('0x0');
   }
@@ -58,15 +71,22 @@ const net = (async (url: string, init?: RequestInit) => {
 }) as unknown as typeof fetch;
 
 describe('evaluateDevSell (rein)', () => {
-  it('löst ab der Abgabe-Schwelle aus, ganzzahlig ohne Rundungsfehler', () => {
-    expect(evaluateDevSell(1000n * E18, 800n * E18, 50)).toBe(false);
-    expect(evaluateDevSell(1000n * E18, 500n * E18 + 1n, 50)).toBe(false);
+  it('löst ab dem verkauften Anteil aus, ganzzahlig ohne Rundungsfehler', () => {
+    expect(evaluateDevSell(1000n * E18, 200n * E18, 50)).toBe(false);
+    expect(evaluateDevSell(1000n * E18, 500n * E18 - 1n, 50)).toBe(false);
     expect(evaluateDevSell(1000n * E18, 500n * E18, 50)).toBe(true);
-    // 100 % = erst wenn der Ersteller alles abgegeben hat
-    expect(evaluateDevSell(1000n * E18, 1n, 100)).toBe(false);
-    expect(evaluateDevSell(1000n * E18, 0n, 100)).toBe(true);
-    // ohne Ausgangsbestand nie
-    expect(evaluateDevSell(0n, 0n, 50)).toBe(false);
+    // 100 % = erst wenn der Ersteller alles verkauft hat
+    expect(evaluateDevSell(1000n * E18, 1000n * E18 - 1n, 100)).toBe(false);
+    expect(evaluateDevSell(1000n * E18, 1000n * E18, 100)).toBe(true);
+    // ohne Ausgangsbestand oder ohne Verkauf nie
+    expect(evaluateDevSell(0n, 5n, 50)).toBe(false);
+    expect(evaluateDevSell(1000n * E18, 0n, 10)).toBe(false);
+  });
+
+  it('nur Transfers an Pools/Router zählen als Verkauf (Lock, Burn, Umbuchung nicht)', () => {
+    const sinks = new Set([POOL]);
+    expect(devSoldAtomic([{ to: POOL.toUpperCase().replace('0X', '0x'), amount: 7n }, { to: LOCK, amount: 100n }, { to: '0x000000000000000000000000000000000000dead', amount: 50n }], sinks)).toBe(7n);
+    expect(devSoldAtomic([], sinks)).toBe(0n);
   });
 
   it('Plausibilität: Abgabe 10 bis 100 %', () => {
@@ -103,7 +123,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Dev-Verkauf-Schutz (echte DB, Paper,
     await pool.end();
   });
 
-  it('Abgabe unter der Schwelle → nichts; Kette nicht lesbar → nichts; ab der Schwelle → Bestand verkauft', async () => {
+  it('Lock zählt nicht, Verkauf unter der Schwelle → nichts; Kette nicht lesbar → nichts; ab der Schwelle → Bestand verkauft', async () => {
     // Bestand aufbauen: Limit-Kauf über dem Kurs löst sofort aus
     const [buy] = await db.insert(schema.swapOrders).values({ walletId, token: MEME, symbol: 'MEME', kind: 'limit_buy', triggerPriceUsd: '1', buyAmount: '0.1' }).returning();
     await runSwapOrders(db);
@@ -112,21 +132,29 @@ describe.skipIf(!process.env.DATABASE_URL)('Dev-Verkauf-Schutz (echte DB, Paper,
 
     const [dev] = await db
       .insert(schema.swapOrders)
-      .values({ walletId, token: MEME, symbol: 'MEME', kind: 'dev_sell', trailPct: '50', sellPercent: '100', watchAddress: DEV, watchBalance: (1000n * E18).toString() })
+      .values({ walletId, token: MEME, symbol: 'MEME', kind: 'dev_sell', trailPct: '50', sellPercent: '100', watchAddress: DEV, watchBalance: (1000n * E18).toString(), watchBlock: String(head - 3), watchSold: '0' })
       .returning();
-    // Ersteller gibt 20 % ab → unter der Schwelle
-    devBalance = 800n * E18;
+    const row = async () => (await db.select().from(schema.swapOrders).where(eq(schema.swapOrders.id, dev!.id)))[0]!;
+    // 60 % in einen Lock (kein Verkauf) + 10 % an den Pool → 10 % verkauft, unter der Schwelle
+    head += 10;
+    devTransfers = [
+      { block: head - 8, to: LOCK, amount: 600n * E18 },
+      { block: head - 7, to: POOL, amount: 100n * E18 },
+    ];
     await runSwapOrders(db);
-    expect(await status(dev!.id)).toBe('open');
-    // Knoten antwortet nicht → nie raten
-    devBalance = null;
+    expect(await row()).toMatchObject({ status: 'open', watchSold: (100n * E18).toString(), watchBlock: String(head - 3) });
+    // Knoten antwortet nicht → nie raten, Cursor bleibt
+    head += 10;
+    devTransfers.push({ block: head - 5, to: POOL, amount: 450n * E18 });
+    down = true;
     const r = await runSwapOrders(db);
-    expect(r.errors.some((e) => e.startsWith('Dev-Bestand MEME'))).toBe(true);
-    expect(await status(dev!.id)).toBe('open');
-    // Ersteller hat 60 % abgegeben → eigener Bestand raus
-    devBalance = 400n * E18;
+    expect(r.errors.some((e) => e.startsWith('Dev-Verkäufe MEME'))).toBe(true);
+    expect(await row()).toMatchObject({ status: 'open', watchSold: (100n * E18).toString(), watchBlock: String(head - 13) });
+    // wieder erreichbar: 450 dazu → 55 % verkauft → eigener Bestand raus
+    down = false;
     await runSwapOrders(db);
     expect(await status(dev!.id)).toBe('filled');
+    expect((await row()).watchSold).toBe((550n * E18).toString());
     expect(await meme()).toBe(0n);
     const notes = await db.select().from(schema.notifications).where(and(eq(schema.notifications.userId, userId)));
     expect(notes.map((n) => n.title)).toContain('Dev-Verkauf-Schutz ausgeführt: MEME');

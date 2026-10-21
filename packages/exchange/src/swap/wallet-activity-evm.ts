@@ -340,3 +340,38 @@ async function readSwaps(
   }
   return { swaps: swaps.reverse(), newestSignature: cursor.toString(), gap: false };
 }
+
+/**
+ * Ausgehende Transfers EINES Tokens von `sender` seit Block `cursor` (exklusive),
+ * höchstens `EVM_MAX_BLOCKS` Blöcke je Abruf — liegt der Cursor weiter zurück,
+ * holt der nächste Abruf den Rest (lückenlos, nichts übersprungen). Ohne Cursor:
+ * nur den Startpunkt (aktuelle bestätigte Blocknummer) bestimmen.
+ */
+export async function fetchTokenOutflows(
+  chain: SwapChainId,
+  token: string,
+  sender: string,
+  cursor: bigint | null,
+  fetchFn: Fetch = fetch,
+): Promise<{ transfers: { to: string; amount: bigint }[]; cursor: string }> {
+  const problems: string[] = [];
+  for (const url of logRpcCandidates(chain)) {
+    try {
+      const head = BigInt((await rpc(chain, url, 'eth_blockNumber', [], fetchFn)) as string);
+      const latest = head > EVM_CONFIRMATIONS ? head - EVM_CONFIRMATIONS : 0n;
+      if (cursor === null) return { transfers: [], cursor: latest.toString() };
+      // hinterherhängender Knoten: Cursor nie zurückdrehen
+      if (latest <= cursor) return { transfers: [], cursor: cursor.toString() };
+      const from = cursor + 1n;
+      const to = latest - from + 1n > BigInt(EVM_MAX_BLOCKS) ? from + BigInt(EVM_MAX_BLOCKS) - 1n : latest;
+      const logs = (await rpc(chain, url, 'eth_getLogs', [{ address: token, fromBlock: hex(from), toBlock: hex(to), topics: [ERC20_TRANSFER_TOPIC, padTopic(sender)] }], fetchFn)) as EvmLog[];
+      const transfers = (logs ?? [])
+        .filter((l) => lc(l.address) === lc(token) && l.topics[2])
+        .map((l) => ({ to: `0x${l.topics[2]!.slice(26)}`.toLowerCase(), amount: l.data && l.data !== '0x' ? BigInt(l.data) : 0n }));
+      return { transfers, cursor: to.toString() };
+    } catch (err) {
+      problems.push(`${new URL(url).host}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  throw new Error(`Kein ${SWAP_CHAINS[chain].name}-RPC liefert die Transfer-Logs (${problems.join(' | ')}).`);
+}

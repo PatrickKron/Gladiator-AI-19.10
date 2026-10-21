@@ -1945,7 +1945,7 @@ export const fr: Catalog = {
     rugListed: "liquidité du pool −{{pct}} (à la création {{liq}})",
     kind_dev_sell: "Protection vente du dev",
     devDrop: "Vente du créateur (%)",
-    devHint: "Vend {{share}} % dès que le wallet du créateur du jeton a cédé {{pct}} de son solde actuel (lu sur la chaîne chaque minute ; créateur selon GoPlus). Si la chaîne est illisible, rien n'est décidé. La vente passe par les mêmes limites (slippage, impact de prix) ; en cas d'échec, pas de seconde tentative.",
+    devHint: "Vend {{share}} % dès que le wallet du créateur du jeton a VENDU {{pct}} de son solde actuel — seuls comptent les transferts vers les pools du jeton ou des routeurs de swap (lu sur la chaîne chaque minute ; créateur selon GoPlus). Verrous, burns et transferts internes ne déclenchent pas ; si le créateur vend via un nouveau wallet, la protection ne le voit pas. Si la chaîne est illisible, rien n'est décidé. La vente passe par les mêmes limites ; en cas d'échec, pas de seconde tentative.",
     devListed: "Le créateur {{dev}} vend {{pct}}",
     alertOnly: "Notification uniquement (cloche + push) — rien n'est acheté ni vendu.",
     autoNote: "Après l'achat : take-profit {{tp}}, stop-loss {{sl}} depuis le prix d'achat.",
