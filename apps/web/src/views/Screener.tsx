@@ -490,53 +490,41 @@ export function Screener() {
         {!result && <p className="text-sm" style={{ color: 'var(--color-mut)' }}>{t('screener.notRun')}</p>}
         {result && rows.length === 0 && <p className="text-sm" style={{ color: 'var(--color-mut)' }}>{t('screener.noMatches')}</p>}
         {result && rows.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="label">
-                  <th className="py-1 pr-3">{t('screener.colSymbol')}</th>
-                  <th className="py-1 pr-3 text-right">{t('screener.colClose')}</th>
-                  <th className="py-1 pr-3 text-right">{t('screener.colChange')}</th>
-                  <th className="py-1 pr-3 text-right">{t('screener.colCandles')}</th>
-                  {conditions.map((c, i) => (
-                    <th key={i} className="py-1 pr-3 text-right" title={conditionLabel(c, entryOf, t)}>
-                      {conditionLabel(c, entryOf, t)}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.symbol} className="border-t" style={{ borderColor: 'rgba(148,163,184,0.08)' }}>
-                    <td className="py-1.5 pr-3">
-                      <a href={buildChartUrl(r.symbol, tf, venue)} className="num underline-offset-2 hover:underline" style={{ color: r.matches ? 'var(--color-cyan)' : 'var(--color-ink)' }} title={t('screener.openChart')}>
-                        {r.symbol}
-                      </a>
-                      {r.error && (
-                        <span className="ml-2 text-[11px]" style={{ color: 'var(--color-warn)' }}>
-                          {r.error}
-                        </span>
-                      )}
-                    </td>
-                    <td className="num py-1.5 pr-3 text-right">{fmtNum(r.close)}</td>
-                    <td className="num py-1.5 pr-3 text-right" style={{ color: (r.changePct ?? 0) >= 0 ? '#22c55e' : '#ef4444' }}>
-                      {r.changePct == null ? '—' : `${r.changePct >= 0 ? '+' : ''}${r.changePct.toFixed(2)} %`}
-                    </td>
-                    <td className="num py-1.5 pr-3 text-right">{r.candles}</td>
-                    {conditions.map((c, i) => {
-                      const res = r.results?.[i];
-                      if (!res) return <td key={i} className="py-1.5 pr-3 text-right">—</td>;
-                      const text = c.kind === 'compare' ? `${fmtNum(res.left)} / ${fmtNum(res.right)}` : c.kind === 'range' ? `${fmtNum(res.left)} %` : fmtNum(res.left);
-                      return (
-                        <td key={i} className="num py-1.5 pr-3 text-right" title={res.note ?? undefined} style={{ color: res.ok ? '#22c55e' : res.note ? 'var(--color-warn)' : 'var(--color-mut)' }}>
-                          {res.ok ? '✓' : res.note ? '⚠' : '✗'} {text}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          // Treffer als Karten (Welle C): Symbol, Kurs, Veränderung, je Bedingung ein Chip — Klick öffnet den Chart im selben Zeitrahmen
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {rows.map((r) => (
+              <a key={r.symbol} href={buildChartUrl(r.symbol, tf, venue)} className="glass glass-hover block p-4" title={t('screener.openChart')} style={r.matches ? undefined : { opacity: 0.7 }}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="num truncate text-base font-semibold">{r.symbol}</p>
+                    <p className="num mt-0.5 text-sm" style={{ color: 'var(--color-mut)' }}>
+                      {fmtNum(r.close)} <span className="text-xs">· {r.candles} {t('screener.colCandles')}</span>
+                    </p>
+                  </div>
+                  <span className={`chip ${r.changePct == null ? 'chip--mut' : r.changePct >= 0 ? 'chip--pos' : 'chip--neg'}`}>
+                    {r.changePct == null ? '—' : `${r.changePct >= 0 ? '+' : ''}${r.changePct.toFixed(2)} %`}
+                  </span>
+                </div>
+                {r.error && (
+                  <p className="mt-2 text-[11px]" style={{ color: 'var(--color-warn)' }}>
+                    {r.error}
+                  </p>
+                )}
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {conditions.map((c, i) => {
+                    const res = r.results?.[i];
+                    const label = conditionLabel(c, entryOf, t);
+                    if (!res) return <span key={i} className="chip chip--mut" title={label}>— {label}</span>;
+                    const text = c.kind === 'compare' ? `${fmtNum(res.left)} / ${fmtNum(res.right)}` : c.kind === 'range' ? `${fmtNum(res.left)} %` : fmtNum(res.left);
+                    return (
+                      <span key={i} className={`chip ${res.ok ? 'chip--pos' : res.note ? 'chip--warn' : 'chip--mut'}`} title={`${label}${res.note ? ` · ${res.note}` : ''}`}>
+                        {res.ok ? '✓' : res.note ? '⚠' : '✗'} <span className="num">{text}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              </a>
+            ))}
           </div>
         )}
         <p className="label mt-3">{t('screener.hint')}</p>

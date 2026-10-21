@@ -48,4 +48,5 @@ export const VIEW_PREFERENCE_KEYS = [
   'gladiator.selectedAsset',
   'gladiator.demoMode',
   'gladiator.effects',
+  'gladiator.chartToggles',
 ];

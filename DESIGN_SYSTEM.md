@@ -114,8 +114,10 @@ Hover auf einer Markt-Karte hebt weiterhin die Spalten des Symbols hervor.
 - [x] **B · Heute & Vermögen** (PR #69): Hero mit Kurve aus Momentaufnahmen, drei Aktionen,
       „Heute wichtig" (Signale, Termine, Ereignisse, Vorschläge), Details aufklappbar;
       Vermögen mit Zeitfenster, Kurve, Aufteilung, Kontenliste mit nächstem Schritt.
-- [ ] **C · Markt**: Chart auf Vollfläche, eine Werkzeugzeile, Smart-Money-Schalter, Orderbuch
-      als Schublade; Screener-Treffer als Karten; Marktlage als Ampel.
+- [x] **C · Markt** (PR #70): Chart mit kompaktem Kopf und mehr Höhe, EINE Werkzeugzeile
+      (Zeitrahmen · Ansicht ▾ · Smart Money · Bibliothek · Zeichnen ▾ · Replay), ruhige
+      Standardansicht (EMA, Volumen, Signale), Ansicht bleibt im Browser; Screener-Treffer
+      als Karten; Marktlage mit Lagebild-Streifen (Regime-Score als Ampel).
 - [ ] **D · Traden & Signale**: Kauf-Flow Betrag → Richtung → Vorschau → Bestätigen,
       „Erweitert"; Signalkarten mit Bild und Gründen; Ergebniskarte beim Schließen.
 - [ ] **E · Strategie & Mehr**: Labor-Archiv, Agenten + Werkstatt als eine Seite,
