@@ -91,6 +91,8 @@ describe('Top-10-Konzentration', () => {
     ];
     expect(goPlusTop10Pct(holders)).toBe(33);
     expect(goPlusTop10Pct([])).toBeNull();
+    // verbrannte Bestände (Burn-Adressen) gehören niemandem
+    expect(goPlusTop10Pct([...holders, { address: '0x000000000000000000000000000000000000dEaD', percent: '0.40', is_contract: 0, is_locked: 0 }])).toBe(33);
     const r = judgeGoPlus({ is_honeypot: '0', buy_tax: '0', sell_tax: '0', holders });
     expect(r.top10Pct).toBe(33);
     expect(r.warnings).toContain('top10_concentrated');

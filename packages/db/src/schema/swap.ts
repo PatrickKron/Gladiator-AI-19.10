@@ -127,11 +127,11 @@ export const swapOrders = pgTable(
     triggerPriceUsd: numeric('trigger_price_usd'),
     /** Trailing-Stop: Abstand vom Höchstkurs in % */
     trailPct: numeric('trail_pct'),
-    /** Trailing-Stop: bisheriger Höchstkurs (USD) */
+    /** Trailing-Stop: bisheriger Höchstkurs (USD); Rug-Schutz: Kurs zum Stand von `peakLiquidityUsd` */
     peakPriceUsd: numeric('peak_price_usd'),
-    /** Rug-Schutz: Pool-Liquidität (USD) beim Anlegen — nur Anzeige */
+    /** Rug-Schutz: Pool-Liquidität (USD) beim letzten Tiefen-Höchststand — Maßstab für einen Pool-Umzug */
     peakLiquidityUsd: numeric('peak_liquidity_usd'),
-    /** Rug-Schutz: beobachteter Pool (beim Anlegen festgehalten; wechselt nie) */
+    /** Rug-Schutz: beobachteter Pool mit konstantem Produkt (wechselt nur bei erkanntem Umzug) */
     pairAddress: text('pair_address'),
     /** Rug-Schutz: bisher größte Pool-Tiefe √(Basis × Quote); Abfall in % steht in `trailPct` */
     peakDepth: numeric('peak_depth'),

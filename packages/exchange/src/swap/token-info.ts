@@ -43,6 +43,8 @@ type DexPair = {
   priceChange?: { h24?: number };
   pairCreatedAt?: number;
   info?: { imageUrl?: string };
+  /** Pool-Bauart laut DexScreener, z. B. v2, v3, CLMM, DLMM */
+  labels?: string[];
 };
 
 function num(v: unknown): number | null {
@@ -56,6 +58,33 @@ export function pickBestPair(pairs: DexPair[], chain: SwapChainId, address: stri
   const same = (a?: string) => (a ? (evm ? a.toLowerCase() === address.toLowerCase() : a === address) : false);
   const own = pairs.filter((p) => p.chainId === SWAP_CHAINS[chain].dexscreenerId && same(p.baseToken?.address));
   return own.sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0))[0] ?? null;
+}
+
+/** Pool-Bauarten mit konzentrierter Liquidität bzw. eigener Kurve (Kennzeichnung laut DexScreener). */
+const NON_CP_LABELS = new Set(['v3', 'v4', 'clmm', 'dlmm', 'wp', 'whirlpool', 'dyn2', 'stable', 'slipstream']);
+/** Börsen ohne Pools mit konstantem Produkt (Orca = Whirlpools; pump.fun = Bonding-Curve). */
+const NON_CP_DEXES = new Set(['orca', 'pumpfun']);
+
+/**
+ * Pool mit konstantem Produkt (x·y = k)? Nur dort bleibt √(Basis × Quote) bei
+ * normalem Handel gleich. In Pools mit konzentrierter Liquidität (v3/v4, CLMM,
+ * DLMM) schrumpft eine Seite schon bei einem Kursrutsch — der Rug-Schutz würde
+ * dort ohne Liquiditätsabzug verkaufen.
+ */
+export function isConstantProductPair(p: { dexId?: string; labels?: string[] }): boolean {
+  if (p.dexId && NON_CP_DEXES.has(p.dexId.toLowerCase())) return false;
+  return !(p.labels ?? []).some((l) => NON_CP_LABELS.has(l.toLowerCase()));
+}
+
+/** Liquidester Pool mit konstantem Produkt (Rug-Schutz); keiner → null. */
+export function pickRugPair(pairs: DexPair[], chain: SwapChainId, address: string): DexPair | null {
+  return pickBestPair(pairs.filter(isConstantProductPair), chain, address);
+}
+
+function depthOf(p: DexPair | null): number | null {
+  const base = num(p?.liquidity?.base);
+  const quote = num(p?.liquidity?.quote);
+  return base !== null && quote !== null && base >= 0 && quote >= 0 ? Math.sqrt(base * quote) : null;
 }
 
 export async function fetchDexPairs(chain: SwapChainId, address: string, fetchFn: Fetch = fetch): Promise<DexPair[]> {
@@ -121,15 +150,17 @@ export async function fetchTokenInfo(chain: SwapChainId, address: string, fetchF
   };
 }
 
+export type PoolDepth = { depth: number; liquidityUsd: number | null };
+
 /**
- * Pool-Tiefe √(Basis-Menge × Quote-Menge) je Pool-Adresse (DexScreener
- * `latest/dex/pairs`, bis 30 je Abruf). Anders als die USD-Liquidität bleibt sie
- * bei normalem Handel gleich (konstantes Produkt) und fällt nur, wenn Liquidität
- * ABGEZOGEN wird — genau das Signal eines Rugs. Fehlt ein Pool in der Antwort,
- * fehlt er im Ergebnis (nie 0 geraten).
+ * Pool-Tiefe √(Basis-Menge × Quote-Menge) und USD-Liquidität je Pool-Adresse
+ * (DexScreener `latest/dex/pairs`, bis 30 je Abruf). Anders als die USD-Liquidität
+ * bleibt die Tiefe in Pools mit konstantem Produkt bei normalem Handel gleich und
+ * fällt nur, wenn Liquidität ABGEZOGEN wird — genau das Signal eines Rugs. Fehlt
+ * ein Pool in der Antwort, fehlt er im Ergebnis (nie 0 geraten).
  */
-export async function fetchPairDepths(chain: SwapChainId, pairAddresses: string[], fetchFn: Fetch = fetch): Promise<Map<string, number>> {
-  const out = new Map<string, number>();
+export async function fetchPairDepths(chain: SwapChainId, pairAddresses: string[], fetchFn: Fetch = fetch): Promise<Map<string, PoolDepth>> {
+  const out = new Map<string, PoolDepth>();
   const unique = [...new Set(pairAddresses)];
   for (let i = 0; i < unique.length; i += 30) {
     const batch = unique.slice(i, i + 30);
@@ -139,26 +170,35 @@ export async function fetchPairDepths(chain: SwapChainId, pairAddresses: string[
     if (!res.ok) throw new Error(`DexScreener: HTTP ${res.status}`);
     const body = (await res.json()) as { pairs?: DexPair[] | null };
     for (const p of body.pairs ?? []) {
-      const base = num(p.liquidity?.base);
-      const quote = num(p.liquidity?.quote);
+      const depth = depthOf(p);
       const addr = batch.find((a) => (SWAP_CHAINS[chain].kind === 'evm' ? a.toLowerCase() === p.pairAddress?.toLowerCase() : a === p.pairAddress));
-      if (addr && base !== null && quote !== null && base >= 0 && quote >= 0) out.set(addr, Math.sqrt(base * quote));
+      if (addr && depth !== null) out.set(addr, { depth, liquidityUsd: num(p.liquidity?.usd) });
     }
   }
   return out;
 }
 
-export type TokenMarket = {
-  priceUsd: number;
-  liquidityUsd: number | null;
-  /** liquidester Pool und dessen Tiefe √(Basis × Quote) (Rug-Schutz: Umzug erkennen) */
-  pairAddress: string | null;
-  depth: number | null;
-};
+export type RugPool = { pairAddress: string; liquidityUsd: number | null; depth: number };
 
-/** Preis, Liquidität und liquidester Pool je Token (ein DexScreener-Abruf je 30 Tokens). */
-export async function fetchTokenMarket(chain: SwapChainId, addresses: string[], fetchFn: Fetch = fetch): Promise<Map<string, TokenMarket>> {
-  const out = new Map<string, TokenMarket>();
+/**
+ * Rug-Schutz: liquidester Pool mit konstantem Produkt eines Tokens und dessen
+ * Tiefe. Fragt ALLE Pools des Tokens ab (`token-pairs/v1`) — `tokens/v1` nennt je
+ * Token nur den einen liquidesten Pool, oft ein CLMM/Whirlpool. Keiner → null.
+ */
+export async function fetchRugPool(chain: SwapChainId, address: string, fetchFn: Fetch = fetch): Promise<RugPool | null> {
+  const res = await fetchFn(`${DEXSCREENER_API}/token-pairs/v1/${SWAP_CHAINS[chain].dexscreenerId}/${address}`, {
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`DexScreener: HTTP ${res.status}`);
+  const body = (await res.json()) as unknown;
+  const rug = pickRugPair(Array.isArray(body) ? (body as DexPair[]) : [], chain, address);
+  const depth = depthOf(rug);
+  if (!rug?.pairAddress || depth === null || !(depth > 0)) return null;
+  return { pairAddress: rug.pairAddress, liquidityUsd: num(rug.liquidity?.usd), depth };
+}
+
+export async function fetchTokenPrices(chain: SwapChainId, addresses: string[], fetchFn: Fetch = fetch): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
   const lookups = addresses.map((a) => (isNativeToken(chain, a) ? SWAP_CHAINS[chain].wrappedNative : a));
   for (let i = 0; i < lookups.length; i += 30) {
     const batch = [...new Set(lookups.slice(i, i + 30))];
@@ -168,26 +208,12 @@ export async function fetchTokenMarket(chain: SwapChainId, addresses: string[], 
     if (!res.ok) throw new Error(`DexScreener: HTTP ${res.status}`);
     const pairs = ((await res.json()) as DexPair[]) ?? [];
     for (const lookup of batch) {
-      const best = pickBestPair(pairs, chain, lookup);
-      const p = num(best?.priceUsd);
+      const p = num(pickBestPair(pairs, chain, lookup)?.priceUsd);
       if (p === null) continue;
-      const base = num(best?.liquidity?.base);
-      const quote = num(best?.liquidity?.quote);
-      const m: TokenMarket = {
-        priceUsd: p,
-        liquidityUsd: num(best?.liquidity?.usd),
-        pairAddress: best?.pairAddress ?? null,
-        depth: base !== null && quote !== null && base >= 0 && quote >= 0 ? Math.sqrt(base * quote) : null,
-      };
       addresses.forEach((a, idx) => {
-        if (lookups[idx] === lookup) out.set(a, m);
+        if (lookups[idx] === lookup) out.set(a, p);
       });
     }
   }
   return out;
-}
-
-export async function fetchTokenPrices(chain: SwapChainId, addresses: string[], fetchFn: Fetch = fetch): Promise<Map<string, number>> {
-  const market = await fetchTokenMarket(chain, addresses, fetchFn);
-  return new Map([...market].map(([a, m]) => [a, m.priceUsd]));
 }

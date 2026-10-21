@@ -51,13 +51,20 @@ describe('evaluateRugGuard', () => {
     expect(evaluateSwapOrder({ kind: 'rug_guard', triggerPriceUsd: null, trailPct: 50, peakPriceUsd: null }, 1).trigger).toBe(false);
   });
 
-  it('Umzug statt Rug: neuer, tiefer Pool (≥ halbe Start-Liquidität) wird übernommen; sonst nicht', () => {
-    const o = { pairAddress: 'Alt', peakLiquidityUsd: 100_000 };
-    expect(rugGuardMigrates(o, { pairAddress: 'Neu', liquidityUsd: 60_000, depth: 5 })).toBe(true);
-    expect(rugGuardMigrates(o, { pairAddress: 'Neu', liquidityUsd: 40_000, depth: 5 })).toBe(false);
-    expect(rugGuardMigrates(o, { pairAddress: 'Alt', liquidityUsd: 900_000, depth: 5 })).toBe(false);
-    expect(rugGuardMigrates(o, null)).toBe(false);
-    expect(rugGuardMigrates({ ...o, peakLiquidityUsd: null }, { pairAddress: 'Neu', liquidityUsd: 60_000, depth: 5 })).toBe(false);
+  it('Umzug statt Rug: neuer, tiefer Pool (≥ halbe Liquidität beim Höchststand, kursbereinigt) wird übernommen; sonst nicht', () => {
+    const o = { pairAddress: 'Alt', peakLiquidityUsd: 100_000, peakPriceUsd: 1 };
+    expect(rugGuardMigrates(o, { pairAddress: 'Neu', liquidityUsd: 60_000, depth: 5 }, 1)).toBe(true);
+    expect(rugGuardMigrates(o, { pairAddress: 'Neu', liquidityUsd: 40_000, depth: 5 }, 1)).toBe(false);
+    expect(rugGuardMigrates(o, { pairAddress: 'Alt', liquidityUsd: 900_000, depth: 5 }, 1)).toBe(false);
+    expect(rugGuardMigrates(o, null, 1)).toBe(false);
+    expect(rugGuardMigrates({ ...o, peakLiquidityUsd: null }, { pairAddress: 'Neu', liquidityUsd: 60_000, depth: 5 }, 1)).toBe(false);
+    // Kurs seit dem Höchststand −75 %: bei konstantem Produkt hat der Pool nur noch √0,25 = 50 % der USD-Liquidität
+    // → ein Umzug mit 30 000 $ (≥ 0,5 × 50 000) ist echt, nicht erst ab 50 000
+    expect(rugGuardMigrates(o, { pairAddress: 'Neu', liquidityUsd: 30_000, depth: 5 }, 0.25)).toBe(true);
+    expect(rugGuardMigrates(o, { pairAddress: 'Neu', liquidityUsd: 20_000, depth: 5 }, 0.25)).toBe(false);
+    // Kursanstieg senkt die Hürde nie unter die Hälfte des Höchststands; Altbestand ohne Kurs = unbereinigt
+    expect(rugGuardMigrates(o, { pairAddress: 'Neu', liquidityUsd: 40_000, depth: 5 }, 4)).toBe(false);
+    expect(rugGuardMigrates({ ...o, peakPriceUsd: null }, { pairAddress: 'Neu', liquidityUsd: 30_000, depth: 5 }, 0.25)).toBe(false);
   });
 
   it('Plausibilität: Abfall 10 bis 90 %', () => {
@@ -117,6 +124,14 @@ const fakeNet = (async (url: string, init?: RequestInit) => {
   const json = (b: unknown) => new Response(JSON.stringify(b));
   if (u.includes('dexscreener') && u.includes('/latest/dex/pairs/')) {
     return json({ pairs: [{ chainId: 'solana', pairAddress: BONK_POOL, liquidity: { usd: 1e8, ...bonkPool } }] });
+  }
+  if (u.includes('dexscreener') && u.includes('/token-pairs/v1/')) {
+    // alle BONK-Pools: liquiderer CLMM (für den Rug-Schutz ungeeignet) + liquidester klassischer Pool
+    const a = u.split('/').pop()!;
+    return json([
+      { chainId: 'solana', dexId: 'raydium', labels: ['CLMM'], pairAddress: 'ClmmPool111111111111111111111111111111111111', baseToken: { address: a }, liquidity: { usd: 9e8, base: 1, quote: 1 } },
+      { chainId: 'solana', dexId: 'raydium', pairAddress: bonkBestPool, baseToken: { address: a }, liquidity: { usd: 1e8, base: 4e9, quote: 4e5 } },
+    ]);
   }
   if (u.includes('dexscreener')) {
     const addrs = u.split('/').pop()!.split(',');

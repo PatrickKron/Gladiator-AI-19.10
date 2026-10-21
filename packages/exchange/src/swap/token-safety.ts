@@ -111,11 +111,18 @@ export function solanaTop10Pct(accounts: { amount: string; owner: string | null;
   return Number((sum * 1_000_000n) / total) / 10_000;
 }
 
-/** Top-10-Konzentration aus GoPlus (`holders`, Anteil 0–1): Verträge und gesperrte Bestände zählen nicht. */
-export function goPlusTop10Pct(holders: { percent?: string; is_contract?: number | string; is_locked?: number | string }[] | undefined): number | null {
+/** Verbrannte Bestände (Burn-Adressen) — gehören niemandem, zählen nie als Wallet. */
+const BURN_ADDRESSES = new Set(['0x0000000000000000000000000000000000000000', '0x000000000000000000000000000000000000dead', '0xdead000000000000000042069420694206942069']);
+
+/**
+ * Top-10-Konzentration aus GoPlus (`holders`, Anteil 0–1): Verträge, gesperrte
+ * und verbrannte Bestände zählen nicht. GoPlus listet nur die größten Halter —
+ * der Wert ist also der Anteil der größten gelisteten Wallets (eher zu niedrig).
+ */
+export function goPlusTop10Pct(holders: { address?: string; percent?: string; is_contract?: number | string; is_locked?: number | string }[] | undefined): number | null {
   if (!holders || holders.length === 0) return null;
   const sum = holders
-    .filter((h) => String(h.is_contract) !== '1' && String(h.is_locked) !== '1')
+    .filter((h) => String(h.is_contract) !== '1' && String(h.is_locked) !== '1' && !BURN_ADDRESSES.has((h.address ?? '').toLowerCase()))
     .slice(0, 10)
     .reduce((s, h) => s + (Number(h.percent) || 0), 0);
   return Math.round(sum * 100 * 100) / 100;

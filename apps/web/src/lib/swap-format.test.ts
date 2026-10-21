@@ -91,6 +91,10 @@ describe('Ziel nach Marktkapitalisierung', () => {
     expect(parseCompactUsd('1,000,000')).toBe(1_000_000);
     expect(parseCompactUsd('1.000.000')).toBe(1_000_000);
     expect(parseCompactUsd('2,5')).toBe(2.5);
+    // Dreiergruppe + Kürzel ist mehrdeutig (2,5 Mio. oder 2,5 Mrd.?) → nicht raten
+    expect(parseCompactUsd('1,000k')).toBeNull();
+    expect(parseCompactUsd('2.500m')).toBeNull();
+    expect(parseCompactUsd('2.5m')).toBe(2_500_000);
   });
 
   it('Auslösekurs skaliert mit der Marktkapitalisierung (gleiche Menge im Umlauf)', () => {
