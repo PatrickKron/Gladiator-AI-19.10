@@ -47,6 +47,7 @@ export function notificationPriority(n: TodayNotification, now: number): number 
     case 'emergency':
       return 120;
     case 'price_alert':
+    case 'screen':
       return 70;
     case 'signal':
       return 0; // Signale stehen schon als eigene Zeile drin

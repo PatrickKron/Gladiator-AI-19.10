@@ -1,4 +1,4 @@
-export { backfillOhlcv, getOhlcv, type BackfillResult } from './ohlcv.js';
+export { backfillOhlcv, candleUniverse, getOhlcv, type BackfillResult } from './ohlcv.js';
 export {
   BARS_PER_YEAR,
   SUPPORTED_TIMEFRAMES,

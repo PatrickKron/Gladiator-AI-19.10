@@ -638,6 +638,10 @@ export const es: Catalog = {
     analysisPromptHint: 'Opcional: si se define, la IA evalúa además la situación (EXECUTE/SKIP) cuando se cumplen las reglas, antes de crear una señal. Los marcadores {symbol} {side} {vix} {dxy_change} {grs} se rellenan con datos en vivo. Sin ANTHROPIC_API_KEY el agente sigue funcionando solo por reglas.',
   },
   screener: {
+    alert: "Alerta con nuevas coincidencias",
+    alertHint: "Apagada. Con la alerta, el servidor ejecuta este screen cada 5 minutos sobre velas reales y avisa de nuevas coincidencias en la campana (y por push/Telegram).",
+    alertPending: "Alerta activa: la primera ejecución llega en menos de 5 minutos y lista una vez todas las coincidencias actuales.",
+    lastRun: "Alerta activa · última ejecución {{time}} · {{n}} coincidencias",
     notRunCta: "Iniciar el screener",
     title: "Screener de mercado",
     subtitle: "Condiciones sobre todos los símbolos con velas reales — calculadas en el servidor con la misma biblioteca de indicadores y motor Smart Money que el gráfico.",

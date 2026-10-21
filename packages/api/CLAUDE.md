@@ -14,4 +14,4 @@ Regeln:
 - Registrierungs-Sperre: existiert ein User, lehnt `auth.register` ab (FORBIDDEN, „Registrierung geschlossen …"); nur `ALLOW_REGISTRATION=1` öffnet (Tests setzen es in `vitest.config.ts`).
 - Steuer-Export `trading.exportTrades` (CSV, Builder in `src/export/trades-csv.ts`) und Protokoll `system.auditLog` (nur lesend, Keyset-Pagination).
 - Später (Phase 5/6): Pine-Webhook-Receiver (HMAC), WebSocket/SSE-Gateway, Fach-Router.
-- Markt-Screener (`src/screener/`): Bedingungen per zod, Auswertung rein in `evaluate.ts` (dieselbe Indikator-Bibliothek/Engine wie der Chart), Router `screener.*`; Universum = nur Symbole mit echten Kerzen.
+- Markt-Screener: Router `screener.*`; Bedingungen/Auswertung/Vorlagen liegen in `@gladiator/indicators` (`src/screener/`), damit der Worker (Screen-Alarme) dieselbe Auswertung nutzt; Universum = `candleUniverse()` aus @gladiator/market-data (nur Symbole mit echten Kerzen).

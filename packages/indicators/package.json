@@ -12,6 +12,7 @@
   "dependencies": {
     "lightweight-charts-indicators": "^0.16.8",
     "oakscriptjs": "^0.12.3",
+    "zod": "^3.24.1",
     "@gladiator/core": "*"
   },
   "devDependencies": {

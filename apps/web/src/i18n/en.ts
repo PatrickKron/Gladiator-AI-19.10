@@ -638,6 +638,10 @@ export const en: Catalog = {
     analysisPromptHint: 'Optional: if set, the AI additionally evaluates the situation (EXECUTE/SKIP) once the rules are met, before a signal is created. Placeholders {symbol} {side} {vix} {dxy_change} {grs} are filled with live data. Without ANTHROPIC_API_KEY the agent keeps running rule-based only.',
   },
   screener: {
+    alert: "Alert on new matches",
+    alertHint: "Off. With the alert on, the server runs this screen every 5 minutes on real candles and reports new matches in the bell (and via push/Telegram).",
+    alertPending: "Alert on — the first run comes within 5 minutes and lists all current matches once.",
+    lastRun: "Alert on · last run {{time}} · {{n}} matches",
     notRunCta: "Run the screener",
     title: "Market screener",
     subtitle: "Conditions across every symbol with real candles — computed on the server with the same indicator library and Smart-Money engine as the chart.",

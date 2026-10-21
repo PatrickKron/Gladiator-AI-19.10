@@ -110,6 +110,15 @@ describe.skipIf(!hasDb)('screener-Router: Universum, Lauf, gespeicherte Screens'
     const conditions = [{ kind: 'range' as const, zone: 'discount' as const }];
     const saved = await a.screener.save({ name: 'Discount-Scan', timeframe: '4h', conditions });
     expect(saved.name).toBe('Discount-Scan');
+    expect(saved.venue).toBe('binance');
+    expect(saved.alert).toBe(false);
+    // Screen-Alarm: nur der Besitzer schaltet; Einschalten setzt den Treffer-Stand zurück
+    await expect(b.screener.setAlert({ id: saved.id, alert: true })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    const armed = await a.screener.setAlert({ id: saved.id, alert: true });
+    expect(armed.alert).toBe(true);
+    expect(armed.lastMatches).toEqual([]);
+    expect((await a.screener.list()).find((s) => s.id === saved.id)?.alert).toBe(true);
+    expect((await a.screener.setAlert({ id: saved.id, alert: false })).alert).toBe(false);
     expect((await a.screener.list()).map((s) => s.id)).toContain(saved.id);
     expect((await b.screener.list()).map((s) => s.id)).not.toContain(saved.id);
     // B darf A's Screen weder ändern noch löschen

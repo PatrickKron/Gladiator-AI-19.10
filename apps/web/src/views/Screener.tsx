@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { EmptyState, PageHeader } from '../components/ui.js';
+import { appLocale } from '../lib/locale.js';
 import { buildChartUrl, CHART_TFS, CHART_VENUES, type ChartTf, type ChartVenue } from '../lib/chart-url.js';
 import { cachedCatalog, loadCatalog } from '../lib/indicator-catalog.js';
 import { clampNumber, type MenuEntry, type MenuInput } from '../lib/indicator-menu.js';
@@ -274,7 +275,17 @@ export function Screener() {
   const [running, setRunning] = useState(false);
   const [onlyMatches, setOnlyMatches] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [autoRun, setAutoRun] = useState(false);
   const fail = (e: unknown) => setErr(e instanceof Error ? e.message : String(e));
+  /** Gespeicherten Screen ins Formular übernehmen (Bedingungen, Zeitrahmen, Quelle, Name). */
+  const applySaved = (s: Saved) => {
+    setSelectedSaved(s.id);
+    setConditions(s.conditions as Condition[]);
+    setName(s.name);
+    if ((CHART_TFS as readonly string[]).includes(s.timeframe)) setTf(s.timeframe as ChartTf);
+    if ((CHART_VENUES as readonly string[]).includes(s.venue)) setVenue(s.venue as ChartVenue);
+    setResult(null);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -338,17 +349,28 @@ export function Screener() {
   const loadSaved = (id: string) => {
     setSelectedSaved(id);
     const s = saved?.find((x) => x.id === id);
-    if (!s) return;
-    setConditions(s.conditions as Condition[]);
-    setName(s.name);
-    if ((CHART_TFS as readonly string[]).includes(s.timeframe)) setTf(s.timeframe as ChartTf);
-    setResult(null);
+    if (s) applySaved(s);
+  };
+  /** Screen-Alarm ein/aus (Worker rechnet alle 5 min, meldet nur neue Treffer). */
+  const toggleAlert = async (on: boolean) => {
+    const id = selectedSaved;
+    if (!id) return;
+    // Sofort umschalten (Schalter reagiert), dann Serverstand übernehmen — bei Fehler zurück.
+    setSaved((prev) => (prev ?? []).map((x) => (x.id === id ? { ...x, alert: on } : x)));
+    try {
+      const row = await trpc.screener.setAlert.mutate({ id, alert: on });
+      setSaved((prev) => (prev ?? []).map((x) => (x.id === row.id ? row : x)));
+      setErr(null);
+    } catch (e) {
+      setSaved((prev) => (prev ?? []).map((x) => (x.id === id ? { ...x, alert: !on } : x)));
+      fail(e);
+    }
   };
   const saveScreen = async (asNew: boolean) => {
     const n = name.trim();
     if (!n) return;
     try {
-      const row = await trpc.screener.save.mutate({ ...(asNew || !selectedSaved ? {} : { id: selectedSaved }), name: n, timeframe: tf, conditions });
+      const row = await trpc.screener.save.mutate({ ...(asNew || !selectedSaved ? {} : { id: selectedSaved }), name: n, timeframe: tf, venue, conditions });
       setSaved((prev) => {
         const list = (prev ?? []).filter((s) => s.id !== row.id);
         return [...list, row].sort((a, b) => a.name.localeCompare(b.name));
@@ -372,6 +394,31 @@ export function Screener() {
     }
   };
 
+  // Deep-Link aus der Glocke (Screen-Alarm): `#/screener?screen=<id>` — beim Laden und bei Hash-Wechsel
+  // (die Seite bleibt gemountet) den Screen übernehmen und sofort rechnen; jede Id nur einmal.
+  const appliedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!saved) return;
+    const apply = () => {
+      const wanted = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('screen');
+      const hit = wanted ? saved.find((x) => x.id === wanted) : undefined;
+      if (!hit || appliedRef.current === hit.id) return;
+      appliedRef.current = hit.id;
+      applySaved(hit);
+      setAutoRun(true);
+    };
+    apply();
+    window.addEventListener('hashchange', apply);
+    return () => window.removeEventListener('hashchange', apply);
+  }, [saved]);
+
+  useEffect(() => {
+    if (!autoRun || !Array.isArray(catalog)) return;
+    setAutoRun(false);
+    void run(); // liest die gerade gesetzten Zustände; nur der Auslöser zählt
+  }, [autoRun, catalog]);
+
+  const current = saved?.find((x) => x.id === selectedSaved);
   const rows = useMemo(() => (result ? result.rows.filter((r) => !onlyMatches || r.matches) : []), [result, onlyMatches]);
   const cat = Array.isArray(catalog) ? catalog : [];
 
@@ -414,6 +461,7 @@ export function Screener() {
             <option value="">{saved === null ? t('screener.loading') : saved.length === 0 ? t('screener.savedNone') : '—'}</option>
             {(saved ?? []).map((s) => (
               <option key={s.id} value={s.id}>
+                {s.alert ? '🔔 ' : ''}
                 {s.name} · {s.timeframe}
               </option>
             ))}
@@ -433,6 +481,22 @@ export function Screener() {
             </>
           )}
         </div>
+        {current && (
+          /* Screen-Alarm: der Worker rechnet den Screen alle 5 min auf echten Kerzen und meldet NEUE Treffer in der Glocke */
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <input type="checkbox" checked={current.alert} onChange={(e) => void toggleAlert(e.target.checked)} className="h-4 w-4 accent-[color:var(--color-blue)]" />
+              {t('screener.alert')}
+            </label>
+            <span className="text-xs" style={{ color: 'var(--color-mut)' }}>
+              {current.alert
+                ? current.lastRunAt
+                  ? t('screener.lastRun', { time: new Date(current.lastRunAt).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' }), n: current.lastMatches.length })
+                  : t('screener.alertPending')
+                : t('screener.alertHint')}
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="glass mb-4 flex flex-col gap-2 p-4">

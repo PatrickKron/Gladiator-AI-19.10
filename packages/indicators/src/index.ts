@@ -14,3 +14,20 @@ export {
   type IndicatorOutput,
   type PlotPoint,
 } from './compute.js';
+export { tickerIdOf } from './ticker.js';
+// Markt-Screener (Repo-Masterliste, Phase 2): EINE Auswertung für API (Seite) und Jobs (Screen-Alarme).
+export {
+  compareOpSchema,
+  conditionSchema,
+  conditionsSchema,
+  operandSchema,
+  MAX_CONDITIONS,
+  MAX_UNIVERSE,
+  MIN_CANDLES,
+  SCREEN_CANDLES,
+  type CompareOp,
+  type Condition,
+  type Operand,
+} from './screener/conditions.js';
+export { evaluateScreen, ScreenEvaluator, type ScreenResult, type EvalContext } from './screener/evaluate.js';
+export { SCREEN_PRESETS } from './screener/presets.js';

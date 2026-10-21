@@ -15,7 +15,7 @@ export const notifications = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    kind: text('kind').$type<'signal' | 'price_alert' | 'emergency' | 'kill_switch' | 'briefing' | 'system'>().notNull(),
+    kind: text('kind').$type<'signal' | 'price_alert' | 'screen' | 'emergency' | 'kill_switch' | 'briefing' | 'system'>().notNull(),
     severity: text('severity').$type<'info' | 'warn' | 'critical'>().notNull().default('info'),
     title: text('title').notNull(),
     /** Klartext (kein HTML) — Push und App zeigen ihn unverändert. */
@@ -27,7 +27,7 @@ export const notifications = pgTable(
   },
   (t) => [
     index('notifications_user_created_idx').on(t.userId, t.createdAt),
-    check('notifications_kind_check', sql`${t.kind} IN ('signal', 'price_alert', 'emergency', 'kill_switch', 'briefing', 'system')`),
+    check('notifications_kind_check', sql`${t.kind} IN ('signal', 'price_alert', 'screen', 'emergency', 'kill_switch', 'briefing', 'system')`),
     check('notifications_severity_check', sql`${t.severity} IN ('info', 'warn', 'critical')`),
   ],
 );

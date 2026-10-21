@@ -281,6 +281,20 @@
       "when": 1792593821209,
       "tag": "0039_complete_chameleon",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1792612031181,
+      "tag": "0040_known_photon",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1792612407128,
+      "tag": "0041_regular_spencer_smythe",
+      "breakpoints": true
     }
   ]
 }

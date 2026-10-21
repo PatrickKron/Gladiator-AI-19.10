@@ -9,6 +9,7 @@ export { enqueueRlEpisodeRun, workerHeartbeatAgeSec, workerHeartbeatAgeSecAsync 
 export { explainForUser, deterministicExplanation, buildExplanationMessages, sanitizeExplanation, type ExplanationFacts } from './explanation.js';
 export { buildUniverse, ensureCandles, normalizeTradingPair, scanUniverse, BASE_SYMBOLS } from './universe.js';
 export { alertTriggered, checkPriceAlerts } from './alerts.js';
+export { formatScreenAlert, newMatches, runScreenAlerts, SCREEN_ALERT_LIMIT, type ScreenAlertResult } from './screen-alerts.js';
 export { expireStaleSignals, isSignalExpired, signalExpiryCutoff, ttlHoursFor, SIGNAL_TTL_HOURS, DEFAULT_TTL_HOURS } from './signal-expiry.js';
 export {
   runSubAgents,
