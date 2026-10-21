@@ -270,15 +270,30 @@ export async function executePreparedSwap(db: Db, p: PreparedSwap, side: 'buy' |
  * Ergebnis verbuchen, auditieren, benachrichtigen.
  */
 async function executeLive(db: Db, p: PreparedSwap, side: 'buy' | 'sell', ctx: ExecuteContext): Promise<ExecuteResult> {
-  // Wallet FRISCH lesen: zwischen Auslösen und Signieren liegen Sekunden (Angebot,
-  // Sicherheitscheck) — wurde die Freigabe inzwischen zurückgezogen oder die
-  // Wallet entfernt, wird nichts gesendet.
-  const [w] = await db.select().from(schema.swapWallets).where(eq(schema.swapWallets.id, p.wallet.id));
-  if (!w || w.archivedAt) throw new SwapError('PRECONDITION_FAILED', 'Wallet wurde entfernt — nichts gesendet.');
-  if (ctx.orderId) {
-    const [o] = await db.select({ status: schema.swapOrders.status }).from(schema.swapOrders).where(eq(schema.swapOrders.id, ctx.orderId));
-    if (o?.status !== 'executing') throw new SwapError('PRECONDITION_FAILED', 'Order wurde inzwischen gestoppt — nichts gesendet.');
-  }
+  // Wallet FRISCH lesen — jetzt und noch einmal unmittelbar vor dem Signieren
+  // (Angebot, Sicherheitscheck und Bau der Route dauern Sekunden): wurde die
+  // Freigabe inzwischen zurückgezogen, die Wallet entfernt oder die Order
+  // gestoppt, wird nichts signiert und nichts gesendet.
+  const recheck = async () => {
+    const [fresh] = await db.select().from(schema.swapWallets).where(eq(schema.swapWallets.id, p.wallet.id));
+    if (!fresh || fresh.archivedAt) throw new SwapError('PRECONDITION_FAILED', 'Wallet wurde entfernt — nichts gesendet.');
+    if (!fresh.liveApprovedAt) throw new SwapError('PRECONDITION_FAILED', 'Diese Wallet ist noch nicht für Live-Swaps freigegeben.');
+    if (ctx.orderId) {
+      const [o] = await db
+        .select({ status: schema.swapOrders.status, createdAt: schema.swapOrders.createdAt })
+        .from(schema.swapOrders)
+        .where(eq(schema.swapOrders.id, ctx.orderId));
+      if (o?.status !== 'executing') throw new SwapError('PRECONDITION_FAILED', 'Order wurde inzwischen gestoppt — nichts gesendet.');
+      // Orders aus einer FRÜHEREN Freigabe-Periode laufen nie (Freigabe zurückgezogen und neu erteilt)
+      if (o.createdAt < fresh.liveApprovedAt) throw new SwapError('PRECONDITION_FAILED', 'Order stammt aus einer früheren Live-Freigabe — nichts gesendet.');
+    }
+    return fresh;
+  };
+  const w = await recheck().catch((err: unknown) => {
+    // Reihenfolge der Meldungen wie bisher: Betreiber-Schalter zuerst
+    if (!liveKeysAllowed()) throw new SwapError('FORBIDDEN', 'Live-Wallets sind auf dieser Instanz abgeschaltet (WALLET_KEYS_ENABLED).');
+    throw err;
+  });
   if (!liveKeysAllowed()) throw new SwapError('FORBIDDEN', 'Live-Wallets sind auf dieser Instanz abgeschaltet (WALLET_KEYS_ENABLED).');
   if (!w.liveApprovedAt) throw new SwapError('PRECONDITION_FAILED', 'Diese Wallet ist noch nicht für Live-Swaps freigegeben.');
   if (!ctx.confirmedLive) throw new SwapError('PRECONDITION_FAILED', 'Live-Swap bitte ausdrücklich bestätigen.');
@@ -314,7 +329,11 @@ async function executeLive(db: Db, p: PreparedSwap, side: 'buy' | 'sell', ctx: E
 
   let result: Awaited<ReturnType<typeof executeLiveSwap>>;
   try {
-    result = await (liveOverride ?? executeLiveSwap)({ quote: p.quote, address: w.address, secret: decryptSecret(w.encryptedKey) }, swapNet());
+    result = await (liveOverride ?? executeLiveSwap)({ quote: p.quote, address: w.address, secret: decryptSecret(w.encryptedKey) }, swapNet(), {
+      beforeSign: async () => {
+        await recheck();
+      },
+    });
   } catch (err) {
     // vor dem Senden abgebrochen (Route nicht baubar, Sicherheitsprüfung, Netz) — nichts on-chain
     const msg = err instanceof Error ? err.message : String(err);
@@ -341,7 +360,12 @@ async function executeLive(db: Db, p: PreparedSwap, side: 'buy' | 'sell', ctx: E
     userId: ctx.userId,
     kind: 'system',
     severity: result.status === 'filled' ? 'info' : 'warn',
-    title: result.status === 'filled' ? `${verb} ausgeführt: ${p.info.symbol}` : `${verb} fehlgeschlagen: ${p.info.symbol}`,
+    title:
+      result.status === 'filled'
+        ? `${verb} ausgeführt: ${p.info.symbol}`
+        : result.status === 'pending'
+          ? `${verb} gesendet, Ausgang unklar: ${p.info.symbol}`
+          : `${verb} fehlgeschlagen: ${p.info.symbol}`,
     body:
       result.status === 'filled'
         ? `${p.quote.inAmount} ${p.quote.inToken.symbol} → ${p.quote.outAmount} ${p.quote.outToken.symbol} (${w.label}, ${SWAP_CHAINS[chain].name})`

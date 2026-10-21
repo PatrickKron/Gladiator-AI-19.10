@@ -618,6 +618,11 @@ function WalletView({
                 <span>
                   <span style={{ color: tr.side === 'buy' ? 'var(--color-pos)' : 'var(--color-neg)' }}>{tr.side === 'buy' ? t('swap.buy') : t('swap.sell')}</span>{' '}
                   {fmtAmount(tr.inAmount, lang)} {tr.inSymbol} → {fmtAmount(tr.outAmount, lang)} {tr.outSymbol}
+                  {tr.status !== 'filled' && (
+                    <b className="ml-1.5" style={{ color: tr.status === 'failed' ? 'var(--color-neg)' : 'var(--color-warn)' }}>
+                      {t(`swap.trade_${tr.status}`)}
+                    </b>
+                  )}
                 </span>
                 <span style={{ color: 'var(--color-mut)' }}>
                   {tr.realizedPnlUsd !== null && (

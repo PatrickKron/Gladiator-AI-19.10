@@ -13,16 +13,15 @@ import { base58Decode, generateWalletKey } from './keys.js';
 import { executeEvmSwap, executeSolanaSwap, fetchOnchainBalances, KYBER_ROUTERS } from './live.js';
 import { fetchSwapQuote, JUPITER_API, KYBER_API, type SwapQuote } from './quotes.js';
 import { parseSolanaTx, signSolanaTx } from './solana-tx.js';
+import { assertJupiterSwapTx } from './solana-guard.js';
+import { assertKyberSwap } from './kyber-guard.js';
+import { kyberSwapCalldata } from './testing/kyber-calldata.js';
+import { buildV0Tx, jupiterLikeIxs, systemTransfer } from './testing/solana-tx-builder.js';
 
 const USDC_SOL = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 const ROUTER = '0x6131B5fae19EA4f9D964eAc0408E4408b66337b5';
 
-function v0Tx(feePayer: Uint8Array): string {
-  const keys = [feePayer, new Uint8Array(32).fill(3)];
-  const msg = [0x80, 1, 0, 1, keys.length, ...keys.flatMap((k) => [...k]), ...new Uint8Array(32).fill(9), 0, 0];
-  return Buffer.from(Uint8Array.from([1, ...new Uint8Array(64), ...msg])).toString('base64');
-}
 
 function solQuote(): SwapQuote {
   return {
@@ -40,28 +39,38 @@ function solQuote(): SwapQuote {
     networkFeeNative: '0.000005',
     networkFeeUsd: null,
     route: ['Raydium'],
-    raw: { inAmount: '10000000', outAmount: '1500000' },
+    raw: { inputMint: SWAP_CHAINS.solana.native.address, outputMint: USDC_SOL, inAmount: '10000000', outAmount: '1500000', slippageBps: 50 },
   };
 }
 
 describe('Solana-Live-Swap (Netz injiziert)', () => {
   const k = generateWalletKey('solana');
 
-  function net(status: unknown, feePayer = base58Decode(k.address)) {
+  function net(
+    status: unknown,
+    opts: { feePayer?: string; tx?: string; send?: 'ok' | 'network' | 'rejected'; statusErrors?: number } = {},
+  ) {
     const sent: string[] = [];
     const calls: string[] = [];
+    let statusErrors = opts.statusErrors ?? 0;
     const f = (async (url: string, init: RequestInit) => {
       const body = JSON.parse(String(init.body)) as { method?: string; params?: unknown[]; userPublicKey?: string };
       if (String(url) === `${JUPITER_API}/swap`) {
         calls.push(`jup:${body.userPublicKey}`);
-        return new Response(JSON.stringify({ swapTransaction: v0Tx(feePayer), lastValidBlockHeight: 1_000 }));
+        const tx = opts.tx ?? buildV0Tx(opts.feePayer ?? k.address, jupiterLikeIxs(k.address, 10_000_000n));
+        return new Response(JSON.stringify({ swapTransaction: tx, lastValidBlockHeight: 1_000 }));
       }
       calls.push(body.method!);
       if (body.method === 'sendTransaction') {
         sent.push((body.params as string[])[0]!);
-        return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: 'SIG' }));
+        if (opts.send === 'network') throw new TypeError('fetch failed');
+        if (opts.send === 'rejected') return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { message: 'Transaction simulation failed' } }));
+        return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: 'egal' }));
       }
-      if (body.method === 'getSignatureStatuses') return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { value: [status] } }));
+      if (body.method === 'getSignatureStatuses') {
+        if (statusErrors-- > 0) return new Response('zu viele', { status: 429 });
+        return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { value: [status] } }));
+      }
       if (body.method === 'getBlockHeight') return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: 900 }));
       return new Response('?', { status: 404 });
     }) as unknown as typeof fetch;
@@ -71,10 +80,52 @@ describe('Solana-Live-Swap (Netz injiziert)', () => {
   it('baut über Jupiter für die EIGENE Adresse, signiert korrekt, wartet auf Bestätigung', async () => {
     const n = net({ confirmationStatus: 'confirmed', err: null });
     const r = await executeSolanaSwap({ quote: solQuote(), address: k.address, secret: k.secret }, n.f, { pollMs: 1 });
-    expect(r).toMatchObject({ status: 'filled', txHash: 'SIG', error: null });
     expect(n.calls[0]).toBe(`jup:${k.address}`);
     const tx = Buffer.from(n.sent[0]!, 'base64');
     expect(ed25519.verify(tx.subarray(1, 65), tx.subarray(65), base58Decode(k.address))).toBe(true);
+    // Transaktions-Id = unsere Signatur, schon vor dem Senden bekannt
+    expect(r).toMatchObject({ status: 'filled', error: null });
+    expect(base58Decode(r.txHash)).toEqual(Uint8Array.from(tx.subarray(1, 65)));
+  });
+
+  it('Diebstahl in der gelieferten Transaktion (SOL an Fremde) → nicht signiert, nichts gesendet', async () => {
+    const thief = generateWalletKey('solana').address;
+    const n = net(null, { tx: buildV0Tx(k.address, [...jupiterLikeIxs(k.address, 10_000_000n), systemTransfer(k.address, thief, 9_000_000_000n)]) });
+    await expect(executeSolanaSwap({ quote: solQuote(), address: k.address, secret: k.secret }, n.f, { pollMs: 1 })).rejects.toThrow(/fremdes Konto/);
+    expect(n.sent).toHaveLength(0);
+  });
+
+  it('Angebot passt nicht zur Anfrage (anderer Mint/Menge) → nicht einmal gebaut', async () => {
+    const n = net(null);
+    const q = solQuote();
+    await expect(executeSolanaSwap({ quote: { ...q, raw: { ...(q.raw as object), inAmount: '999999999' } }, address: k.address, secret: k.secret }, n.f)).rejects.toThrow(/passt nicht/);
+    expect(n.calls).toHaveLength(0);
+  });
+
+  it('Haken vor dem Signieren wirft (Freigabe zurückgezogen) → nichts signiert, nichts gesendet', async () => {
+    const n = net(null);
+    const beforeSign = async () => {
+      throw new Error('Freigabe zurückgezogen');
+    };
+    await expect(executeSolanaSwap({ quote: solQuote(), address: k.address, secret: k.secret }, n.f, { pollMs: 1, beforeSign })).rejects.toThrow(/zurückgezogen/);
+    expect(n.sent).toHaveLength(0);
+  });
+
+  it('Netzfehler NACH dem Signieren → „pending“ mit Tx-Id (nie „nichts passiert“); Knoten-Ablehnung → failed', async () => {
+    const a = net(null, { send: 'network' });
+    const r = await executeSolanaSwap({ quote: solQuote(), address: k.address, secret: k.secret }, a.f, { pollMs: 1 });
+    expect(r).toMatchObject({ status: 'pending' });
+    expect(r.error).toMatch(/NICHT erneut/);
+    expect(r.txHash.length).toBeGreaterThan(60);
+    const b = net(null, { send: 'rejected' });
+    expect(await executeSolanaSwap({ quote: solQuote(), address: k.address, secret: k.secret }, b.f, { pollMs: 1 })).toMatchObject({ status: 'failed' });
+  });
+
+  it('Status-Abfrage gedrosselt (429) → weiter warten statt abbrechen; ohne Bestätigung → pending', async () => {
+    const a = net({ confirmationStatus: 'confirmed', err: null }, { statusErrors: 2 });
+    expect((await executeSolanaSwap({ quote: solQuote(), address: k.address, secret: k.secret }, a.f, { pollMs: 1 })).status).toBe('filled');
+    const b = net(null);
+    expect((await executeSolanaSwap({ quote: solQuote(), address: k.address, secret: k.secret }, b.f, { pollMs: 1, timeoutMs: 20 })).status).toBe('pending');
   });
 
   it('on-chain-Fehler → failed mit Grund (kein „filled“)', async () => {
@@ -85,14 +136,14 @@ describe('Solana-Live-Swap (Netz injiziert)', () => {
   });
 
   it('fremder Gebührenzahler in der gelieferten Transaktion → nicht signiert, nichts gesendet', async () => {
-    const n = net(null, base58Decode(generateWalletKey('solana').address));
+    const n = net(null, { feePayer: generateWalletKey('solana').address });
     await expect(executeSolanaSwap({ quote: solQuote(), address: k.address, secret: k.secret }, n.f, { pollMs: 1 })).rejects.toThrow(/Gebührenzahler/);
     expect(n.sent).toHaveLength(0);
   });
 });
 
 /** Minimaler JSON-RPC-Fake für viem auf Base (Chain 8453). */
-function evmNet(build: unknown, allowance = 0n) {
+function evmNet(build: unknown, allowance = 0n, opts: { send?: 'ok' | 'rejected' } = {}) {
   const raw: Hex[] = [];
   const f = (async (url: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body)) as { id: number; method: string; params: unknown[] } | { id: number; method: string; params: unknown[] }[];
@@ -115,8 +166,11 @@ function evmNet(build: unknown, allowance = 0n) {
           return ok({ baseFeePerGas: '0x3b9aca00', number: '0x10', hash: `0x${'1'.repeat(64)}`, timestamp: '0x1', transactions: [] });
         case 'eth_blockNumber':
           return ok('0x20');
+        case 'eth_getTransactionByHash':
+          return ok(null);
         case 'eth_sendRawTransaction': {
           raw.push((b.params as Hex[])[0]!);
+          if (opts.send === 'rejected') return { jsonrpc: '2.0', id: b.id, error: { code: -32000, message: 'insufficient funds' } };
           return ok(`0x${String(raw.length).padStart(64, '0')}`);
         }
         case 'eth_getTransactionReceipt':
@@ -154,7 +208,9 @@ function baseQuote(side: 'buy' | 'sell'): SwapQuote {
 
 describe('EVM-Live-Swap (Netz injiziert)', () => {
   const k = generateWalletKey('evm');
-  const build = (over: Record<string, unknown> = {}) => ({ code: 0, data: { data: '0xdeadbeef', routerAddress: ROUTER, amountOut: '30000000', ...over } });
+  const buyData = (receiver = k.address) => kyberSwapCalldata({ srcToken: EVM_NATIVE, dstToken: USDC_BASE, dstReceiver: receiver, amount: 10n ** 16n, minReturnAmount: 29_700_000n });
+  const sellData = kyberSwapCalldata({ srcToken: USDC_BASE, dstToken: EVM_NATIVE, dstReceiver: k.address, amount: 30_000_000n, minReturnAmount: 99n * 10n ** 14n });
+  const build = (over: Record<string, unknown> = {}) => ({ code: 0, data: { data: buyData(), routerAddress: ROUTER, amountOut: '30000000', ...over } });
 
   it('Kauf mit ETH: genau EINE Transaktion an den Router, value = Betrag, Base-Chain', async () => {
     const n = evmNet(build());
@@ -168,7 +224,7 @@ describe('EVM-Live-Swap (Netz injiziert)', () => {
   });
 
   it('Verkauf eines Tokens: erst approve EXAKT in Verkaufshöhe an den Router, dann Swap ohne value', async () => {
-    const n = evmNet(build({ amountOut: (10n ** 16n).toString() }), 0n);
+    const n = evmNet(build({ data: sellData, amountOut: (10n ** 16n).toString() }), 0n);
     const r = await executeEvmSwap({ quote: baseQuote('sell'), address: k.address, secret: k.secret }, n.f);
     expect(r.status).toBe('filled');
     expect(n.raw).toHaveLength(2);
@@ -191,6 +247,19 @@ describe('EVM-Live-Swap (Netz injiziert)', () => {
     expect(b.raw).toHaveLength(0);
   });
 
+  it('manipulierte Calldata (fremder Empfänger) → verweigert, nichts gesendet (auch kein approve)', async () => {
+    const n = evmNet(build({ data: buyData('0x00000000000000000000000000000000000000bb') }));
+    await expect(executeEvmSwap({ quote: baseQuote('buy'), address: k.address, secret: k.secret }, n.f)).rejects.toThrow(/Empfänger/);
+    expect(n.raw).toHaveLength(0);
+  });
+
+  it('Knoten lehnt ab und kennt die Tx nicht → failed; Hash steht vorher fest', async () => {
+    const n = evmNet(build(), 0n, { send: 'rejected' });
+    const r = await executeEvmSwap({ quote: baseQuote('buy'), address: k.address, secret: k.secret }, n.f);
+    expect(r.status).toBe('failed');
+    expect(r.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
   it('Schlüssel einer anderen Wallet → verweigert', async () => {
     const n = evmNet(build());
     await expect(executeEvmSwap({ quote: baseQuote('buy'), address: k.address, secret: generateWalletKey('evm').secret }, n.f)).rejects.toThrow(/passt nicht/);
@@ -211,6 +280,8 @@ describe('echte Daten: Aggregatoren bauen für eine leere Wallet (nichts wird ge
     const parsed = parseSolanaTx(Buffer.from(swapTransaction, 'base64'));
     expect(parsed).toMatchObject({ requiredSignatures: 1, signers: [k.address] });
     expect(() => signSolanaTx(swapTransaction, k.secret, k.address)).not.toThrow();
+    // der Wächter akzeptiert eine ECHTE Jupiter-Transaktion (Allowlist passt zur Realität)
+    expect(() => assertJupiterSwapTx(Uint8Array.from(Buffer.from(swapTransaction, 'base64')), k.address, { maxSolIn: toAtomic('0.01', 9) })).not.toThrow();
   }, 30_000);
 
   it('KyberSwap: echte Route auf Base geht an den bekannten Router', async () => {
@@ -221,11 +292,22 @@ describe('echte Daten: Aggregatoren bauen für eine leere Wallet (nichts wird ge
       headers: { 'content-type': 'application/json', 'x-client-id': 'gladiator' },
       body: JSON.stringify({ routeSummary: (quote.raw as { routeSummary: unknown }).routeSummary, sender: k.address, recipient: k.address, slippageTolerance: 100, source: 'gladiator' }),
     });
-    const body = (await res.json()) as { code: number; data: { routerAddress: string; data: string } };
+    const body = (await res.json()) as { code: number; data: { routerAddress: string; data: string; transactionValue?: string } };
     expect(body.code).toBe(0);
     expect(KYBER_ROUTERS.has(body.data.routerAddress.toLowerCase())).toBe(true);
     // unsere Adresse steckt als Empfänger in den Aufrufdaten
     expect(body.data.data.toLowerCase()).toContain(k.address.slice(2).toLowerCase());
+    // der Wächter dekodiert ECHTE KyberSwap-Calldata und akzeptiert sie (ABI passt zur Realität)
+    expect(() =>
+      assertKyberSwap(body.data.data as `0x${string}`, BigInt(body.data.transactionValue ?? '0'), {
+        owner: k.address,
+        srcToken: EVM_NATIVE,
+        dstToken: USDC_BASE,
+        amountIn: 10n ** 15n,
+        minOut: BigInt(quote.minOutAtomic),
+        nativeIn: true,
+      }),
+    ).not.toThrow();
   }, 30_000);
 
   it('On-chain-Bestände lesen (Solana + Base)', async () => {

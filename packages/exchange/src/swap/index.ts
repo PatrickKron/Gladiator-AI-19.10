@@ -10,3 +10,5 @@ export * from './token-candles.js';
 export * from './wallet-activity.js';
 export * from './discovery.js';
 export * from './wallet-activity-evm.js';
+export * from './solana-guard.js';
+export * from './kyber-guard.js';
