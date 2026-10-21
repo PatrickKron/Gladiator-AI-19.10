@@ -1,6 +1,6 @@
 import { and, eq, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import { schema, type Db } from '@gladiator/db';
-import { fetchPairDepths, fetchRugPool, fetchTokenPrices, walletBalances, type PoolDepth, type SwapChainId } from '@gladiator/exchange';
+import { fetchOnchainBalances, fetchPairDepths, fetchRugPool, fetchTokenPrices, walletBalances, type PoolDepth, type SwapChainId } from '@gladiator/exchange';
 import { notifySafe } from './notify.js';
 import { executePreparedSwap, prepareSwap, swapNet, type SwapWalletRow } from './swap-service.js';
 
@@ -13,7 +13,7 @@ const { swapOrders, swapWallets } = schema;
  * Ticket (Angebot, Sicherheitscheck beim Kauf, Gate, Paper/Live).
  */
 
-export type SwapOrderKind = 'take_profit' | 'stop_loss' | 'trailing_stop' | 'limit_buy' | 'dca' | 'alert_above' | 'alert_below' | 'rug_guard';
+export type SwapOrderKind = 'take_profit' | 'stop_loss' | 'trailing_stop' | 'limit_buy' | 'dca' | 'alert_above' | 'alert_below' | 'rug_guard' | 'dev_sell';
 
 /** Reine Preisalarme: lösen nur eine Meldung aus, nie einen Swap. */
 export const ALERT_KINDS: SwapOrderKind[] = ['alert_above', 'alert_below'];
@@ -28,6 +28,7 @@ export const SWAP_ORDER_LABEL: Record<SwapOrderKind, string> = {
   alert_above: 'Preisalarm über',
   alert_below: 'Preisalarm unter',
   rug_guard: 'Rug-Schutz',
+  dev_sell: 'Dev-Verkauf-Schutz',
 };
 
 /** Bestand weg → übrige Verkaufs-Orders für diesen Token sind gegenstandslos (OCO-Verhalten). */
@@ -67,6 +68,9 @@ export function evaluateSwapOrder(o: OrderState, priceUsd: number): { trigger: b
       return { trigger: o.triggerPriceUsd !== null && priceUsd <= o.triggerPriceUsd, peakPriceUsd: null };
     case 'rug_guard':
       // liquiditätsgesteuert (evaluateRugGuard), nie preisgesteuert
+      return { trigger: false, peakPriceUsd: null };
+    case 'dev_sell':
+      // gesteuert vom Bestand der Ersteller-Wallet (evaluateDevSell), nie preisgesteuert
       return { trigger: false, peakPriceUsd: null };
     case 'trailing_stop': {
       const peak = Math.max(o.peakPriceUsd ?? priceUsd, priceUsd);
@@ -110,11 +114,27 @@ export function rugGuardMigrates(
   return best.liquidityUsd >= o.peakLiquidityUsd * scale * 0.5;
 }
 
+/**
+ * Dev-Verkauf-Schutz (rein): Hat die Ersteller-Wallet mindestens `dropPct` % ihres
+ * Bestands beim Anlegen abgegeben, auslösen (Dev verkauft = typisches Warnsignal).
+ * Ganzzahlig in der kleinsten Einheit — keine Rundung bei 18 Nachkommastellen.
+ */
+export function evaluateDevSell(startAtomic: bigint, nowAtomic: bigint, dropPct: number): boolean {
+  if (startAtomic <= 0n || !(dropPct > 0) || dropPct > 100) return false;
+  // nowAtomic <= start × (1 − drop/100), in Basispunkten gerechnet
+  const keepBp = BigInt(Math.round((100 - dropPct) * 100));
+  return nowAtomic * 10_000n <= startAtomic * keepBp;
+}
+
 /** Plausibilität beim Anlegen: eine Order, die sofort auslösen würde, ist fast immer ein Tippfehler. */
 export function validateNewOrder(o: OrderState, priceUsd: number): string | null {
   if (o.kind === 'dca') return null;
   if (o.kind === 'rug_guard') {
     if (!(o.trailPct !== null && o.trailPct >= 10 && o.trailPct <= 90)) return 'Rug-Schutz: Liquiditätsabfall 10 bis 90 %.';
+    return null;
+  }
+  if (o.kind === 'dev_sell') {
+    if (!(o.trailPct !== null && o.trailPct >= 10 && o.trailPct <= 100)) return 'Dev-Verkauf-Schutz: Abgabe 10 bis 100 %.';
     return null;
   }
   if (o.kind === 'trailing_stop') {
@@ -245,6 +265,19 @@ export async function runSwapOrders(db: Db): Promise<SwapOrdersResult> {
     const price = prices.get(`${wallet.chain}:${order.token}`);
     if (price === undefined) continue;
     out.checked++;
+    if (order.kind === 'dev_sell') {
+      if (!order.watchAddress || order.watchBalance === null) continue;
+      let now: bigint | undefined;
+      try {
+        now = (await fetchOnchainBalances(wallet.chain as SwapChainId, order.watchAddress, [order.token], swapNet())).get(order.token);
+      } catch (err) {
+        // Bestand nicht lesbar → nichts entscheiden, nächster Takt
+        out.errors.push(`Dev-Bestand ${order.symbol}: ${err instanceof Error ? err.message : String(err)}`);
+        continue;
+      }
+      if (now !== undefined && evaluateDevSell(BigInt(order.watchBalance), now, Number(order.trailPct))) await fireOrder(db, order, wallet, price, out);
+      continue;
+    }
     if (order.kind === 'rug_guard') {
       // nur der beim Anlegen festgehaltene Pool zählt; fehlt er in der Antwort → nichts entscheiden
       const pool = order.pairAddress ? (depths.get(`${wallet.chain}:${order.pairAddress}`) ?? null) : null;

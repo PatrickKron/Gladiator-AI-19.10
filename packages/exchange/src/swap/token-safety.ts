@@ -35,6 +35,8 @@ export type TokenSafety = {
   lpLockedPct?: number | null;
   /** Anteil am Gesamtangebot, den die Ersteller-Wallet noch hält (in %); null = nicht prüfbar. */
   creatorPct?: number | null;
+  /** Ersteller-Wallet des Tokens (EVM, GoPlus) — für den Dev-Verkauf-Schutz; null = unbekannt. */
+  creatorAddress?: string | null;
   error: string | null;
 };
 
@@ -182,7 +184,8 @@ export function judgeGoPlus(r: GoPlusResult | undefined): TokenSafety {
   const creatorRaw = r.creator_percent === undefined || r.creator_percent === '' ? Number.NaN : Number(r.creator_percent);
   const creatorPct = Number.isFinite(creatorRaw) ? Math.round(creatorRaw * 100 * 100) / 100 : null;
   if (creatorPct !== null && creatorPct > CREATOR_WARN_PCT) warnings.push('creator_holds');
-  return { checked: true, source: 'goplus', severe, warnings, taxPct, top10Pct, lpLockedPct, creatorPct, error: null };
+  const creatorAddress = typeof r.creator_address === 'string' && /^0x[0-9a-fA-F]{40}$/.test(r.creator_address) ? r.creator_address : null;
+  return { checked: true, source: 'goplus', severe, warnings, taxPct, top10Pct, lpLockedPct, creatorPct, creatorAddress, error: null };
 }
 
 /**

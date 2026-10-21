@@ -91,6 +91,8 @@ describe('Top-10-Konzentration', () => {
     expect(big.severe).toEqual([]);
     expect(judgeGoPlus({ is_honeypot: '0' }).creatorPct).toBeNull();
     expect(judgeGoPlus({ is_honeypot: '0', creator_percent: '' }).creatorPct).toBeNull();
+    expect(judgeGoPlus({ is_honeypot: '0', creator_address: '0x8888888888888888888888888888888888888888' }).creatorAddress).toBe('0x8888888888888888888888888888888888888888');
+    expect(judgeGoPlus({ is_honeypot: '0', creator_address: 'kaputt' }).creatorAddress).toBeNull();
   });
 
   it('GoPlus: gesperrte + verbrannte LP-Anteile; Warnung unter der Schwelle; ohne LP-Halter null', () => {
@@ -193,5 +195,7 @@ describe('echte Daten (Solana-RPC, GoPlus)', () => {
     expect(r.creatorPct, JSON.stringify(r)).not.toBeNull();
     expect(r.creatorPct!).toBeGreaterThanOrEqual(0);
     expect(r.creatorPct!).toBeLessThanOrEqual(100);
+    // Ersteller-Wallet für den Dev-Verkauf-Schutz
+    expect(r.creatorAddress, JSON.stringify(r)).toMatch(/^0x[0-9a-fA-F]{40}$/);
   }, 30_000);
 });

@@ -201,6 +201,8 @@ describe.skipIf(!hasDb)('Wallet-Trading: Paper-Swaps über das Swap-Gate', () =>
     await a.swaps.createOrder({ walletId, token: BONK, kind: 'trailing_stop', trailPct: 15 });
     // Rug-Schutz: Ausgangsstand = aktuelle Pool-Liquidität (hier 40.000 $), Abfall 10–90 %
     await expect(a.swaps.createOrder({ walletId, token: BONK, kind: 'rug_guard', trailPct: 5 })).rejects.toThrow(/10 bis 90/);
+    // Dev-Verkauf-Schutz: Ersteller-Wallet kennt GoPlus nur auf EVM
+    await expect(a.swaps.createOrder({ walletId, token: BONK, kind: 'dev_sell', trailPct: 50 })).rejects.toThrow(/nur auf EVM/);
     await a.swaps.createOrder({ walletId, token: BONK, kind: 'rug_guard', trailPct: 50 });
     const list = await a.swaps.orders({ walletId });
     expect(list.find((o) => o.kind === 'rug_guard')).toMatchObject({ trailPct: 50, peakLiquidityUsd: 40_000, triggerPriceUsd: null, sellPercent: 100 });

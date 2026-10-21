@@ -1033,7 +1033,7 @@ function LimitsPanel({ config, wallet, onSaved }: { config: Config; wallet: Wall
   );
 }
 
-const ORDER_KINDS: OrderKind[] = ['take_profit', 'stop_loss', 'trailing_stop', 'rug_guard', 'limit_buy', 'dca', 'alert_above', 'alert_below'];
+const ORDER_KINDS: OrderKind[] = ['take_profit', 'stop_loss', 'trailing_stop', 'rug_guard', 'dev_sell', 'limit_buy', 'dca', 'alert_above', 'alert_below'];
 /** DCA-Abstände in Minuten */
 const DCA_INTERVALS = [15, 60, 240, 720, 1440, 10_080];
 
@@ -1083,18 +1083,22 @@ function OrderForm({
   // Rug-Schutz: Verkauf, wenn die Pool-Liquidität um X % unter ihr Hoch fällt (kein Kursziel)
   const rug = kind === 'rug_guard';
   const liqNow = token.liquidityUsd !== null && token.liquidityUsd > 0 ? token.liquidityUsd : null;
-  const mcapPossible = mcapNow !== null && !dca && !rug && kind !== 'trailing_stop';
+  // Dev-Verkauf-Schutz (nur EVM): Verkauf, wenn die Ersteller-Wallet X % ihres Bestands abgibt
+  const devSell = kind === 'dev_sell';
+  const mcapPossible = mcapNow !== null && !dca && !rug && !devSell && kind !== 'trailing_stop';
   const byMcap = mcapPossible && targetBy === 'mcap';
   const mcapTarget = byMcap ? parseCompactUsd(mcapInput) : null;
   // Ziel-MC muss auf der richtigen Seite liegen (Take-Profit/Alarm über: darüber, sonst darunter)
   const mcapSideOk = mcapTarget !== null && mcapNow !== null && (sign === 1 ? mcapTarget > mcapNow : mcapTarget < mcapNow);
   const trigger =
-    kind === 'trailing_stop' || rug ? null : byMcap ? (mcapTarget !== null && mcapNow !== null ? mcapTriggerPrice(price, mcapNow, mcapTarget) : null) : price * (1 + (sign * off) / 100);
+    kind === 'trailing_stop' || rug || devSell ? null : byMcap ? (mcapTarget !== null && mcapNow !== null ? mcapTriggerPrice(price, mcapNow, mcapTarget) : null) : price * (1 + (sign * off) / 100);
   const needsHolding = kind !== 'limit_buy' && !dca && !alert;
   const valid = dca
     ? amountN > 0 && Number.isInteger(runsN) && runsN >= 2 && runsN <= 500 && (cap === null || (Number.isFinite(cap) && cap > 0))
     : rug
       ? Number.isFinite(off) && off >= 10 && off <= 90 && liqNow !== null && held
+      : devSell
+      ? Number.isFinite(off) && off >= 10 && off <= 100 && held
       : byMcap
       ? trigger !== null && mcapSideOk && (!needsHolding || held)
       : Number.isFinite(off) && off > 0 && (sign === 1 || off < 100) && (!needsHolding || held);
@@ -1108,7 +1112,7 @@ function OrderForm({
         token: token.address,
         kind,
         triggerPriceUsd: dca ? undefined : (trigger ?? undefined),
-        trailPct: kind === 'trailing_stop' || rug ? off : undefined,
+        trailPct: kind === 'trailing_stop' || rug || devSell ? off : undefined,
         sellPercent: needsHolding ? sellPercent : undefined,
         buyAmount: kind === 'limit_buy' || dca ? buyAmount.replace(',', '.') : undefined,
         intervalMinutes: dca ? interval : undefined,
@@ -1130,7 +1134,7 @@ function OrderForm({
     <div className="mt-4 rounded border p-3" style={{ borderColor: 'var(--color-line)' }}>
       <p className="label">{t('swap.ordersTitle')}</p>
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {ORDER_KINDS.map((k) => (
+        {ORDER_KINDS.filter((k) => k !== 'dev_sell' || wallet.chain !== 'solana').map((k) => (
           <button
             key={k}
             type="button"
@@ -1138,7 +1142,7 @@ function OrderForm({
             style={{ borderColor: k === kind ? 'var(--color-cyan)' : 'var(--color-line)', color: k === kind ? 'var(--color-ink)' : 'var(--color-mut)' }}
             onClick={() => {
               setKind(k);
-              setOffset(k === 'take_profit' || k === 'alert_above' || k === 'rug_guard' ? '50' : k === 'trailing_stop' ? '15' : '20');
+              setOffset(k === 'take_profit' || k === 'alert_above' || k === 'rug_guard' || k === 'dev_sell' ? '50' : k === 'trailing_stop' ? '15' : '20');
               setMsg(null);
             }}
           >
@@ -1197,7 +1201,7 @@ function OrderForm({
           </label>
         ) : (
         <label>
-          {rug ? t('swap.rugDrop') : sign === 1 ? t('swap.offsetUp') : kind === 'trailing_stop' ? t('swap.trailPct') : t('swap.offsetDown')}
+          {rug ? t('swap.rugDrop') : devSell ? t('swap.devDrop') : sign === 1 ? t('swap.offsetUp') : kind === 'trailing_stop' ? t('swap.trailPct') : t('swap.offsetDown')}
           <input className={field} value={offset} inputMode="decimal" onChange={(e) => setOffset(e.target.value)} />
         </label>
         )}
@@ -1242,6 +1246,8 @@ function OrderForm({
           ? liqNow === null
             ? t('swap.rugNoLiquidity')
             : t('swap.rugHint', { pct: fmtPct(Number.isFinite(off) ? off : 0, lang), share: sellPercent, liq: fmtUsd(liqNow, lang, true) })
+          : devSell
+          ? t('swap.devHint', { pct: fmtPct(Number.isFinite(off) ? off : 0, lang), share: sellPercent })
           : kind === 'trailing_stop'
           ? t('swap.trailHint', { pct: fmtPct(Number.isFinite(off) ? off : 0, lang), price: fmtUsd(price, lang) })
           : byMcap
@@ -1334,6 +1340,8 @@ function OrdersPanel({ walletId, version, onChanged }: { walletId: string; versi
               <span style={{ color: 'var(--color-mut)' }}>
                 {o.kind === 'dca'
                   ? `${o.runsDone}/${o.runsTotal ?? '?'} · ${o.intervalMinutes ? t(`swap.dcaEvery_${o.intervalMinutes}`, { defaultValue: `${o.intervalMinutes} min` }) : ''}${o.maxPriceUsd !== null ? ` · ≤ ${fmtUsd(o.maxPriceUsd, lang)}` : ''}${o.status === 'open' && o.nextRunAt ? ` · ${t('swap.dcaNext', { time: new Date(o.nextRunAt).toLocaleString(lang, { dateStyle: 'short', timeStyle: 'short' }) })}` : ''}`
+                  : o.kind === 'dev_sell'
+                  ? t('swap.devListed', { pct: fmtPct(o.trailPct ?? 0, lang), dev: o.watchAddress ? `${o.watchAddress.slice(0, 6)}…${o.watchAddress.slice(-4)}` : '—' })
                   : o.kind === 'rug_guard'
                   ? t('swap.rugListed', { pct: fmtPct(o.trailPct ?? 0, lang), liq: o.peakLiquidityUsd !== null ? fmtUsd(o.peakLiquidityUsd, lang, true) : '—' })
                   : o.kind === 'trailing_stop'
