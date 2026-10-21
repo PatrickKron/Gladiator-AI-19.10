@@ -83,12 +83,12 @@ export function AddMarketPicker({ onClose, onChanged }: { onClose: () => void; o
   }
 
   const chip = (active: boolean) => ({
-    borderColor: active ? 'rgba(79,209,255,0.6)' : 'var(--color-line)',
+    borderColor: active ? 'rgba(96,165,250,0.6)' : 'var(--color-line)',
     color: active ? 'var(--color-cyan)' : 'var(--color-mut)',
   });
 
   return (
-    <div className="glass reveal mb-5 p-4" style={{ '--stagger': 0.5, borderColor: 'rgba(79,209,255,0.35)' } as React.CSSProperties}>
+    <div className="glass reveal mb-5 p-4" style={{ '--stagger': 0.5, borderColor: 'rgba(96,165,250,0.35)' } as React.CSSProperties}>
       <div className="flex items-center gap-2">
         <input
           ref={inputRef}
@@ -143,7 +143,7 @@ export function AddMarketPicker({ onClose, onChanged }: { onClose: () => void; o
                 onClick={() => void toggle(a)}
                 disabled={busyId !== null}
                 title={a.isFavorite ? t('fav.remove') : t('fav.add')}
-                className="flex w-full items-center gap-2.5 rounded-[0.625rem] px-2 py-2 text-left transition-colors hover:bg-[rgba(46,124,246,0.12)] disabled:opacity-60"
+                className="flex w-full items-center gap-2.5 rounded-[0.625rem] px-2 py-2 text-left transition-colors hover:bg-[rgba(59,130,246,0.12)] disabled:opacity-60"
               >
                 <span
                   className="shrink-0 text-base leading-none"

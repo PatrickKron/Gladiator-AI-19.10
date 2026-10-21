@@ -13,7 +13,8 @@
 
 export type AreaId = 'today' | 'market' | 'trade' | 'agents' | 'system';
 
-export type NavArea = { id: AreaId; labelKey: string };
+/** Bereich = Eintrag in Seitenleiste (Desktop) und Tableiste (Handy); `hash` = Einstiegsseite. */
+export type NavArea = { id: AreaId; labelKey: string; hash: string; icon: string };
 
 export type NavTab = {
   id: string;
@@ -36,11 +37,11 @@ export type NavPage = {
 
 /** Genau 5 Bereiche (Patricks Vorgabe aus dem Umbau 2026-07-10). */
 export const AREAS: NavArea[] = [
-  { id: 'today', labelKey: 'ia.area_today' },
-  { id: 'market', labelKey: 'ia.area_market' },
-  { id: 'trade', labelKey: 'ia.area_trade' },
-  { id: 'agents', labelKey: 'ia.area_agents' },
-  { id: 'system', labelKey: 'ia.area_system' },
+  { id: 'today', labelKey: 'ia.area_today', hash: '#/', icon: 'M3 12l9-8 9 8M5 10v10h5v-6h4v6h5V10' },
+  { id: 'market', labelKey: 'ia.area_market', hash: '#/charts', icon: 'M4 19V5m0 14h16M8 14l3-3 2 2 4-5' },
+  { id: 'trade', labelKey: 'ia.area_trade', hash: '#/traden', icon: 'M7 10l5-5 5 5M7 14l5 5 5-5' },
+  { id: 'agents', labelKey: 'ia.area_agents', hash: '#/strategien', icon: 'M12 3l2.5 5 5.5.8-4 3.9.9 5.5-4.9-2.6L7.1 18.2l.9-5.5-4-3.9L9.5 8z' },
+  { id: 'system', labelKey: 'ia.area_system', hash: '#/einstellungen', icon: 'M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z' },
 ];
 
 /** Reihenfolge = Sidebar-Reihenfolge. */

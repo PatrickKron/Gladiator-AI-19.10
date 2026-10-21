@@ -52,7 +52,7 @@ export function RiskPanels() {
           <div className="flex flex-col items-center py-5">
             <div className="relative flex h-40 w-40 items-center justify-center">
               <svg viewBox="0 0 120 120" className="absolute inset-0 h-full w-full -rotate-90" aria-hidden="true">
-                <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(99,140,255,0.18)" strokeWidth="6" />
+                <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(148,163,184,0.18)" strokeWidth="6" />
                 {grs && (
                   <circle
                     cx="60"
@@ -105,7 +105,7 @@ export function RiskPanels() {
             <NotConnected detail={t('oracle.syncPending')} />
           )}
           {calendar?.noTrade && (
-            <p className="mt-3 rounded-[0.625rem] border p-3 text-xs leading-relaxed" style={{ borderColor: 'rgba(255,92,108,0.45)', color: 'var(--color-neg)' }}>
+            <p className="mt-3 rounded-[0.625rem] border p-3 text-xs leading-relaxed" style={{ borderColor: 'rgba(239,68,68,0.45)', color: 'var(--color-neg)' }}>
               {t('aegis.noTradeActive', { reason: calendar.noTrade.reason })}
             </p>
           )}
@@ -118,7 +118,7 @@ export function RiskPanels() {
               <li key={item.key} className="flex items-start gap-3 rounded-[0.625rem] border p-3" style={{ borderColor: 'var(--color-line)' }}>
                 <span
                   className={`neon-dot mt-1 ${item.on ? 'neon-dot--on' : 'neon-dot--off'}`}
-                  style={item.key === 'aegis.killSwitch' && item.on ? { background: 'var(--color-neg)', boxShadow: '0 0 8px rgba(255,92,108,0.9)' } : undefined}
+                  style={item.key === 'aegis.killSwitch' && item.on ? { background: 'var(--color-neg)' } : undefined}
                 />
                 <span className="text-sm leading-relaxed">{t(item.key)}</span>
               </li>
@@ -139,7 +139,7 @@ export function RiskPanels() {
             {activeGates.map((g) => {
               const ev = g.evidence as { trades: number; expectancyR: number; winRate: number };
               return (
-                <li key={g.id} className="rounded-[0.625rem] border p-4" style={{ borderColor: 'rgba(139,92,246,0.3)' }}>
+                <li key={g.id} className="rounded-[0.625rem] border p-4" style={{ borderColor: 'rgba(148,163,184,0.3)' }}>
                   <p className="text-sm font-medium">{g.reason}</p>
                   <p className="num label mt-2">
                     {t('aegis.evidence', { trades: ev.trades, expectancy: ev.expectancyR.toFixed(2), winRate: (ev.winRate * 100).toFixed(0) })}

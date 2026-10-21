@@ -87,7 +87,7 @@ function AssetRow({
   const canTrade = a.assetType.toUpperCase() === 'CRYPTO' && pair !== null;
 
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t py-3.5 first:border-t-0" style={{ borderColor: 'rgba(99,140,255,0.12)' }}>
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t py-3.5 first:border-t-0" style={{ borderColor: 'rgba(148,163,184,0.12)' }}>
       <FavStar assetId={a.id} isFavorite={isFavorite} onToggled={onFavToggled} />
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-2">
@@ -144,8 +144,8 @@ function AssetRow({
 /** Filter-Chip der oberen Leiste (Klassen + Favoriten) — groß genug zum Treffen (Mobile). */
 function Chip({ active, gold = false, onClick, children }: { active: boolean; gold?: boolean; onClick: () => void; children: React.ReactNode }) {
   const activeStyle = gold
-    ? { borderColor: 'rgba(232,184,75,0.55)', color: 'var(--color-warn)', background: 'rgba(232,184,75,0.10)' }
-    : { borderColor: 'rgba(79,209,255,0.55)', color: 'var(--color-cyan)', background: 'rgba(79,209,255,0.10)' };
+    ? { borderColor: 'rgba(245,158,11,0.55)', color: 'var(--color-warn)', background: 'rgba(245,158,11,0.10)' }
+    : { borderColor: 'rgba(96,165,250,0.55)', color: 'var(--color-cyan)', background: 'rgba(96,165,250,0.10)' };
   return (
     <button
       onClick={onClick}
@@ -409,7 +409,7 @@ export function Pakete() {
           {/* „★ Meine Auswahl": Patricks individuelle Zusammenstellung — IMMER oben angepinnt */}
           <section
             className="glass reveal mb-8 p-4 sm:p-6"
-            style={{ '--stagger': 2, borderColor: 'rgba(232,184,75,0.4)' } as React.CSSProperties}
+            style={{ '--stagger': 2, borderColor: 'rgba(245,158,11,0.4)' } as React.CSSProperties}
           >
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h2 className="flex items-center gap-2 text-lg font-semibold">

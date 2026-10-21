@@ -31,7 +31,7 @@ export function MetricCard({ label, value, tone, hint }: { label: string; value:
   );
 }
 
-export const COMPARE_COLORS = ['#4fd1ff', '#3ddc97', '#f5b642', '#8b5cf6', '#e14ecf', '#ff5c6c'];
+export const COMPARE_COLORS = ['#60a5fa', '#22c55e', '#f5b642', '#94a3b8', '#f59e0b', '#ef4444'];
 
 export type EquityPoint = { ts: string; equity: number };
 export type ComparableRun = { key: string; label: string; color: string; equityCurve: EquityPoint[] };

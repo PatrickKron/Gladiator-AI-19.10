@@ -91,7 +91,7 @@ export function IndicatorSettings({
       case 'float':
         return <NumField decl={decl} value={typeof v === 'number' ? v : Number(decl.defval)} disabled={dis} onCommit={(n) => set(decl.id, n)} />;
       case 'bool':
-        return <input type="checkbox" checked={Boolean(v)} disabled={dis} onChange={(e) => set(decl.id, e.target.checked)} className="accent-[#8b5cf6]" aria-label={decl.title ?? decl.id} />;
+        return <input type="checkbox" checked={Boolean(v)} disabled={dis} onChange={(e) => set(decl.id, e.target.checked)} className="accent-[#94a3b8]" aria-label={decl.title ?? decl.id} />;
       case 'source':
       case 'string':
       case 'timeframe':
@@ -129,8 +129,8 @@ export function IndicatorSettings({
   let lastGroup: string | null | undefined;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[8vh]" style={{ background: 'rgba(3,4,14,0.72)', backdropFilter: 'blur(4px)' }} onClick={onClose}>
-      <div role="dialog" aria-label={label} className="glass w-full max-w-xl overflow-hidden p-0" style={{ borderColor: 'rgba(139,92,246,0.45)' }} onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[8vh]" style={{ background: 'rgba(11,13,18,0.72)', backdropFilter: 'blur(4px)' }} onClick={onClose}>
+      <div role="dialog" aria-label={label} className="glass w-full max-w-xl overflow-hidden p-0" style={{ borderColor: 'rgba(148,163,184,0.45)' }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b px-4 py-2.5" style={{ borderColor: 'var(--color-line)' }}>
           <div>
             <p className="text-sm font-semibold">{label}</p>
@@ -180,7 +180,7 @@ export function IndicatorSettings({
                   return (
                     <div key={p.id} className="flex flex-wrap items-center gap-3 text-xs">
                       <label className="flex items-center gap-1.5">
-                        <input type="checkbox" checked={st.visible} onChange={(e) => setPlot(p.id, { visible: e.target.checked })} className="accent-[#8b5cf6]" aria-label={`${p.title} ${t('chart.ind.plotVisible')}`} />
+                        <input type="checkbox" checked={st.visible} onChange={(e) => setPlot(p.id, { visible: e.target.checked })} className="accent-[#94a3b8]" aria-label={`${p.title} ${t('chart.ind.plotVisible')}`} />
                         <span style={{ color: st.visible ? 'var(--color-ink)' : 'var(--color-mut)' }}>{p.title}</span>
                       </label>
                       <label className="flex items-center gap-1.5">
@@ -233,7 +233,7 @@ export function IndicatorSettings({
             <button type="button" onClick={onClose} className="rounded border px-2 py-1 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
               {t('chart.ind.cancel')}
             </button>
-            <button type="button" disabled={busy} onClick={() => void apply()} className="rounded border px-3 py-1 text-[11px] disabled:opacity-40" style={{ borderColor: 'rgba(79,209,255,0.5)', color: 'var(--color-cyan)', background: 'rgba(79,209,255,0.08)' }}>
+            <button type="button" disabled={busy} onClick={() => void apply()} className="rounded border px-3 py-1 text-[11px] disabled:opacity-40" style={{ borderColor: 'rgba(96,165,250,0.5)', color: 'var(--color-cyan)', background: 'rgba(96,165,250,0.08)' }}>
               {t('chart.ind.apply')}
             </button>
           </span>

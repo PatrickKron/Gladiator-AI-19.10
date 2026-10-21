@@ -48,7 +48,7 @@ function MetricsCompare({ before, after }: { before: Summary; after: Summary }) 
       </thead>
       <tbody className="num">
         {rows.map(([label, b, a, delta]) => (
-          <tr key={label} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+          <tr key={label} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
             <td className="py-1 pr-3">{label}</td>
             <td className="py-1 pr-3 text-right">{b}</td>
             <td
@@ -142,7 +142,7 @@ export function OptimizationProposals() {
       </p>
 
       {notice && (
-        <p className="mt-3 rounded-[0.625rem] border p-3 text-sm" style={{ borderColor: 'rgba(61,220,151,0.4)', color: 'var(--color-pos)' }}>
+        <p className="mt-3 rounded-[0.625rem] border p-3 text-sm" style={{ borderColor: 'rgba(34,197,94,0.4)', color: 'var(--color-pos)' }}>
           ✓ {notice}{' '}
           <a href="#/strategien" className="underline">
             {t('labor.proposals.toStrategies')}
@@ -205,7 +205,7 @@ export function OptimizationProposals() {
                             disabled={busyId === p.id}
                             onClick={() => void onAccept(p)}
                             className="rounded border px-3 py-1.5 text-xs"
-                            style={{ borderColor: 'rgba(61,220,151,0.5)', color: 'var(--color-pos)' }}
+                            style={{ borderColor: 'rgba(34,197,94,0.5)', color: 'var(--color-pos)' }}
                           >
                             {busyId === p.id ? t('labor.proposals.creating') : t('labor.proposals.confirm')}
                           </button>
@@ -223,7 +223,7 @@ export function OptimizationProposals() {
                             disabled={busyId !== null}
                             onClick={() => setConfirmId(p.id)}
                             className="rounded border px-3 py-1.5 text-xs"
-                            style={{ borderColor: 'rgba(61,220,151,0.4)', color: 'var(--color-pos)' }}
+                            style={{ borderColor: 'rgba(34,197,94,0.4)', color: 'var(--color-pos)' }}
                           >
                             {t('labor.proposals.accept')}
                           </button>

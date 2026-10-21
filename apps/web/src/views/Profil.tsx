@@ -5,6 +5,8 @@ import { changePassword, logout, trpc } from '../api.js';
 import { Loading, PageHeader, Panel } from '../components/ui.js';
 import { LANGUAGES, setLanguage, storedLanguage, type LanguageCode } from '../i18n/index.js';
 import { appLocale } from '../lib/locale.js';
+import { UiModeToggle } from '../components/Shell.js';
+import { getEffectPrefs, onEffectPrefs, requestRainBurst, setEffectPrefs, type EffectPrefs } from '../lib/effects.js';
 
 /** Profil (09_ §3.11): Konto, Sprache, Sitzung — ein User-Typ, keine Rollen/Tiers. */
 
@@ -82,16 +84,7 @@ export function Profil() {
                     setLanguage(l.code);
                   }}
                   className="rounded-[0.625rem] border px-3.5 py-2 text-sm transition-all"
-                  style={
-                    lang === l.code
-                      ? {
-                          borderColor: 'rgba(79,209,255,0.5)',
-                          color: 'var(--color-ink)',
-                          background: 'linear-gradient(92deg, rgba(46,124,246,0.2), rgba(139,92,246,0.14))',
-                          boxShadow: '0 0 16px rgba(46,124,246,0.2)',
-                        }
-                      : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
-                  }
+                  style={lang === l.code ? { borderColor: 'var(--color-blue)', color: 'var(--color-ink)', background: 'rgba(59,130,246,0.14)' } : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
                 >
                   {l.label}
                 </button>
@@ -106,7 +99,7 @@ export function Profil() {
             <button
               onClick={() => void logout()}
               className="mt-4 rounded-[0.625rem] border px-4 py-2 text-sm transition-colors"
-              style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}
+              style={{ borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }}
             >
               {t('profile.logoutAll')}
             </button>
@@ -146,6 +139,15 @@ export function Profil() {
               {t('profile.pwHint')}
             </p>
           </Panel>
+          <Panel label={t('profile.viewTitle')} stagger={5}>
+            <div className="mt-4">
+              <UiModeToggle className="flex w-fit" />
+            </div>
+            <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+              {t('profile.viewHint')}
+            </p>
+          </Panel>
+          <EffectsPanel />
           <ViewResetPanel />
         </div>
       </section>
@@ -158,7 +160,7 @@ function ViewResetPanel() {
   const { t } = useTranslation();
   const [done, setDone] = useState(false);
   return (
-    <Panel label={t('profile.resetTitle')} stagger={5}>
+    <Panel label={t('profile.resetTitle')} stagger={7}>
       <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
         {t('profile.resetHint')}
       </p>
@@ -179,6 +181,52 @@ function ViewResetPanel() {
         {t('profile.resetButton')}
       </button>
       {done && <p className="mt-2 text-sm" style={{ color: 'var(--color-pos)' }}>{t('profile.resetDone')}</p>}
+    </Panel>
+  );
+}
+
+/** Special-Effekte (Design-System v3): wo der Daten-Regen aus echten Kursen auftaucht. */
+function EffectsPanel() {
+  const { t } = useTranslation();
+  const [prefs, setPrefs] = useState<EffectPrefs>(() => getEffectPrefs());
+  useEffect(() => onEffectPrefs(setPrefs), []);
+  const rows: { key: keyof EffectPrefs; label: string; hint: string }[] = [
+    { key: 'loginRain', label: t('effects.loginRain'), hint: t('effects.loginRainHint') },
+    { key: 'eventRain', label: t('effects.eventRain'), hint: t('effects.eventRainHint') },
+    { key: 'screensaver', label: t('effects.screensaver'), hint: t('effects.screensaverHint') },
+    { key: 'ambientRain', label: t('effects.ambientRain'), hint: t('effects.ambientRainHint') },
+  ];
+  return (
+    <Panel label={t('effects.title')} stagger={6}>
+      <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+        {t('effects.intro')}
+      </p>
+      <ul className="mt-4 space-y-3">
+        {rows.map((r) => (
+          <li key={r.key} className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm">{r.label}</p>
+              <p className="mt-0.5 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+                {r.hint}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={prefs[r.key]}
+              aria-label={r.label}
+              onClick={() => setPrefs(setEffectPrefs({ [r.key]: !prefs[r.key] }))}
+              className="relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors"
+              style={{ background: prefs[r.key] ? 'var(--color-blue)' : 'var(--color-bg3)', border: '1px solid var(--color-line2)' }}
+            >
+              <span className="absolute top-0.5 h-[18px] w-[18px] rounded-full bg-white transition-transform" style={{ left: 2, transform: prefs[r.key] ? 'translateX(20px)' : 'translateX(0)' }} />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <button type="button" className="btn mt-4" onClick={() => requestRainBurst('accent', 'BTC/USDT')} disabled={!prefs.eventRain}>
+        {t('effects.preview')}
+      </button>
     </Panel>
   );
 }

@@ -33,8 +33,8 @@ export type ChartDrawing = {
 };
 
 export const DRAWING_COLORS: Record<DrawingKind, string> = {
-  hline: '#8b5cf6',
-  trend: '#4fd1ff',
+  hline: '#94a3b8',
+  trend: '#60a5fa',
   fib: '#f5b642',
 };
 

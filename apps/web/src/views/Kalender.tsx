@@ -72,7 +72,7 @@ function SegmentedControl({
   return (
     <div
       className="flex items-center rounded-full border p-1"
-      style={{ borderColor: 'var(--color-line)', background: 'rgba(4,6,20,0.6)' }}
+      style={{ borderColor: 'var(--color-line)', background: 'rgba(11,13,18,0.6)' }}
       role="group"
     >
       {options.map((o) => (
@@ -84,9 +84,8 @@ function SegmentedControl({
           style={
             value === o.key
               ? {
-                  background: 'linear-gradient(94deg, rgba(46,124,246,0.9), rgba(139,92,246,0.85))',
+                  background: 'linear-gradient(94deg, rgba(59,130,246,0.9), rgba(148,163,184,0.85))',
                   color: 'white',
-                  boxShadow: '0 0 14px rgba(46,124,246,0.4)',
                 }
               : { color: 'var(--color-mut)' }
           }
@@ -132,7 +131,7 @@ function CurrencyChip({ code }: { code: string | null }) {
   return (
     <span
       className="num flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px]"
-      style={{ borderColor: 'var(--color-line)', background: 'rgba(4,6,20,0.6)', color: 'var(--color-ink)' }}
+      style={{ borderColor: 'var(--color-line)', background: 'rgba(11,13,18,0.6)', color: 'var(--color-ink)' }}
     >
       <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: accent, boxShadow: `0 0 6px ${accent}` }} />
       {code ?? '—'}
@@ -159,9 +158,9 @@ function EventCard({ e, now, countdown }: { e: CalEvent; now: Date; countdown: s
     <li
       className="rounded-[0.75rem] border transition-all"
       style={{
-        borderColor: noTrade ? 'rgba(255,92,108,0.45)' : 'var(--color-line)',
+        borderColor: noTrade ? 'rgba(239,68,68,0.45)' : 'var(--color-line)',
         background: 'rgba(10,13,36,0.45)',
-        boxShadow: noTrade && !past ? '0 0 18px rgba(255,92,108,0.1)' : 'none',
+        boxShadow: noTrade && !past ? '0 0 18px rgba(239,68,68,0.1)' : 'none',
         // Vergangene Events bleiben lesbar, treten aber sichtbar zurück
         opacity: past ? 0.45 : 1,
       }}
@@ -184,9 +183,9 @@ function EventCard({ e, now, countdown }: { e: CalEvent; now: Date; countdown: s
                 className="label rounded-full border px-2 py-0.5"
                 title={t('calendar.noTradeInfo')}
                 style={{
-                  borderColor: 'rgba(255,92,108,0.55)',
+                  borderColor: 'rgba(239,68,68,0.55)',
                   color: 'var(--color-neg)',
-                  background: 'rgba(255,92,108,0.08)',
+                  background: 'rgba(239,68,68,0.08)',
                   letterSpacing: '0.08em',
                 }}
               >
@@ -197,10 +196,9 @@ function EventCard({ e, now, countdown }: { e: CalEvent; now: Date; countdown: s
               <span
                 className="num rounded-full border px-2 py-0.5 text-[11px] font-semibold"
                 style={{
-                  borderColor: 'rgba(79,209,255,0.5)',
+                  borderColor: 'rgba(96,165,250,0.5)',
                   color: 'var(--color-cyan)',
-                  background: 'rgba(79,209,255,0.08)',
-                  boxShadow: '0 0 12px rgba(79,209,255,0.2)',
+                  background: 'rgba(96,165,250,0.08)',
                 }}
               >
                 {countdown}
@@ -260,7 +258,7 @@ function EventCard({ e, now, countdown }: { e: CalEvent; now: Date; countdown: s
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               <span className="label">{t('calendar.typicalMarkets')}:</span>
               {markets.map((m) => (
-                <span key={m} className="rounded px-1.5 py-0.5 text-[11px]" style={{ background: 'rgba(99,140,255,0.12)', color: 'var(--color-mut)' }}>
+                <span key={m} className="rounded px-1.5 py-0.5 text-[11px]" style={{ background: 'rgba(148,163,184,0.12)', color: 'var(--color-mut)' }}>
                   {t(`calendar.mkt_${m}`)}
                 </span>
               ))}
@@ -390,7 +388,7 @@ export function Kalender() {
       {data?.noTrade && (
         <div
           className="glass reveal mb-5 p-4 text-sm leading-relaxed"
-          style={{ borderColor: 'rgba(255,92,108,0.5)', color: 'var(--color-neg)', boxShadow: '0 0 24px rgba(255,92,108,0.15)' }}
+          style={{ borderColor: 'rgba(239,68,68,0.5)', color: 'var(--color-neg)' }}
         >
           ⚠ {t('calendar.noTradeActive', { reason: data.noTrade.reason })}
         </div>
@@ -414,7 +412,7 @@ export function Kalender() {
         {nextHigh && countdownText && (
           <div
             className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[0.75rem] border p-3"
-            style={{ borderColor: 'rgba(79,209,255,0.35)', background: 'rgba(79,209,255,0.06)', boxShadow: '0 0 20px rgba(79,209,255,0.08)' }}
+            style={{ borderColor: 'rgba(96,165,250,0.35)', background: 'rgba(96,165,250,0.06)' }}
           >
             <span className="label" style={{ color: 'var(--color-cyan)' }}>
               {t('calendar.nextHighImpact')}
@@ -483,7 +481,7 @@ export function Kalender() {
                     <div
                       className="sticky top-0 z-10 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 rounded-[0.5rem] px-2 py-2"
                       style={{
-                        background: 'rgba(9,12,32,0.92)',
+                        background: 'rgba(18,21,28,0.92)',
                         backdropFilter: 'blur(8px)',
                         WebkitBackdropFilter: 'blur(8px)',
                         borderBottom: '1px solid var(--color-line)',
@@ -542,13 +540,13 @@ export function Kalender() {
                     style={{
                       left: `${left}%`,
                       width: `${width}%`,
-                      background: active ? 'linear-gradient(92deg, rgba(46,124,246,0.5), rgba(139,92,246,0.4))' : 'rgba(99,140,255,0.15)',
-                      boxShadow: active ? '0 0 18px rgba(46,124,246,0.35)' : 'none',
+                      background: active ? 'rgba(59,130,246,0.5)' : 'rgba(148,163,184,0.15)',
+                      boxShadow: active ? '0 0 18px rgba(59,130,246,0.35)' : 'none',
                     }}
                   />
                   <div
                     className="absolute inset-y-0 w-px"
-                    style={{ left: `${((hourUtc + now.getUTCMinutes() / 60) / 24) * 100}%`, background: 'var(--color-cyan)', boxShadow: '0 0 8px rgba(79,209,255,0.9)' }}
+                    style={{ left: `${((hourUtc + now.getUTCMinutes() / 60) / 24) * 100}%`, background: 'var(--color-cyan)' }}
                   />
                 </div>
                 <span className="num w-28 shrink-0 text-right text-xs" style={{ color: 'var(--color-mut)' }}>

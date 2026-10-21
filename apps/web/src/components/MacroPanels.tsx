@@ -87,7 +87,7 @@ export function MacroPanels() {
           <div className="flex flex-col items-center py-6">
             <div className="relative flex h-48 w-48 items-center justify-center">
               <svg viewBox="0 0 120 120" className="absolute inset-0 h-full w-full -rotate-90" aria-hidden="true">
-                <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(99,140,255,0.15)" strokeWidth="6" />
+                <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(148,163,184,0.15)" strokeWidth="6" />
                 {grs && (
                   <circle
                     cx="60"
@@ -101,7 +101,7 @@ export function MacroPanels() {
                     style={{ filter: `drop-shadow(0 0 10px ${GRS_COLOR(grs.label)})`, transition: 'stroke-dasharray 800ms var(--ease-out-soft)' }}
                   />
                 )}
-                <circle cx="60" cy="60" r="42" fill="none" stroke="rgba(139,92,246,0.25)" strokeWidth="1" strokeDasharray="2 4" />
+                <circle cx="60" cy="60" r="42" fill="none" stroke="rgba(148,163,184,0.25)" strokeWidth="1" strokeDasharray="2 4" />
               </svg>
               <div className="text-center">
                 <p className="num text-4xl font-semibold" style={{ color: grs ? GRS_COLOR(grs.label) : 'var(--color-mut)' }}>
@@ -193,7 +193,7 @@ export function MacroPanels() {
                 </thead>
                 <tbody>
                   {deriv.map((d) => (
-                    <tr key={d.symbol} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                    <tr key={d.symbol} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                       <td className="py-1.5 pr-3">{d.symbol.replace('/USDT', '')}</td>
                       <td className="py-1.5 pr-3 text-right" style={{ color: (d.fundingRate ?? 0) >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
                         {d.fundingRate != null ? `${(d.fundingRate * 100).toFixed(4)} %` : '—'}
@@ -229,7 +229,7 @@ export function MacroPanels() {
                   </thead>
                   <tbody>
                     {cotRows.map((c) => (
-                      <tr key={c.market.code} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                      <tr key={c.market.code} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                         <td className="py-1.5 pr-3">{t(`intel.cotMarket_${c.market.label}`)}</td>
                         <td className="py-1.5 pr-3 text-right" style={{ color: c.positioning.netRatio >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
                           {pct(c.positioning.netRatio * 100, 1)} %

@@ -54,11 +54,11 @@ function MyAgentsPanel() {
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
         <a href="#/werkstatt" className="rounded border px-3 py-2 text-xs font-medium transition-colors"
-          style={{ borderColor: 'rgba(79,209,255,0.5)', color: 'var(--color-cyan)', background: 'rgba(79,209,255,0.08)' }}>
+          style={{ borderColor: 'rgba(96,165,250,0.5)', color: 'var(--color-cyan)', background: 'rgba(96,165,250,0.08)' }}>
           + {t('agents.createWorkshopCta')}
         </a>
         <a href="#/intelligenz?tab=rl" className="rounded border px-3 py-2 text-xs font-medium transition-colors"
-          style={{ borderColor: 'rgba(139,92,246,0.5)', color: 'var(--color-violet)', background: 'rgba(139,92,246,0.08)' }}>
+          style={{ borderColor: 'rgba(148,163,184,0.5)', color: 'var(--color-violet)', background: 'rgba(148,163,184,0.08)' }}>
           + {t('agents.createRlCta')}
         </a>
       </div>
@@ -71,7 +71,7 @@ function MyAgentsPanel() {
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           {mine.map((a) => (
             <a key={a.id} href="#/werkstatt" className="rounded-[0.625rem] border p-4 transition-colors hover:border-cyan-400/40"
-              style={{ borderColor: 'rgba(79,209,255,0.2)' }}>
+              style={{ borderColor: 'rgba(96,165,250,0.2)' }}>
               <p className="flex flex-wrap items-center justify-between gap-2 text-sm font-medium">
                 <span>{a.name}</span>
                 <span className="rounded border px-1.5 py-0.5 text-[11px]"
@@ -91,7 +91,7 @@ function MyAgentsPanel() {
           ))}
           {activeRl.map((a) => (
             <a key={a.id} href="#/intelligenz?tab=rl" className="rounded-[0.625rem] border p-4 transition-colors"
-              style={{ borderColor: 'rgba(139,92,246,0.25)' }}>
+              style={{ borderColor: 'rgba(148,163,184,0.25)' }}>
               <p className="flex flex-wrap items-center justify-between gap-2 text-sm font-medium">
                 <span>{a.name}</span>
                 <span className="rounded border px-1.5 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-violet)' }}>
@@ -173,7 +173,7 @@ export function Agenten() {
                 const meta = AGENT_META[a.agent];
                 const stats = statsByAgent.get(a.agent) ?? [];
                 return (
-                  <div key={a.agent} className="rounded-[0.625rem] border p-4" style={{ borderColor: 'rgba(79,209,255,0.25)' }}>
+                  <div key={a.agent} className="rounded-[0.625rem] border p-4" style={{ borderColor: 'rgba(96,165,250,0.25)' }}>
                     <p className="flex items-center gap-2 text-sm font-medium">
                       <span className="neon-dot neon-dot--on" />
                       {meta ? t(meta.nameKey) : a.agent}
@@ -202,7 +202,7 @@ export function Agenten() {
               {status.disabled.map((d) => {
                 const meta = AGENT_META[d.agent];
                 return (
-                  <div key={d.agent} className="rounded-[0.625rem] border border-dashed p-4" style={{ borderColor: 'rgba(139,92,246,0.35)' }}>
+                  <div key={d.agent} className="rounded-[0.625rem] border border-dashed p-4" style={{ borderColor: 'rgba(148,163,184,0.35)' }}>
                     <p className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--color-mut)' }}>
                       <span className="neon-dot neon-dot--violet" />
                       {meta ? t(meta.nameKey) : d.agent} · {t('common.disabled')}
@@ -254,7 +254,7 @@ export function Agenten() {
                   </thead>
                   <tbody className="num">
                     {status.stats.map((s) => (
-                      <tr key={`${s.agent}-${s.vote}`} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                      <tr key={`${s.agent}-${s.vote}`} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                         <td className="py-1.5 pr-4">{AGENT_META[s.agent] ? t(AGENT_META[s.agent]!.nameKey) : s.agent}</td>
                         <td className="py-1.5 pr-4" style={{ color: VOTE_COLOR[s.vote] ?? 'var(--color-ink)' }}>
                           {s.vote}

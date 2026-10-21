@@ -182,7 +182,7 @@ export function ExchangeConnectPanel() {
             className="px-3 py-2 transition-colors"
             style={
               via === v
-                ? { background: 'linear-gradient(92deg, rgba(46,124,246,0.25), rgba(139,92,246,0.2))', color: 'var(--color-ink)' }
+                ? { background: 'rgba(59,130,246,0.25)', color: 'var(--color-ink)' }
                 : { color: 'var(--color-mut)' }
             }
           >
@@ -262,7 +262,7 @@ export function ExchangeConnectPanel() {
                 className="flex-1 px-2.5 py-2 transition-colors"
                 style={
                   form.mode === m
-                    ? { background: 'linear-gradient(92deg, rgba(46,124,246,0.25), rgba(139,92,246,0.2))', color: 'var(--color-ink)' }
+                    ? { background: 'rgba(59,130,246,0.25)', color: 'var(--color-ink)' }
                     : { color: 'var(--color-mut)' }
                 }
                 title={t(m === 'read_only' ? 'exchanges.readOnlyHint' : 'exchanges.tradingHint')}
@@ -334,7 +334,7 @@ export function ExchangeConnectPanel() {
                       {t('exchanges.showBalances')}
                     </button>
                     {confirmDisconnect === conn.id ? (
-                      <button className="rounded border px-2 py-1 text-xs" style={{ borderColor: 'rgba(255,92,108,0.5)', color: 'var(--color-neg)' }} onClick={() => void disconnect(conn.id)}>
+                      <button className="rounded border px-2 py-1 text-xs" style={{ borderColor: 'rgba(239,68,68,0.5)', color: 'var(--color-neg)' }} onClick={() => void disconnect(conn.id)}>
                         {t('exchanges.disconnectConfirm')}
                       </button>
                     ) : (

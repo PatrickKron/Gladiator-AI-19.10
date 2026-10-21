@@ -105,7 +105,7 @@ export function Vermoegen() {
         <div className="glass p-5">
           <div className="flex items-center justify-between">
             <p className="font-medium">{t('wealth.practiceTitle')}</p>
-            <span className="label rounded border px-1.5 py-0.5" style={{ borderColor: 'rgba(79,209,255,0.4)', color: 'var(--color-cyan)' }}>
+            <span className="label rounded border px-1.5 py-0.5" style={{ borderColor: 'rgba(96,165,250,0.4)', color: 'var(--color-cyan)' }}>
               {t('wealth.practiceBadge')}
             </span>
           </div>

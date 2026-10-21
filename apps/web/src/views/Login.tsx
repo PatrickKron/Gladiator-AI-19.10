@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { login } from '../api.js';
-import { PlexusHero } from '../components/PlexusHero.js';
 
 const SCRAMBLE = '█▓▒░<>/\\|01ΞΛΔ$#%&';
 const TARGET = 'ZUGRIFF GEWÄHRT';
@@ -62,10 +61,6 @@ export function Login() {
 
   return (
     <div className="relative z-10 flex min-h-screen items-center justify-center p-6">
-      {/* Hero-Konstellation: füllt die Bühne hinter Wortmarke + Karte (pulst auf echte Ticks) */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
-        <PlexusHero density={30} className="opacity-70" />
-      </div>
       <div className="relative w-full max-w-sm">
         <div className="reveal mb-10 text-center" style={{ '--stagger': 0 } as React.CSSProperties}>
           <h1 className="wordmark text-3xl font-bold">

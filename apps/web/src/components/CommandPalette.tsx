@@ -93,12 +93,12 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[12vh]"
-      style={{ background: 'rgba(3,4,14,0.72)', backdropFilter: 'blur(4px)' }}
+      style={{ background: 'rgba(11,13,18,0.72)', backdropFilter: 'blur(4px)' }}
       onClick={onClose}
     >
       <div
         className="glass w-full max-w-xl overflow-hidden p-0"
-        style={{ borderColor: 'rgba(79,209,255,0.35)' }}
+        style={{ borderColor: 'rgba(96,165,250,0.35)' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b px-4 py-3" style={{ borderColor: 'var(--color-line)' }}>
@@ -130,7 +130,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                     key={`view:${entry.entry.hash}`}
                     onMouseEnter={() => setSelected(i)}
                     className="flex items-center gap-2.5 px-3 py-2"
-                    style={{ background: i === selected ? 'rgba(46,124,246,0.12)' : 'transparent', cursor: 'pointer' }}
+                    style={{ background: i === selected ? 'rgba(59,130,246,0.12)' : 'transparent', cursor: 'pointer' }}
                     onClick={() => openEntry(entry)}
                   >
                     <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="var(--color-cyan)" strokeWidth="1.7" strokeLinecap="round">
@@ -149,7 +149,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                     key={entry.asset.id}
                     onMouseEnter={() => setSelected(i)}
                     className="flex items-center gap-2 px-3 py-2"
-                    style={{ background: i === selected ? 'rgba(46,124,246,0.12)' : 'transparent', cursor: entry.asset.hasChart ? 'pointer' : 'default' }}
+                    style={{ background: i === selected ? 'rgba(59,130,246,0.12)' : 'transparent', cursor: entry.asset.hasChart ? 'pointer' : 'default' }}
                     onClick={() => openEntry(entry)}
                   >
                     {entry.asset.symbol ? (

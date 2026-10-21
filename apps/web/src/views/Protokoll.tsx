@@ -162,7 +162,7 @@ export function Protokoll() {
               </thead>
               <tbody>
                 {items.map((r) => (
-                  <tr key={r.id} className="align-top" style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                  <tr key={r.id} className="align-top" style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                     <td className="num py-1.5 pr-3 whitespace-nowrap">
                       {new Date(r.ts).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'medium' })}
                     </td>

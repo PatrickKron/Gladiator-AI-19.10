@@ -10,6 +10,8 @@ describe('Tastenkürzel', () => {
     expect(resolveHotkey('T', 0, 500)).toEqual({ type: 'goto', hash: '#/traden' });
     expect(resolveHotkey('t', 0, SEQUENCE_MS + 1)).toBeNull();
     expect(resolveHotkey('x', 0, 100)).toBeNull();
+    expect(resolveHotkey('m', 0, 100)).toEqual({ type: 'matrix' });
+    expect(resolveHotkey('m', null, 0)).toBeNull();
   });
 
   it('? = Hilfe, / = Suche, andere Tasten nichts', () => {
@@ -21,6 +23,7 @@ describe('Tastenkürzel', () => {
   it('jedes Ziel ist eine echte Seite mit übersetztem Namen, Buchstaben eindeutig', () => {
     const keys = GOTO_KEYS.map((g) => g.key);
     expect(new Set(keys).size).toBe(keys.length);
+    expect(keys).not.toContain('m'); // „g m“ ist der Matrix-Modus
     for (const g of GOTO_KEYS) {
       expect(pageForHash(g.hash)).not.toBeNull();
       let cur: unknown = de;

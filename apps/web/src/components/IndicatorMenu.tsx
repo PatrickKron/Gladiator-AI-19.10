@@ -89,8 +89,8 @@ export function IndicatorMenu({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[8vh]" style={{ background: 'rgba(3,4,14,0.72)', backdropFilter: 'blur(4px)' }} onClick={onClose}>
-      <div role="dialog" aria-label={t('chart.ind.menuTitle')} className="glass w-full max-w-2xl overflow-hidden p-0" style={{ borderColor: 'rgba(79,209,255,0.35)' }} onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[8vh]" style={{ background: 'rgba(11,13,18,0.72)', backdropFilter: 'blur(4px)' }} onClick={onClose}>
+      <div role="dialog" aria-label={t('chart.ind.menuTitle')} className="glass w-full max-w-2xl overflow-hidden p-0" style={{ borderColor: 'rgba(96,165,250,0.35)' }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b px-4" style={{ borderColor: 'var(--color-line)' }}>
           <div className="flex">
             {tabBtn('library', t('chart.ind.tabLibrary'))}
@@ -126,9 +126,9 @@ export function IndicatorMenu({
                   onClick={() => setCategory(c)}
                   className="rounded border px-2 py-0.5 text-[11px]"
                   style={{
-                    borderColor: category === c ? 'rgba(79,209,255,0.5)' : 'var(--color-line)',
+                    borderColor: category === c ? 'rgba(96,165,250,0.5)' : 'var(--color-line)',
                     color: category === c ? 'var(--color-cyan)' : 'var(--color-mut)',
-                    background: category === c ? 'rgba(79,209,255,0.08)' : 'transparent',
+                    background: category === c ? 'rgba(96,165,250,0.08)' : 'transparent',
                   }}
                 >
                   {t(`chart.ind.cat_${c === null ? 'all' : (CATEGORY_KEYS[c] ?? 'all')}`)}
@@ -142,7 +142,7 @@ export function IndicatorMenu({
               {Array.isArray(catalog) && results.length > 0 && (
                 <ul>
                   {results.map((e) => (
-                    <li key={e.id} className="flex items-center gap-3 border-b px-4 py-2" style={{ borderColor: 'rgba(99,140,255,0.08)' }}>
+                    <li key={e.id} className="flex items-center gap-3 border-b px-4 py-2" style={{ borderColor: 'rgba(148,163,184,0.08)' }}>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm" style={{ color: 'var(--color-ink)' }}>
                           {e.name} <span className="num text-[11px]" style={{ color: 'var(--color-mut)' }}>{e.shortName}</span>
@@ -158,7 +158,7 @@ export function IndicatorMenu({
                         disabled={full || busy !== null}
                         onClick={() => void add(e)}
                         className="rounded border px-2 py-0.5 text-[11px] transition-colors disabled:opacity-40"
-                        style={{ borderColor: 'rgba(79,209,255,0.5)', color: 'var(--color-cyan)' }}
+                        style={{ borderColor: 'rgba(96,165,250,0.5)', color: 'var(--color-cyan)' }}
                       >
                         {busy === e.id ? t('chart.ind.adding') : `+ ${t('chart.ind.add')}`}
                       </button>
@@ -193,7 +193,7 @@ export function IndicatorMenu({
               <div className="flex flex-col gap-1.5">
                 {strategies.map((s) => (
                   <label key={s.slug} className="flex cursor-pointer items-start gap-2 text-xs">
-                    <input type="checkbox" checked={strategySlugs.includes(s.slug)} onChange={() => onToggleStrategy(s.slug)} className="mt-0.5 accent-[#e14ecf]" />
+                    <input type="checkbox" checked={strategySlugs.includes(s.slug)} onChange={() => onToggleStrategy(s.slug)} className="mt-0.5 accent-[#f59e0b]" />
                     <span style={{ color: strategySlugs.includes(s.slug) ? 'var(--color-ink)' : 'var(--color-mut)' }}>
                       {s.name} <span className="num" style={{ color: 'var(--color-mut)' }}>({s.slug})</span>{' '}
                       <span className="rounded border px-1 text-[10px] uppercase" style={{ borderColor: 'var(--color-line)', color: s.kind === 'pine' ? 'var(--color-magenta)' : 'var(--color-violet)' }}>

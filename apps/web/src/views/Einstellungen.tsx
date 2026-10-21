@@ -125,7 +125,7 @@ function SecretsPanel() {
           {status.map((s) => {
             const m = messages[s.key];
             return (
-              <li key={s.key} className="rounded-[0.625rem] border p-4" style={{ borderColor: s.source ? 'rgba(79,209,255,0.3)' : 'var(--color-line)' }}>
+              <li key={s.key} className="rounded-[0.625rem] border p-4" style={{ borderColor: s.source ? 'rgba(96,165,250,0.3)' : 'var(--color-line)' }}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="num text-sm font-medium">{s.key}</p>
                   <span className="label flex items-center gap-2">
@@ -141,7 +141,7 @@ function SecretsPanel() {
                     )}
                     <span
                       className="rounded border px-1.5 py-0.5"
-                      style={s.immediate ? { borderColor: 'rgba(61,220,151,0.4)', color: 'var(--color-pos)' } : { borderColor: 'rgba(232,184,75,0.4)', color: 'var(--color-warn)' }}
+                      style={s.immediate ? { borderColor: 'rgba(34,197,94,0.4)', color: 'var(--color-pos)' } : { borderColor: 'rgba(245,158,11,0.4)', color: 'var(--color-warn)' }}
                     >
                       {s.immediate ? t('secrets.immediate') : t('secrets.needsRestart')}
                     </span>
@@ -153,7 +153,7 @@ function SecretsPanel() {
                 {s.key === 'ANTHROPIC_API_KEY' && (
                   <p
                     className="mt-2 rounded-[0.5rem] border px-2.5 py-1.5 text-xs font-medium"
-                    style={{ borderColor: 'rgba(139,92,246,0.45)', color: 'var(--color-violet)', background: 'rgba(139,92,246,0.08)' }}
+                    style={{ borderColor: 'rgba(148,163,184,0.45)', color: 'var(--color-violet)', background: 'rgba(148,163,184,0.08)' }}
                   >
                     ✦ {t('secrets.aiOneKey')}
                   </p>
@@ -179,7 +179,7 @@ function SecretsPanel() {
                       onClick={() => void test(s.key)}
                       disabled={busy !== null}
                       className="rounded-[0.625rem] border px-3 py-1.5 text-xs disabled:opacity-50"
-                      style={{ borderColor: 'rgba(79,209,255,0.4)', color: 'var(--color-cyan)' }}
+                      style={{ borderColor: 'rgba(96,165,250,0.4)', color: 'var(--color-cyan)' }}
                     >
                       {busy === s.key ? t('secrets.testing') : t('secrets.test')}
                     </button>
@@ -189,7 +189,7 @@ function SecretsPanel() {
                       onClick={() => void remove(s.key)}
                       disabled={busy !== null}
                       className="rounded-[0.625rem] border px-3 py-1.5 text-xs disabled:opacity-50"
-                      style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}
+                      style={{ borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }}
                     >
                       {t('secrets.delete')}
                     </button>
@@ -211,7 +211,7 @@ function SecretsPanel() {
             onClick={() => void restart()}
             disabled={restarting}
             className="rounded-[0.625rem] border px-4 py-2 text-sm disabled:opacity-50"
-            style={{ borderColor: 'rgba(232,184,75,0.5)', color: 'var(--color-warn)' }}
+            style={{ borderColor: 'rgba(245,158,11,0.5)', color: 'var(--color-warn)' }}
           >
             {restarting ? t('secrets.restarting') : t('secrets.restartBtn')}
           </button>
@@ -302,9 +302,9 @@ function StockDataPanel() {
               onClick={() => setSelTf((prev) => (on ? prev.filter((x) => x !== tf) : [...prev, tf]))}
               className="num rounded border px-2.5 py-1 text-xs transition-colors"
               style={{
-                borderColor: on ? 'rgba(79,209,255,0.5)' : 'var(--color-line)',
+                borderColor: on ? 'rgba(96,165,250,0.5)' : 'var(--color-line)',
                 color: on ? 'var(--color-cyan)' : 'var(--color-mut)',
-                background: on ? 'rgba(79,209,255,0.08)' : 'transparent',
+                background: on ? 'rgba(96,165,250,0.08)' : 'transparent',
               }}
             >
               {tf}
@@ -348,7 +348,7 @@ function StockDataPanel() {
             </thead>
             <tbody className="num">
               {status.symbols.map((s, i) => (
-                <tr key={i} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                <tr key={i} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                   <td className="py-1 pr-3">{s.symbol}</td>
                   <td className="py-1 pr-3">{s.timeframe}</td>
                   <td className="py-1 pr-3 text-right">{s.candles}</td>
@@ -482,7 +482,7 @@ export function Einstellungen() {
                       style={{
                         borderColor: active ? 'var(--color-cyan)' : 'var(--color-line)',
                         color: active ? 'var(--color-ink)' : 'var(--color-mut)',
-                        background: active ? 'rgba(79,209,255,0.08)' : 'transparent',
+                        background: active ? 'rgba(96,165,250,0.08)' : 'transparent',
                       }}
                       title={t(`settings.profile_${p.id}_hint`)}
                     >
@@ -554,7 +554,7 @@ export function Einstellungen() {
                 <li
                   key={g.id}
                   className="flex flex-wrap items-center justify-between gap-3 rounded-[0.625rem] border p-4"
-                  style={{ borderColor: g.isActive ? 'rgba(139,92,246,0.35)' : 'var(--color-line)', opacity: g.isActive ? 1 : 0.6 }}
+                  style={{ borderColor: g.isActive ? 'rgba(148,163,184,0.35)' : 'var(--color-line)', opacity: g.isActive ? 1 : 0.6 }}
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-medium">{g.reason}</p>
@@ -571,7 +571,7 @@ export function Einstellungen() {
                     className="shrink-0 rounded-[0.625rem] border px-3 py-1.5 text-xs transition-all"
                     style={
                       g.isActive
-                        ? { borderColor: 'rgba(139,92,246,0.5)', color: 'var(--color-violet)' }
+                        ? { borderColor: 'rgba(148,163,184,0.5)', color: 'var(--color-violet)' }
                         : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
                     }
                   >

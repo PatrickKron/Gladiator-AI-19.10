@@ -287,7 +287,7 @@ export function Entscheidung({ embedded = false }: { embedded?: boolean }) {
                       {data.cot
                         .filter((c) => c.weeks > 0)
                         .map((c) => (
-                          <tr key={c.market.code} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                          <tr key={c.market.code} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                             <td className="py-2 pr-4 font-medium">{t(`intel.cotMarket_${c.market.label}`)}</td>
                             <td className="num py-2 pr-4 text-right">{c.positioning.netNonComm.toLocaleString(locale)}</td>
                             <td
@@ -321,7 +321,7 @@ export function Entscheidung({ embedded = false }: { embedded?: boolean }) {
             </p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {(['no_hedge', 'reduce', 'partial_hedge', 'full_hedge', 'flat', 'flip_warning'] as const).map((m) => (
-                <div key={m} className="rounded-[0.625rem] border p-3" style={{ borderColor: 'rgba(99,140,255,0.12)' }}>
+                <div key={m} className="rounded-[0.625rem] border p-3" style={{ borderColor: 'rgba(148,163,184,0.12)' }}>
                   <p className="text-sm font-medium">{t(`intel.hedge_${m}`)}</p>
                   <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
                     {t(`intel.hedgeHint_${m}`)}

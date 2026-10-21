@@ -40,19 +40,19 @@ export function TokenChart({ chain, pool }: { chain: Chain; pool: string }) {
           width: el.clientWidth,
           height: 220,
           layout: { background: { color: 'transparent' }, textColor: '#8b94b8', fontSize: 10 },
-          grid: { vertLines: { color: 'rgba(99,140,255,0.05)' }, horzLines: { color: 'rgba(99,140,255,0.05)' } },
+          grid: { vertLines: { color: 'rgba(148,163,184,0.05)' }, horzLines: { color: 'rgba(148,163,184,0.05)' } },
           crosshair: { mode: CrosshairMode.Normal },
-          rightPriceScale: { borderColor: 'rgba(99,140,255,0.18)' },
-          timeScale: { borderColor: 'rgba(99,140,255,0.18)', timeVisible: tf !== '1d', rightOffset: 3 },
+          rightPriceScale: { borderColor: 'rgba(148,163,184,0.18)' },
+          timeScale: { borderColor: 'rgba(148,163,184,0.18)', timeVisible: tf !== '1d', rightOffset: 3 },
         });
         const precision = pricePrecision(candles.at(-1)!.close);
         const series = chart.addSeries(CandlestickSeries, {
-          upColor: '#3ddc97',
-          downColor: '#ff5c6c',
-          borderUpColor: '#3ddc97',
-          borderDownColor: '#ff5c6c',
-          wickUpColor: 'rgba(61,220,151,0.6)',
-          wickDownColor: 'rgba(255,92,108,0.6)',
+          upColor: '#22c55e',
+          downColor: '#ef4444',
+          borderUpColor: '#22c55e',
+          borderDownColor: '#ef4444',
+          wickUpColor: 'rgba(34,197,94,0.6)',
+          wickDownColor: 'rgba(239,68,68,0.6)',
           priceFormat: { type: 'price', precision, minMove: 10 ** -precision },
         });
         series.setData(candles.map((c) => ({ time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close })));

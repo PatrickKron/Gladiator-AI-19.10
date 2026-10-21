@@ -71,7 +71,7 @@ export function OrderBookPanel({ symbol }: { symbol: string }) {
   const price = (n: number) => n.toLocaleString(appLocale(), { minimumFractionDigits: digits, maximumFractionDigits: digits });
   const row = (side: 'bid' | 'ask', l: Book['bids'][number]) => {
     const pct = book && book.maxCum > 0 ? (l.cum / book.maxCum) * 100 : 0;
-    const color = side === 'bid' ? 'rgba(52,211,153,0.16)' : 'rgba(255,92,108,0.16)';
+    const color = side === 'bid' ? 'rgba(52,211,153,0.16)' : 'rgba(239,68,68,0.16)';
     return (
       <div
         key={`${side}-${l.price}`}

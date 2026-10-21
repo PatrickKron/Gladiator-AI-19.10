@@ -13,6 +13,12 @@ function t(key: string): string {
 describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Weiterleitungen)', () => {
   it('genau 5 Bereiche, jede Seite gehört zu genau einem Bereich', () => {
     expect(AREAS).toHaveLength(5);
+    // jeder Bereich hat eine Einstiegsseite in seinem eigenen Bereich und ein Icon (Tableiste)
+    for (const a of AREAS) {
+      const landing = PAGES.find((p) => p.hash === a.hash);
+      expect(landing?.area).toBe(a.id);
+      expect(a.icon.length).toBeGreaterThan(5);
+    }
     const ids = PAGES.map((p) => p.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const p of PAGES) expect(AREAS.map((a) => a.id)).toContain(p.area);

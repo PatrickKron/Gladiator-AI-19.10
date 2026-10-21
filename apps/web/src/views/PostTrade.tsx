@@ -81,7 +81,7 @@ export function PostTrade({ embedded = false }: { embedded?: boolean }) {
       onClick={() => void runLearning()}
       disabled={running}
       className="rounded border px-3 py-1.5 text-sm transition-colors disabled:opacity-50"
-      style={{ borderColor: 'rgba(46,124,246,0.5)', color: 'var(--color-cyan)' }}
+      style={{ borderColor: 'rgba(59,130,246,0.5)', color: 'var(--color-cyan)' }}
     >
       {running ? t('posttrade.running') : t('posttrade.runButton')}
     </button>
@@ -144,7 +144,7 @@ export function PostTrade({ embedded = false }: { embedded?: boolean }) {
                   <span
                     key={e.key}
                     className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs"
-                    style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}
+                    style={{ borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }}
                   >
                     {keyLabel(t, 'err', e.key)}
                     <span className="num font-semibold">×{e.count}</span>
@@ -175,7 +175,7 @@ export function PostTrade({ embedded = false }: { embedded?: boolean }) {
                     const errs = (r.errorSources as string[]) ?? [];
                     const lessons = (r.lessons as string[]) ?? [];
                     return (
-                      <tr key={r.id} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                      <tr key={r.id} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                         <td className="py-2 pr-4 whitespace-nowrap">
                           {row.trade ? (
                             <>
@@ -202,12 +202,12 @@ export function PostTrade({ embedded = false }: { embedded?: boolean }) {
                         <td className="py-2 pr-4">
                           <div className="flex max-w-md flex-wrap gap-1.5">
                             {errs.map((k) => (
-                              <span key={`e-${k}`} className="rounded-full border px-2 py-0.5 text-[11px]" style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}>
+                              <span key={`e-${k}`} className="rounded-full border px-2 py-0.5 text-[11px]" style={{ borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }}>
                                 {keyLabel(t, 'err', k)}
                               </span>
                             ))}
                             {lessons.map((k) => (
-                              <span key={`l-${k}`} className="rounded-full border px-2 py-0.5 text-[11px]" style={{ borderColor: 'rgba(61,220,151,0.35)', color: 'var(--color-pos)' }}>
+                              <span key={`l-${k}`} className="rounded-full border px-2 py-0.5 text-[11px]" style={{ borderColor: 'rgba(34,197,94,0.35)', color: 'var(--color-pos)' }}>
                                 {keyLabel(t, 'lesson', k)}
                               </span>
                             ))}
