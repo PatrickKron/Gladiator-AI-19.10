@@ -34,6 +34,9 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run db:migrate
+      # Wie im Betrieb: ein dauerhafter Besitzer-Nutzer existiert vor allen Tests. Sonst ist der
+      # „älteste Nutzer“ (Signal-Review, Briefing) ein Testnutzer, den eine parallele Testdatei löscht.
+      - run: psql "$DATABASE_URL" -c "INSERT INTO users (email) VALUES ('ci-owner@test.invalid') ON CONFLICT DO NOTHING"
       - run: npm test
 
   # Selbsthosten als Container: frische .env (setup:env), Compose mit Profil „app“,
