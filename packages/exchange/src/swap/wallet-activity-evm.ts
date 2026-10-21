@@ -1,4 +1,4 @@
-import { rpcUrl, SWAP_CHAINS, type SwapChainId } from './chains.js';
+import { SWAP_CHAINS, type SwapChainId } from './chains.js';
 import { fetchTokenDecimals } from './token-info.js';
 import type { ObservedSwap } from './wallet-activity.js';
 
@@ -23,6 +23,31 @@ export const ERC20_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f16
 export const EVM_MAX_BLOCKS = 500;
 /** Höchstens so viele Transaktionen je Abruf (Spam-Airdrops dürfen den Takt nicht fluten). */
 export const EVM_MAX_TXS = 15;
+
+/**
+ * `eth_getLogs` ohne Vertragsadresse (nur Topics = „alle Transfers dieser
+ * Wallet“) lehnen manche öffentlichen RPCs ab (z. B. publicnode: „Please
+ * specify an address“). Deshalb je Kette eine Liste öffentlicher Endpunkte,
+ * offizielle zuerst; der erste, der die Abfrage annimmt, wird gemerkt.
+ * Selbsthoster setzen `RPC_URL_LOGS_<KETTE>` (oder `RPC_URL_<KETTE>`).
+ */
+export const EVM_LOG_RPCS: Record<Exclude<SwapChainId, 'solana'>, string[]> = {
+  ethereum: ['https://eth.llamarpc.com', 'https://ethereum-rpc.publicnode.com'],
+  base: ['https://mainnet.base.org', 'https://base.llamarpc.com', 'https://base-rpc.publicnode.com'],
+  arbitrum: ['https://arb1.arbitrum.io/rpc', 'https://arbitrum.llamarpc.com', 'https://arbitrum-one-rpc.publicnode.com'],
+  bsc: ['https://binance.llamarpc.com', 'https://bsc-rpc.publicnode.com'],
+};
+
+/** Kandidaten in Reihenfolge: eigener Logs-RPC, eigener RPC, öffentliche Liste (ohne Doppelte). */
+export function logRpcCandidates(chain: SwapChainId, env: Record<string, string | undefined> = process.env): string[] {
+  const up = chain.toUpperCase();
+  const own = [env[`RPC_URL_LOGS_${up}`]?.trim(), env[`RPC_URL_${up}`]?.trim()].filter((x): x is string => Boolean(x));
+  const pub = chain === 'solana' ? [] : EVM_LOG_RPCS[chain];
+  return [...new Set([...own, ...pub])];
+}
+
+/** Zuletzt funktionierender Logs-RPC je Kette (Prozess-Cache). */
+const workingLogRpc = new Map<SwapChainId, string>();
 
 export type EvmLog = { address: string; topics: string[]; data: string; transactionHash: string; blockNumber: string; logIndex?: string };
 export type EvmTx = { from: string; to: string | null; value: string };
@@ -90,8 +115,8 @@ export function deriveEvmSwap(
   return null;
 }
 
-async function rpc(chain: SwapChainId, method: string, params: unknown[], fetchFn: Fetch): Promise<unknown> {
-  const res = await fetchFn(rpcUrl(chain), {
+async function rpc(chain: SwapChainId, url: string, method: string, params: unknown[], fetchFn: Fetch): Promise<unknown> {
+  const res = await fetchFn(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
@@ -118,20 +143,48 @@ export async function fetchEvmWalletSwaps(
   fetchFn: Fetch = fetch,
 ): Promise<{ swaps: ObservedSwap[]; newestSignature: string | null }> {
   const maxBlocks = BigInt(opts.maxBlocks ?? EVM_MAX_BLOCKS);
-  const latest = BigInt((await rpc(chain, 'eth_blockNumber', [], fetchFn)) as string);
-  const floor = latest - maxBlocks + 1n;
   const cursor = opts.cursor ? BigInt(opts.cursor) : null;
-  const from = cursor === null ? floor : cursor + 1n > floor ? cursor + 1n : floor;
-  if (from > latest) return { swaps: [], newestSignature: latest.toString() };
 
-  const range = { fromBlock: hex(from), toBlock: hex(latest) };
-  const [outgoing, incoming] = (await Promise.all([
-    rpc(chain, 'eth_getLogs', [{ ...range, topics: [ERC20_TRANSFER_TOPIC, padTopic(owner)] }], fetchFn),
-    rpc(chain, 'eth_getLogs', [{ ...range, topics: [ERC20_TRANSFER_TOPIC, null, padTopic(owner)] }], fetchFn),
-  ])) as [EvmLog[], EvmLog[]];
+  // Ersten Endpunkt nehmen, der Blocknummer UND adressfreie Logs liefert (der gemerkte zuerst)
+  const cached = workingLogRpc.get(chain);
+  const candidates = logRpcCandidates(chain);
+  const order = cached && candidates.includes(cached) ? [cached, ...candidates.filter((c) => c !== cached)] : candidates;
+  const problems: string[] = [];
+  for (const url of order) {
+    try {
+      const latest = BigInt((await rpc(chain, url, 'eth_blockNumber', [], fetchFn)) as string);
+      const floor = latest - maxBlocks + 1n;
+      const from = cursor === null ? floor : cursor + 1n > floor ? cursor + 1n : floor;
+      if (from > latest) return { swaps: [], newestSignature: latest.toString() };
+      const range = { fromBlock: hex(from), toBlock: hex(latest) };
+      const [outgoing, incoming] = (await Promise.all([
+        rpc(chain, url, 'eth_getLogs', [{ ...range, topics: [ERC20_TRANSFER_TOPIC, padTopic(owner)] }], fetchFn),
+        rpc(chain, url, 'eth_getLogs', [{ ...range, topics: [ERC20_TRANSFER_TOPIC, null, padTopic(owner)] }], fetchFn),
+      ])) as [EvmLog[], EvmLog[]];
+      workingLogRpc.set(chain, url);
+      return await readSwaps(chain, url, owner, outgoing ?? [], incoming ?? [], latest, opts.maxTxs ?? EVM_MAX_TXS, fetchFn);
+    } catch (err) {
+      problems.push(`${new URL(url).host}: ${err instanceof Error ? err.message : String(err)}`);
+      if (workingLogRpc.get(chain) === url) workingLogRpc.delete(chain);
+    }
+  }
+  throw new Error(
+    `Kein ${SWAP_CHAINS[chain].name}-RPC liefert die Transfer-Logs (${problems.join(' | ')}). Eigenen Knoten per RPC_URL_LOGS_${chain.toUpperCase()} setzen.`,
+  );
+}
 
+async function readSwaps(
+  chain: SwapChainId,
+  url: string,
+  owner: string,
+  outgoing: EvmLog[],
+  incoming: EvmLog[],
+  latest: bigint,
+  maxTxs: number,
+  fetchFn: Fetch,
+): Promise<{ swaps: ObservedSwap[]; newestSignature: string | null }> {
   const byTx = new Map<string, EvmLog[]>();
-  for (const l of [...(outgoing ?? []), ...(incoming ?? [])]) {
+  for (const l of [...outgoing, ...incoming]) {
     const list = byTx.get(l.transactionHash) ?? [];
     // derselbe Log kann in beiden Listen stehen (von mir an mich) — nur einmal zählen
     if (!list.some((x) => x.logIndex !== undefined && x.logIndex === l.logIndex)) list.push(l);
@@ -139,13 +192,13 @@ export async function fetchEvmWalletSwaps(
   }
   const txs = [...byTx.entries()]
     .sort((a, b) => Number(BigInt(b[1][0]!.blockNumber) - BigInt(a[1][0]!.blockNumber)))
-    .slice(0, opts.maxTxs ?? EVM_MAX_TXS);
+    .slice(0, maxTxs);
 
   const decimals = new Map<string, number>();
   const blockTime = new Map<string, number | null>();
   const swaps: ObservedSwap[] = [];
   for (const [hash, logs] of txs) {
-    const tx = (await rpc(chain, 'eth_getTransactionByHash', [hash], fetchFn)) as EvmTx | null;
+    const tx = (await rpc(chain, url, 'eth_getTransactionByHash', [hash], fetchFn)) as EvmTx | null;
     if (!tx) continue;
     for (const l of logs) {
       const t = lc(l.address);
@@ -159,7 +212,7 @@ export async function fetchEvmWalletSwaps(
     }
     const blockNo = logs[0]!.blockNumber;
     if (!blockTime.has(blockNo)) {
-      const b = (await rpc(chain, 'eth_getBlockByNumber', [blockNo, false], fetchFn)) as { timestamp?: string } | null;
+      const b = (await rpc(chain, url, 'eth_getBlockByNumber', [blockNo, false], fetchFn)) as { timestamp?: string } | null;
       blockTime.set(blockNo, b?.timestamp ? Number(BigInt(b.timestamp)) : null);
     }
     const s = deriveEvmSwap(chain, hash, tx, logs, owner, (t) => decimals.get(t) ?? -1, blockTime.get(blockNo) ?? null);

@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { SWAP_CHAINS } from './chains.js';
-import { deriveEvmSwap, ERC20_TRANSFER_TOPIC, fetchEvmWalletSwaps, padTopic, type EvmLog } from './wallet-activity-evm.js';
+import { deriveEvmSwap, ERC20_TRANSFER_TOPIC, EVM_LOG_RPCS, fetchEvmWalletSwaps, logRpcCandidates, padTopic, type EvmLog } from './wallet-activity-evm.js';
 
 const ME = '0x1111111111111111111111111111111111111111';
 const POOL = '0x2222222222222222222222222222222222222222';
@@ -55,6 +55,46 @@ describe('deriveEvmSwap', () => {
     const nft: EvmLog = { address: MEME, topics: [ERC20_TRANSFER_TOPIC, padTopic(POOL), padTopic(ME), '0x01'], data: '0x', transactionHash: '0xabc', blockNumber: '0x10' };
     expect(deriveEvmSwap('base', '0xabc', { from: ME, to: ROUTER, value: '0x2386f26fc10000' }, [nft], ME, dec, null)).toBeNull();
     expect(deriveEvmSwap('base', '0xabc', { from: ME, to: ROUTER, value: '0x1' }, [transfer(MEME, POOL, ME, 0n)], ME, dec, null)).toBeNull();
+  });
+});
+
+describe('Logs-RPC-Auswahl', () => {
+  it('eigener Logs-RPC, dann eigener RPC, dann öffentliche Liste — ohne Doppelte', () => {
+    expect(logRpcCandidates('base', {})).toEqual(EVM_LOG_RPCS.base);
+    expect(logRpcCandidates('base', { RPC_URL_BASE: 'https://mein-knoten', RPC_URL_LOGS_BASE: 'https://logs-knoten' })).toEqual(['https://logs-knoten', 'https://mein-knoten', ...EVM_LOG_RPCS.base]);
+    expect(logRpcCandidates('base', { RPC_URL_BASE: EVM_LOG_RPCS.base[0] })).toEqual(EVM_LOG_RPCS.base);
+  });
+
+  it('RPC lehnt adressfreie Logs ab → nächster Endpunkt; keiner → ehrlicher Fehler mit Hinweis', async () => {
+    const used: string[] = [];
+    const net = (refuse: (url: string) => boolean) =>
+      (async (url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as { method: string };
+        used.push(`${new URL(url).host}:${body.method}`);
+        const rpc = (result: unknown) => new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result }));
+        if (body.method === 'eth_blockNumber') return rpc('0x1000');
+        if (body.method === 'eth_getLogs') {
+          return refuse(url) ? new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { message: 'Please specify an address in your request' } })) : rpc([]);
+        }
+        return rpc(null);
+      }) as unknown as typeof fetch;
+    const prev = { ...process.env };
+    delete process.env.RPC_URL_ARBITRUM;
+    delete process.env.RPC_URL_LOGS_ARBITRUM;
+    try {
+      const first = new URL(EVM_LOG_RPCS.arbitrum[0]!).host;
+      const r = await fetchEvmWalletSwaps('arbitrum', ME, {}, net((u) => new URL(u).host === first));
+      expect(r).toEqual({ swaps: [], newestSignature: String(0x1000) });
+      expect(used.some((u) => u.startsWith(first))).toBe(true);
+      // der funktionierende Endpunkt wird gemerkt → nächster Abruf fragt ihn zuerst
+      used.length = 0;
+      await fetchEvmWalletSwaps('arbitrum', ME, {}, net((u) => new URL(u).host === first));
+      expect(used[0]!.startsWith(new URL(EVM_LOG_RPCS.arbitrum[1]!).host)).toBe(true);
+
+      await expect(fetchEvmWalletSwaps('arbitrum', ME, {}, net(() => true))).rejects.toThrow(/RPC_URL_LOGS_ARBITRUM/);
+    } finally {
+      process.env = prev;
+    }
   });
 });
 

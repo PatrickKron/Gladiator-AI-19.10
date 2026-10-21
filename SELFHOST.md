@@ -57,6 +57,7 @@ Für den Dauerbetrieb Webserver und Worker getrennt laufen lassen, damit recheni
 | `HEALTHCHECKS_URL` | externer Ausfall-Alarm (Dead-Man-Switch) |
 | `WALLET_KEYS_ENABLED=1` | eigene Trading-Wallets mit Schlüssel für Spot-Swaps erlauben (nur beim Selbsthosten; Schlüssel verschlüsselt, keine Überweisungen/Abhebungen) |
 | `RPC_URL_SOLANA`, `RPC_URL_ETHEREUM`, `RPC_URL_BASE`, `RPC_URL_ARBITRUM`, `RPC_URL_BSC` | eigene RPC-Endpunkte statt der öffentlichen |
+| `RPC_URL_LOGS_ETHEREUM`, `RPC_URL_LOGS_BASE`, `RPC_URL_LOGS_ARBITRUM`, `RPC_URL_LOGS_BSC` | eigener Knoten für „Wallets beobachten“ auf EVM (braucht `eth_getLogs` ohne Vertragsadresse); ohne Angabe probiert Gladiator eine Liste öffentlicher Knoten |
 
 Börsen- und Wallet-Zugänge trägst du nicht in die `.env` ein, sondern in der App unter Einstellungen › Börsen. Sie werden dort verschlüsselt gespeichert. Gladiator nimmt nie Abhebe-Rechte an.
 
