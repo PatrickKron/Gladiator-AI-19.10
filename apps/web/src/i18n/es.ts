@@ -860,6 +860,7 @@ export const es: Catalog = {
     greetingEvening: 'Buenas tardes',
     marketTitle: 'Mercado · En vivo',
     candles72h: '72 h · velas 1h · BD propia',
+    noCandlesDb: "Aún no hay velas en la BD.",
     signalsTitle: 'Señales · SMC Core · Multi-timeframe',
     scanInfo: 'Escaneo cada 5 min en 15m/1h/4h/1d',
     noSetup: 'Ahora mismo no hay setup abierto. El motor solo opera cuando TODAS las confluencias obligatorias coinciden (tendencia + ruptura de estructura + retest + RSI + volumen) — ningún setup es más honesto que uno inventado.',

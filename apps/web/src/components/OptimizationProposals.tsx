@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { fmt } from './EquityChart.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Optimierungs-Vorschläge (08_ §5) im Backtest-Labor. Die wöchentliche
@@ -185,13 +186,13 @@ export function OptimizationProposals() {
                       {p.name} <span style={{ color: 'var(--color-mut)' }}>({p.slug})</span> · {t('labor.proposals.baseVersion', { version: p.baseVersion })}
                     </p>
                     <p className="label mt-1">
-                      {new Date(p.createdAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })} · {t(STATE_KEY[p.state])}
+                      {new Date(p.createdAt).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' })} · {t(STATE_KEY[p.state])}
                       {r.review.newVersion ? ` → ${t('labor.proposals.draftVersion', { version: r.review.newVersion })}` : ''} ·{' '}
                       {t('labor.proposals.windowsWins', { windows: r.window.windows, wins: r.wins })}
                       {r.window.oosFrom && r.window.oosTo
                         ? ` · ${t('labor.proposals.oosRange', {
-                            from: new Date(r.window.oosFrom).toLocaleDateString('de-DE'),
-                            to: new Date(r.window.oosTo).toLocaleDateString('de-DE'),
+                            from: new Date(r.window.oosFrom).toLocaleDateString(appLocale()),
+                            to: new Date(r.window.oosTo).toLocaleDateString(appLocale()),
                           })}`
                         : ''}
                     </p>
@@ -260,7 +261,7 @@ export function OptimizationProposals() {
                 {r.holdout && (
                   <p className="mt-2 text-xs" style={{ color: 'var(--color-mut)' }}>
                     {t('labor.proposals.holdout', {
-                      from: new Date(r.holdout.fromTs).toLocaleDateString('de-DE'),
+                      from: new Date(r.holdout.fromTs).toLocaleDateString(appLocale()),
                       n: r.holdout.tradeCount,
                       expectancy: r.holdout.expectancy === null ? '—' : `${fmt(r.holdout.expectancy)} R`,
                       pf: r.holdout.profitFactor === null ? (r.holdout.tradeCount > 0 ? '∞' : '—') : fmt(r.holdout.profitFactor),

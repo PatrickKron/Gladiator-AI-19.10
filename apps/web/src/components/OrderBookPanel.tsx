@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { NotConnected, Panel, fmtNum } from './ui.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Orderbuch (Chart-Seite): echtes Binance-Buch (serverseitig per Websocket-Stream
@@ -67,7 +68,7 @@ export function OrderBookPanel({ symbol }: { symbol: string }) {
   }, [symbol, group, t]);
 
   const digits = book ? bookDigits(group, [...book.bids, ...book.asks].map((l) => l.price)) : 2;
-  const price = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  const price = (n: number) => n.toLocaleString(appLocale(), { minimumFractionDigits: digits, maximumFractionDigits: digits });
   const row = (side: 'bid' | 'ask', l: Book['bids'][number]) => {
     const pct = book && book.maxCum > 0 ? (l.cum / book.maxCum) * 100 : 0;
     const color = side === 'bid' ? 'rgba(52,211,153,0.16)' : 'rgba(255,92,108,0.16)';
@@ -115,7 +116,7 @@ export function OrderBookPanel({ symbol }: { symbol: string }) {
                       : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
                   }
                 >
-                  {g === 0 ? t('orderbook.groupNone') : g.toLocaleString(undefined, { maximumFractionDigits: bookDigits(g, []) })}
+                  {g === 0 ? t('orderbook.groupNone') : g.toLocaleString(appLocale(), { maximumFractionDigits: bookDigits(g, []) })}
                 </button>
               ))}
             </span>
@@ -131,7 +132,7 @@ export function OrderBookPanel({ symbol }: { symbol: string }) {
           </div>
           <div>{book.bids.map((l) => row('bid', l))}</div>
           <p className="mt-2 text-[11px]" style={{ color: 'var(--color-mut)' }}>
-            {t(book.live ? 'orderbook.sourceLive' : 'orderbook.source', { time: new Date(book.ts).toLocaleTimeString() })}
+            {t(book.live ? 'orderbook.sourceLive' : 'orderbook.source', { time: new Date(book.ts).toLocaleTimeString(appLocale()) })}
             {error && <span style={{ color: 'var(--color-warn)' }}> · {t('orderbook.stale')}</span>}
           </p>
         </>

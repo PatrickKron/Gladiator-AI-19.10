@@ -13,6 +13,7 @@ import {
 } from 'lightweight-charts';
 import { fibLevelPrices, type DrawingKind, type DrawingPoint, type DrawingStyle } from '@gladiator/core/drawings';
 import { timeToLogical, type PixelShape, type Px } from '../lib/chart-drawings.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Rendering der Chart-Zeichnungen für lightweight-charts 5 (Series-Primitive).
@@ -40,7 +41,7 @@ export const DRAWING_COLORS: Record<DrawingKind, string> = {
 type Preview = { kind: DrawingKind; points: DrawingPoint[] } | null;
 type DrawTarget = Parameters<IPrimitivePaneRenderer['draw']>[0];
 
-const fmtPrice = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: n >= 1000 ? 2 : n >= 1 ? 4 : 8 });
+const fmtPrice = (n: number) => n.toLocaleString(appLocale(), { maximumFractionDigits: n >= 1000 ? 2 : n >= 1 ? 4 : 8 });
 
 export class DrawingsPrimitive implements ISeriesPrimitive<Time> {
   private chart: IChartApi | null = null;

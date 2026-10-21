@@ -34,9 +34,10 @@ describe('Screener-Helfer', () => {
     expect(numericInputs(entries.rsi).map((i) => i.id)).toEqual(['length']);
     expect(numericInputs(entries.ema).map((i) => i.id)).toEqual(['length']); // display none fällt raus
     expect(plotChoices({ plots: [{ id: 'plot0', title: 'RSI', color: '#fff' }, { id: 'plot9', title: 'Hilfs', color: 'transparent', display: 'none' }] })).toEqual([{ id: 'plot0', title: 'RSI' }]);
+    // Zahlenformat folgt der UI-Sprache (Standard Deutsch), nie der Browser-Locale
     expect(fmtNum(null)).toBe('—');
-    expect(fmtNum(0.123456789)).toBe('0.123457');
-    expect(fmtNum(12.3456)).toBe('12.35');
-    expect(fmtNum(12345.678)).toBe('12,345.7');
+    expect(fmtNum(0.123456789)).toBe('0,123457');
+    expect(fmtNum(12.3456)).toBe('12,35');
+    expect(fmtNum(12345.678)).toBe('12.345,7');
   });
 });

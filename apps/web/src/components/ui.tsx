@@ -1,5 +1,6 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { appLocale } from '../lib/locale.js';
 
 /** Gemeinsame UI-Bausteine (Design-System v2 Neon-Dual) — Loading/Empty/Error/NotConnected sind Pflicht-States (09_ §1). */
 
@@ -92,11 +93,11 @@ export function StatusDot({ on }: { on: boolean }) {
 }
 
 export function fmtNum(n: number, digits = 2): string {
-  return n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  return n.toLocaleString(appLocale(), { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
 export function fmtMoney(n: number): string {
-  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return n.toLocaleString(appLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /** Tab-Leiste (einheitlich auf allen Seiten): Unterstrich-Stil, horizontal scrollbar auf Mobile. */

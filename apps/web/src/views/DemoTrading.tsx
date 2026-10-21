@@ -9,6 +9,7 @@ import { clearPendingTradeSymbol, peekPendingTradeSymbol } from '../lib/trade-sy
 import { getLatest, onTick } from '../lib/prices.js';
 import { getUiMode } from '../lib/ui-mode.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Demo-Trading (Session 5): manuelles Üben mit virtuellem Guthaben (100k),
@@ -509,12 +510,12 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
             <div className="flex items-center gap-2">
               <input type="range" min={0} max={20} step={0.5} value={slPct} onChange={(e) => setSlPct(Number(e.target.value))} className="w-full" />
               <span className="num w-24 shrink-0 text-right text-xs">
-                {slPct > 0 ? `−${slPct.toLocaleString('de-DE')} %` : t('demo.off')}
+                {slPct > 0 ? `−${slPct.toLocaleString(appLocale())} %` : t('demo.off')}
               </span>
             </div>
             {slPct > 0 && slPrice !== undefined && (
               <p className="num text-[11px]" style={{ color: 'var(--color-mut)' }}>
-                {t('ticket.protectionText', { pct: slPct.toLocaleString('de-DE') })} (≈ {fmt(slPrice)})
+                {t('ticket.protectionText', { pct: slPct.toLocaleString(appLocale()) })} (≈ {fmt(slPrice)})
               </p>
             )}
           </div>
@@ -527,7 +528,7 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
             <div className="flex items-center gap-2">
               <input type="range" min={0} max={50} step={0.5} value={tpPct} onChange={(e) => setTpPct(Number(e.target.value))} className="w-full" />
               <span className="num w-24 shrink-0 text-right text-xs">
-                {tpPct > 0 ? `+${tpPct.toLocaleString('de-DE')} %` : t('demo.off')}
+                {tpPct > 0 ? `+${tpPct.toLocaleString(appLocale())} %` : t('demo.off')}
               </span>
             </div>
             {tpPct > 0 && tpPrice !== undefined && (
@@ -863,7 +864,7 @@ function HistoryPanel({ history }: { history: Trade[] }) {
             <tbody className="num">
               {history.map((tr) => (
                 <tr key={tr.id} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
-                  <td className="py-1.5 pr-3">{new Date(tr.exitTs).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</td>
+                  <td className="py-1.5 pr-3">{new Date(tr.exitTs).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' })}</td>
                   <td className="py-1.5 pr-3">{tr.symbol}</td>
                   <td className="py-1.5 pr-3" style={{ color: tr.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>
                     {tr.direction.toUpperCase()}

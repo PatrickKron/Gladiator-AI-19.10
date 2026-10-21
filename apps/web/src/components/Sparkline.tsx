@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 /** Mini-Chart aus ECHTEN Kerzen (Close-Preise): Cyan-Verlauf, weicher Glow, Flächen-Fade. */
 export function Sparkline({
   closes,
@@ -10,8 +11,9 @@ export function Sparkline({
   width?: number;
   height?: number;
 }) {
+  const { t } = useTranslation();
   if (closes.length < 2) {
-    return <p className="label">Noch keine Kerzen in der DB.</p>;
+    return <p className="label">{t('dashboard.noCandlesDb')}</p>;
   }
   const min = Math.min(...closes);
   const max = Math.max(...closes);

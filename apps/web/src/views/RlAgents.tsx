@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
+import { appLocale } from '../lib/locale.js';
 
 type AgentRow = {
   id: string;
@@ -351,7 +352,7 @@ export function RlAgents({ embedded = false }: { embedded?: boolean }) {
                       <div className="mt-3 flex items-center gap-3 text-xs" style={{ color: 'var(--color-mut)' }}>
                         {t('rl.riskBudget')}: {(parseFloat(agent.riskBudget) * 100).toFixed(0)}% ·
                         {t('rl.weight')}: {perf?.weight ? `${(parseFloat(perf.weight) * 100).toFixed(1)}%` : '—'} ·
-                        {new Date(agent.createdAt).toLocaleDateString()}
+                        {new Date(agent.createdAt).toLocaleDateString(appLocale())}
                       </div>
 
                       {note?.agentId === agent.id && (

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/ui.js';
 import { groupNewsByFavorites } from '../lib/newsMatch.js';
+import { appLocale } from '../lib/locale.js';
 
 /** Magazin (09_ §3.6): echte v1-Artikel aus der DB + Live-News mit Favoriten-Fokus. */
 
@@ -18,7 +19,7 @@ function NewsRow({ n }: { n: NewsItem }) {
   return (
     <li className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
       <span className="num shrink-0 text-xs" style={{ color: 'var(--color-mut)' }}>
-        {new Date(n.publishedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+        {new Date(n.publishedAt).toLocaleTimeString(appLocale(), { hour: '2-digit', minute: '2-digit' })}
       </span>
       <span className="label shrink-0 rounded border px-1 py-0.5" style={{ borderColor: 'var(--color-line)' }}>
         {n.source}
@@ -221,7 +222,7 @@ function ArticleCard({ a, stagger }: { a: Article; stagger: number }) {
           </span>
         )}
         <span className="label ml-auto">
-          {a.publishedAt ? new Date(a.publishedAt).toLocaleDateString() : new Date(a.createdAt).toLocaleDateString()}
+          {a.publishedAt ? new Date(a.publishedAt).toLocaleDateString(appLocale()) : new Date(a.createdAt).toLocaleDateString(appLocale())}
         </span>
       </div>
       <h2 className="mt-3 text-[15px] leading-snug font-medium">{a.title}</h2>

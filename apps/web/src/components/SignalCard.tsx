@@ -8,6 +8,7 @@ import { RegimeBadge } from './RegimeBadge.js';
 import { buildChartUrl } from '../lib/chart-url.js';
 import { getUiMode } from '../lib/ui-mode.js';
 import { lifecycleChips, type AutoKillInfo, type LeverageUpgradeInfo, type ReentryInfo } from '../lib/signal-lifecycle.js';
+import { appLocale } from '../lib/locale.js';
 
 export type SignalReview = {
   agent: string;
@@ -45,8 +46,8 @@ export type SignalRow = {
 function fmt(n: string): string {
   const v = Number(n);
   return v >= 1000
-    ? v.toLocaleString('de-DE', { maximumFractionDigits: 0 })
-    : v.toLocaleString('de-DE', { maximumFractionDigits: 2 });
+    ? v.toLocaleString(appLocale(), { maximumFractionDigits: 0 })
+    : v.toLocaleString(appLocale(), { maximumFractionDigits: 2 });
 }
 
 /** Ablauf-Frist je Timeframe in Stunden — Spiegel der Backend-Regel (signal-expiry.ts). */
@@ -373,7 +374,7 @@ function ExperienceSuggestion({ preview, onApply }: { preview: ExecPreview; onAp
       <p className="num mt-1">
         {t('ticket.experienceDetail', {
           lev: exp.leverage,
-          risk: exp.riskPct.toLocaleString('de-DE', { maximumFractionDigits: 2 }),
+          risk: exp.riskPct.toLocaleString(appLocale(), { maximumFractionDigits: 2 }),
           schema: exp.tpSchema,
         })}
       </p>
@@ -395,7 +396,7 @@ function ExperienceSuggestion({ preview, onApply }: { preview: ExecPreview; onAp
  * Einfach-Modus spricht Klartext („Verkaufe automatisch bei −x %"),
  * Profi sieht Rohwerte.
  */
-const fmtPct = (n: number, digits = 1) => `${n.toLocaleString('de-DE', { maximumFractionDigits: digits })} %`;
+const fmtPct = (n: number, digits = 1) => `${n.toLocaleString(appLocale(), { maximumFractionDigits: digits })} %`;
 
 function AdjustTicket({
   signal,
@@ -463,7 +464,7 @@ function AdjustTicket({
   const riskUsd = amountUsd !== null && slPct !== null ? amountUsd * (slPct / 100) : null;
 
   const num = (n: number | null, unit: string, digits = 0) =>
-    n === null ? '—' : `${n.toLocaleString('de-DE', { maximumFractionDigits: digits })} ${unit}`;
+    n === null ? '—' : `${n.toLocaleString(appLocale(), { maximumFractionDigits: digits })} ${unit}`;
 
   const send = () => {
     if (!dirty) {
@@ -485,7 +486,7 @@ function AdjustTicket({
         {t('ticket.suggestionRef', {
           amount:
             preview.suggested.notionalEur !== null
-              ? `${Math.round(preview.suggested.notionalEur).toLocaleString('de-DE')} €`
+              ? `${Math.round(preview.suggested.notionalEur).toLocaleString(appLocale())} €`
               : num(preview.suggested.notionalUsd, '$'),
           lev: preview.suggested.leverage,
           sl: fmt(signal.stopLoss),
@@ -595,8 +596,8 @@ function AdjustTicket({
             )}
           </span>
           <span className="num">
-            {slPct !== null ? `−${slPct.toLocaleString('de-DE', { maximumFractionDigits: 1 })} %` : '—'}
-            {profi && slPct !== null && <span style={{ color: 'var(--color-mut)' }}> ({slPrice.toLocaleString('de-DE', { maximumFractionDigits: 6 })})</span>}
+            {slPct !== null ? `−${slPct.toLocaleString(appLocale(), { maximumFractionDigits: 1 })} %` : '—'}
+            {profi && slPct !== null && <span style={{ color: 'var(--color-mut)' }}> ({slPrice.toLocaleString(appLocale(), { maximumFractionDigits: 6 })})</span>}
           </span>
         </div>
         <input
@@ -613,7 +614,7 @@ function AdjustTicket({
         />
         {!profi && slPct !== null && (
           <p className="mt-0.5 text-[11px]" style={{ color: 'var(--color-mut)' }}>
-            {t('ticket.protectionText', { pct: slPct.toLocaleString('de-DE', { maximumFractionDigits: 1 }) })}
+            {t('ticket.protectionText', { pct: slPct.toLocaleString(appLocale(), { maximumFractionDigits: 1 }) })}
           </p>
         )}
       </div>
@@ -809,7 +810,7 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
           <RegimeBadge symbol={signal.symbol} timeframe={signal.timeframe} />
           <MlBadge signalId={signal.id} />
           <span className="num text-lg font-semibold" style={{ color: RISK_COLOR[signal.riskClass] }}>
-            {Number(signal.score).toLocaleString('de-DE', { minimumFractionDigits: 1 })}
+            {Number(signal.score).toLocaleString(appLocale(), { minimumFractionDigits: 1 })}
             <span className="text-xs font-normal" style={{ color: 'var(--color-mut)' }}> / 10</span>
           </span>
         </div>

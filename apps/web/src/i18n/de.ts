@@ -859,6 +859,7 @@ export const de = {
     greetingEvening: 'Guten Abend',
     marketTitle: 'Markt · Live',
     candles72h: '72 h · 1h-Kerzen · eigene DB',
+    noCandlesDb: "Noch keine Kerzen in der DB.",
     signalsTitle: 'Signale · SMC Core · Multi-Timeframe',
     scanInfo: 'Scan alle 5 min auf 15m/1h/4h/1d',
     noSetup: 'Aktuell kein offenes Setup. Die Engine handelt nur, wenn ALLE Pflicht-Confluences stimmen (Trend + Struktur-Bruch + Retest + RSI + Volumen) — kein Setup ist ehrlicher als ein erfundenes.',

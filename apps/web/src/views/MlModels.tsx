@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
+import { appLocale } from '../lib/locale.js';
 
 type ModelRow = {
   id: number;
@@ -172,7 +173,7 @@ export function MlModels({ embedded = false }: { embedded?: boolean }) {
                       </span>
                     </div>
                     <span className="label shrink-0">
-                      {new Date(m.trainedAt).toLocaleDateString()}
+                      {new Date(m.trainedAt).toLocaleDateString(appLocale())}
                     </span>
                   </button>
 

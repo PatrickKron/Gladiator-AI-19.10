@@ -860,6 +860,7 @@ export const fr: Catalog = {
     greetingEvening: 'Bonsoir',
     marketTitle: 'Marché · En direct',
     candles72h: '72 h · bougies 1h · BD propre',
+    noCandlesDb: "Pas encore de bougies dans la BD.",
     signalsTitle: 'Signaux · SMC Core · Multi-timeframe',
     scanInfo: 'Scan toutes les 5 min sur 15m/1h/4h/1d',
     noSetup: 'Aucun setup ouvert pour l\'instant. Le moteur ne trade que lorsque TOUTES les confluences obligatoires concordent (tendance + cassure de structure + retest + RSI + volume) — aucun setup est plus honnête qu\'un setup inventé.',

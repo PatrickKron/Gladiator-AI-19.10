@@ -860,6 +860,7 @@ export const it: Catalog = {
     greetingEvening: 'Buonasera',
     marketTitle: 'Mercato · Live',
     candles72h: '72 h · candele 1h · DB proprio',
+    noCandlesDb: "Ancora nessuna candela nel DB.",
     signalsTitle: 'Segnali · SMC Core · Multi-timeframe',
     scanInfo: 'Scansione ogni 5 min su 15m/1h/4h/1d',
     noSetup: 'Nessun setup aperto al momento. Il motore opera solo quando TUTTE le confluenze obbligatorie coincidono (trend + rottura di struttura + retest + RSI + volume) — nessun setup è più onesto di uno inventato.',

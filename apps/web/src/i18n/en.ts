@@ -860,6 +860,7 @@ export const en: Catalog = {
     greetingEvening: 'Good evening',
     marketTitle: 'Market · Live',
     candles72h: '72 h · 1h candles · own DB',
+    noCandlesDb: "No candles in the DB yet.",
     signalsTitle: 'Signals · SMC Core · Multi-timeframe',
     scanInfo: 'Scan every 5 min on 15m/1h/4h/1d',
     noSetup: 'No open setup right now. The engine only trades when ALL mandatory confluences align (trend + structure break + retest + RSI + volume) — no setup is more honest than an invented one.',

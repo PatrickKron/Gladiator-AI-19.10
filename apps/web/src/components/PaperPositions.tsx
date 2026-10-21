@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Empty, Loading } from './ui.js';
 import { buildChartUrl } from '../lib/chart-url.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Offene Positionen des Agenten-Kontos mit Steuerung (Mensch im Loop):
@@ -17,7 +18,7 @@ export type PaperPosition = Awaited<ReturnType<typeof trpc.trading.positions.que
 type Draft = { sl: string; tps: Record<string, string> };
 
 const fmt = (n: number | null | undefined, d = 2) =>
-  n === null || n === undefined || !Number.isFinite(n) ? '—' : n.toLocaleString(undefined, { maximumFractionDigits: d });
+  n === null || n === undefined || !Number.isFinite(n) ? '—' : n.toLocaleString(appLocale(), { maximumFractionDigits: d });
 
 const parse = (s: string): number | null => {
   const n = Number(s.replace(',', '.').trim());

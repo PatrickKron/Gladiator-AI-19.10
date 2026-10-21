@@ -9,7 +9,7 @@ import { Empty, ErrorBox, Loading, Panel, StatusDot } from '../components/ui.js'
 import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
 import { AddMarketPicker } from '../components/AddMarketPicker.js';
 import { FavStar, FavStarSymbol } from '../components/FavStar.js';
-import { getLatest, onTick, type TickWithDirection } from '../lib/prices.js';
+import { getFeedState, getLatest, onFeedState, onTick, type FeedState, type TickWithDirection } from '../lib/prices.js';
 import { setPendingTradeSymbol } from '../lib/trade-symbol.js';
 import { buildChartUrl } from '../lib/chart-url.js';
 import { loadTf } from '../lib/chart-tf.js';
@@ -17,6 +17,7 @@ import { feedSymbol } from '../lib/pairs.js';
 import { normalizeRegime, REGIME_COLORS, REGIME_ICONS, type RegimeData } from '../lib/regime.js';
 import { getUiMode, onUiModeChange, type UiMode } from '../lib/ui-mode.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
+import { appLocale } from '../lib/locale.js';
 
 /** Dashboard (09_ §3.1): Begrüßung, Live-Markt, offene Setups, Konto, System — alles echt. */
 
@@ -40,7 +41,7 @@ function FavoriteBriefingCard({ symbol }: { symbol: string }) {
         <span style={{ color: 'var(--color-warn)' }}>{'\u2605'}</span> {symbol}
       </p>
       <AssetContextBody ctx={ctx} compact />
-      <p className="label mt-2">{t('dashboard.favBriefingUpdated', { time: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) })}</p>
+      <p className="label mt-2">{t('dashboard.favBriefingUpdated', { time: new Date().toLocaleTimeString(appLocale(), { hour: '2-digit', minute: '2-digit' }) })}</p>
     </div>
   );
 }
@@ -247,7 +248,7 @@ type QuoteFav = { assetId: number; ticker: string; name: string };
 
 /** Kurs mit Quell-Währung (Auslandsbörsen liefern EUR/JPY/HKD/…); null = ohne Suffix (Renditen/Indizes). */
 function fmtFavQuote(price: number, currency: string | null): string {
-  const num = price.toLocaleString(undefined, { maximumFractionDigits: price >= 1000 ? 0 : price >= 1 ? 2 : 6 });
+  const num = price.toLocaleString(appLocale(), { maximumFractionDigits: price >= 1000 ? 0 : price >= 1 ? 2 : 6 });
   if (currency === null) return num;
   const cur = currency.toUpperCase();
   if (cur === 'USD' || cur === 'USDT') return `${num} $`;
@@ -311,7 +312,7 @@ function HeroWealth({ account }: { account: Account | null }) {
       ) : (
         <>
           <p className="num mt-1 text-[52px] leading-none font-semibold tracking-tight">
-            {total.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            {total.toLocaleString(appLocale(), { maximumFractionDigits: 0 })}
             <span className="ml-2 text-2xl font-normal" style={{ color: 'var(--color-mut)' }}>$</span>
           </p>
           <p className="num mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
@@ -322,10 +323,10 @@ function HeroWealth({ account }: { account: Account | null }) {
             )}
             <span style={{ color: 'var(--color-mut)' }}>
               {t('dashboard.heroSplit', {
-                demo: demoEquity !== null ? demoEquity.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—',
-                paper: paperEquity !== null ? paperEquity.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—',
+                demo: demoEquity !== null ? demoEquity.toLocaleString(appLocale(), { maximumFractionDigits: 0 }) : '—',
+                paper: paperEquity !== null ? paperEquity.toLocaleString(appLocale(), { maximumFractionDigits: 0 }) : '—',
               })}
-              {walletsUsd > 0 && ` · ${t('dashboard.heroWallets', { amount: walletsUsd.toLocaleString(undefined, { maximumFractionDigits: 0 }) })}`}
+              {walletsUsd > 0 && ` · ${t('dashboard.heroWallets', { amount: walletsUsd.toLocaleString(appLocale(), { maximumFractionDigits: 0 }) })}`}
             </span>
             {account && account.openPositions > 0 && (
               <a href="#/traden?tab=positionen" className="underline decoration-dotted" style={{ color: 'var(--color-cyan)' }}>
@@ -338,7 +339,7 @@ function HeroWealth({ account }: { account: Account | null }) {
             <a href="#/vermoegen" className="underline decoration-dotted" style={{ color: 'var(--color-mut)' }}>
               {real?.connected
                 ? t('dashboard.heroReal', {
-                    amount: real.totalEur !== null ? `${real.totalEur.toLocaleString('de-DE', { maximumFractionDigits: 0 })} €` : '—',
+                    amount: real.totalEur !== null ? `${real.totalEur.toLocaleString(appLocale(), { maximumFractionDigits: 0 })} €` : '—',
                   })
                 : t('dashboard.heroRealNone')}
             </a>
@@ -403,8 +404,8 @@ function QuoteFavCard({ fav, quote, stagger, onRemoved }: { fav: QuoteFav; quote
 
 function fmtPrice(p: number): string {
   return p >= 1000
-    ? p.toLocaleString(undefined, { maximumFractionDigits: 0 })
-    : p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    ? p.toLocaleString(appLocale(), { maximumFractionDigits: 0 })
+    : p.toLocaleString(appLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function fmtUptime(sec: number): string {
@@ -429,8 +430,11 @@ function deriveFromCloses(closes: number[]): { price: number | null; change24h: 
 function WatchCard({ symbol, isFavorite, closes, stagger, onRemoved }: { symbol: string; isFavorite: boolean; closes: number[]; stagger: number; onRemoved: (symbol: string) => void }) {
   const { t } = useTranslation();
   const [tick, setTick] = useState<TickWithDirection | null>(() => getLatest().find((x) => x.symbol === symbol) ?? null);
+  const [feed, setFeed] = useState<FeedState>(() => getFeedState());
   const [pulse, setPulse] = useState<'tick-pos' | 'tick-neg' | ''>('');
   const pulseTimer = useRef(0);
+
+  useEffect(() => onFeedState(setFeed), []);
 
   useEffect(() => {
     const off = onTick((x) => {
@@ -480,6 +484,16 @@ function WatchCard({ symbol, isFavorite, closes, stagger, onRemoved }: { symbol:
             style={{ color: change == null ? 'var(--color-mut)' : change >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}
           >
             {change == null ? '24h —' : `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)} % · 24h`}
+          </p>
+        </>
+      ) : feed === 'disconnected' ? (
+        // ehrlich: kein Live-Tick und keine eigenen Kerzen — nicht ewig „Lädt …" pulsieren
+        <>
+          <p className="num mt-3 text-[32px] leading-none font-semibold" style={{ color: 'var(--color-mut)' }}>
+            —
+          </p>
+          <p className="label mt-2" style={{ color: 'var(--color-mut)' }}>
+            {t('common.notConnected')}
           </p>
         </>
       ) : (
@@ -754,7 +768,7 @@ export function Dashboard() {
             <ul className="mt-4 space-y-2.5 text-sm">
               <li className="flex justify-between">
                 <span style={{ color: 'var(--color-mut)' }}>{t('dashboard.equity')}</span>
-                <span className="num">{account.equity.toLocaleString(undefined, { maximumFractionDigits: 2 })} $</span>
+                <span className="num">{account.equity.toLocaleString(appLocale(), { maximumFractionDigits: 2 })} $</span>
               </li>
               <li className="flex justify-between">
                 <span style={{ color: 'var(--color-mut)' }}>{t('dashboard.dailyPnl')}</span>
@@ -793,7 +807,7 @@ export function Dashboard() {
               </li>
               <li className="flex justify-between">
                 <span style={{ color: 'var(--color-mut)' }}>{t('dashboard.candles')}</span>
-                <span className="num">{system.counts.ohlcv_rows?.toLocaleString()}</span>
+                <span className="num">{system.counts.ohlcv_rows?.toLocaleString(appLocale())}</span>
               </li>
               <li className="flex justify-between">
                 <span style={{ color: 'var(--color-mut)' }}>{t('dashboard.packagesAssets')}</span>
@@ -859,12 +873,12 @@ export function Dashboard() {
                   <tr key={`${r.symbol}-${r.timeframe}`} style={{ borderTop: '1px solid rgba(79,209,255,0.07)' }}>
                     <td className="py-2 pr-4">{r.symbol}</td>
                     <td className="num py-2 pr-4">{r.timeframe}</td>
-                    <td className="num py-2 pr-4 text-right">{r.candles.toLocaleString()}</td>
+                    <td className="num py-2 pr-4 text-right">{r.candles.toLocaleString(appLocale())}</td>
                     <td className="py-2 pr-4" style={{ color: 'var(--color-mut)' }}>
-                      {new Date(r.from_ts).toLocaleDateString()}
+                      {new Date(r.from_ts).toLocaleDateString(appLocale())}
                     </td>
                     <td className="py-2" style={{ color: 'var(--color-mut)' }}>
-                      {new Date(r.to_ts).toLocaleString()}
+                      {new Date(r.to_ts).toLocaleString(appLocale())}
                     </td>
                   </tr>
                 ))}

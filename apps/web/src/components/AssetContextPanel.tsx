@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Loading } from './ui.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Asset-Kontext (Patrick-Lücke 2/6): echte, asset-spezifische Kennzahlen aus
@@ -36,7 +37,7 @@ export function useAssetContext(symbol: string, refreshMs = 60_000) {
 }
 
 const fmt = (n: number | null | undefined, d = 2) =>
-  n == null ? '—' : n.toLocaleString(undefined, { maximumFractionDigits: d });
+  n == null ? '—' : n.toLocaleString(appLocale(), { maximumFractionDigits: d });
 
 function Row({ label, value, color }: { label: string; value: string; color?: string }) {
   return (

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Empty, Loading, Panel } from './ui.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Strategie-Katalog (Patricks Auftrag C): kuratiertes Sortiment mit ECHTEN
@@ -23,7 +24,7 @@ const CATEGORY_COLOR: Record<(typeof CATEGORIES)[number], string> = {
 
 function pct(n: number | null): string {
   if (n === null) return '—';
-  return `${n > 0 ? '+' : ''}${n.toLocaleString('de-DE', { maximumFractionDigits: 1 })} %`;
+  return `${n > 0 ? '+' : ''}${n.toLocaleString(appLocale(), { maximumFractionDigits: 1 })} %`;
 }
 
 function CatalogCard({ entry, onChanged }: { entry: CatalogEntry; onChanged: () => void }) {
@@ -104,10 +105,10 @@ function CatalogCard({ entry, onChanged }: { entry: CatalogEntry; onChanged: () 
           <p className="num mt-1">
             <span style={{ color: (bt.netReturnPct ?? 0) >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>{pct(bt.netReturnPct)}</span>
             <span style={{ color: 'var(--color-mut)' }}> · {t('catalog.maxDd')} </span>
-            <span style={{ color: 'var(--color-neg)' }}>−{bt.maxDrawdownPct?.toLocaleString('de-DE', { maximumFractionDigits: 1 }) ?? '—'} %</span>
+            <span style={{ color: 'var(--color-neg)' }}>−{bt.maxDrawdownPct?.toLocaleString(appLocale(), { maximumFractionDigits: 1 }) ?? '—'} %</span>
             <span style={{ color: 'var(--color-mut)' }}> · {bt.tradeCount} {t('catalog.trades')}</span>
             {bt.winRate !== null && (
-              <span style={{ color: 'var(--color-mut)' }}> · {t('catalog.winRate')} {(bt.winRate * 100).toLocaleString('de-DE', { maximumFractionDigits: 0 })} %</span>
+              <span style={{ color: 'var(--color-mut)' }}> · {t('catalog.winRate')} {(bt.winRate * 100).toLocaleString(appLocale(), { maximumFractionDigits: 0 })} %</span>
             )}
           </p>
           {!passed && entry.validity.verdict && (

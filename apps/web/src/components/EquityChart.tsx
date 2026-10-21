@@ -1,4 +1,5 @@
 import { equityXY, toPolyline } from '../lib/equity-path.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Geteilte Equity-Kurven-Bausteine (Inline-SVG) — die EINE Wahrheit für alle
@@ -8,7 +9,7 @@ import { equityXY, toPolyline } from '../lib/equity-path.js';
 
 export function fmt(n: number | null | undefined, digits = 2): string {
   if (n === null || n === undefined || Number.isNaN(n)) return '—';
-  return n.toLocaleString('de-DE', { maximumFractionDigits: digits, minimumFractionDigits: 0 });
+  return n.toLocaleString(appLocale(), { maximumFractionDigits: digits, minimumFractionDigits: 0 });
 }
 
 export function MetricCard({ label, value, tone, hint }: { label: string; value: string; tone?: 'pos' | 'neg'; /** Kleine Zusatzzeile (z. B. Spanne 5–95 %) */ hint?: string }) {
@@ -68,7 +69,7 @@ export function EquityChart({ points, emptyText, unit = '$', step = false }: { p
         </text>
       </svg>
       <p className="label mt-1">
-        {new Date(points[0]!.ts).toLocaleDateString('de-DE')} – {new Date(points[points.length - 1]!.ts).toLocaleDateString('de-DE')}
+        {new Date(points[0]!.ts).toLocaleDateString(appLocale())} – {new Date(points[points.length - 1]!.ts).toLocaleDateString(appLocale())}
       </p>
     </div>
   );

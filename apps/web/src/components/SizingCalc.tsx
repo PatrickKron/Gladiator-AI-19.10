@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Panel } from './ui.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Position-Sizing-Rechner (Patrick-Lücke 7): rechnet über trading.sizePreview
@@ -42,7 +43,7 @@ export function SizingCalc({ defaultSymbol = 'BTC/USDT' }: { defaultSymbol?: str
     }
   }
 
-  const num = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 6 });
+  const num = (n: number) => n.toLocaleString(appLocale(), { maximumFractionDigits: 6 });
   const valid = Number(entry.replace(',', '.')) > 0 && Number(stopLoss.replace(',', '.')) > 0;
 
   return (

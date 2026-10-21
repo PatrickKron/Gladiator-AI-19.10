@@ -16,6 +16,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { barSpacingSec, stepTrade, tradeFocusRange } from '../lib/trade-view.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Visuelles Backtesting (Feature 1): echte DB-Kerzen über das Backtest-Fenster
@@ -126,7 +127,7 @@ export function BacktestChart({
         return;
       }
       const d = bar.close >= bar.open ? C.green : C.red;
-      const f = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: n >= 1000 ? 1 : 4 });
+      const f = (n: number) => n.toLocaleString(appLocale(), { maximumFractionDigits: n >= 1000 ? 1 : 4 });
       legendEl.style.opacity = '1';
       legendEl.innerHTML = `<span style="color:${C.mut}">O</span> ${f(bar.open)}  <span style="color:${C.mut}">H</span> ${f(bar.high)}  <span style="color:${C.mut}">L</span> ${f(bar.low)}  <span style="color:${C.mut}">C</span> <span style="color:${d}">${f(bar.close)}</span>`;
     };

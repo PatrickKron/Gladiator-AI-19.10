@@ -4,6 +4,7 @@ import { trpc } from '../api.js';
 import { SignalCard, type SignalRow } from './SignalCard.js';
 import { FavStarSymbol } from './FavStar.js';
 import { ageText, expiryLeftMs, formatDuration, swarmVerdict, TTL_HOURS } from '../lib/signal-list.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Kompakte Signal-ZEILE für den Feed (Patrick: „unübersichtlich, zu klein,
@@ -58,8 +59,8 @@ const STATUS_CHIP: Record<string, { key: string; color: string }> = {
 function fmt(n: string): string {
   const v = Number(n);
   return v >= 1000
-    ? v.toLocaleString('de-DE', { maximumFractionDigits: 0 })
-    : v.toLocaleString('de-DE', { maximumFractionDigits: 2 });
+    ? v.toLocaleString(appLocale(), { maximumFractionDigits: 0 })
+    : v.toLocaleString(appLocale(), { maximumFractionDigits: 2 });
 }
 
 export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDecided: () => void }) {
@@ -143,7 +144,7 @@ export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDeci
           {/* Score als Balken — Farbe = Risikoklasse (dieselbe Semantik wie auf der Karte) */}
           <span
             className="flex items-center gap-1.5"
-            title={t('signals.scoreTitle', { n: score.toLocaleString('de-DE', { minimumFractionDigits: 1 }), risk: t(`signals.risk_${signal.riskClass}`) })}
+            title={t('signals.scoreTitle', { n: score.toLocaleString(appLocale(), { minimumFractionDigits: 1 }), risk: t(`signals.risk_${signal.riskClass}`) })}
           >
             <span className="h-1.5 w-16 overflow-hidden rounded" style={{ background: 'rgba(255,255,255,0.08)' }}>
               <span
@@ -152,7 +153,7 @@ export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDeci
               />
             </span>
             <span className="num text-xs font-semibold" style={{ color: RISK_COLOR[signal.riskClass] }}>
-              {score.toLocaleString('de-DE', { minimumFractionDigits: 1 })}
+              {score.toLocaleString(appLocale(), { minimumFractionDigits: 1 })}
             </span>
           </span>
 

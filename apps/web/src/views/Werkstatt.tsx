@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
 import { buildChartUrl } from '../lib/chart-url.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Trading-Agenten-Werkstatt (Sub-Agenten): benutzerdefinierte, autonome Trading-
@@ -711,7 +712,7 @@ function AgentDetail({ agentId }: { agentId: string }) {
           <ul className="space-y-1.5 text-xs">
             {runs.map((r) => (
               <li key={r.id} className="num flex flex-wrap items-center justify-between gap-2">
-                <span style={{ color: 'var(--color-mut)' }}>{new Date(r.ranAt).toLocaleString()}</span>
+                <span style={{ color: 'var(--color-mut)' }}>{new Date(r.ranAt).toLocaleString(appLocale())}</span>
                 <span>
                   {t('workshop.signalsShort')} {r.signalsCreated} · {t('workshop.closedShort')} {r.positionsClosed}
                   {r.error && <span style={{ color: 'var(--color-neg)' }}> · {r.error}</span>}
@@ -735,7 +736,7 @@ function AgentDetail({ agentId }: { agentId: string }) {
             {history.map((s) => (
               <li key={s.id} className="num flex flex-wrap items-center justify-between gap-2">
                 <span>
-                  {new Date(s.createdAt).toLocaleString()} · {s.symbol} ·{' '}
+                  {new Date(s.createdAt).toLocaleString(appLocale())} · {s.symbol} ·{' '}
                   <span style={{ color: s.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>{s.direction}</span>
                 </span>
                 <span style={{ color: 'var(--color-mut)' }}>
@@ -920,7 +921,7 @@ function AgentCard({ a, onChanged, onEdit }: { a: Agent; onChanged: () => void; 
             {t('workshop.delete')}
           </button>
           <span className="label ml-auto self-center">
-            {t('workshop.lastRun')}: {a.lastRunAt ? new Date(a.lastRunAt).toLocaleString() : t('workshop.never')}
+            {t('workshop.lastRun')}: {a.lastRunAt ? new Date(a.lastRunAt).toLocaleString(appLocale()) : t('workshop.never')}
           </span>
         </div>
       )}
