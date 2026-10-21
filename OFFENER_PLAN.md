@@ -105,7 +105,7 @@
 - [x] Command-Palette/Navigation: Funktions-Registry `apps/web/src/lib/navigation.ts` (Session 9).
 - [x] MacroPanels: COT-Slot nutzt bereits `intelligence.cotSnapshot` (`getCotSnapshot`) — erledigt (geprüft Session 12).
 - [x] Abhängigkeiten abgesichert (Session 12): `npm audit` 17 → 4 moderate Lücken (3 kritische weg): `npm audit fix`, drizzle-orm 0.44 → 0.45.4 (hohe Lücke im Laufpfad), vitest 3 → 5 (kritische tinypool-Lücke, nur Entwicklung). Rest: esbuild in drizzle-kits alter Abhängigkeit (nur Migrations-Werkzeug, kein Laufpfad) — beheben, sobald drizzle-kit nachzieht.
-- [ ] On-Chain-Quelle (DNA-Quadrant) — bleibt ehrlich „nicht verbunden", bis es eine freie, zuverlässige Quelle gibt.
+- [x] On-Chain-Quelle (DNA-Quadrant) (Session 13): Coin Metrics Community-API (MVRV + aktive Adressen BTC/ETH, ohne Schlüssel) und DefiLlama (Stablecoin-Umlauf); MVRV-Zone nach eigenem Perzentil (< 1 = unterbewertet), 30-Tage-Trends; 1 h Cache nur bei vollständiger Antwort; fehlt eine Quelle, steht ihr Grund da. Exchange-Flows bleiben offen (keine freie Quelle).
 
 ## Empfohlene Reihenfolge
 

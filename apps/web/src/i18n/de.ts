@@ -910,6 +910,13 @@ export const de = {
     noneFavorites: 'Keine Pakete mit favorisierten Assets. Markiere Assets mit dem Stern.',
   },
   oracle: {
+    mvrv_undervalued: "unterbewertet (< 1)",
+    mvrv_neutral: "neutral",
+    mvrv_elevated: "erhöht",
+    mvrv_overheated: "überhitzt",
+    activeAddresses: "{{asset}} aktive Adressen",
+    stablecoins: "Stablecoin-Umlauf",
+    dnaSource: "Quelle: Coin Metrics Community (MVRV, Adressen), DefiLlama (Stablecoins) · Tageswerte; Zone nach eigenem Perzentil",
     title: 'Oracle · Makro-Synapse',
     subtitle: 'Regime-MRI aus VIX/DXY/FRED/On-Chain — Quadranten zeigen NUR echte Werte.',
     grs: 'Globaler Regime-Score',
@@ -930,7 +937,6 @@ export const de = {
     fundingRate: 'Funding-Rate',
     oi: 'Open Interest',
     oiChange: 'OI Δ24h',
-    dnaPlanned: 'On-Chain-Quellen (Glassnode o. ä.) sind noch nicht angebunden — hier steht NICHTS Erfundenes.',
     syncPending: 'Serien noch nicht synchronisiert — der macro-sync-Job lädt VIX/DXY/US10Y (Yahoo, echt).',
   },
   assetCtx: {

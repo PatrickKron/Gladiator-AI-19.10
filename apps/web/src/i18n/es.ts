@@ -911,6 +911,13 @@ export const es: Catalog = {
     noneFavorites: 'No hay paquetes con activos favoritos. Marca activos con la estrella.',
   },
   oracle: {
+    mvrv_undervalued: "infravalorado (< 1)",
+    mvrv_neutral: "neutral",
+    mvrv_elevated: "elevado",
+    mvrv_overheated: "sobrecalentado",
+    activeAddresses: "{{asset}} direcciones activas",
+    stablecoins: "Oferta de stablecoins",
+    dnaSource: "Fuente: Coin Metrics Community (MVRV, direcciones), DefiLlama (stablecoins) · diario; zona según percentil propio",
     title: 'Oracle · Sinapsis macro',
     subtitle: 'MRI de régimen desde VIX/DXY/FRED/on-chain — los cuadrantes muestran SOLO valores reales.',
     grs: 'Puntuación de régimen global',
@@ -931,7 +938,6 @@ export const es: Catalog = {
     fundingRate: 'Tasa de funding',
     oi: 'Open interest',
     oiChange: 'OI Δ24h',
-    dnaPlanned: 'Las fuentes on-chain (Glassnode, etc.) aún no están conectadas — aquí no se muestra NADA inventado.',
     syncPending: 'Series aún no sincronizadas — el job macro-sync carga VIX/DXY/US10Y (Yahoo, real).',
   },
   assetCtx: {
