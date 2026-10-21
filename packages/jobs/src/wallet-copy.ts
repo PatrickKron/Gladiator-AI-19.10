@@ -50,7 +50,7 @@ async function shortSymbol(chain: SwapChainId, token: string): Promise<string> {
 /**
  * Anteil des eigenen Bestands, den ein kopierter Verkauf abgibt: so viel, wie die
  * beobachtete Wallet von IHREM Bestand verkauft hat (Teilverkauf → Teilverkauf).
- * Unbekannt (EVM, fehlender Vorbestand) oder fast alles (≥ 95 %) → ganz raus.
+ * Unbekannt (Vorbestand nicht lesbar) oder fast alles (≥ 95 %) → ganz raus.
  */
 export function copySellPercent(soldPct: number | null | undefined): number {
   if (soldPct === null || soldPct === undefined || !(soldPct > 0) || soldPct >= 95) return 100;

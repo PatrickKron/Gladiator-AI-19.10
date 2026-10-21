@@ -245,6 +245,8 @@ const WETH = SWAP_CHAINS.base.wrappedNative;
 type EvmTxSpec = { hash: string; block: number; side: 'buy' | 'sell' };
 let evmBlock = 30_000_000;
 let evmTxs: EvmTxSpec[] = [];
+/** Bestand des Wals im Block VOR seinem Verkauf (balanceOf am Vorgänger-Block) */
+let whalePre = 900n * 10n ** 18n;
 
 const evmNet = (async (url: string, init?: RequestInit) => {
   const u = String(url);
@@ -297,8 +299,12 @@ const evmNet = (async (url: string, init?: RequestInit) => {
     }
     case 'eth_getBlockByNumber':
       return rpc({ timestamp: hex(1_700_000_000) });
-    case 'eth_call':
+    case 'eth_call': {
+      const call = body.params[0] as { data: string };
+      // balanceOf(Wal) am Vorgänger-Block → Anteil seines Verkaufs
+      if (call.data.startsWith('0x70a08231')) return rpc(word(whalePre));
       return rpc(word(18n)); // decimals()
+    }
     case 'eth_getBalance':
       return rpc('0x0');
   }
@@ -365,6 +371,17 @@ describe.skipIf(!process.env.DATABASE_URL)('runWalletCopy EVM (echte DB, Paper, 
     await runWalletCopy(db);
     expect(await meme()).toBe(5n * 10n ** 16n * 6000n);
 
+    // Teilverkauf: der Wal hatte 1800, verkauft 900 (50 %) → Kopie verkauft die Hälfte
+    whalePre = 1800n * 10n ** 18n;
+    evmBlock += 3;
+    evmTxs.push({ hash: `0xhalf${RUN}`, block: evmBlock - 3, side: 'sell' });
+    await backdate();
+    await runWalletCopy(db);
+    expect((await seen()).find((s) => s.signature === `0xhalf${RUN}`)).toMatchObject({ side: 'sell', copyStatus: 'filled' });
+    expect(await meme()).toBe((5n * 10n ** 16n * 6000n) / 2n);
+
+    // Rest: 900 von 900 → ganz raus
+    whalePre = 900n * 10n ** 18n;
     evmBlock += 3;
     evmTxs.push({ hash: `0xsell${RUN}`, block: evmBlock - 3, side: 'sell' });
     await backdate();

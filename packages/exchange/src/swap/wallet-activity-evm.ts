@@ -1,7 +1,7 @@
 import { keccak256, toBytes } from 'viem';
 import { isStablecoin, SWAP_CHAINS, type SwapChainId } from './chains.js';
 import { fetchTokenDecimals } from './token-info.js';
-import { tokenVsStable, type ObservedSwap, type WalletSwapsPage } from './wallet-activity.js';
+import { soldPercent, tokenVsStable, type ObservedSwap, type WalletSwapsPage } from './wallet-activity.js';
 
 /**
  * Swaps einer fremden EVM-Wallet von der Kette lesen (Ethereum, Base,
@@ -336,6 +336,16 @@ async function readSwaps(
       v4Swap = v4SwapIn(chain, receipt?.logs ?? []);
     }
     const s = deriveEvmSwap(chain, hash, tx, logs, owner, (t) => decimals.get(t) ?? -1, blockTime.get(blockNo) ?? null, unwrapped, v4Swap);
+    if (s && s.side === 'sell' && !firstRun) {
+      // Anteil des Verkaufs: Bestand im Block DAVOR (balanceOf am Vorgänger-Block; junge Blöcke kennt jeder volle Knoten)
+      try {
+        const data = `0x70a08231${lc(owner).slice(2).padStart(64, '0')}`;
+        const pre = (await rpc(chain, url, 'eth_call', [{ to: s.token, data }, hex(BigInt(blockNo) - 1n)], fetchFn)) as string;
+        s.soldPct = pre && pre !== '0x' ? soldPercent(s.tokenAtomic, BigInt(pre)) : null;
+      } catch {
+        s.soldPct = null; // unbekannt → Kopie verkauft ganz (wie bisher)
+      }
+    }
     if (s && s.tokenDecimals >= 0) swaps.push(s);
   }
   return { swaps: swaps.reverse(), newestSignature: cursor.toString(), gap: false };
