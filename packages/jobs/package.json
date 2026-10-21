@@ -18,6 +18,7 @@
     "@gladiator/core": "*",
     "@gladiator/db": "*",
     "@gladiator/exchange": "*",
+    "@gladiator/indicators": "*",
     "@gladiator/market-data": "*",
     "@gladiator/ml": "*",
     "@gladiator/risk": "*",

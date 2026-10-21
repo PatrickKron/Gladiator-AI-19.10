@@ -637,6 +637,10 @@ export const de = {
     analysisPromptHint: 'Optional: Wenn gesetzt, bewertet die KI bei erfüllten Regeln zusätzlich die Lage (EXECUTE/SKIP), bevor ein Signal entsteht. Platzhalter {symbol} {side} {vix} {dxy_change} {grs} werden mit Live-Daten gefüllt. Ohne ANTHROPIC_API_KEY läuft der Agent rein regelbasiert weiter.',
   },
   screener: {
+    alert: "Alarm bei neuem Treffer",
+    alertHint: "Aus. Mit Alarm rechnet der Server diesen Screen alle 5 Minuten auf echten Kerzen und meldet neue Treffer in der Glocke (und per Push/Telegram).",
+    alertPending: "Alarm an — der erste Lauf kommt innerhalb von 5 Minuten und nennt alle aktuellen Treffer einmal.",
+    lastRun: "Alarm an · letzter Lauf {{time}} · {{n}} Treffer",
     notRunCta: "Screener starten",
     title: "Markt-Screener",
     subtitle: "Bedingungen über alle Symbole mit echten Kerzen — gerechnet auf dem Server mit derselben Indikator-Bibliothek und Smart-Money-Engine wie der Chart.",

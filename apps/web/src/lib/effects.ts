@@ -62,6 +62,7 @@ export function burstToneFor(kind: string): RainTone | null {
   switch (kind) {
     case 'signal':
     case 'price_alert':
+    case 'screen':
       return 'accent';
     case 'emergency':
     case 'kill_switch':

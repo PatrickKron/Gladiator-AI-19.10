@@ -15,7 +15,7 @@ const { users, notifications, pushSubscriptions } = schema;
  * Ohne userId geht das Ereignis an alle Nutzer (System-Ereignisse).
  */
 
-export type NotifyKind = 'signal' | 'price_alert' | 'emergency' | 'kill_switch' | 'briefing' | 'system';
+export type NotifyKind = 'signal' | 'price_alert' | 'screen' | 'emergency' | 'kill_switch' | 'briefing' | 'system';
 
 export type NotifyEvent = {
   kind: NotifyKind;

@@ -638,6 +638,10 @@ export const fr: Catalog = {
     analysisPromptHint: 'Optionnel : si défini, l’IA évalue en plus la situation (EXECUTE/SKIP) une fois les règles remplies, avant de créer un signal. Les variables {symbol} {side} {vix} {dxy_change} {grs} sont remplies avec des données en direct. Sans ANTHROPIC_API_KEY, l’agent continue en mode règles uniquement.',
   },
   screener: {
+    alert: "Alerte sur nouveaux résultats",
+    alertHint: "Désactivée. Avec l’alerte, le serveur exécute ce screen toutes les 5 minutes sur de vraies bougies et signale les nouveaux résultats dans la cloche (et par push/Telegram).",
+    alertPending: "Alerte active — la première exécution arrive sous 5 minutes et liste une fois tous les résultats actuels.",
+    lastRun: "Alerte active · dernière exécution {{time}} · {{n}} résultats",
     notRunCta: "Lancer le screener",
     title: "Screener de marché",
     subtitle: "Des conditions sur tous les symboles avec de vraies bougies — calculées sur le serveur avec la même bibliothèque d’indicateurs et le même moteur Smart Money que le graphique.",

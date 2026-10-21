@@ -11,6 +11,7 @@ import {
   IndicatorComputeError,
   pineTimeframe,
   sanitizeInputs,
+  tickerIdOf,
   type ComputeBar,
   type IndicatorOutput,
 } from '@gladiator/indicators';
@@ -40,10 +41,8 @@ const liveBarSchema = z
   .object({ time: z.number().int(), open: z.number().finite(), high: z.number().finite(), low: z.number().finite(), close: z.number().finite(), volume: z.number().finite().optional() })
   .strict();
 
-/** Pine `syminfo.tickerid` für ein Gladiator-Symbol ("BTC/USDT" → "BINANCE:BTCUSDT"). */
-export function tickerIdOf(venue: string, symbol: string): string {
-  return `${venue.toUpperCase()}:${symbol.replace('/', '')}`;
-}
+// tickerIdOf lebt in @gladiator/indicators (Screener-Alarme im Worker brauchen es ebenso); hier nur weitergereicht.
+export { tickerIdOf };
 
 /** Live-Kerze des Browsers in die DB-Kerzen einarbeiten (ersetzt die letzte oder hängt an). */
 export function applyLiveBar(bars: ComputeBar[], live: ComputeBar | undefined): ComputeBar[] {

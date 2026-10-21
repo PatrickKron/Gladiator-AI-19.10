@@ -1,13 +1,9 @@
 import { TRPCError } from '@trpc/server';
-import { and, asc, count, eq, sql } from 'drizzle-orm';
+import { and, asc, count, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { schema } from '@gladiator/db';
-import { pineTimeframe } from '@gladiator/indicators';
-import { getOhlcv, SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
-import { tickerIdOf } from './indicators.js';
-import { conditionsSchema, MAX_UNIVERSE, MIN_CANDLES, SCREEN_CANDLES } from '../screener/conditions.js';
-import { evaluateScreen, type ScreenResult } from '../screener/evaluate.js';
-import { SCREEN_PRESETS } from '../screener/presets.js';
+import { schema, type Db } from '@gladiator/db';
+import { conditionsSchema, evaluateScreen, MAX_UNIVERSE, MIN_CANDLES, pineTimeframe, SCREEN_CANDLES, SCREEN_PRESETS, tickerIdOf, type ScreenResult } from '@gladiator/indicators';
+import { candleUniverse, getOhlcv, SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
 import { protectedProcedure, router } from '../trpc.js';
 
 const { screens } = schema;
@@ -28,22 +24,25 @@ export type ScreenRow = { symbol: string; candles: number; error: string | null 
 
 type UniverseRow = { symbol: string; candles: number };
 
-/** Symbole mit genug echten Kerzen im Zeitrahmen (ehrlich: nur was in der DB liegt). */
-export async function universeFor(db: { execute: (q: ReturnType<typeof sql>) => Promise<{ rows: unknown[] }> }, timeframe: string, venue: string): Promise<UniverseRow[]> {
-  const res = await db.execute(sql`
-    SELECT symbol, count(*)::int AS candles
-    FROM ohlcv
-    WHERE venue = ${venue} AND timeframe = ${timeframe}
-    GROUP BY symbol
-    HAVING count(*) >= ${MIN_CANDLES}
-    ORDER BY symbol
-    LIMIT ${MAX_UNIVERSE}
-  `);
-  return res.rows as UniverseRow[];
+/** Symbole mit genug echten Kerzen im Zeitrahmen (ehrlich: nur was in der DB liegt) — dieselbe Abfrage wie der Screen-Alarm im Worker. */
+export function universeFor(db: Db, timeframe: string, venue: string): Promise<UniverseRow[]> {
+  return candleUniverse(db, { timeframe, venue, minCandles: MIN_CANDLES, limit: MAX_UNIVERSE });
 }
 
 function toDto(r: typeof screens.$inferSelect) {
-  return { id: r.id, name: r.name, timeframe: r.timeframe, conditions: r.conditions, createdAt: r.createdAt.toISOString(), updatedAt: r.updatedAt.toISOString() };
+  return {
+    id: r.id,
+    name: r.name,
+    timeframe: r.timeframe,
+    venue: r.venue,
+    conditions: r.conditions,
+    alert: r.alert,
+    lastMatches: r.lastMatches ?? [],
+    lastRunAt: r.lastRunAt?.toISOString() ?? null,
+    lastAlertAt: r.lastAlertAt?.toISOString() ?? null,
+    createdAt: r.createdAt.toISOString(),
+    updatedAt: r.updatedAt.toISOString(),
+  };
 }
 
 export const screenerRouter = router({
@@ -97,12 +96,14 @@ export const screenerRouter = router({
   }),
 
   save: protectedProcedure
-    .input(z.object({ id: z.string().uuid().optional(), name: z.string().trim().min(1).max(60), timeframe: timeframeEnum, conditions: conditionsSchema }))
+    .input(z.object({ id: z.string().uuid().optional(), name: z.string().trim().min(1).max(60), timeframe: timeframeEnum, venue: z.string().max(20).optional(), conditions: conditionsSchema }))
     .mutation(async ({ ctx, input }) => {
+      const venue = input.venue ?? 'binance';
       if (input.id) {
+        // Geänderte Bedingungen: der nächste Alarm-Lauf startet ohne alten Treffer-Stand (sonst würden Treffer der neuen Regel verschluckt).
         const [row] = await ctx.db
           .update(screens)
-          .set({ name: input.name, timeframe: input.timeframe, conditions: input.conditions, updatedAt: new Date() })
+          .set({ name: input.name, timeframe: input.timeframe, venue, conditions: input.conditions, lastMatches: [], updatedAt: new Date() })
           .where(and(eq(screens.id, input.id), eq(screens.userId, ctx.user.id)))
           .returning();
         if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'Screen nicht gefunden.' });
@@ -112,10 +113,25 @@ export const screenerRouter = router({
       if (n >= MAX_SCREENS_PER_USER) throw new TRPCError({ code: 'BAD_REQUEST', message: `Höchstens ${MAX_SCREENS_PER_USER} gespeicherte Screens — bitte einen löschen.` });
       const [row] = await ctx.db
         .insert(screens)
-        .values({ userId: ctx.user.id, name: input.name, timeframe: input.timeframe, conditions: input.conditions })
+        .values({ userId: ctx.user.id, name: input.name, timeframe: input.timeframe, venue, conditions: input.conditions })
         .returning();
       return toDto(row!);
     }),
+
+  /**
+   * Screen-Alarm ein/aus: der Worker rechnet Alarm-Screens alle 5 min auf echten
+   * Kerzen und meldet NEUE Treffer (Glocke/Push/Telegram). Beim Einschalten
+   * beginnt der Treffer-Stand leer — der nächste Lauf nennt alle aktuellen Treffer einmal.
+   */
+  setAlert: protectedProcedure.input(z.object({ id: z.string().uuid(), alert: z.boolean() })).mutation(async ({ ctx, input }) => {
+    const [row] = await ctx.db
+      .update(screens)
+      .set({ alert: input.alert, ...(input.alert ? { lastMatches: [], lastRunAt: null, lastAlertAt: null } : {}), updatedAt: new Date() })
+      .where(and(eq(screens.id, input.id), eq(screens.userId, ctx.user.id)))
+      .returning();
+    if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'Screen nicht gefunden.' });
+    return toDto(row);
+  }),
 
   remove: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
     const deleted = await ctx.db

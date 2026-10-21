@@ -13,6 +13,7 @@ describe('Special-Effekte: Vorlieben und Regen-Regeln', () => {
   it('nur Ereignisse mit Handlungsbezug lösen einen Impuls aus', () => {
     expect(burstToneFor('signal')).toBe('accent');
     expect(burstToneFor('price_alert')).toBe('accent');
+    expect(burstToneFor('screen')).toBe('accent');
     expect(burstToneFor('kill_switch')).toBe('neg');
     expect(burstToneFor('emergency')).toBe('neg');
     expect(burstToneFor('briefing')).toBeNull();

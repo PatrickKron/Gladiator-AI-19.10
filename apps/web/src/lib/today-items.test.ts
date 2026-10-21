@@ -27,6 +27,7 @@ describe('„Heute wichtig": Rangfolge aus echten Quellen', () => {
     const base = { id: 'n', title: 'x', createdAt: iso(-5), read: false, link: null };
     expect(notificationPriority({ ...base, kind: 'kill_switch' }, NOW)).toBe(120);
     expect(notificationPriority({ ...base, kind: 'price_alert' }, NOW)).toBe(70);
+    expect(notificationPriority({ ...base, kind: 'screen' }, NOW)).toBe(70);
     expect(notificationPriority({ ...base, kind: 'signal' }, NOW)).toBe(0);
     expect(notificationPriority({ ...base, kind: 'system', read: true }, NOW)).toBeNull();
     expect(notificationPriority({ ...base, kind: 'system', createdAt: iso(-60 * 72) }, NOW)).toBeNull();

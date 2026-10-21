@@ -12,6 +12,7 @@ import { runDslScan } from './dsl-scan.js';
 import { runSignalLifecycle } from './signal-lifecycle.js';
 import { reviewNewSignals } from './review.js';
 import { checkPriceAlerts } from './alerts.js';
+import { runScreenAlerts } from './screen-alerts.js';
 import { runSubAgents } from './sub-agent-runner.js';
 import { computeAllFeatures, autoLabelSignals, retrainModel } from './ml-pipeline.js';
 import { runRlEpisodes, aggregateRlPerformance, rebalanceRlWeights } from './rl-pipeline.js';
@@ -36,6 +37,7 @@ export const QUEUE_NAME = 'gladiator-jobs';
  */
 export const FAST_QUEUE_NAME = 'gladiator-monitor';
 const SCAN_JOB = 'signal-scan';
+const SCREEN_ALERT_JOB = 'screen-alerts';
 export const MONITOR_JOB = 'position-monitor';
 const MACRO_JOB = 'macro-sync';
 const CALENDAR_JOB = 'calendar-sync';
@@ -125,6 +127,7 @@ async function pingDeadMansSwitch(): Promise<void> {
 
 export const SCHEDULES: [string, number][] = [
   [SCAN_JOB, 5 * 60_000],
+  [SCREEN_ALERT_JOB, 5 * 60_000],          // Screen-Alarme: gespeicherte Screens mit Alarm auf echten Kerzen, nur NEUE Treffer
   [MACRO_JOB, 30 * 60_000],
   [CALENDAR_JOB, 60 * 60_000],
   [NEWS_JOB, 15 * 60_000],
@@ -227,6 +230,14 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           if (rev.reviewed > 0 || rev.errors.length > 0) {
             console.log(`[signal-review] bewertet=${rev.reviewed} Fehler=${rev.errors.length}`);
             for (const e of rev.errors) console.warn('[signal-review]', e);
+          }
+          return res;
+        }
+        case SCREEN_ALERT_JOB: {
+          const res = await runScreenAlerts(db);
+          if (res.notified > 0 || res.errors.length > 0) {
+            console.log(`[screen-alerts] Screens=${res.screens} gemeldet=${res.notified} Fehler=${res.errors.length}`);
+            for (const e of res.errors) console.warn('[screen-alerts]', e);
           }
           return res;
         }

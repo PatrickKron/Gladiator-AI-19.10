@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { withBinancePublic } from './binance-public.js';
@@ -135,4 +135,24 @@ export async function getOhlcv(
     close: Number(r.close),
     volume: Number(r.volume),
   }));
+}
+
+/**
+ * Universum für Screener und Screen-Alarme: Symbole mit mindestens `minCandles`
+ * echten Kerzen im Zeitrahmen (ehrlich: nur was in der DB liegt), alphabetisch, begrenzt.
+ */
+export async function candleUniverse(
+  db: Db,
+  opts: { timeframe: string; venue?: string; minCandles: number; limit: number },
+): Promise<{ symbol: string; candles: number }[]> {
+  const res = await db.execute(sql`
+    SELECT symbol, count(*)::int AS candles
+    FROM ohlcv
+    WHERE venue = ${opts.venue ?? 'binance'} AND timeframe = ${opts.timeframe}
+    GROUP BY symbol
+    HAVING count(*) >= ${opts.minCandles}
+    ORDER BY symbol
+    LIMIT ${opts.limit}
+  `);
+  return res.rows as { symbol: string; candles: number }[];
 }
