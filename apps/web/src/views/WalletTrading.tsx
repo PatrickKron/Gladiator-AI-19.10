@@ -8,7 +8,7 @@ import { WatchedWallets } from '../components/WatchedWallets.js';
 import { buildAutoOrders, loadAutoOrders, saveAutoOrders, type AutoOrdersSetting } from '../lib/auto-orders.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
-import { avgEntryUsd, bpsLabel, fmtAmount, fmtPct, fmtUsd, initialsPercent, pnlPercent, slippageChoices, swapReasonKey } from '../lib/swap-format.js';
+import { avgEntryUsd, bpsLabel, fmtAmount, fmtPct, fmtUsd, initialsPercent, mcapTriggerPrice, parseCompactUsd, pnlPercent, slippageChoices, swapReasonKey } from '../lib/swap-format.js';
 
 /**
  * Wallet-Trading (Vision-Punkt 5, „wie Trojan, für alle Wallets"):
@@ -1027,6 +1027,9 @@ function OrderForm({
   const [interval, setIntervalMin] = useState(240);
   const [runs, setRuns] = useState('6');
   const [capPct, setCapPct] = useState('');
+  // Ziel als Abstand in % oder als Marktkapitalisierung („verkaufe bei 10M MC“)
+  const [targetBy, setTargetBy] = useState<'pct' | 'mcap'>('pct');
+  const [mcapInput, setMcapInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const price = token.priceUsd!;
@@ -1037,11 +1040,20 @@ function OrderForm({
   const amountN = Number(buyAmount.replace(',', '.'));
   const off = Number(offset.replace(',', '.'));
   const sign = kind === 'take_profit' || kind === 'alert_above' ? 1 : -1;
-  const trigger = kind === 'trailing_stop' ? null : price * (1 + (sign * off) / 100);
+  const mcapNow = token.marketCapUsd !== null && token.marketCapUsd > 0 ? token.marketCapUsd : null;
+  const mcapPossible = mcapNow !== null && !dca && kind !== 'trailing_stop';
+  const byMcap = mcapPossible && targetBy === 'mcap';
+  const mcapTarget = byMcap ? parseCompactUsd(mcapInput) : null;
+  // Ziel-MC muss auf der richtigen Seite liegen (Take-Profit/Alarm über: darüber, sonst darunter)
+  const mcapSideOk = mcapTarget !== null && mcapNow !== null && (sign === 1 ? mcapTarget > mcapNow : mcapTarget < mcapNow);
+  const trigger =
+    kind === 'trailing_stop' ? null : byMcap ? (mcapTarget !== null && mcapNow !== null ? mcapTriggerPrice(price, mcapNow, mcapTarget) : null) : price * (1 + (sign * off) / 100);
   const needsHolding = kind !== 'limit_buy' && !dca && !alert;
   const valid = dca
     ? amountN > 0 && Number.isInteger(runsN) && runsN >= 2 && runsN <= 500 && (cap === null || (Number.isFinite(cap) && cap > 0))
-    : Number.isFinite(off) && off > 0 && (sign === 1 || off < 100) && (!needsHolding || held);
+    : byMcap
+      ? trigger !== null && mcapSideOk && (!needsHolding || held)
+      : Number.isFinite(off) && off > 0 && (sign === 1 || off < 100) && (!needsHolding || held);
 
   async function create() {
     setBusy(true);
@@ -1116,11 +1128,35 @@ function OrderForm({
           </label>
         </div>
       ) : (
+      <>
+      {mcapPossible && (
+        <div className="mt-3 flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+          {t('swap.targetBy')}
+          {(['pct', 'mcap'] as const).map((b) => (
+            <button
+              key={b}
+              type="button"
+              className={chip}
+              style={{ borderColor: b === targetBy ? 'var(--color-cyan)' : 'var(--color-line)', color: b === targetBy ? 'var(--color-ink)' : 'var(--color-mut)' }}
+              onClick={() => setTargetBy(b)}
+            >
+              {t(`swap.targetBy_${b}`)}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+        {byMcap ? (
+          <label>
+            {t('swap.mcapTarget')}
+            <input className={field} value={mcapInput} inputMode="text" placeholder={t('swap.mcapPlaceholder')} onChange={(e) => setMcapInput(e.target.value)} />
+          </label>
+        ) : (
         <label>
           {sign === 1 ? t('swap.offsetUp') : kind === 'trailing_stop' ? t('swap.trailPct') : t('swap.offsetDown')}
           <input className={field} value={offset} inputMode="decimal" onChange={(e) => setOffset(e.target.value)} />
         </label>
+        )}
         {alert ? (
           <p className="self-end text-[11px]" style={{ color: 'var(--color-mut)' }}>{t('swap.alertOnly')}</p>
         ) : kind === 'limit_buy' ? (
@@ -1147,6 +1183,7 @@ function OrderForm({
           </div>
         )}
       </div>
+      </>
       )}
       <p className="num mt-2 text-[11px]" style={{ color: 'var(--color-mut)' }}>
         {dca
@@ -1159,8 +1196,17 @@ function OrderForm({
             }) + (cap !== null && Number.isFinite(cap) ? ' ' + t('swap.dcaCapHint', { price: fmtUsd(cap, lang) }) : '')
           : kind === 'trailing_stop'
           ? t('swap.trailHint', { pct: fmtPct(Number.isFinite(off) ? off : 0, lang), price: fmtUsd(price, lang) })
+          : byMcap
+          ? t('swap.mcapHint', {
+              mcap: mcapTarget !== null ? fmtUsd(mcapTarget, lang, true) : '—',
+              price: trigger !== null && Number.isFinite(trigger) ? fmtUsd(trigger, lang) : '—',
+              now: mcapNow !== null ? fmtUsd(mcapNow, lang, true) : '—',
+            })
           : t('swap.triggerHint', { price: trigger !== null && Number.isFinite(trigger) ? fmtUsd(trigger, lang) : '—', now: fmtUsd(price, lang) })}
       </p>
+      {byMcap && mcapTarget !== null && !mcapSideOk && (
+        <p className="mt-1 text-[11px]" style={{ color: 'var(--color-warn)' }}>{t(sign === 1 ? 'swap.mcapMustBeAbove' : 'swap.mcapMustBeBelow')}</p>
+      )}
       {needsHolding && !held && <p className="mt-1 text-[11px]" style={{ color: 'var(--color-warn)' }}>{t('swap.noHolding')}</p>}
       {wallet.mode === 'live' && !alert && (
         <label className="mt-2 flex items-center gap-2 text-[11px]" style={{ color: 'var(--color-warn)' }}>
