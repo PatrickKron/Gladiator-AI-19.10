@@ -3,7 +3,8 @@
  * „echte Daten“ fragt die Solana-Kette und GoPlus live ab (in der CI).
  */
 import { describe, expect, it } from 'vitest';
-import { fetchTokenSafety, goPlusTop10Pct, judgeGoPlus, judgeSolanaMint, solanaTop10Pct, TOP10_WARN_PCT } from './token-safety.js';
+import { fetchTokenDiscovery } from './discovery.js';
+import { fetchSolanaTop10Pct, fetchTokenSafety, goPlusTop10Pct, judgeGoPlus, judgeSolanaMint, solanaTop10Pct, TOP10_WARN_PCT } from './token-safety.js';
 
 const TOKEN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const TOKEN22 = 'TokenzQdBNbLqP5VEhdkAS6EHFLp88EzTEbtKFFuh6';
@@ -110,11 +111,28 @@ describe('echte Daten (Solana-RPC, GoPlus)', () => {
     expect(r.checked).toBe(true);
     expect(r.warnings).not.toContain('mint_authority');
     expect(r.severe).toEqual([]);
-    // Halter-Konzentration von der Kette: plausibler Anteil (größte Konten + Besitzer gelesen)
-    expect(r.top10Pct).not.toBeNull();
-    expect(r.top10Pct!).toBeGreaterThanOrEqual(0);
-    expect(r.top10Pct!).toBeLessThanOrEqual(100);
   }, 30_000);
+
+  it('Halter-Konzentration von der Kette für echte neue Meme-Tokens (GeckoTerminal „Neue Pools“)', async () => {
+    // Große Tokens (BONK, USDC …) nimmt der öffentliche RPC aus dem Index für getTokenLargestAccounts
+    // heraus → dort ehrlich null. Für neue, kleine Tokens — um die es geht — muss es funktionieren.
+    const fresh = (await fetchTokenDiscovery('solana', 'new')).slice(0, 5);
+    expect(fresh.length).toBeGreaterThan(0);
+    const results: (number | null)[] = [];
+    for (const t of fresh) {
+      try {
+        results.push(await fetchSolanaTop10Pct(t.address));
+      } catch {
+        results.push(null);
+      }
+    }
+    const ok = results.filter((x): x is number => x !== null);
+    expect(ok.length).toBeGreaterThan(0);
+    for (const pct of ok) {
+      expect(pct).toBeGreaterThanOrEqual(0);
+      expect(pct).toBeLessThanOrEqual(100);
+    }
+  }, 60_000);
 
   it('USDC auf Base über GoPlus: kein Honeypot, Steuer 0', async () => {
     const r = await fetchTokenSafety('base', '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913');
