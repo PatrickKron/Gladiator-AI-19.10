@@ -149,13 +149,12 @@ export function judgeGoPlus(r: GoPlusResult | undefined): TokenSafety {
 }
 
 /**
- * `getTokenLargestAccounts` ist teuer — der offizielle öffentliche Knoten drosselt
- * es stark (HTTP 429, CI-Befund 2026-10-21). Für die Halter-Abfrage deshalb eine
- * Liste öffentlicher Knoten: eigener RPC (`RPC_URL_SOLANA`) zuerst, bei
- * Drosselung/Ablehnung der nächste; derselbe Knoten für alle drei Abfragen.
+ * Halter-Konzentration auf Solana: `getTokenLargestAccounts` beantworten freie
+ * öffentliche Knoten nicht (mainnet-beta HTTP 429, publicnode 403, drpc 400 —
+ * CI-Befund 2026-10-21). Deshalb: eigener Knoten (`RPC_URL_SOLANA`, z. B. ein
+ * freier Helius-Zugang) direkt von der Kette, sonst GoPlus Solana (öffentlich,
+ * ohne Schlüssel) — dort ebenfalls nur Wallets auf der Kurve gezählt.
  */
-export const SOLANA_HOLDER_RPCS = ['https://solana-rpc.publicnode.com', 'https://solana.drpc.org', 'https://api.mainnet-beta.solana.com'];
-
 async function solanaRpc(url: string, method: string, params: unknown[], fetchFn: Fetch): Promise<unknown> {
   const res = await fetchFn(url, {
     method: 'POST',
@@ -170,26 +169,50 @@ async function solanaRpc(url: string, method: string, params: unknown[], fetchFn
 }
 
 /** Größte Konten (bis 20) + deren Besitzer von der Kette → Top-10-Wallet-Anteil. */
-export async function fetchSolanaTop10Pct(mint: string, fetchFn: Fetch = fetch): Promise<number | null> {
-  const candidates = [...new Set([rpcUrl('solana'), ...SOLANA_HOLDER_RPCS])];
+/** GoPlus-Solana-Halter (`account` = Besitzer, Anteil 0–1): nur Wallets auf der Kurve, gesperrte Bestände raus. */
+export function goPlusSolanaTop10Pct(holders: { account?: string; percent?: string; is_locked?: number | string }[] | undefined): number | null {
+  if (!holders || holders.length === 0) return null;
+  const sum = holders
+    .filter((h) => h.account && isOnCurveAddress(h.account) && String(h.is_locked) !== '1')
+    .slice(0, 10)
+    .reduce((s, h) => s + (Number(h.percent) || 0), 0);
+  return Math.round(sum * 100 * 100) / 100;
+}
+
+async function fetchSolanaTop10FromChain(url: string, mint: string, fetchFn: Fetch): Promise<number | null> {
+  const largest = (await solanaRpc(url, 'getTokenLargestAccounts', [mint, { commitment: 'confirmed' }], fetchFn)) as { value?: { address: string; amount: string }[] };
+  const supply = (await solanaRpc(url, 'getTokenSupply', [mint, { commitment: 'confirmed' }], fetchFn)) as { value?: { amount?: string } };
+  const accs = largest.value ?? [];
+  if (accs.length === 0 || !supply.value?.amount) return null;
+  const infos = (await solanaRpc(url, 'getMultipleAccounts', [accs.map((a) => a.address), { encoding: 'jsonParsed', commitment: 'confirmed' }], fetchFn)) as {
+    value?: ({ data?: { parsed?: { info?: { owner?: string } } } } | null)[];
+  };
+  const owners = (infos.value ?? []).map((v) => v?.data?.parsed?.info?.owner ?? null);
+  return solanaTop10Pct(
+    accs.map((a, i) => ({ amount: a.amount, owner: owners[i] ?? null, ownerIsWallet: owners[i] ? isOnCurveAddress(owners[i]!) : false })),
+    supply.value.amount,
+  );
+}
+
+/** Top-10-Wallet-Anteil: eigener Solana-Knoten (falls gesetzt) von der Kette, sonst GoPlus Solana. */
+export async function fetchSolanaTop10Pct(mint: string, fetchFn: Fetch = fetch, env: Record<string, string | undefined> = process.env): Promise<number | null> {
   const problems: string[] = [];
-  for (const url of candidates) {
+  const own = env.RPC_URL_SOLANA?.trim();
+  if (own) {
     try {
-      const largest = (await solanaRpc(url, 'getTokenLargestAccounts', [mint, { commitment: 'confirmed' }], fetchFn)) as { value?: { address: string; amount: string }[] };
-      const supply = (await solanaRpc(url, 'getTokenSupply', [mint, { commitment: 'confirmed' }], fetchFn)) as { value?: { amount?: string } };
-      const accs = largest.value ?? [];
-      if (accs.length === 0 || !supply.value?.amount) return null;
-      const infos = (await solanaRpc(url, 'getMultipleAccounts', [accs.map((a) => a.address), { encoding: 'jsonParsed', commitment: 'confirmed' }], fetchFn)) as {
-        value?: ({ data?: { parsed?: { info?: { owner?: string } } } } | null)[];
-      };
-      const owners = (infos.value ?? []).map((v) => v?.data?.parsed?.info?.owner ?? null);
-      return solanaTop10Pct(
-        accs.map((a, i) => ({ amount: a.amount, owner: owners[i] ?? null, ownerIsWallet: owners[i] ? isOnCurveAddress(owners[i]!) : false })),
-        supply.value.amount,
-      );
+      return await fetchSolanaTop10FromChain(own, mint, fetchFn);
     } catch (err) {
       problems.push(err instanceof Error ? err.message : String(err));
     }
+  }
+  try {
+    const res = await fetchFn(`${GOPLUS_API}/solana/token_security?contract_addresses=${mint}`, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`GoPlus Solana: HTTP ${res.status}`);
+    const body = (await res.json()) as { code?: number; message?: string; result?: Record<string, { holders?: { account?: string; percent?: string; is_locked?: number | string }[] }> };
+    if (body.code !== 1) throw new Error(`GoPlus Solana: ${body.message ?? 'Fehler'}`);
+    return goPlusSolanaTop10Pct(body.result?.[mint]?.holders);
+  } catch (err) {
+    problems.push(err instanceof Error ? err.message : String(err));
   }
   throw new Error(`Halter nicht abrufbar: ${problems.join(' | ')}`);
 }

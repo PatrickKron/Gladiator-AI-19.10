@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { fetchTokenDiscovery } from './discovery.js';
-import { fetchSolanaTop10Pct, fetchTokenSafety, goPlusTop10Pct, judgeGoPlus, judgeSolanaMint, solanaTop10Pct, TOP10_WARN_PCT } from './token-safety.js';
+import { fetchSolanaTop10Pct, fetchTokenSafety, goPlusSolanaTop10Pct, goPlusTop10Pct, judgeGoPlus, judgeSolanaMint, solanaTop10Pct, TOP10_WARN_PCT } from './token-safety.js';
 
 const TOKEN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const TOKEN22 = 'TokenzQdBNbLqP5VEhdkAS6EHFLp88EzTEbtKFFuh6';
@@ -74,6 +74,14 @@ describe('Top-10-Konzentration', () => {
     expect(solanaTop10Pct([acc('1', 'W')], '0')).toBeNull();
   });
 
+  it('GoPlus Solana: nur Wallets auf der Kurve (Pools/PDAs raus), gesperrte Bestände raus', () => {
+    // echte Adressen: eine Wallet (auf der Kurve) und das Jupiter-Programm-PDA-artige Konto (nicht auf der Kurve)
+    const WALLET = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM';
+    const PDA = 'FGETo8T8wMcN2wCjav8VK6eh3dLk63evNDPxzLSJra8B'; // ATA = PDA, liegt nie auf der Kurve
+    expect(goPlusSolanaTop10Pct([{ account: PDA, percent: '0.5' }, { account: WALLET, percent: '0.12' }, { account: WALLET, percent: '0.3', is_locked: 1 }])).toBe(12);
+    expect(goPlusSolanaTop10Pct(undefined)).toBeNull();
+  });
+
   it('GoPlus: Verträge und gesperrte Bestände zählen nicht; Warnung ab der Schwelle', () => {
     const holders = [
       { percent: '0.30', is_contract: 1, is_locked: 0 },
@@ -113,25 +121,23 @@ describe('echte Daten (Solana-RPC, GoPlus)', () => {
     expect(r.severe).toEqual([]);
   }, 30_000);
 
-  it('Halter-Konzentration von der Kette für echte neue Meme-Tokens (GeckoTerminal „Neue Pools“)', async () => {
-    // Große Tokens (BONK, USDC …) nimmt der öffentliche RPC aus dem Index für getTokenLargestAccounts
-    // heraus → dort ehrlich null. Für neue, kleine Tokens — um die es geht — muss es funktionieren.
-    const fresh = (await fetchTokenDiscovery('solana', 'new')).slice(0, 5);
-    expect(fresh.length).toBeGreaterThan(0);
-    const results: (number | null)[] = [];
+  it('Halter-Konzentration echter Solana-Tokens (Im Trend, GeckoTerminal) über GoPlus Solana', async () => {
+    const tokens = (await fetchTokenDiscovery('solana', 'trending')).slice(0, 5);
+    expect(tokens.length).toBeGreaterThan(0);
+    const results: number[] = [];
     const problems: string[] = [];
-    for (const t of fresh) {
+    for (const t of tokens) {
       try {
-        results.push(await fetchSolanaTop10Pct(t.address));
+        const pct = await fetchSolanaTop10Pct(t.address, fetch, {});
+        if (pct !== null) results.push(pct);
+        else problems.push(`${t.symbol}: keine Halter`);
       } catch (err) {
         problems.push(`${t.symbol}: ${err instanceof Error ? err.message : String(err)}`);
-        results.push(null);
       }
     }
-    const ok = results.filter((x): x is number => x !== null);
-    // bei Fehlschlag die echten RPC-Antworten zeigen (Diagnose)
-    expect(ok.length, problems.join(' | ')).toBeGreaterThan(0);
-    for (const pct of ok) {
+    // bei Fehlschlag die echten Antworten zeigen (Diagnose)
+    expect(results.length, problems.join(' | ')).toBeGreaterThan(0);
+    for (const pct of results) {
       expect(pct).toBeGreaterThanOrEqual(0);
       expect(pct).toBeLessThanOrEqual(100);
     }
