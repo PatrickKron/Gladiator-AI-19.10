@@ -1168,6 +1168,9 @@ export const en: Catalog = {
     title: 'Strategy lab',
   },
   labor: {
+    openRun: "Open",
+    openRunHint: "Recompute the run with the same configuration on the same DB candles — nothing is invented.",
+    reopened: "Run from {{date}} recomputed.",
     backtestTitle: 'Backtest · net of fees/slippage/funding',
     symbol: 'Symbol',
     timeframe: 'Timeframe',
@@ -1655,6 +1658,7 @@ export const en: Catalog = {
     sizingBlocked: 'Risk gate would block:',
   },
   agents: {
+    tabOverview: "Overview",
     myTitle: 'My agents',
     myHint: 'Create your own agents here: trading agents with individual rules, events and risk in the Workshop — learning RL agents under AI Models.',
     createWorkshopCta: 'Create trading agent (Workshop)',

@@ -931,7 +931,7 @@ function AgentCard({ a, onChanged, onEdit }: { a: Agent; onChanged: () => void; 
   );
 }
 
-export function Werkstatt() {
+export function Werkstatt({ embedded = false }: { embedded?: boolean }) {
   const { t } = useTranslation();
   const [list, setList] = useState<Agent[] | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -977,17 +977,30 @@ export function Werkstatt() {
 
   return (
     <div>
-      <PageHeader
-        title={t('workshop.title')}
-        subtitle={t('workshop.subtitle')}
-        right={
-          !formOpen && (
+      {embedded ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm" style={{ color: 'var(--color-mut)' }}>
+            {t('workshop.subtitle')}
+          </p>
+          {!formOpen && (
             <button onClick={openCreate} className="btn-primary px-5 py-2 text-sm">
               + {t('workshop.newAgent')}
             </button>
-          )
-        }
-      />
+          )}
+        </div>
+      ) : (
+        <PageHeader
+          title={t('workshop.title')}
+          subtitle={t('workshop.subtitle')}
+          right={
+            !formOpen && (
+              <button onClick={openCreate} className="btn-primary px-5 py-2 text-sm">
+                + {t('workshop.newAgent')}
+              </button>
+            )
+          }
+        />
+      )}
       {error && <ErrorBox message={error} />}
 
       {createdNotice && (

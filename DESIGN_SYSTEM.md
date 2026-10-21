@@ -121,7 +121,9 @@ Hover auf einer Markt-Karte hebt weiterhin die Spalten des Symbols hervor.
 - [x] **D · Traden & Signale** (PR #71): Kauf-Flow Betrag → Richtung → Vorschau → ein Knopf,
       alles Weitere unter „Erweitert"; Signalkarten mit Bild von Anfang an, Gründe und Risiko in
       Worten, eine Primäraktion; Ergebniskarte mit echtem Netto-Ergebnis beim Schließen.
-- [ ] **E · Strategie & Mehr**: Labor-Archiv, Agenten + Werkstatt als eine Seite,
-      Einstellungen als Gruppen mit Status-Chips.
+- [x] **E · Strategie & Mehr** (PR #72): Labor-Läufe aus dem Verlauf wieder öffnen
+      (Konfiguration zurück ins Formular, deterministisch auf denselben Kerzen neu gerechnet),
+      Agenten + Werkstatt als eine Seite mit Tabs (alte Links leiten um), Einstellungen mit
+      Status in den Tabs (Risiko-Profil, Börsen-Anzahl, gesetzte Keys).
 - [ ] **F · Spaß & Feinschliff**: Kurven-Animation, Erfolgsmomente, Einrichtungs-Fortschritt,
       Leer-Zustände mit nächstem Schritt, Kontrast-Audit.

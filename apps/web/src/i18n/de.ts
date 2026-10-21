@@ -1167,6 +1167,9 @@ export const de = {
     title: 'Strategie-Labor',
   },
   labor: {
+    openRun: "Öffnen",
+    openRunHint: "Lauf mit derselben Konfiguration neu rechnen — auf denselben DB-Kerzen, nichts wird erfunden.",
+    reopened: "Lauf vom {{date}} neu gerechnet.",
     backtestTitle: 'Backtest · netto nach Gebühren/Slippage/Funding',
     symbol: 'Symbol',
     timeframe: 'Timeframe',
@@ -1654,6 +1657,7 @@ export const de = {
     sizingBlocked: 'Risk-Gate würde blocken:',
   },
   agents: {
+    tabOverview: "Übersicht",
     myTitle: 'Meine Agenten',
     myHint: 'Hier erstellst du eigene Agenten: Trading-Agenten mit individuellen Regeln, Ereignissen und Risiko in der Agenten-Werkstatt — lernende RL-Agenten unter KI-Modelle.',
     createWorkshopCta: 'Trading-Agent erstellen (Werkstatt)',

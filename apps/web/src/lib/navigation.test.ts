@@ -121,4 +121,10 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
       expect(res.map((e) => e.hash)).toEqual(PAGES.slice(0, 5).map((p) => p.hash));
     });
   });
+
+  it('Welle E: alte Werkstatt-Links landen als Tab unter Agenten', () => {
+    expect(resolveRedirect('#/werkstatt')).toBe('#/agenten?tab=werkstatt');
+    expect(pageForHash('#/werkstatt')).toBeNull();
+    expect(pageForHash('#/agenten')?.tabs?.map((t) => t.id)).toEqual(['uebersicht', 'werkstatt']);
+  });
 });

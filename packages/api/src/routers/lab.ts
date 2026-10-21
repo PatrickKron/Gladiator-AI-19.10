@@ -462,6 +462,8 @@ export const labRouter = router({
           createdAt: backtests.createdAt,
           symbol: backtests.symbol,
           timeframe: backtests.timeframe,
+          fromTs: backtests.fromTs,
+          toTs: backtests.toTs,
           config: backtests.config,
           sharpe: backtests.sharpe,
           maxDrawdown: backtests.maxDrawdown,
