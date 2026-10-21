@@ -10,7 +10,7 @@ import { isDemoMode, setDemoMode } from '../lib/demo-mode.js';
 import { DemoTrading } from './DemoTrading.js';
 import { PaperPositions } from '../components/PaperPositions.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
-import { exportYears, tradesCsvFilename } from '../lib/protocol.js';
+import { exportYears, tradesCsvFilename, swapsCsvFilename } from '../lib/protocol.js';
 
 /** Tabs der Trading-Seite (P1.8). */
 const TABS = ['positionen', 'historie', 'risiko', 'alerts', 'performance'] as const;
@@ -53,14 +53,16 @@ function TradeExport() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function download() {
+  async function download(kind: 'trades' | 'swaps') {
     setBusy(true);
     try {
-      const csv = await trpc.trading.exportTrades.query({ format: 'csv', ...(year !== null ? { year } : {}) });
+      const q = { format: 'csv' as const, ...(year !== null ? { year } : {}) };
+      // Wallet-Swaps getrennt: jeder Tausch ist eine Veräußerung, eigenes Format für Krypto-Steuer-Tools
+      const csv = kind === 'trades' ? await trpc.trading.exportTrades.query(q) : await trpc.swaps.exportTrades.query(q);
       const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }));
       const a = document.createElement('a');
       a.href = url;
-      a.download = tradesCsvFilename(year);
+      a.download = kind === 'trades' ? tradesCsvFilename(year) : swapsCsvFilename(year);
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -92,12 +94,15 @@ function TradeExport() {
           ))}
           <option value="">{t('trading.exportAllYears')}</option>
         </select>
-        <button onClick={() => void download()} disabled={busy} className="btn-primary px-3 py-1.5 text-sm disabled:opacity-50">
+        <button onClick={() => void download('trades')} disabled={busy} className="btn-primary px-3 py-1.5 text-sm disabled:opacity-50">
           {busy ? t('trading.exportBusy') : t('trading.exportCsv')}
+        </button>
+        <button onClick={() => void download('swaps')} disabled={busy} className="rounded-[0.625rem] border px-3 py-1.5 text-sm disabled:opacity-50" style={{ borderColor: 'var(--color-line)' }}>
+          {t('trading.exportSwapsCsv')}
         </button>
       </div>
       <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
-        {t('trading.exportHint')}
+        {t('trading.exportHint')} {t('trading.exportSwapsHint')}
       </p>
       {error && (
         <p className="mt-2 text-xs" style={{ color: 'var(--color-neg)' }}>

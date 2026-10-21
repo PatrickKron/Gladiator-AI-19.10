@@ -1375,6 +1375,8 @@ export const de = {
     exportAllYears: "Alle Jahre",
     exportBusy: "Exportiere …",
     exportHint: "Steuer-Export (§23 EStG): geschlossene Trades mit Haltedauer, Gebühren, Funding und Netto-PnL. Paper-Trades sind simuliert und nicht steuerrelevant.",
+    exportSwapsCsv: "Wallet-Swaps (CSV)",
+    exportSwapsHint: "Wallet-Swaps separat: jeder Tausch ist eine Veräußerung — Rohliste in USD (Durchschnittskosten) für ein Krypto-Steuer-Tool, das FIFO in EUR rechnet.",
     netPnl: 'Netto-PnL',
     fees: 'Gebühren',
     riskCockpit: 'Risk-Cockpit',
