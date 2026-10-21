@@ -7,6 +7,7 @@ import {
   fetchTokenPairs,
   fetchTokenPrices,
   KYBER_ROUTERS,
+  liquidityMintTxs,
   UNISWAP_V4_POOL_MANAGER,
   walletBalances,
   type PoolDepth,
@@ -281,8 +282,18 @@ export async function runSwapOrders(db: Db): Promise<SwapOrdersResult> {
     if (price === undefined) continue;
     out.checked++;
     if (order.kind === 'dev_sell') {
-      if (!order.watchAddress || order.watchBalance === null || order.watchBlock === null) continue;
+      if (!order.watchAddress || order.watchBalance === null) continue;
       const chain = wallet.chain as SwapChainId;
+      if (order.watchBlock === null) {
+        // Altbestand ohne Startblock: ab jetzt beobachten (nie still liegen lassen)
+        try {
+          const start = await fetchTokenOutflows(chain, order.token, order.watchAddress, null, swapNet());
+          await db.update(swapOrders).set({ watchBlock: start.cursor, watchSold: '0' }).where(eq(swapOrders.id, order.id));
+        } catch (err) {
+          out.errors.push(`Dev-Verkäufe ${order.symbol}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        continue;
+      }
       let sold: bigint;
       let cursor: string;
       try {
@@ -293,7 +304,10 @@ export async function runSwapOrders(db: Db): Promise<SwapOrdersResult> {
           // Verkaufs-Ziele: alle Pools des Tokens + v4-PoolManager + bekannte Router
           const pools = (await fetchTokenPairs(chain, order.token, swapNet())).map((p) => (p.pairAddress ?? '').toLowerCase());
           const sinks = new Set([...pools, ...KYBER_ROUTERS, ...(chain === 'solana' ? [] : [UNISWAP_V4_POOL_MANAGER[chain]])]);
-          sold = devSoldAtomic(page.transfers, sinks);
+          const toSinks = page.transfers.filter((t) => sinks.has(t.to.toLowerCase()));
+          // Liquidität hinzufügen (LP-Token/Positions-NFT an den Ersteller geprägt) ist kein Verkauf
+          const lp = toSinks.length > 0 ? await liquidityMintTxs(chain, toSinks.map((t) => t.tx), order.watchAddress, swapNet()) : new Set<string>();
+          sold = devSoldAtomic(toSinks.filter((t) => !lp.has(t.tx)), sinks);
         }
       } catch (err) {
         // Kette/Pools nicht lesbar → nichts entscheiden, Cursor bleibt (nächster Takt liest denselben Bereich)

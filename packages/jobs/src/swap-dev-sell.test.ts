@@ -23,6 +23,8 @@ const LOCK = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 /** Kette: Spitze + Transfers der Ersteller-Wallet; down = Knoten antwortet nicht */
 let head = 1000;
 let devTransfers: { block: number; to: string; amount: bigint }[] = [];
+/** Blöcke, in denen der Ersteller LP-Token geprägt bekam (Liquidität hinzugefügt) */
+let lpMintBlocks: number[] = [];
 let down = false;
 
 const net = (async (url: string, init?: RequestInit) => {
@@ -61,6 +63,12 @@ const net = (async (url: string, init?: RequestInit) => {
           .filter((t) => t.block >= lo && t.block <= hi)
           .map((t) => ({ address: MEME, topics: [ERC20_TRANSFER_TOPIC, padTopic(DEV), padTopic(t.to)], data: word(t.amount), transactionHash: `0x${t.block}`, blockNumber: `0x${t.block.toString(16)}` })),
       );
+    }
+    case 'eth_getTransactionReceipt': {
+      // Beleg: bei Liquidität zusätzlich LP-Token-Prägung (0x0 → Ersteller) in derselben Tx
+      const block = Number(String(body.params[0]).slice(2));
+      const mint = { address: POOL, topics: [ERC20_TRANSFER_TOPIC, padTopic('0x0000000000000000000000000000000000000000'), padTopic(DEV)], data: word(1n) };
+      return rpc({ logs: lpMintBlocks.includes(block) ? [mint] : [] });
     }
     case 'eth_call':
       return rpc(word(18n)); // decimals()
@@ -123,7 +131,7 @@ describe.skipIf(!process.env.DATABASE_URL)('Dev-Verkauf-Schutz (echte DB, Paper,
     await pool.end();
   });
 
-  it('Lock zählt nicht, Verkauf unter der Schwelle → nichts; Kette nicht lesbar → nichts; ab der Schwelle → Bestand verkauft', async () => {
+  it('Lock und Liquidität zählen nicht, Verkauf unter der Schwelle → nichts; Kette nicht lesbar → nichts; ab der Schwelle → Bestand verkauft', async () => {
     // Bestand aufbauen: Limit-Kauf über dem Kurs löst sofort aus
     const [buy] = await db.insert(schema.swapOrders).values({ walletId, token: MEME, symbol: 'MEME', kind: 'limit_buy', triggerPriceUsd: '1', buyAmount: '0.1' }).returning();
     await runSwapOrders(db);
@@ -140,7 +148,10 @@ describe.skipIf(!process.env.DATABASE_URL)('Dev-Verkauf-Schutz (echte DB, Paper,
     devTransfers = [
       { block: head - 8, to: LOCK, amount: 600n * E18 },
       { block: head - 7, to: POOL, amount: 100n * E18 },
+      // Liquidität hinzugefügt (LP-Token geprägt) → kein Verkauf
+      { block: head - 6, to: POOL, amount: 300n * E18 },
     ];
+    lpMintBlocks = [head - 6];
     await runSwapOrders(db);
     expect(await row()).toMatchObject({ status: 'open', watchSold: (100n * E18).toString(), watchBlock: String(head - 3) });
     // Knoten antwortet nicht → nie raten, Cursor bleibt
@@ -156,6 +167,13 @@ describe.skipIf(!process.env.DATABASE_URL)('Dev-Verkauf-Schutz (echte DB, Paper,
     expect(await status(dev!.id)).toBe('filled');
     expect((await row()).watchSold).toBe((550n * E18).toString());
     expect(await meme()).toBe(0n);
+    // Altbestand ohne Startblock: wird ab jetzt beobachtet (Startblock gesetzt), nicht still liegen gelassen
+    const [old] = await db
+      .insert(schema.swapOrders)
+      .values({ walletId, token: MEME, symbol: 'MEME', kind: 'dev_sell', trailPct: '50', sellPercent: '100', watchAddress: DEV, watchBalance: (1000n * E18).toString() })
+      .returning();
+    await runSwapOrders(db);
+    expect((await db.select().from(schema.swapOrders).where(eq(schema.swapOrders.id, old!.id)))[0]).toMatchObject({ status: 'open', watchBlock: String(head - 3), watchSold: '0' });
     const notes = await db.select().from(schema.notifications).where(and(eq(schema.notifications.userId, userId)));
     expect(notes.map((n) => n.title)).toContain('Dev-Verkauf-Schutz ausgeführt: MEME');
   });

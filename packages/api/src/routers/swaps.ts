@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema, type Db } from '@gladiator/db';
 import {
@@ -25,6 +25,7 @@ import {
   importWalletKey,
   fetchOnchainBalances,
   fetchTokenOutflows,
+  EVM_CONFIRMATIONS,
   fetchRugPool,
   fetchTokenCandles,
   fetchTokenDiscovery,
@@ -511,11 +512,19 @@ export const swapsRouter = router({
   /** Limit-Orders + Auto-Sell einer Wallet: offene zuerst, dann die letzten erledigten. */
   orders: protectedProcedure.input(z.object({ walletId: z.string().uuid() })).query(async ({ ctx, input }) => {
     const w = await ownWallet(ctx.db, ctx.user.id, input.walletId);
-    const rows = await ctx.db.select().from(swapOrders).where(eq(swapOrders.walletId, w.id)).orderBy(desc(swapOrders.createdAt)).limit(100);
-    const rank = (s: string) => (s === 'open' || s === 'executing' ? 0 : 1);
-    return rows
-      .sort((a, b) => rank(a.status) - rank(b.status))
-      .slice(0, 50)
+    // offene/laufende IMMER vollständig (sonst fehlt einer alten Order die Schutz-Anzeige), dazu die letzten erledigten
+    const active = await ctx.db
+      .select()
+      .from(swapOrders)
+      .where(and(eq(swapOrders.walletId, w.id), inArray(swapOrders.status, ['open', 'executing'])))
+      .orderBy(desc(swapOrders.createdAt));
+    const done = await ctx.db
+      .select()
+      .from(swapOrders)
+      .where(and(eq(swapOrders.walletId, w.id), notInArray(swapOrders.status, ['open', 'executing'])))
+      .orderBy(desc(swapOrders.createdAt))
+      .limit(Math.max(0, 50 - active.length));
+    return [...active, ...done]
       .map((o) => ({
         id: o.id,
         token: o.token,
@@ -623,7 +632,8 @@ export const swapsRouter = router({
         if (now === 0n) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Die Ersteller-Wallet hält keine Tokens mehr — nichts zu beobachten.' });
         // Startpunkt für die Transfer-Logs: aktueller bestätigter Block
         const start = await fetchTokenOutflows(chain, input.token, safety.creatorAddress, null, swapNet()).catch((err: unknown) => asTrpc(netError(err)));
-        devWatch = { address: safety.creatorAddress, balance: now, block: start.cursor };
+        // Bestand oben gilt für die Spitze (latest) → ab dort zählen (bestätigt = Spitze − EVM_CONFIRMATIONS), sonst zählte ein Verkauf kurz davor doppelt
+        devWatch = { address: safety.creatorAddress, balance: now, block: (BigInt(start.cursor) + EVM_CONFIRMATIONS).toString() };
       }
       const [o] = await ctx.db
         .insert(swapOrders)
