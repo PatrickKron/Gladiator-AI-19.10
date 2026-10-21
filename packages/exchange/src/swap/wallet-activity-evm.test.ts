@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { SWAP_CHAINS } from './chains.js';
-import { deriveEvmSwap, ERC20_TRANSFER_TOPIC, EVM_LOG_RPCS, fetchEvmWalletSwaps, logRpcCandidates, padTopic, type EvmLog } from './wallet-activity-evm.js';
+import { deriveEvmSwap, ERC20_TRANSFER_TOPIC, EVM_LOG_RPCS, fetchEvmWalletSwaps, logRpcCandidates, padTopic, setEvmRetryDelayForTests, type EvmLog } from './wallet-activity-evm.js';
 
 const ME = '0x1111111111111111111111111111111111111111';
 const POOL = '0x2222222222222222222222222222222222222222';
@@ -94,6 +94,26 @@ describe('Logs-RPC-Auswahl', () => {
       await expect(fetchEvmWalletSwaps('arbitrum', ME, {}, net(() => true))).rejects.toThrow(/RPC_URL_LOGS_ARBITRUM/);
     } finally {
       process.env = prev;
+    }
+  });
+});
+
+describe('Drosselung', () => {
+  it('HTTP 429 → genau ein zweiter Versuch, dann weiter', async () => {
+    setEvmRetryDelayForTests(0);
+    let calls = 0;
+    const net = (async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { method: string };
+      calls++;
+      if (body.method === 'eth_blockNumber' && calls === 1) return new Response('zu viele', { status: 429 });
+      const rpc = (result: unknown) => new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result }));
+      return body.method === 'eth_blockNumber' ? rpc('0x20') : rpc([]);
+    }) as unknown as typeof fetch;
+    try {
+      await expect(fetchEvmWalletSwaps('bsc', ME, {}, net)).resolves.toEqual({ swaps: [], newestSignature: String(0x20) });
+      expect(calls).toBe(4); // 429, Blocknummer, Logs raus, Logs rein
+    } finally {
+      setEvmRetryDelayForTests(null);
     }
   });
 });

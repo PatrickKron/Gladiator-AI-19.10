@@ -32,10 +32,10 @@ export const EVM_MAX_TXS = 15;
  * Selbsthoster setzen `RPC_URL_LOGS_<KETTE>` (oder `RPC_URL_<KETTE>`).
  */
 export const EVM_LOG_RPCS: Record<Exclude<SwapChainId, 'solana'>, string[]> = {
-  ethereum: ['https://eth.llamarpc.com', 'https://ethereum-rpc.publicnode.com'],
-  base: ['https://mainnet.base.org', 'https://base.llamarpc.com', 'https://base-rpc.publicnode.com'],
-  arbitrum: ['https://arb1.arbitrum.io/rpc', 'https://arbitrum.llamarpc.com', 'https://arbitrum-one-rpc.publicnode.com'],
-  bsc: ['https://binance.llamarpc.com', 'https://bsc-rpc.publicnode.com'],
+  ethereum: ['https://eth.drpc.org', 'https://1rpc.io/eth', 'https://eth.llamarpc.com', 'https://ethereum-rpc.publicnode.com'],
+  base: ['https://mainnet.base.org', 'https://base.drpc.org', 'https://1rpc.io/base', 'https://base.llamarpc.com', 'https://base-rpc.publicnode.com'],
+  arbitrum: ['https://arb1.arbitrum.io/rpc', 'https://arbitrum.drpc.org', 'https://1rpc.io/arb', 'https://arbitrum.llamarpc.com', 'https://arbitrum-one-rpc.publicnode.com'],
+  bsc: ['https://bsc.drpc.org', 'https://1rpc.io/bnb', 'https://binance.llamarpc.com', 'https://bsc-rpc.publicnode.com'],
 };
 
 /** Kandidaten in Reihenfolge: eigener Logs-RPC, eigener RPC, öffentliche Liste (ohne Doppelte). */
@@ -115,13 +115,26 @@ export function deriveEvmSwap(
   return null;
 }
 
+/** Pause vor dem einen Wiederholungsversuch bei HTTP 429 (Tests setzen 0). */
+let retryDelayMs = 1_500;
+export function setEvmRetryDelayForTests(ms: number | null): void {
+  retryDelayMs = ms ?? 1_500;
+}
+
 async function rpc(chain: SwapChainId, url: string, method: string, params: unknown[], fetchFn: Fetch): Promise<unknown> {
-  const res = await fetchFn(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-    signal: AbortSignal.timeout(15_000),
-  });
+  const send = () =>
+    fetchFn(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      signal: AbortSignal.timeout(15_000),
+    });
+  let res = await send();
+  // öffentliche Knoten drosseln kurzzeitig → genau ein zweiter Versuch
+  if (res.status === 429) {
+    await new Promise((r) => setTimeout(r, retryDelayMs));
+    res = await send();
+  }
   if (!res.ok) throw new Error(`RPC ${chain} ${method}: HTTP ${res.status}`);
   const body = (await res.json()) as { result?: unknown; error?: { message?: string } };
   if (body.error) throw new Error(`RPC ${chain} ${method}: ${body.error.message ?? 'Fehler'}`);
@@ -157,10 +170,9 @@ export async function fetchEvmWalletSwaps(
       const from = cursor === null ? floor : cursor + 1n > floor ? cursor + 1n : floor;
       if (from > latest) return { swaps: [], newestSignature: latest.toString() };
       const range = { fromBlock: hex(from), toBlock: hex(latest) };
-      const [outgoing, incoming] = (await Promise.all([
-        rpc(chain, url, 'eth_getLogs', [{ ...range, topics: [ERC20_TRANSFER_TOPIC, padTopic(owner)] }], fetchFn),
-        rpc(chain, url, 'eth_getLogs', [{ ...range, topics: [ERC20_TRANSFER_TOPIC, null, padTopic(owner)] }], fetchFn),
-      ])) as [EvmLog[], EvmLog[]];
+      // nacheinander statt parallel: öffentliche Knoten drosseln gleichzeitige Log-Abfragen
+      const outgoing = (await rpc(chain, url, 'eth_getLogs', [{ ...range, topics: [ERC20_TRANSFER_TOPIC, padTopic(owner)] }], fetchFn)) as EvmLog[];
+      const incoming = (await rpc(chain, url, 'eth_getLogs', [{ ...range, topics: [ERC20_TRANSFER_TOPIC, null, padTopic(owner)] }], fetchFn)) as EvmLog[];
       workingLogRpc.set(chain, url);
       return await readSwaps(chain, url, owner, outgoing ?? [], incoming ?? [], latest, opts.maxTxs ?? EVM_MAX_TXS, fetchFn);
     } catch (err) {
