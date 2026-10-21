@@ -35,6 +35,15 @@ const fakeNet = (async (url: string, init?: RequestInit) => {
     const days = [0, 1, 2, 3].map((d) => new Date(Date.now() - d * 86_400_000).toISOString().slice(0, 10));
     return new Response(['KEY,FREQ,TIME_PERIOD,OBS_VALUE', ...days.map((d) => `EXR.D.USD.EUR.SP00.A,D,${d},1.25`)].join('\n'));
   }
+  if (u.includes('dexscreener') && u.includes('/token-pairs/v1/')) {
+    // alle Pools des Tokens: ein CLMM (liquider, für den Rug-Schutz ungeeignet) + ein klassischer Pool
+    // Tiefe des klassischen Pools: 400 Mio. BONK × 1.000 SOL → √ = 632.455,5…
+    const a = u.split('/').pop()!;
+    return json([
+      { chainId: 'solana', dexId: 'raydium', labels: ['CLMM'], pairAddress: `Clmm${a.slice(0, 20)}`, baseToken: { address: a }, liquidity: { usd: 90_000, base: 1, quote: 1 } },
+      { chainId: 'solana', dexId: 'raydium', pairAddress: `Pool${a.slice(0, 20)}`, baseToken: { address: a }, liquidity: { usd: 40_000, base: 400_000_000, quote: 1_000 } },
+    ]);
+  }
   if (u.includes('dexscreener') && u.includes('/latest/dex/pairs/')) {
     // Pool-Tiefe: 400 Mio. BONK × 1.000 SOL → √ = 632.455,5…
     return json({ pairs: u.split('/').pop()!.split(',').map((p) => ({ chainId: 'solana', pairAddress: p, liquidity: { usd: 40_000, base: 400_000_000, quote: 1_000 } })) });

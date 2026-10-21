@@ -21,8 +21,6 @@ export type TokenInfo = SwapToken & {
   pairUrl: string | null;
   /** Adresse des liquidesten Pools (für Kerzen über GeckoTerminal) */
   pairAddress: string | null;
-  /** liquidester Pool mit konstantem Produkt (nur dort taugt die Tiefe für den Rug-Schutz) */
-  rugPairAddress: string | null;
   dex: string | null;
   pairCreatedAt: string | null;
   imageUrl: string | null;
@@ -146,7 +144,6 @@ export async function fetchTokenInfo(chain: SwapChainId, address: string, fetchF
     change24hPct: num(best?.priceChange?.h24),
     pairUrl: best?.url ?? null,
     pairAddress: best?.pairAddress ?? null,
-    rugPairAddress: pickRugPair(pairs, chain, lookup)?.pairAddress ?? null,
     dex: best?.dexId ?? null,
     pairCreatedAt: best?.pairCreatedAt ? new Date(best.pairCreatedAt).toISOString() : null,
     imageUrl: best?.info?.imageUrl ?? null,
@@ -181,17 +178,27 @@ export async function fetchPairDepths(chain: SwapChainId, pairAddresses: string[
   return out;
 }
 
-export type TokenMarket = {
-  priceUsd: number;
-  /** liquidester Pool mit konstantem Produkt, dessen USD-Liquidität und Tiefe √(Basis × Quote) (Rug-Schutz: Umzug erkennen) */
-  liquidityUsd: number | null;
-  pairAddress: string | null;
-  depth: number | null;
-};
+export type RugPool = { pairAddress: string; liquidityUsd: number | null; depth: number };
 
-/** Preis, Liquidität und liquidester Pool je Token (ein DexScreener-Abruf je 30 Tokens). */
-export async function fetchTokenMarket(chain: SwapChainId, addresses: string[], fetchFn: Fetch = fetch): Promise<Map<string, TokenMarket>> {
-  const out = new Map<string, TokenMarket>();
+/**
+ * Rug-Schutz: liquidester Pool mit konstantem Produkt eines Tokens und dessen
+ * Tiefe. Fragt ALLE Pools des Tokens ab (`token-pairs/v1`) — `tokens/v1` nennt je
+ * Token nur den einen liquidesten Pool, oft ein CLMM/Whirlpool. Keiner → null.
+ */
+export async function fetchRugPool(chain: SwapChainId, address: string, fetchFn: Fetch = fetch): Promise<RugPool | null> {
+  const res = await fetchFn(`${DEXSCREENER_API}/token-pairs/v1/${SWAP_CHAINS[chain].dexscreenerId}/${address}`, {
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`DexScreener: HTTP ${res.status}`);
+  const body = (await res.json()) as unknown;
+  const rug = pickRugPair(Array.isArray(body) ? (body as DexPair[]) : [], chain, address);
+  const depth = depthOf(rug);
+  if (!rug?.pairAddress || depth === null || !(depth > 0)) return null;
+  return { pairAddress: rug.pairAddress, liquidityUsd: num(rug.liquidity?.usd), depth };
+}
+
+export async function fetchTokenPrices(chain: SwapChainId, addresses: string[], fetchFn: Fetch = fetch): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
   const lookups = addresses.map((a) => (isNativeToken(chain, a) ? SWAP_CHAINS[chain].wrappedNative : a));
   for (let i = 0; i < lookups.length; i += 30) {
     const batch = [...new Set(lookups.slice(i, i + 30))];
@@ -201,25 +208,12 @@ export async function fetchTokenMarket(chain: SwapChainId, addresses: string[], 
     if (!res.ok) throw new Error(`DexScreener: HTTP ${res.status}`);
     const pairs = ((await res.json()) as DexPair[]) ?? [];
     for (const lookup of batch) {
-      const best = pickBestPair(pairs, chain, lookup);
-      const p = num(best?.priceUsd);
+      const p = num(pickBestPair(pairs, chain, lookup)?.priceUsd);
       if (p === null) continue;
-      const rug = pickRugPair(pairs, chain, lookup);
-      const m: TokenMarket = {
-        priceUsd: p,
-        liquidityUsd: num(rug?.liquidity?.usd),
-        pairAddress: rug?.pairAddress ?? null,
-        depth: depthOf(rug),
-      };
       addresses.forEach((a, idx) => {
-        if (lookups[idx] === lookup) out.set(a, m);
+        if (lookups[idx] === lookup) out.set(a, p);
       });
     }
   }
   return out;
-}
-
-export async function fetchTokenPrices(chain: SwapChainId, addresses: string[], fetchFn: Fetch = fetch): Promise<Map<string, number>> {
-  const market = await fetchTokenMarket(chain, addresses, fetchFn);
-  return new Map([...market].map(([a, m]) => [a, m.priceUsd]));
 }

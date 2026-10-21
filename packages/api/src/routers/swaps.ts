@@ -23,7 +23,7 @@ import {
   encryptSecret,
   generateWalletKey,
   importWalletKey,
-  fetchPairDepths,
+  fetchRugPool,
   fetchTokenCandles,
   fetchTokenDiscovery,
   DISCOVERY_KINDS,
@@ -38,6 +38,7 @@ import {
   SWAP_CHAIN_IDS,
   SWAP_CHAINS,
   walletBalances,
+  type RugPool,
   type SwapChainId,
 } from '@gladiator/exchange';
 import { ecbRateOn, fetchEcbUsdPerEur } from '@gladiator/market-data';
@@ -591,14 +592,12 @@ export const swapsRouter = router({
       // Rug-Schutz: liquidesten Pool festhalten und dessen Tiefe als Ausgangsstand
       const rug = input.kind === 'rug_guard';
       // (nur Pools mit konstantem Produkt — in v3/CLMM/DLMM fällt die Tiefe schon bei einem Kursrutsch)
-      let rugPool: { depth: number; liquidityUsd: number | null } | null = null;
+      let rugPool: RugPool | null = null;
       if (rug) {
-        if (!info.rugPairAddress) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Kein Pool mit konstantem Produkt (nur v3/CLMM/DLMM oder Bonding-Curve) — Rug-Schutz hier nicht verlässlich.' });
+        rugPool = await fetchRugPool(chain, input.token, swapNet()).catch((err: unknown) => asTrpc(netError(err)));
+        if (!rugPool) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Kein Pool mit konstantem Produkt (nur v3/CLMM/DLMM/Whirlpool oder Bonding-Curve) — Rug-Schutz hier nicht verlässlich.' });
         }
-        const d = await fetchPairDepths(chain, [info.rugPairAddress], swapNet()).catch((err: unknown) => asTrpc(netError(err)));
-        rugPool = d.get(info.rugPairAddress) ?? null;
-        if (!(rugPool !== null && rugPool.depth > 0)) throw new TRPCError({ code: 'BAD_GATEWAY', message: 'Keine Pool-Liquidität bekannt — Rug-Schutz nicht möglich.' });
       }
       const [o] = await ctx.db
         .insert(swapOrders)
@@ -612,7 +611,7 @@ export const swapsRouter = router({
           // Rug-Schutz: Kurs zum Stand der festgehaltenen Pool-Liquidität (Umzug kursbereinigt vergleichen)
           peakPriceUsd: input.kind === 'trailing_stop' || rug ? String(info.priceUsd) : null,
           peakLiquidityUsd: rug && rugPool?.liquidityUsd != null ? String(rugPool.liquidityUsd) : null,
-          pairAddress: rug ? info.rugPairAddress : null,
+          pairAddress: rug ? rugPool!.pairAddress : null,
           peakDepth: rug ? String(rugPool!.depth) : null,
           sellPercent: buy || alert ? null : String(input.sellPercent ?? 100),
           buyAmount: buy ? input.buyAmount! : null,

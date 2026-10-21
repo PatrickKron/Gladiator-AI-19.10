@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { EVM_NATIVE, fromAtomic, isTokenAddress, SOL_MINT, SWAP_CHAINS, toAtomic } from './chains.js';
 import { fetchSwapQuote, jupiterQuote, kyberQuote } from './quotes.js';
-import { fetchDexPairs, fetchPairDepths, fetchTokenDecimals, fetchTokenInfo, isConstantProductPair, pickBestPair, pickRugPair } from './token-info.js';
+import { fetchPairDepths, fetchRugPool, fetchTokenDecimals, fetchTokenInfo, isConstantProductPair, pickBestPair, pickRugPair } from './token-info.js';
 
 const USDC_SOL = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
@@ -180,16 +180,20 @@ describe('echte Daten (Jupiter, KyberSwap, DexScreener, RPC)', () => {
     expect(info.liquidityUsd).toBeGreaterThan(100_000);
   }, 30_000);
 
-  it('Rug-Schutz-Pool echter Meme-Token (BONK): konstantes Produkt, Tiefe > 0', async () => {
+  it('Rug-Schutz-Pool echter Meme-Token (BONK): alle Pools, konstantes Produkt, Tiefe > 0', async () => {
     const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
-    const pairs = await fetchDexPairs('solana', BONK);
+    const res = await fetch(`https://api.dexscreener.com/token-pairs/v1/solana/${BONK}`);
+    const pairs = (await res.json()) as { dexId?: string; labels?: string[]; pairAddress?: string; liquidity?: { usd?: number } }[];
     // Pool-Bauarten laut DexScreener (bei Abweichung im CI-Protokoll sichtbar)
-    const kinds = pairs.map((p) => `${p.dexId}[${(p.labels ?? []).join('/')}] ${Math.round(p.liquidity?.usd ?? 0)}$ cp=${isConstantProductPair(p)}`).join('; ');
-    const info = await fetchTokenInfo('solana', BONK);
-    expect(info.rugPairAddress, kinds).toBeTruthy();
-    const depths = await fetchPairDepths('solana', [info.rugPairAddress!]);
-    expect(depths.get(info.rugPairAddress!)?.depth).toBeGreaterThan(0);
-    expect(depths.get(info.rugPairAddress!)?.liquidityUsd).toBeGreaterThan(0);
+    const kinds = pairs.slice(0, 15).map((p) => `${p.dexId}[${(p.labels ?? []).join('/')}] ${Math.round(p.liquidity?.usd ?? 0)}$ cp=${isConstantProductPair(p)}`).join('; ');
+    expect(pairs.length, kinds).toBeGreaterThan(1);
+    const pool = await fetchRugPool('solana', BONK);
+    expect(pool, kinds).not.toBeNull();
+    expect(isConstantProductPair(pairs.find((p) => p.pairAddress === pool!.pairAddress)!), kinds).toBe(true);
+    expect(pool!.depth).toBeGreaterThan(0);
+    // dieselbe Tiefe über den Pool-Abruf des Workers
+    const depths = await fetchPairDepths('solana', [pool!.pairAddress]);
+    expect(depths.get(pool!.pairAddress)?.depth).toBeGreaterThan(0);
     // DexScreener kennzeichnet Pool-Bauarten (sonst wäre der Ausschluss wirkungslos)
     expect(pairs.some((p) => (p.labels ?? []).length > 0), kinds).toBe(true);
   }, 30_000);

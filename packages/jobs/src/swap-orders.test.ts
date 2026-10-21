@@ -125,6 +125,14 @@ const fakeNet = (async (url: string, init?: RequestInit) => {
   if (u.includes('dexscreener') && u.includes('/latest/dex/pairs/')) {
     return json({ pairs: [{ chainId: 'solana', pairAddress: BONK_POOL, liquidity: { usd: 1e8, ...bonkPool } }] });
   }
+  if (u.includes('dexscreener') && u.includes('/token-pairs/v1/')) {
+    // alle BONK-Pools: liquiderer CLMM (für den Rug-Schutz ungeeignet) + liquidester klassischer Pool
+    const a = u.split('/').pop()!;
+    return json([
+      { chainId: 'solana', dexId: 'raydium', labels: ['CLMM'], pairAddress: 'ClmmPool111111111111111111111111111111111111', baseToken: { address: a }, liquidity: { usd: 9e8, base: 1, quote: 1 } },
+      { chainId: 'solana', dexId: 'raydium', pairAddress: bonkBestPool, baseToken: { address: a }, liquidity: { usd: 1e8, base: 4e9, quote: 4e5 } },
+    ]);
+  }
   if (u.includes('dexscreener')) {
     const addrs = u.split('/').pop()!.split(',');
     return json(addrs.map((a) => ({ chainId: 'solana', baseToken: { address: a, symbol: a === SOL_MINT ? 'SOL' : 'Bonk' }, priceUsd: String(a === SOL_MINT ? 150 : bonkUsd), pairAddress: a === SOL_MINT ? 'SolPool' : bonkBestPool, liquidity: { usd: 1e8, base: 4e9, quote: 4e5 } })));

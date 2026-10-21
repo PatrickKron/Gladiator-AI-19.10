@@ -1,6 +1,6 @@
 import { and, eq, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import { schema, type Db } from '@gladiator/db';
-import { fetchPairDepths, fetchTokenMarket, walletBalances, type PoolDepth, type SwapChainId, type TokenMarket } from '@gladiator/exchange';
+import { fetchPairDepths, fetchRugPool, fetchTokenPrices, walletBalances, type PoolDepth, type SwapChainId } from '@gladiator/exchange';
 import { notifySafe } from './notify.js';
 import { executePreparedSwap, prepareSwap, swapNet, type SwapWalletRow } from './swap-service.js';
 
@@ -230,14 +230,9 @@ export async function runSwapOrders(db: Db): Promise<SwapOrdersResult> {
   }
   const prices = new Map<string, number>();
   const depths = new Map<string, PoolDepth>();
-  const markets = new Map<string, TokenMarket>();
   for (const [chain, tokens] of byChain) {
     try {
-      const m = await fetchTokenMarket(chain, [...tokens], swapNet());
-      for (const [t, v] of m) {
-        prices.set(`${chain}:${t}`, v.priceUsd);
-        markets.set(`${chain}:${t}`, v);
-      }
+      for (const [t, p] of await fetchTokenPrices(chain, [...tokens], swapNet())) prices.set(`${chain}:${t}`, p);
       const pools = rows.filter((r) => r.wallet.chain === chain && r.order.kind === 'rug_guard' && r.order.pairAddress).map((r) => r.order.pairAddress!);
       if (pools.length > 0) for (const [a, d] of await fetchPairDepths(chain, pools, swapNet())) depths.set(`${chain}:${a}`, d);
     } catch (err) {
@@ -263,7 +258,8 @@ export async function runSwapOrders(db: Db): Promise<SwapOrdersResult> {
           .where(eq(swapOrders.id, order.id));
       }
       if (rg.trigger) {
-        const best = markets.get(`${wallet.chain}:${order.token}`) ?? null;
+        // Umzug? Liquidesten Pool mit konstantem Produkt neu bestimmen (nicht lesbar → kein Umzug, Schutz greift)
+        const best = await fetchRugPool(wallet.chain as SwapChainId, order.token, swapNet()).catch(() => null);
         const num = (v: string | null) => (v === null ? null : Number(v));
         if (rugGuardMigrates({ pairAddress: order.pairAddress, peakLiquidityUsd: num(order.peakLiquidityUsd), peakPriceUsd: num(order.peakPriceUsd) }, best, price)) {
           // Token ist umgezogen: neuen Pool beobachten, nicht verkaufen
