@@ -4,6 +4,7 @@ import { requireEnv, type Db } from '@gladiator/db';
 import { demoBookSource, monitorDemoTick, monitorOpenPositions, reconcile, type TradingVenue } from '@gladiator/exchange';
 import { failStuckSwapOrders, runDcaOrders, runSwapOrders } from './swap-orders.js';
 import { runWalletCopy } from './wallet-copy.js';
+import { resolvePendingSwaps } from './swap-pending.js';
 import { fredConfigured, syncDerivatives, syncFredWatch, syncEconomicCalendar, syncFredSeries, syncMacroSeries, syncNews } from '@gladiator/market-data';
 import { runNightPipeline } from './briefing.js';
 import { runSignalScan } from './signal-scan.js';
@@ -449,6 +450,9 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
         const dca = await runDcaOrders(db);
         if (dca.due > 0) console.log(`[swap-dca] fällig=${dca.due} gekauft=${dca.bought} übersprungen=${dca.skipped} fehlgeschlagen=${dca.failed}`);
         for (const e of dca.errors) console.warn('[swap-dca]', e);
+        const pend = await resolvePendingSwaps(db);
+        if (pend.filled > 0 || pend.failed > 0) console.log(`[swap-pending] geklärt: ausgeführt=${pend.filled} fehlgeschlagen=${pend.failed}`);
+        for (const e of pend.errors) console.warn('[swap-pending]', e);
       } catch (err) {
         console.warn('[swap-orders] Tick fehlgeschlagen:', String(err));
       }

@@ -90,6 +90,12 @@ export const swapTrades = pgTable(
     route: jsonb('route').$type<string[]>().notNull().default([]),
     txHash: text('tx_hash'),
     error: text('error'),
+    /**
+     * Nur bei `pending` (gesendet, Ausgang unklar): bestätigtes Angebot + Kurs,
+     * damit der Worker den Swap nach Klärung auf der Kette genau so verbucht,
+     * wie er ausgeführt wurde. Nach der Klärung wieder null.
+     */
+    pendingContext: jsonb('pending_context').$type<{ quote: Record<string, unknown>; nativePriceUsd: number }>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

@@ -1929,7 +1929,7 @@ export const de = {
   },
   swap: {
     trade_failed: "fehlgeschlagen",
-    trade_pending: "Ausgang unklar — im Explorer prüfen",
+    trade_pending: "Ausgang unklar — wird jede Minute gegen die Kette geprüft",
     positionsTitle: "Alle Positionen",
     unrealized: "Unrealisiert",
     wallet: "Wallet",

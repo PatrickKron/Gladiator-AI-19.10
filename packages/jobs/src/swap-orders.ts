@@ -29,6 +29,19 @@ export const SWAP_ORDER_LABEL: Record<SwapOrderKind, string> = {
   alert_below: 'Preisalarm unter',
 };
 
+/** Bestand weg → übrige Verkaufs-Orders für diesen Token sind gegenstandslos (OCO-Verhalten). */
+export async function cancelSellOrdersIfSoldOut(db: Db, walletId: string, token: string): Promise<void> {
+  const left = (await walletBalances(db, walletId)).find((b) => b.token === token);
+  if (left && BigInt(left.amountAtomic) > 0n) return;
+  await db
+    .update(swapOrders)
+    .set({ status: 'cancelled', closedAt: new Date(), error: 'Bestand verkauft' })
+    .where(
+      // Kauf-Orders (Limit-Kauf, DCA) und Preisalarme bleiben — sie bauen den Bestand ja gerade auf
+      and(eq(swapOrders.walletId, walletId), eq(swapOrders.token, token), eq(swapOrders.status, 'open'), notInArray(swapOrders.kind, ['limit_buy', 'dca', 'alert_above', 'alert_below'])),
+    );
+}
+
 export type OrderState = { kind: SwapOrderKind; triggerPriceUsd: number | null; trailPct: number | null; peakPriceUsd: number | null };
 
 /**
@@ -141,19 +154,7 @@ async function fireOrder(db: Db, o: OrderRow, w: SwapWalletRow, priceUsd: number
         link: '#/traden?tab=wallet',
       });
     }
-    if (side === 'sell') {
-      // Bestand weg → übrige Verkaufs-Orders für diesen Token sind gegenstandslos (OCO-Verhalten)
-      const left = (await walletBalances(db, w.id)).find((b) => b.token === o.token);
-      if (!left || BigInt(left.amountAtomic) === 0n) {
-        await db
-          .update(swapOrders)
-          .set({ status: 'cancelled', closedAt: new Date(), error: 'Bestand verkauft' })
-          .where(
-            // Kauf-Orders (Limit-Kauf, DCA) bleiben — sie bauen den Bestand ja gerade auf
-            and(eq(swapOrders.walletId, w.id), eq(swapOrders.token, o.token), eq(swapOrders.status, 'open'), notInArray(swapOrders.kind, ['limit_buy', 'dca', 'alert_above', 'alert_below'])),
-          );
-      }
-    }
+    if (side === 'sell') await cancelSellOrdersIfSoldOut(db, w.id, o.token);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await closeOrder(db, o.id, 'failed', { error: msg });
