@@ -1922,6 +1922,8 @@ export const de = {
     err_unknown: 'Unbekannter Fehler.',
   },
   swap: {
+    initials: "Einsatz zurück ({{pct}})",
+    initialsHint: "Verkauft so viel, dass der Einstand (inkl. ~1 % Puffer für Gebühren) zurückkommt — der Rest läuft als Gratis-Position weiter.",
     copyStats: "Kopien: {{buys}} Käufe · {{sells}} Verkäufe ({{wins}} mit Gewinn) · investiert {{invested}} ·",
     copyRealized: "realisiert {{pnl}} (Paper)",
     kind_dca: "DCA",

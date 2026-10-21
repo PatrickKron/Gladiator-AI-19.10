@@ -1923,6 +1923,8 @@ export const en: Catalog = {
     err_unknown: 'Unknown error.',
   },
   swap: {
+    initials: "Take initials ({{pct}})",
+    initialsHint: "Sells just enough to recover your cost basis (incl. ~1 % buffer for fees) — the rest rides as a free position.",
     copyStats: "Copies: {{buys}} buys · {{sells}} sells ({{wins}} in profit) · invested {{invested}} ·",
     copyRealized: "realized {{pnl}} (paper)",
     kind_dca: "DCA",

@@ -6,7 +6,7 @@ import { TokenDiscovery } from '../components/TokenDiscovery.js';
 import { WatchedWallets } from '../components/WatchedWallets.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
-import { bpsLabel, fmtAmount, fmtPct, fmtUsd, slippageChoices, swapReasonKey } from '../lib/swap-format.js';
+import { bpsLabel, fmtAmount, fmtPct, fmtUsd, initialsPercent, slippageChoices, swapReasonKey } from '../lib/swap-format.js';
 
 /**
  * Wallet-Trading (Vision-Punkt 5, „wie Trojan, für alle Wallets"):
@@ -288,6 +288,7 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
   }
 
   const held = portfolio?.holdings.find((h) => token && h.token === token.address) ?? null;
+  const initials = held ? initialsPercent(held.costUsd, held.valueUsd) : null;
   const nativeHolding = portfolio?.holdings.find((h) => h.native) ?? null;
 
   return (
@@ -375,6 +376,18 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
                   {p} %
                 </button>
               ))}
+              {initials !== null && (
+                <button
+                  type="button"
+                  className={chip}
+                  style={{ borderColor: 'var(--color-pos)' }}
+                  title={t('swap.initialsHint')}
+                  disabled={busy}
+                  onClick={() => void requestQuote({ side: 'sell', percent: initials })}
+                >
+                  {t('swap.initials', { pct: fmtPct(initials, lang) })}
+                </button>
+              )}
               {!held && <span className="text-[11px]" style={{ color: 'var(--color-mut)' }}>{t('swap.noHolding')}</span>}
             </div>
 

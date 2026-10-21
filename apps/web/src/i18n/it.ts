@@ -1923,6 +1923,8 @@ export const it: Catalog = {
     err_unknown: 'Errore sconosciuto.',
   },
   swap: {
+    initials: "Recupera investimento ({{pct}})",
+    initialsHint: "Vende quanto basta per recuperare il costo (incl. ~1 % di margine per le commissioni); il resto resta come posizione gratuita.",
     copyStats: "Copie: {{buys}} acquisti · {{sells}} vendite ({{wins}} in utile) · investito {{invested}} ·",
     copyRealized: "realizzato {{pnl}} (paper)",
     kind_dca: "DCA",

@@ -60,3 +60,15 @@ export function poolAge(iso: string | null, lang: string, now = Date.now()): str
   if (sec < 86_400) return rtf.format(-Math.round(sec / 3600), 'hour');
   return rtf.format(-Math.round(sec / 86_400), 'day');
 }
+
+/**
+ * „Einsatz zurückholen“ (Trojan: „Sell Initials“): Anteil des Bestands in %,
+ * dessen Verkauf den Einstand zurückbringt — mit 1 % Puffer für Pool-Gebühr
+ * und Preis-Einfluss, auf 0,01 % aufgerundet. Nur sinnvoll im Gewinn; sonst
+ * null (dann wäre es ein Komplettverkauf).
+ */
+export function initialsPercent(costUsd: number | null, valueUsd: number | null): number | null {
+  if (costUsd === null || valueUsd === null || !(costUsd > 0) || !(valueUsd > costUsd)) return null;
+  const pct = Math.ceil(((costUsd * 1.01) / valueUsd) * 10_000) / 100;
+  return pct >= 100 ? null : pct;
+}
