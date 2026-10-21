@@ -1,4 +1,4 @@
-import { isChartTf, type ChartTf } from './chart-url.js';
+import { isChartTf, isChartVenue, type ChartTf, type ChartVenue } from './chart-url.js';
 
 /**
  * Mehrfach-Charts (Repo-Masterliste, Phase 3b): Layout 1 / 2 / 4 auf der
@@ -8,7 +8,7 @@ import { isChartTf, type ChartTf } from './chart-url.js';
  */
 
 export type ChartLayout = 1 | 2 | 4;
-export type ChartCell = { symbol: string; tf: ChartTf };
+export type ChartCell = { symbol: string; tf: ChartTf; venue: ChartVenue };
 
 export const CHART_LAYOUTS: ChartLayout[] = [1, 2, 4];
 const KEY = 'gladiator.chartLayout';
@@ -25,8 +25,11 @@ export function isChartLayout(v: unknown): v is ChartLayout {
  * Haupt-Symbol und einem anderen Zeitrahmen auffüllen, überzählige abschneiden.
  */
 export function normalizeCells(cells: ChartCell[], layout: ChartLayout, primarySymbol: string): ChartCell[] {
-  const out = cells.filter((c) => typeof c.symbol === 'string' && c.symbol.trim() !== '' && isChartTf(c.tf)).slice(0, layout - 1);
-  while (out.length < layout - 1) out.push({ symbol: primarySymbol, tf: EXTRA_TFS[out.length % EXTRA_TFS.length]! });
+  const out: ChartCell[] = cells
+    .filter((c) => typeof c.symbol === 'string' && c.symbol.trim() !== '' && isChartTf(c.tf))
+    .slice(0, layout - 1)
+    .map((c) => ({ symbol: c.symbol, tf: c.tf, venue: isChartVenue(c.venue) ? c.venue : 'binance' }));
+  while (out.length < layout - 1) out.push({ symbol: primarySymbol, tf: EXTRA_TFS[out.length % EXTRA_TFS.length]!, venue: 'binance' });
   return out;
 }
 

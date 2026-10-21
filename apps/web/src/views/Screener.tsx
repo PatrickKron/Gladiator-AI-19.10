@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { PageHeader } from '../components/ui.js';
-import { CHART_TFS, type ChartTf } from '../lib/chart-url.js';
+import { buildChartUrl, CHART_TFS, CHART_VENUES, type ChartTf, type ChartVenue } from '../lib/chart-url.js';
 import { cachedCatalog, loadCatalog } from '../lib/indicator-catalog.js';
 import { clampNumber, type MenuEntry, type MenuInput } from '../lib/indicator-menu.js';
 import {
@@ -262,6 +262,7 @@ export function Screener() {
       /* nur Komfort */
     }
   };
+  const [venue, setVenue] = useState<ChartVenue>('binance');
   const [catalog, setCatalog] = useState<MenuEntry[] | 'error' | null>(cachedCatalog());
   const [presets, setPresets] = useState<Preset[]>([]);
   const [saved, setSaved] = useState<Saved[] | null>(null);
@@ -305,7 +306,7 @@ export function Screener() {
     let cancelled = false;
     setUniverse(null);
     void trpc.screener.universe
-      .query({ timeframe: tf })
+      .query({ timeframe: tf, venue })
       .then((u) => {
         if (!cancelled) setUniverse(u.length);
       })
@@ -313,7 +314,7 @@ export function Screener() {
     return () => {
       cancelled = true;
     };
-  }, [tf]);
+  }, [tf, venue]);
 
   const entryOf = (id: string) => (Array.isArray(catalog) ? catalog.find((e) => e.id === id) : undefined);
 
@@ -321,7 +322,7 @@ export function Screener() {
     setRunning(true);
     setErr(null);
     try {
-      setResult(await trpc.screener.run.query({ timeframe: tf, conditions }));
+      setResult(await trpc.screener.run.query({ timeframe: tf, conditions, venue }));
     } catch (e) {
       fail(e);
     } finally {
@@ -386,6 +387,13 @@ export function Screener() {
               {f}
             </button>
           ))}
+          <select value={venue} onChange={(e) => setVenue(e.target.value as ChartVenue)} className={`${selCls} ml-2`} aria-label={t('screener.venue')}>
+            {CHART_VENUES.map((v) => (
+              <option key={v} value={v}>
+                {t(`screener.venue_${v}`)}
+              </option>
+            ))}
+          </select>
           <span className="label ml-2" style={{ color: universe === 0 ? 'var(--color-warn)' : undefined }}>
             {universe === null ? t('screener.loading') : universe === 0 ? t('screener.universeEmpty') : t('screener.universe', { n: universe })}
           </span>
@@ -501,7 +509,7 @@ export function Screener() {
                 {rows.map((r) => (
                   <tr key={r.symbol} className="border-t" style={{ borderColor: 'rgba(99,140,255,0.08)' }}>
                     <td className="py-1.5 pr-3">
-                      <a href={`#/charts?symbol=${encodeURIComponent(r.symbol)}&tf=${tf}`} className="num underline-offset-2 hover:underline" style={{ color: r.matches ? 'var(--color-cyan)' : 'var(--color-ink)' }} title={t('screener.openChart')}>
+                      <a href={buildChartUrl(r.symbol, tf, venue)} className="num underline-offset-2 hover:underline" style={{ color: r.matches ? 'var(--color-cyan)' : 'var(--color-ink)' }} title={t('screener.openChart')}>
                         {r.symbol}
                       </a>
                       {r.error && (

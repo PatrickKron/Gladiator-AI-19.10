@@ -12,17 +12,17 @@ describe('buildChartUrl', () => {
 
 describe('parseChartHash', () => {
   it('liest symbol (dekodiert) und tf', () => {
-    expect(parseChartHash('#/charts?symbol=ETH%2FUSDT&tf=4h')).toEqual({ symbol: 'ETH/USDT', tf: '4h' });
+    expect(parseChartHash('#/charts?symbol=ETH%2FUSDT&tf=4h')).toEqual({ symbol: 'ETH/USDT', tf: '4h', venue: null });
   });
   it('ohne Query → beides null', () => {
-    expect(parseChartHash('#/charts')).toEqual({ symbol: null, tf: null });
+    expect(parseChartHash('#/charts')).toEqual({ symbol: null, tf: null, venue: null });
   });
   it('ungültiger tf → tf null, symbol bleibt', () => {
     // 3d ist ein Binance-TF, wird von uns aber nicht angeboten → tf null.
-    expect(parseChartHash('#/charts?symbol=BTC%2FUSDT&tf=3d')).toEqual({ symbol: 'BTC/USDT', tf: null });
+    expect(parseChartHash('#/charts?symbol=BTC%2FUSDT&tf=3d')).toEqual({ symbol: 'BTC/USDT', tf: null, venue: null });
   });
   it('Roundtrip build→parse', () => {
-    expect(parseChartHash(buildChartUrl('SOL/USDT', '1d'))).toEqual({ symbol: 'SOL/USDT', tf: '1d' });
+    expect(parseChartHash(buildChartUrl('SOL/USDT', '1d'))).toEqual({ symbol: 'SOL/USDT', tf: '1d', venue: null });
   });
 });
 
@@ -47,5 +47,16 @@ describe('isChartTf', () => {
     expect(isChartTf('1M')).toBe(true);
     expect(isChartTf('3d')).toBe(false); // nicht angeboten
     expect(isChartTf(null)).toBe(false);
+  });
+});
+
+describe('Kerzenquelle (venue) im Deep-Link', () => {
+  it('Aktien/Forex tragen die Quelle, Krypto nicht; unbekannte Quelle → null', () => {
+    expect(buildChartUrl('AAPL', '1d', 'twelvedata')).toBe('#/charts?symbol=AAPL&tf=1d&venue=twelvedata');
+    expect(buildChartUrl('BTC/USDT', '1h', 'binance')).toBe('#/charts?symbol=BTC%2FUSDT&tf=1h');
+    expect(buildAssetUrl('EUR/USD', 'kontext', '4h', 'yahoo')).toBe('#/charts?symbol=EUR%2FUSD&tf=4h&tab=kontext&venue=yahoo');
+    expect(parseChartHash('#/charts?symbol=AAPL&tf=1d&venue=twelvedata')).toEqual({ symbol: 'AAPL', tf: '1d', venue: 'twelvedata' });
+    expect(parseChartHash('#/charts?symbol=AAPL&venue=nasdaq')).toEqual({ symbol: 'AAPL', tf: null, venue: null });
+    expect(parseChartHash('#/charts')).toEqual({ symbol: null, tf: null, venue: null });
   });
 });

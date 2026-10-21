@@ -726,6 +726,24 @@ export const marketRouter = router({
     }),
 
   /**
+   * Aktien/ETF/Forex im Haupt-Chart (Repo-Masterliste, Phase 5): alle Symbole
+   * mit echten Kerzen aus Twelve Data oder Yahoo, je Quelle mit Zeitrahmen —
+   * plus ob ein Twelve-Data-Key gesetzt ist (ohne Key und ohne Kerzen: ehrlich
+   * „nicht verbunden“).
+   */
+  stockSymbols: protectedProcedure.query(async ({ ctx }) => {
+    const res = await ctx.db.execute(sql`
+      SELECT venue, symbol, array_agg(DISTINCT timeframe ORDER BY timeframe) AS timeframes, count(*)::int AS candles
+      FROM ohlcv WHERE venue IN (${TWELVEDATA_VENUE}, ${YAHOO_VENUE})
+      GROUP BY venue, symbol ORDER BY symbol, venue
+    `);
+    return {
+      configured: { twelvedata: twelveDataConfigured() },
+      rows: res.rows as { venue: 'twelvedata' | 'yahoo'; symbol: string; timeframes: string[]; candles: number }[],
+    };
+  }),
+
+  /**
    * Twelve-Data-Status (Feature 4): ist ein Key gesetzt, welche Auflösungen sind
    * verfügbar, und welche Aktien-Kerzen liegen schon in der DB (venue=twelvedata).
    */

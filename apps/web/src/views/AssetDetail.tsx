@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PageHeader, Panel } from '../components/ui.js';
-import { AssetSelect, getSelectedAsset, setSelectedAsset } from '../components/AssetSelect.js';
+import { AssetSelect, getSelectedAsset, getSelectedVenue, setSelectedAsset, setSelectedVenue } from '../components/AssetSelect.js';
 import { AssetChart } from '../components/AssetChart.js';
 import { OrderBookPanel } from '../components/OrderBookPanel.js';
 import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
 import { MlInsights } from '../components/MlInsights.js';
 import { FavStarSymbol } from '../components/FavStar.js';
-import { ASSET_TABS, buildAssetUrl, parseChartHash, type AssetTab } from '../lib/chart-url.js';
+import { ASSET_TABS, buildAssetUrl, parseChartHash, type AssetTab, type ChartVenue } from '../lib/chart-url.js';
 import { parseTab } from '../lib/tab-hash.js';
 import { Watchlist } from '../components/Watchlist.js';
 import { CHART_LAYOUTS, layoutGridClass, loadChartLayout, normalizeCells, saveChartLayout, type ChartCell, type ChartLayout } from '../lib/chart-layout.js';
@@ -34,18 +34,23 @@ export function AssetDetail() {
   const [asset, setAsset] = useState<string>(() => {
     if (linked.symbol) {
       setSelectedAsset(linked.symbol);
+      setSelectedVenue(linked.venue ?? 'binance');
       return linked.symbol;
     }
     return getSelectedAsset();
   });
+  // Kerzenquelle (Repo-Masterliste, Phase 5): Krypto (Binance) oder Aktien/ETF/Forex (Twelve Data, Yahoo).
+  const [venue, setVenue] = useState<ChartVenue>(() => (linked.symbol ? (linked.venue ?? 'binance') : getSelectedVenue()));
   const [tab, setTab] = useState<AssetTab>(() => parseTab(window.location.hash, ASSET_TABS, 'chart') as AssetTab);
   const ctx = useAssetContext(asset);
 
   const changeAsset = useCallback(
-    (sym: string) => {
+    (sym: string, v: ChartVenue = 'binance') => {
       setSelectedAsset(sym);
+      setSelectedVenue(v);
       setAsset(sym);
-      window.history.replaceState(null, '', buildAssetUrl(sym, tab));
+      setVenue(v);
+      window.history.replaceState(null, '', buildAssetUrl(sym, tab, null, v));
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     },
     [tab],
@@ -79,7 +84,7 @@ export function AssetDetail() {
   }
   function changeTab(tb: AssetTab) {
     setTab(tb);
-    window.history.replaceState(null, '', buildAssetUrl(asset, tb));
+    window.history.replaceState(null, '', buildAssetUrl(asset, tb, null, venue));
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   }
 
@@ -89,14 +94,16 @@ export function AssetDetail() {
       const p = parseChartHash(window.location.hash);
       const tb = parseTab(window.location.hash, ASSET_TABS, 'chart') as AssetTab;
       setTab(tb);
-      if (p.symbol && p.symbol !== asset) {
+      if (p.symbol && (p.symbol !== asset || (p.venue ?? 'binance') !== venue)) {
         setSelectedAsset(p.symbol);
+        setSelectedVenue(p.venue ?? 'binance');
         setAsset(p.symbol);
+        setVenue(p.venue ?? 'binance');
       }
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
-  }, [asset]);
+  }, [asset, venue]);
 
   const price = ctx && ctx.available ? ctx.price : null;
   const change = ctx && ctx.available ? ctx.change24hPct : null;
@@ -119,7 +126,7 @@ export function AssetDetail() {
               </span>
             )}
             <FavStarSymbol symbol={asset} />
-            <AssetSelect value={asset} onChange={changeAsset} />
+            <AssetSelect value={asset} venue={venue} onChange={changeAsset} />
           </div>
         }
       />
@@ -166,22 +173,28 @@ export function AssetDetail() {
               {layout > 1 && <span className="label ml-2">{t('asset.layoutHint')}</span>}
             </div>
             <div className={`grid gap-4 ${layoutGridClass(layout)}`}>
-              <Panel label={asset} stagger={1}>
-                <AssetChart symbol={asset} timeframeOverride={linked.tf ?? undefined} />
+              <Panel label={venue === 'binance' ? asset : `${asset} · ${venue === 'twelvedata' ? 'Twelve Data' : 'Yahoo'}`} stagger={1}>
+                <AssetChart symbol={asset} venue={venue} timeframeOverride={linked.tf ?? undefined} />
               </Panel>
               {cells.map((cell, i) => (
                 <Panel key={i} label={`${cell.symbol} · ${cell.tf}`} stagger={1}>
                   <div className="mb-2 flex justify-end">
-                    <AssetSelect value={cell.symbol} onChange={(sym) => updateCell(i, { symbol: sym })} persist={false} label={t('asset.cellSymbol', { n: i + 2 })} />
+                    <AssetSelect value={cell.symbol} venue={cell.venue} onChange={(sym, v) => updateCell(i, { symbol: sym, venue: v })} persist={false} label={t('asset.cellSymbol', { n: i + 2 })} />
                   </div>
-                  <AssetChart key={`${cell.symbol}:${i}`} symbol={cell.symbol} timeframeOverride={cell.tf} rememberTf={false} onTimeframeChange={(tf) => updateCell(i, { tf })} />
+                  <AssetChart key={`${cell.venue}:${cell.symbol}:${i}`} symbol={cell.symbol} venue={cell.venue} timeframeOverride={cell.tf} rememberTf={false} onTimeframeChange={(tf) => updateCell(i, { tf })} />
                 </Panel>
               ))}
             </div>
-            <button type="button" onClick={toggleBook} className="label mt-3 rounded border px-2 py-1" style={{ borderColor: 'var(--color-line)' }}>
-              {bookOpen ? t('market.hideBook') : t('market.showBook')}
-            </button>
-            {bookOpen && <OrderBookPanel symbol={asset} />}
+            {venue === 'binance' ? (
+              <>
+                <button type="button" onClick={toggleBook} className="label mt-3 rounded border px-2 py-1" style={{ borderColor: 'var(--color-line)' }}>
+                  {bookOpen ? t('market.hideBook') : t('market.showBook')}
+                </button>
+                {bookOpen && <OrderBookPanel symbol={asset} />}
+              </>
+            ) : (
+              <p className="label mt-3">{t('market.bookCryptoOnly')}</p>
+            )}
           </div>
         </div>
       )}

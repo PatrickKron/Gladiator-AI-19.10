@@ -19,7 +19,7 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { paneLayout, type PaneSpec } from '../lib/chart-panes.js';
 import { loadTf, pickTf, saveTf } from '../lib/chart-tf.js';
-import { CHART_TFS, type ChartTf } from '../lib/chart-url.js';
+import { CHART_TFS, type ChartTf, type ChartVenue } from '../lib/chart-url.js';
 import { loadStrategySlugs, saveStrategySlugs } from '../lib/chart-strategy-markers.js';
 import { cachedCatalog, loadCatalog } from '../lib/indicator-catalog.js';
 import { CATEGORY_KEYS, firstPlotTime, instanceLabel, legendColor, visiblePlotIds, type InstanceStyle, type MenuEntry } from '../lib/indicator-menu.js';
@@ -150,8 +150,11 @@ export function AssetChart({
   levels,
   rememberTf = true,
   onTimeframeChange,
+  venue = 'binance',
 }: {
   symbol: string;
+  /** Kerzenquelle: 'binance' (Krypto, Live-Ticks) oder 'twelvedata'/'yahoo' (Aktien/ETF/Forex, nur DB-Kerzen). */
+  venue?: ChartVenue;
   initialTimeframe?: Timeframe;
   /** Erzwungener Timeframe aus einem Deep-Link (`?tf=`) — schlägt das Gedächtnis. */
   timeframeOverride?: Timeframe;
@@ -186,7 +189,7 @@ export function AssetChart({
   useEffect(() => {
     let cancelled = false;
     void trpc.market.availableTimeframes
-      .query({ symbol })
+      .query({ symbol, venue })
       .then((tfs) => {
         if (!cancelled && tfs.length > 0) setAvailableTfs(tfs as Timeframe[]);
       })
@@ -194,7 +197,7 @@ export function AssetChart({
     return () => {
       cancelled = true;
     };
-  }, [symbol]);
+  }, [symbol, venue]);
   const shownTfs = CHART_TFS.filter((f) => availableTfs.includes(f) || f === tf);
   const [toggles, setToggles] = useState<Record<ToggleKey, boolean>>(DEFAULT_TOGGLES);
   const [data, setData] = useState<ChartData | null>(null);
@@ -519,6 +522,7 @@ export function AssetChart({
         symbol: forSymbol,
         timeframe: tf,
         limit: 400,
+        venue,
         items: instances.map((i) => ({ key: i.id, id: i.indicatorId, inputs: i.inputs })),
         ...(until !== undefined ? { until } : liveBar ? { liveBar } : {}),
       })
@@ -541,7 +545,7 @@ export function AssetChart({
     }
     liveDirtyRef.current = false;
     computeRef.current(liveBarRef.current !== null);
-  }, [symbol, tf, computeKey, state, instances.length, replayUntil]);
+  }, [symbol, tf, computeKey, state, instances.length, replayUntil, venue]);
   // Live: nach Ticks alle 10 s (nur sichtbar, nur wenn sich die Kerze bewegt hat) neu rechnen.
   useEffect(() => {
     if (state !== 'ready' || instances.length === 0 || replayUntil !== null) return;
@@ -566,7 +570,7 @@ export function AssetChart({
     liveBarRef.current = null;
     liveDirtyRef.current = false;
     void trpc.market.chartData
-      .query({ symbol, timeframe: tf, limit: 400, ...(replayUntil !== null ? { until: replayUntil } : {}) })
+      .query({ symbol, timeframe: tf, limit: 400, venue, ...(replayUntil !== null ? { until: replayUntil } : {}) })
       .then((res) => {
         if (cancelled) return;
         if (!res.available || res.candles.length === 0) {
@@ -583,7 +587,7 @@ export function AssetChart({
     return () => {
       cancelled = true;
     };
-  }, [symbol, tf, replayUntil]);
+  }, [symbol, tf, replayUntil, venue]);
   // Symbol-/TF-Wechsel beendet ein laufendes Replay (der Zeitstrahl gehört zum alten Fenster).
   useEffect(() => {
     setReplay(null);
@@ -855,7 +859,8 @@ export function AssetChart({
     // nur für Symbole im Live-Feed; ohne Ticks bleibt der geladene Stand.
     let lastBar = data.candles[data.candles.length - 1] as Bar | undefined;
     const barSec = liveBarSeconds(tf);
-    if (lastBar && replayRef.current === null) {
+    // Live-Ticks gibt es nur für Krypto (Binance-Stream); Aktien/Forex zeigen den DB-Stand.
+    if (lastBar && replayRef.current === null && venue === 'binance') {
       ensurePriceStream();
       cleanups.push(
         onTick((tick) => {
@@ -1131,7 +1136,7 @@ export function AssetChart({
         /* schon entsorgt — ignorieren */
       }
     };
-  }, [state, data, toggles, tf, levels, activeZones, signals, warmupInfo, t, strategySignals, strategySlugs, symbol, panes]);
+  }, [state, data, toggles, tf, levels, activeZones, signals, warmupInfo, t, strategySignals, strategySlugs, symbol, panes, venue]);
 
   // Neue Ergebnisse oder Stil-Änderungen zeichnen, ohne den Chart neu zu bauen.
   useEffect(() => {
