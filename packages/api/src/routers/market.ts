@@ -24,6 +24,7 @@ import {
   ingestYahooChart,
   YAHOO_VENUE,
   SUPPORTED_TIMEFRAMES,
+  TIMEFRAME_MS,
   orderTimeframes,
   addFredWatch,
   listFredWatch,
@@ -32,6 +33,7 @@ import {
   suggestFredSeries,
 } from '@gladiator/market-data';
 import { noTradeWindowFor } from '@gladiator/risk';
+import { hindsightOutcome, type HindsightSignal } from '@gladiator/backtest';
 import { scanUniverse } from '@gladiator/jobs';
 import { CostGuard, envAnthropicProvider, guardedComplete } from '@gladiator/agents';
 import {
@@ -596,6 +598,67 @@ export const marketRouter = router({
    * Nichts erfunden: Indikatoren rechnen exakt auf denselben DB-Kerzen wie
    * die Signal-Engine; Positionen ohne Historie fehlen (kein Raten).
    */
+  /**
+   * Übungs-Trade im Bar-Replay (Repo-Masterliste, Phase 3): Einstieg zum Schluss
+   * der Kerze `entryTime` (die Replay-Kerze beim Klick), Stop/Ziel absolut; der
+   * Ausgang kommt aus DERSELBEN Engine wie Backtest und „Was wäre passiert"
+   * (hindsightOutcome: Stop zuerst, gap-realistisch, netto nach Kosten) auf den
+   * echten Kerzen bis zum Replay-Stand `until`. Nichts wird gespeichert — Training.
+   */
+  replayTrade: protectedProcedure
+    .input(
+      z.object({
+        symbol: z.string().min(1),
+        timeframe: timeframeEnum,
+        venue: z.string().optional(),
+        direction: z.enum(['long', 'short']),
+        entryTime: z.number().int().positive(),
+        stopLoss: z.number().positive(),
+        takeProfit: z.number().positive(),
+        until: z.number().int().positive(),
+        /** Noch offen am Replay-Stand → zum Schluss dieser Kerze schließen (manueller Ausstieg). */
+        closeAtEnd: z.boolean().default(false),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const tfMs = TIMEFRAME_MS[input.timeframe];
+      const symbol = input.symbol.toUpperCase();
+      const candles = await getOhlcv(ctx.db, {
+        symbol,
+        timeframe: input.timeframe,
+        venue: input.venue,
+        since: new Date(input.entryTime * 1000),
+        until: new Date(input.until * 1000),
+      });
+      const entryBar = candles.find((c) => c.ts.getTime() === input.entryTime * 1000);
+      const none = { entry: null, rMultiple: null, exitReason: null, exitTime: null, barsHeld: null, lastClose: null };
+      if (!entryBar) return { status: 'no_data' as const, ...none };
+      const entry = entryBar.close;
+      const wrongSide = input.direction === 'long' ? input.stopLoss >= entry || input.takeProfit <= entry : input.stopLoss <= entry || input.takeProfit >= entry;
+      if (wrongSide) return { status: 'invalid' as const, ...none, entry };
+      const sig: HindsightSignal = {
+        id: 'replay',
+        symbol,
+        timeframe: input.timeframe,
+        direction: input.direction,
+        setupType: 'swing',
+        entry,
+        stopLoss: input.stopLoss,
+        takeProfits: [input.takeProfit],
+        trailPct: null,
+        createdAt: new Date(input.entryTime * 1000 + tfMs), // Entry-Kerze ist zum Klick geschlossen
+      };
+      const out = hindsightOutcome(sig, candles, tfMs);
+      const last = candles[candles.length - 1]!;
+      const lastClose = last.close;
+      if (out.status === 'no_data') return { status: 'open' as const, ...none, entry, lastClose }; // noch keine Folge-Kerze
+      const exitTime = out.exitTs ? Math.floor(out.exitTs.getTime() / 1000) : null;
+      if (out.status === 'open' && input.closeAtEnd) {
+        return { status: 'closed' as const, entry, rMultiple: out.rMultiple, exitReason: 'manual' as const, exitTime: Math.floor(last.ts.getTime() / 1000), barsHeld: out.barsHeld, lastClose };
+      }
+      return { status: out.status, entry, rMultiple: out.rMultiple, exitReason: out.exitReason, exitTime, barsHeld: out.barsHeld, lastClose };
+    }),
+
   chartData: protectedProcedure
     .input(
       z.object({

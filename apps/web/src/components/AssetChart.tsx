@@ -29,6 +29,8 @@ import { IndicatorSettings } from './IndicatorSettings.js';
 import { applyTick, liveBarSeconds, type Bar } from '../lib/live-candle.js';
 import { ensurePriceStream, onTick } from '../lib/prices.js';
 import { getUiMode, onUiModeChange } from '../lib/ui-mode.js';
+import { barIndexAt, joinSyncGroup } from '../lib/chart-sync.js';
+import { replayLevels, summarizeReplayTrades, type ReplayDirection, type ReplaySummary, type ReplayTrade } from '../lib/replay-trades.js';
 import { applyDrawingClick, pickDrawing, pointFromChart, translatePoints, type DrawingTool } from '../lib/chart-drawings.js';
 import type { DrawingPoint } from '@gladiator/core/drawings';
 import { DrawingsPrimitive, type ChartDrawing } from './chart-drawings-primitive.js';
@@ -207,6 +209,7 @@ export function AssetChart({
   onTimeframeChange,
   venue = 'binance',
   mainHeight = MAIN_HEIGHT,
+  syncGroup,
 }: {
   symbol: string;
   /** Kerzenquelle: 'binance' (Krypto, Live-Ticks) oder 'twelvedata'/'yahoo' (Aktien/ETF/Forex, nur DB-Kerzen). */
@@ -221,6 +224,8 @@ export function AssetChart({
   onTimeframeChange?: (tf: Timeframe) => void;
   /** Höhe des Kurs-Charts in px (Vollfläche auf der Chart-Seite, kleiner in Zellen). */
   mainHeight?: number;
+  /** Mehrfach-Charts: Fadenkreuz und sichtbarer Zeitbereich laufen mit allen Zellen derselben Gruppe mit. */
+  syncGroup?: string;
 }) {
   const { t } = useTranslation();
   // Timeframe pro Asset gemerkt (P0.2): Query-Override > gemerkt > Default.
@@ -296,6 +301,12 @@ export function AssetChart({
   const replayTimesRef = useRef<number[]>([]);
   const [replayMsg, setReplayMsg] = useState<string | null>(null);
   const REPLAY_MIN = 60;
+  // Übungs-Trades im Replay (Phase 3): Einstieg zum Schluss der aktuellen Replay-Kerze, Stop/Ziel in %,
+  // Ausgang vom Server mit derselben Engine wie Backtest/„Was wäre passiert" — netto, nicht gespeichert.
+  const [replayTrades, setReplayTrades] = useState<ReplayTrade[]>([]);
+  const [replaySl, setReplaySl] = useState(1);
+  const [replayTp, setReplayTp] = useState(2);
+  const [replayResult, setReplayResult] = useState<ReplaySummary | null>(null);
   const startReplay = () => {
     const times = replayTimesRef.current;
     if (times.length < REPLAY_MIN) {
@@ -305,6 +316,51 @@ export function AssetChart({
     setReplayMsg(null);
     setReplay({ until: times[Math.max(30, times.length - 100)]!, playing: false, speed: 1 });
   };
+  const endReplay = () => {
+    if (replayTrades.length > 0) setReplayResult(summarizeReplayTrades(replayTrades));
+    setReplayTrades([]);
+    setReplay(null);
+  };
+  const placeReplayTrade = (direction: ReplayDirection) => {
+    const cur = replayRef.current;
+    const last = data?.candles[data.candles.length - 1];
+    if (!cur || !last || state !== 'ready') return;
+    const entry = last.close;
+    const lv = replayLevels(entry, direction, replaySl, replayTp);
+    const id = `${last.time}-${direction}-${Date.now()}`;
+    setReplayTrades((prev) => [...prev, { id, direction, entryTime: last.time as number, entry, ...lv, status: 'open', rMultiple: null, exitReason: null, exitTime: null }]);
+  };
+  const evaluateReplayTrade = async (x: ReplayTrade, until: number, closeAtEnd = false): Promise<ReplayTrade> => {
+    const r = await trpc.market.replayTrade.query({ symbol, timeframe: tf, venue, direction: x.direction, entryTime: x.entryTime, stopLoss: x.stopLoss, takeProfit: x.takeProfit, until, closeAtEnd });
+    if (r.status === 'no_data') return x;
+    return { ...x, status: r.status, rMultiple: r.rMultiple, exitReason: r.exitReason, exitTime: r.exitTime };
+  };
+  const closeReplayTrade = async (id: string) => {
+    const cur = replayRef.current;
+    const x = replayTrades.find((y) => y.id === id);
+    if (!cur || !x || x.status !== 'open') return;
+    try {
+      const next = await evaluateReplayTrade(x, cur.until, true);
+      setReplayTrades((prev) => prev.map((y) => (y.id === id ? next : y)));
+    } catch {
+      /* Server nicht erreichbar — Trade bleibt offen */
+    }
+  };
+  // Jeder Replay-Schritt bewertet die offenen Übungs-Trades neu (nur echte Kerzen bis zum Stand).
+  useEffect(() => {
+    const cur = replay;
+    if (!cur) return;
+    const open = replayTrades.filter((x) => x.status === 'open');
+    if (open.length === 0) return;
+    let cancelled = false;
+    void Promise.all(open.map((x) => evaluateReplayTrade(x, cur.until).catch(() => x))).then((rows) => {
+      if (cancelled) return;
+      setReplayTrades((prev) => prev.map((x) => rows.find((r) => r.id === x.id) ?? x));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [replay?.until]);
   const replayIndex = replay ? replayTimesRef.current.indexOf(replay.until) : -1;
   const replayStep = (k: number) => {
     const times = replayTimesRef.current;
@@ -670,6 +726,7 @@ export function AssetChart({
   // Symbol-/TF-Wechsel beendet ein laufendes Replay (der Zeitstrahl gehört zum alten Fenster).
   useEffect(() => {
     setReplay(null);
+    setReplayTrades([]);
   }, [symbol, tf]);
 
   // Signale dieses Symbols (Feature 2): offen + Historie, als Chart-Marker
@@ -880,6 +937,45 @@ export function AssetChart({
     price.subscribeCrosshairMove(onDrawMove);
     cleanups.push(() => price.unsubscribeCrosshairMove(onDrawMove));
 
+    // Mehrfach-Charts (Phase 3b): Fadenkreuz + Zeitbereich mit den anderen Zellen teilen —
+    // über die Zeit (Sekunden), damit es auch bei verschiedenen Zeitrahmen passt.
+    if (syncGroup) {
+      let applying = false;
+      const member = joinSyncGroup(syncGroup, (ev) => {
+        applying = true;
+        try {
+          if (ev.kind === 'crosshair') {
+            const i = ev.time === null ? -1 : barIndexAt(barTimes, ev.time);
+            const c = i >= 0 ? data.candles[i] : undefined;
+            if (c) price.setCrosshairPosition(c.close, c.time as Time, candle);
+            else price.clearCrosshairPosition();
+          } else {
+            const cur = price.timeScale().getVisibleRange();
+            if (!cur || (cur.from as number) !== ev.from || (cur.to as number) !== ev.to) price.timeScale().setVisibleRange({ from: ev.from as Time, to: ev.to as Time });
+          }
+        } catch {
+          /* Zelle wird gerade neu gebaut */
+        } finally {
+          applying = false;
+        }
+      });
+      const onSyncMove = (param: Parameters<Parameters<typeof price.subscribeCrosshairMove>[0]>[0]) => {
+        if (applying) return;
+        member.publish({ kind: 'crosshair', time: param.time === undefined ? null : (param.time as number) });
+      };
+      const onSyncRange = (range: ReturnType<typeof price.timeScale>['getVisibleRange'] extends () => infer R ? R : never) => {
+        if (applying || !range) return;
+        member.publish({ kind: 'range', from: range.from as number, to: range.to as number });
+      };
+      price.subscribeCrosshairMove(onSyncMove);
+      price.timeScale().subscribeVisibleTimeRangeChange(onSyncRange);
+      cleanups.push(() => {
+        price.unsubscribeCrosshairMove(onSyncMove);
+        price.timeScale().unsubscribeVisibleTimeRangeChange(onSyncRange);
+        member.leave();
+      });
+    }
+
     // Verschieben (Werkzeug „Verschieben"): Zeichnung greifen, ziehen, loslassen →
     // speichern. Die Chart-Bibliothek kennt kein Drag-Ereignis, daher Pointer-Events
     // am Chart-Element; Scrollen/Zoomen ist während des Ziehens aus.
@@ -1066,6 +1162,21 @@ export function AssetChart({
         });
       }
     }
+    // Übungs-Trades im Replay: Einstieg (Pfeil) und Ausstieg (Kreis mit Grund + R)
+    for (const x of replayTrades) {
+      if (x.status === 'invalid') continue;
+      const long = x.direction === 'long';
+      markers.push({ time: x.entryTime as UTCTimestamp, position: long ? 'belowBar' : 'aboveBar', color: long ? C.green : C.red, shape: long ? 'arrowUp' : 'arrowDown', text: long ? 'Long' : 'Short' });
+      if (x.status === 'closed' && x.exitTime !== null && x.rMultiple !== null) {
+        markers.push({
+          time: x.exitTime as UTCTimestamp,
+          position: long ? 'aboveBar' : 'belowBar',
+          color: x.rMultiple >= 0 ? C.green : C.red,
+          shape: 'circle',
+          text: `${(x.exitReason ?? 'manual').toUpperCase()} ${x.rMultiple >= 0 ? '+' : ''}${x.rMultiple.toFixed(2)} R`,
+        });
+      }
+    }
     // Warmup-Markierung: ab welcher Kerze der langsamste aktive Indikator läuft
     if (warmupInfo.length > 0) {
       const slowest = warmupInfo[warmupInfo.length - 1]!;
@@ -1215,7 +1326,7 @@ export function AssetChart({
         /* schon entsorgt — ignorieren */
       }
     };
-  }, [state, data, toggles, tf, levels, activeZones, signals, warmupInfo, t, strategySignals, strategySlugs, symbol, panes, venue]);
+  }, [state, data, toggles, tf, levels, activeZones, signals, warmupInfo, t, strategySignals, strategySlugs, symbol, panes, venue, syncGroup, replayTrades]);
 
   // Neue Ergebnisse oder Stil-Änderungen zeichnen, ohne den Chart neu zu bauen.
   useEffect(() => {
@@ -1287,7 +1398,7 @@ export function AssetChart({
     <button
       type="button"
       onClick={() => {
-        if (replay) setReplay(null);
+        if (replay) endReplay();
         else startReplay();
         setToolsOpen(false);
       }}
@@ -1374,6 +1485,20 @@ export function AssetChart({
           {replayMsg}
         </p>
       )}
+      {replayResult && !replay && (
+        /* Ergebnis der Replay-Sitzung (Erfolgsmoment): netto, hypothetisch, nicht gespeichert */
+        <div className="glass mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-sm" role="status">
+          <span className="font-medium">{t('chart.replay.result')}</span>
+          <span className="num" style={{ color: replayResult.sumR >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+            {t('chart.replay.trades', { n: replayResult.total, wins: replayResult.wins, r: replayResult.sumR.toLocaleString(appLocale(), { maximumFractionDigits: 2, signDisplay: 'always' }) })}
+            {replayResult.open > 0 ? ` · ${replayResult.open} ${t('chart.replay.open')}` : ''}
+          </span>
+          <span className="label">{t('chart.replay.resultHint')}</span>
+          <button type="button" onClick={() => setReplayResult(null)} className="ml-auto text-xs" style={{ color: 'var(--color-mut)' }}>
+            {t('chart.replay.dismiss')}
+          </button>
+        </div>
+      )}
       {replay && (
         <div className="mb-2 flex flex-wrap items-center gap-2 rounded border px-2 py-1.5" style={{ borderColor: 'rgba(245,182,66,0.45)', background: 'rgba(245,182,66,0.05)' }} role="group" aria-label={t('chart.replay.title')}>
           <span className="label" style={{ color: 'var(--color-warn)' }}>
@@ -1421,9 +1546,57 @@ export function AssetChart({
             {t('chart.replay.position', { i: replayIndex + 1, n: replayTimesRef.current.length })} · {new Date(replay.until * 1000).toLocaleString(appLocale())}
           </span>
           {state === 'loading' ? <span className="label">…</span> : null}
-          <button type="button" onClick={() => setReplay(null)} className="ml-auto rounded border px-2 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+          <button type="button" onClick={endReplay} className="ml-auto rounded border px-2 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
             {t('chart.replay.end')}
           </button>
+          {/* Übungs-Trades: Stop/Ziel in %, Long/Short zum Schluss der aktuellen Kerze, Liste mit Stand */}
+          <div className="flex w-full flex-wrap items-center gap-2 border-t pt-1.5" style={{ borderColor: 'var(--color-line)' }}>
+            <span className="label">{t('chart.replay.place')}</span>
+            <label className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+              {t('chart.replay.sl')}
+              <input type="number" min={0.05} max={50} step={0.1} value={replaySl} onChange={(e) => setReplaySl(Number(e.target.value) || 0.1)} className="field num w-16 px-1 py-0.5 text-[11px]" aria-label={t('chart.replay.sl')} />
+            </label>
+            <label className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+              {t('chart.replay.tp')}
+              <input type="number" min={0.05} max={100} step={0.1} value={replayTp} onChange={(e) => setReplayTp(Number(e.target.value) || 0.1)} className="field num w-16 px-1 py-0.5 text-[11px]" aria-label={t('chart.replay.tp')} />
+            </label>
+            <button type="button" onClick={() => placeReplayTrade('long')} disabled={state !== 'ready'} className="chip chip--pos cursor-pointer disabled:opacity-40">
+              ▲ {t('chart.replay.long')}
+            </button>
+            <button type="button" onClick={() => placeReplayTrade('short')} disabled={state !== 'ready'} className="chip chip--neg cursor-pointer disabled:opacity-40">
+              ▼ {t('chart.replay.short')}
+            </button>
+            {replayTrades.length > 0 && (
+              <span className="num text-[11px]" style={{ color: 'var(--color-ink)' }}>
+                {(() => {
+                  const sum = summarizeReplayTrades(replayTrades);
+                  return t('chart.replay.trades', { n: sum.total, wins: sum.wins, r: sum.sumR.toLocaleString(appLocale(), { maximumFractionDigits: 2, signDisplay: 'always' }) });
+                })()}
+              </span>
+            )}
+            <span className="label w-full">{t('chart.replay.hint')}</span>
+          </div>
+          {replayTrades.length > 0 && (
+            <ul className="flex w-full flex-wrap gap-x-4 gap-y-1 text-[11px]">
+              {replayTrades.map((x) => (
+                <li key={x.id} className="flex items-center gap-1.5">
+                  <span className={`chip ${x.direction === 'long' ? 'chip--pos' : 'chip--neg'}`}>{x.direction === 'long' ? 'L' : 'S'}</span>
+                  <span className="num">{x.entry.toLocaleString(appLocale(), { maximumFractionDigits: 4 })}</span>
+                  <span style={{ color: 'var(--color-mut)' }}>→</span>
+                  <span className="num" style={{ color: x.rMultiple === null ? 'var(--color-mut)' : x.rMultiple >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+                    {x.status === 'invalid'
+                      ? t('chart.replay.invalid')
+                      : `${x.status === 'open' ? t('chart.replay.open') : t(`chart.replay.exit_${x.exitReason ?? 'manual'}`)}${x.rMultiple === null ? '' : ` ${x.rMultiple.toLocaleString(appLocale(), { maximumFractionDigits: 2, signDisplay: 'always' })} R`}`}
+                  </span>
+                  {x.status === 'open' && (
+                    <button type="button" onClick={() => void closeReplayTrade(x.id)} className="underline-offset-2 hover:underline" style={{ color: 'var(--color-cyan)' }}>
+                      {t('chart.replay.close')}
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
           <p className="label w-full" style={{ color: 'var(--color-warn)' }}>
             {t('chart.replay.note', { time: new Date(replay.until * 1000).toLocaleString(appLocale()) })}
           </p>

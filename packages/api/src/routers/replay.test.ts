@@ -99,4 +99,38 @@ describe.skipIf(!hasDb)('Replay: Kerzen bis zum Stichtag', () => {
     const at = fullRsi.find((p) => p.time === until)!;
     expect(rsi[rsi.length - 1]!.value).toBeCloseTo(at.value, 9);
   });
+  it('Übungs-Trade im Replay: offen ohne Folge-Kerze, Ziel/Stop mit der Engine, manueller Ausstieg, falsche Seite', async () => {
+    const entryTime = T0 + 100 * H;
+    const entry = 100 + Math.sin(101 / 9) * 6; // Close der Entry-Kerze
+    const base = { symbol: SYMBOL, timeframe: '1h' as const, direction: 'long' as const, entryTime, stopLoss: entry * 0.9, takeProfit: entry * 1.02 };
+    // Replay steht noch auf der Entry-Kerze → offen, kein Ergebnis
+    const fresh = await a.market.replayTrade({ ...base, until: entryTime });
+    expect(fresh.status).toBe('open');
+    expect(fresh.entry).toBeCloseTo(entry, 9);
+    expect(fresh.rMultiple).toBeNull();
+    // einige Kerzen später: offen mit Zwischenstand ODER schon am Ziel — nie erfunden
+    const mid = await a.market.replayTrade({ ...base, until: entryTime + 2 * H });
+    expect(['open', 'closed']).toContain(mid.status);
+    expect(typeof mid.rMultiple).toBe('number');
+    // bis zum Ende der Daten: die Sinuswelle (+6 %) erreicht das Ziel (+2 %) vor dem Stop (−10 %)
+    const done = await a.market.replayTrade({ ...base, until: T0 + 299 * H });
+    expect(done.status).toBe('closed');
+    expect(done.exitReason).toBe('tp');
+    expect(done.rMultiple!).toBeGreaterThan(0);
+    expect(done.exitTime!).toBeGreaterThan(entryTime);
+    // manueller Ausstieg: offen am Stand → geschlossen zum Schluss dieser Kerze
+    const manual = await a.market.replayTrade({ ...base, until: entryTime + 2 * H, closeAtEnd: true });
+    expect(manual.status).toBe('closed');
+    if (mid.status === 'open') {
+      expect(manual.exitReason).toBe('manual');
+      expect(manual.exitTime).toBe(entryTime + 2 * H);
+    }
+    // Stop auf der falschen Seite → ehrlich ungültig, kein Trade
+    const bad = await a.market.replayTrade({ ...base, stopLoss: entry * 1.01, until: T0 + 299 * H });
+    expect(bad.status).toBe('invalid');
+    // unbekannte Entry-Kerze → keine Daten
+    const nix = await a.market.replayTrade({ ...base, entryTime: entryTime + 1, until: T0 + 299 * H });
+    expect(nix.status).toBe('no_data');
+  });
+
 });
