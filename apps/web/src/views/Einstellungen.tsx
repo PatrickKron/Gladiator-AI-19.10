@@ -5,6 +5,7 @@ import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel, TabBar } from '../components/ui.js';
 import { useHashTab } from '../lib/use-hash-tab.js';
 import { ExchangeConnectPanel } from '../components/ExchangeConnectPanel.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Trading-Einstellungen (09_ §3.10): Werte greifen DIREKT in die Risk-Engine.
@@ -351,8 +352,8 @@ function StockDataPanel() {
                   <td className="py-1 pr-3">{s.symbol}</td>
                   <td className="py-1 pr-3">{s.timeframe}</td>
                   <td className="py-1 pr-3 text-right">{s.candles}</td>
-                  <td className="py-1 pr-3">{new Date(s.from_ts).toLocaleDateString('de-DE')}</td>
-                  <td className="py-1">{new Date(s.to_ts).toLocaleDateString('de-DE')}</td>
+                  <td className="py-1 pr-3">{new Date(s.from_ts).toLocaleDateString(appLocale())}</td>
+                  <td className="py-1">{new Date(s.to_ts).toLocaleDateString(appLocale())}</td>
                 </tr>
               ))}
             </tbody>
@@ -513,7 +514,7 @@ export function Einstellungen() {
                     className="field num px-3 py-2 text-sm"
                   />
                   <span className="text-[11px]" style={{ color: 'var(--color-mut)' }}>
-                    {SETTINGS_BOUNDS[f.name].min} – {SETTINGS_BOUNDS[f.name].max.toLocaleString()}
+                    {SETTINGS_BOUNDS[f.name].min} – {SETTINGS_BOUNDS[f.name].max.toLocaleString(appLocale())}
                     {f.name === 'maxExposurePctPerAsset' && <> · {t('settings.exposureHint')}</>}
                   </span>
                 </label>

@@ -11,6 +11,7 @@ import { ASSET_TABS, buildAssetUrl, parseChartHash, type AssetTab, type ChartVen
 import { parseTab } from '../lib/tab-hash.js';
 import { Watchlist } from '../components/Watchlist.js';
 import { CHART_LAYOUTS, layoutGridClass, loadChartLayout, normalizeCells, saveChartLayout, type ChartCell, type ChartLayout } from '../lib/chart-layout.js';
+import { appLocale } from '../lib/locale.js';
 
 const DOCK_KEY = 'gladiator.chartBookDock';
 function bookDockOpen(): boolean {
@@ -117,7 +118,7 @@ export function AssetDetail() {
           <div className="flex items-center gap-3">
             {price != null && (
               <span className="num text-sm">
-                {price.toLocaleString(undefined, { maximumFractionDigits: price >= 1000 ? 0 : 4 })} $
+                {price.toLocaleString(appLocale(), { maximumFractionDigits: price >= 1000 ? 0 : 4 })} $
                 {change != null && (
                   <span className="ml-1.5 text-xs" style={{ color: change >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
                     {change >= 0 ? '▲' : '▼'} {Math.abs(change).toFixed(2)} %

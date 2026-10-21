@@ -4,6 +4,7 @@ import { streamWorkshopChat, trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
 import { COMPARE_COLORS, EquityChart, MetricCard, MultiEquityChart, fmt } from '../components/EquityChart.js';
 import { CHART_TFS } from '../lib/chart-url.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Strategie-Workshop (Session 2): Pine-Script einfügen → KI-Analyse →
@@ -845,7 +846,7 @@ function TradesTable({ trades }: { trades: TradeRow[] }) {
         <tbody className="num">
           {trades.slice().reverse().map((tr, i) => (
             <tr key={i} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
-              <td className="py-1 pr-3">{new Date(tr.entryTs).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}</td>
+              <td className="py-1 pr-3">{new Date(tr.entryTs).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' })}</td>
               <td className="py-1 pr-3">{tr.direction}</td>
               <td className="py-1 pr-3 text-right" style={{ color: tr.rMultiple >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>{fmt(tr.rMultiple)}</td>
               <td className="py-1 pr-3 text-right" style={{ color: tr.netPnl >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>{fmt(tr.netPnl)} $</td>
@@ -932,7 +933,7 @@ function BacktestPanel({
     .filter((r) => compare[r.id])
     .map((r, i) => ({
       key: r.id,
-      label: r.label ?? `${r.symbol}@${r.timeframe} ${new Date(r.createdAt).toLocaleDateString('de-DE')}`,
+      label: r.label ?? `${r.symbol}@${r.timeframe} ${new Date(r.createdAt).toLocaleDateString(appLocale())}`,
       color: COMPARE_COLORS[i % COMPARE_COLORS.length]!,
       equityCurve: (r.equityCurve ?? []) as { ts: string; equity: number }[],
     }));
@@ -1005,7 +1006,7 @@ function BacktestPanel({
                           <td className="py-1 pr-2">
                             <input type="checkbox" checked={compare[r.id] ?? false} onChange={(e) => setCompare({ ...compare, [r.id]: e.target.checked })} />
                           </td>
-                          <td className="py-1 pr-3">{r.label ?? new Date(r.createdAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                          <td className="py-1 pr-3">{r.label ?? new Date(r.createdAt).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' })}</td>
                           <td className="py-1 pr-3">{r.symbol}@{r.timeframe}</td>
                           <td className="py-1 pr-3 text-right" style={{ color: (m?.netReturnPct ?? 0) >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
                             {fmt(m?.netReturnPct, 1)} %
@@ -1171,7 +1172,7 @@ function VersionsPanel({
                     {v.status}
                   </span>
                   <span className="text-xs" style={{ color: 'var(--color-mut)' }}>
-                    {new Date(v.createdAt).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })}
+                    {new Date(v.createdAt).toLocaleString(appLocale(), { dateStyle: 'medium', timeStyle: 'short' })}
                   </span>
                   <div className="ml-auto flex flex-wrap gap-2">
                     <button onClick={() => void restore(v.id)} disabled={busy !== null} className={secondaryBtn} style={ghostStyle}>

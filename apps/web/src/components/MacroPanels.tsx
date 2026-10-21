@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { LoadFailures, Loading, NotConnected, Panel, useLoadFailures } from './ui.js';
 import { Sparkline } from './Sparkline.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Makro-Panels (P2.9): GRS-Ring, Pulse (VIX/DXY), Gravity (US10Y), Footprint
@@ -123,7 +124,7 @@ export function MacroPanels() {
               </div>
             )}
             {macro.vix && (
-              <p className="label mt-4">{t('oracle.updated')}: {new Date(macro.vix.ts).toLocaleDateString()}</p>
+              <p className="label mt-4">{t('oracle.updated')}: {new Date(macro.vix.ts).toLocaleDateString(appLocale())}</p>
             )}
           </div>
         )}
@@ -248,7 +249,7 @@ export function MacroPanels() {
                 </table>
               </div>
               {cotRows[0]?.reportDate && (
-                <p className="label mt-2">{t('intel.cotReportDate')}: {new Date(cotRows[0].reportDate).toLocaleDateString()}</p>
+                <p className="label mt-2">{t('intel.cotReportDate')}: {new Date(cotRows[0].reportDate).toLocaleDateString(appLocale())}</p>
               )}
             </div>
           ) : (

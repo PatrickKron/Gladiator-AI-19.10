@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { MetricCard } from './EquityChart.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Monte-Carlo über die Trade-Reihenfolge (Repo-Masterliste, Phase 4): die
@@ -13,7 +14,7 @@ import { MetricCard } from './EquityChart.js';
 type McResult = Awaited<ReturnType<typeof trpc.lab.monteCarlo.mutate>>;
 
 const MIN_TRADES = 10;
-const fmt = (n: number, d = 2) => n.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+const fmt = (n: number, d = 2) => n.toLocaleString(appLocale(), { minimumFractionDigits: d, maximumFractionDigits: d });
 
 function FanChart({ fan, start }: { fan: McResult['fan']; start: number }) {
   const W = 720;

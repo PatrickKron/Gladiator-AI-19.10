@@ -5,6 +5,7 @@ import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
 import { Workshop } from './Workshop.js';
 import { StrategyCatalog } from '../components/StrategyCatalog.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Strategie-Builder (09_ §3.14 + §3.5): Registry mit Versionen + Promotion
@@ -147,7 +148,7 @@ function StrategyRow({ s, onChanged }: { s: Strategy; onChanged: () => void }) {
           <span className="label">{s.slug}</span>
         </div>
         <span className="label">
-          {t('builder.createdAt')}: {new Date(s.createdAt).toLocaleDateString()} · {open ? '−' : '+'}
+          {t('builder.createdAt')}: {new Date(s.createdAt).toLocaleDateString(appLocale())} · {open ? '−' : '+'}
         </span>
       </button>
       {open && (

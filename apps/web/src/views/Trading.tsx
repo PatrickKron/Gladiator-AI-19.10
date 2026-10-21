@@ -11,6 +11,7 @@ import { DemoTrading } from './DemoTrading.js';
 import { PaperPositions } from '../components/PaperPositions.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 import { exportYears, tradesCsvFilename, swapsCsvFilename } from '../lib/protocol.js';
+import { appLocale } from '../lib/locale.js';
 
 /** Tabs der Trading-Seite (P1.8). */
 const TABS = ['positionen', 'historie', 'risiko', 'alerts', 'performance'] as const;
@@ -30,7 +31,7 @@ type Settings = Awaited<ReturnType<typeof trpc.settings.get.query>>;
 
 function fmt(n: number | null | undefined, d = 2): string {
   if (n === null || n === undefined || Number.isNaN(n)) return '—';
-  return n.toLocaleString(undefined, { maximumFractionDigits: d });
+  return n.toLocaleString(appLocale(), { maximumFractionDigits: d });
 }
 
 const VENUE_LABEL_KEY: Record<string, string> = {
@@ -157,7 +158,7 @@ function AlertsPanel() {
     }
   }
 
-  const fmtP = (n: string) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 6 });
+  const fmtP = (n: string) => Number(n).toLocaleString(appLocale(), { maximumFractionDigits: 6 });
 
   return (
     <Panel label={t('trading.alertsTitle')} stagger={8} className="mt-5">
@@ -215,7 +216,7 @@ function AlertsPanel() {
                   {a.active
                     ? t('trading.alertActive')
                     : t('trading.alertTriggeredAt', {
-                        time: a.triggeredAt ? new Date(a.triggeredAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '',
+                        time: a.triggeredAt ? new Date(a.triggeredAt).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' }) : '',
                         price: a.triggeredPrice ? fmtP(a.triggeredPrice) : '',
                       })}
                 </span>
@@ -244,7 +245,7 @@ function PerformancePanel() {
     void trpc.trading.performance.query().then(setPerf).catch(() => setPerf({ trades: 0 } as Performance));
   }, []);
 
-  const fmtN = (n: number | null | undefined, d = 2) => (n == null ? '\u2014' : n.toLocaleString(undefined, { maximumFractionDigits: d }));
+  const fmtN = (n: number | null | undefined, d = 2) => (n == null ? '\u2014' : n.toLocaleString(appLocale(), { maximumFractionDigits: d }));
 
   return (
     <Panel label={t('trading.perfTitle')} stagger={9} className="mt-5">
@@ -378,9 +379,9 @@ function LiveApprovals() {
                 <p className="text-sm font-medium">{t(VENUE_LABEL_KEY[a.venueId] ?? a.venueId)}</p>
                 <p className="label mt-1">
                   {a.approved
-                    ? `${t('trading.liveApproved')} · ${a.approvedAt ? new Date(a.approvedAt).toLocaleString() : ''}`
+                    ? `${t('trading.liveApproved')} · ${a.approvedAt ? new Date(a.approvedAt).toLocaleString(appLocale()) : ''}`
                     : a.lastRevokedAt
-                      ? `${t('trading.liveNotApproved')} · ${t('trading.liveRevokedAt', { date: new Date(a.lastRevokedAt).toLocaleDateString() })}`
+                      ? `${t('trading.liveNotApproved')} · ${t('trading.liveRevokedAt', { date: new Date(a.lastRevokedAt).toLocaleDateString(appLocale()) })}`
                       : t('trading.liveNotApproved')}
                 </p>
               </div>
@@ -745,7 +746,7 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
                 {history.map((tr) => (
                   <tr key={tr.id} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
                     <td className="py-1.5 pr-3">
-                      {tr.exitTs ? new Date(tr.exitTs).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                      {tr.exitTs ? new Date(tr.exitTs).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                     </td>
                     <td className="py-1.5 pr-3">
                       <a href={buildChartUrl(tr.symbol)} className="hover:underline" style={{ color: 'var(--color-cyan)' }}>{tr.symbol}</a>

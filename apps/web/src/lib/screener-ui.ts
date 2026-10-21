@@ -1,5 +1,6 @@
 import type { trpc } from '../api.js';
 import { visiblePlotIds, type MenuEntry, type MenuInput } from './indicator-menu.js';
+import { appLocale } from './locale.js';
 
 /**
  * Reine Helfer des Markt-Screeners: Standard-Bedingungen, Beschriftung der
@@ -65,7 +66,7 @@ export function plotChoices(entry: Pick<MenuEntry, 'plots'>): { id: string; titl
 export function fmtNum(n: number | null | undefined): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return '—';
   const abs = Math.abs(n);
-  return n.toLocaleString(undefined, { maximumFractionDigits: abs >= 1000 ? 1 : abs >= 1 ? 2 : 6 });
+  return n.toLocaleString(appLocale(), { maximumFractionDigits: abs >= 1000 ? 1 : abs >= 1 ? 2 : 6 });
 }
 
 const OP_TEXT: Record<CompareOp, string> = { '>': '>', '<': '<', '>=': '≥', '<=': '≤', crosses_above: '↗', crosses_below: '↘' };

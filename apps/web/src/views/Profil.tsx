@@ -4,6 +4,7 @@ import { VIEW_PREFERENCE_KEYS } from '../lib/hotkeys.js';
 import { changePassword, logout, trpc } from '../api.js';
 import { Loading, PageHeader, Panel } from '../components/ui.js';
 import { LANGUAGES, setLanguage, storedLanguage, type LanguageCode } from '../i18n/index.js';
+import { appLocale } from '../lib/locale.js';
 
 /** Profil (09_ §3.11): Konto, Sprache, Sitzung — ein User-Typ, keine Rollen/Tiers. */
 
@@ -60,7 +61,7 @@ export function Profil() {
               {'createdAt' in me && me.createdAt != null && (
                 <li className="flex justify-between gap-3">
                   <span style={{ color: 'var(--color-mut)' }}>{t('profile.memberSince')}</span>
-                  <span className="num">{new Date(me.createdAt as string).toLocaleDateString()}</span>
+                  <span className="num">{new Date(me.createdAt as string).toLocaleDateString(appLocale())}</span>
                 </li>
               )}
             </ul>

@@ -1,4 +1,5 @@
 import { rankAssets, type SearchableAsset } from './asset-search.js';
+import { appLocale } from './locale.js';
 
 /**
  * „Entdecken"-Logik (Redesign 2026-07-09 nach Patrick-Feedback: „unübersichtlich,
@@ -98,7 +99,7 @@ export function filterAssets<T extends FilterableAsset>(assets: T[], f: Discover
  * Suffix — kein erfundenes Dollarzeichen.
  */
 export function fmtQuote(price: number, currency: string | null): string {
-  const num = price.toLocaleString(undefined, { maximumFractionDigits: price >= 1000 ? 0 : price >= 1 ? 2 : 6 });
+  const num = price.toLocaleString(appLocale(), { maximumFractionDigits: price >= 1000 ? 0 : price >= 1 ? 2 : 6 });
   if (currency === null) return num;
   const cur = currency.toUpperCase();
   if (cur === 'USD' || cur === 'USDT') return `${num} $`;

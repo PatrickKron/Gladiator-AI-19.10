@@ -32,6 +32,7 @@ import { applyDrawingClick, pickDrawing, pointFromChart, translatePoints, type D
 import type { DrawingPoint } from '@gladiator/core/drawings';
 import { DrawingsPrimitive, type ChartDrawing } from './chart-drawings-primitive.js';
 import { SmcBoxesPrimitive, type SmcItem } from './smc-boxes-primitive.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Voll-Chart mit Indikatoren (Krypto-Charting):
@@ -100,7 +101,7 @@ const SIGNAL_STATUS_LABEL: Record<SignalMarker['status'], string> = {
   expired: 'verf.',
 };
 
-const fmtPx = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: n >= 1000 ? 1 : 4 });
+const fmtPx = (n: number) => n.toLocaleString(appLocale(), { maximumFractionDigits: n >= 1000 ? 1 : 4 });
 
 const MAIN_HEIGHT = 340;
 const PANE_HEIGHT = 120;
@@ -1065,7 +1066,7 @@ export function AssetChart({
         return;
       }
       const d = bar.close >= bar.open ? C.green : C.red;
-      const f = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: n >= 1000 ? 1 : 4 });
+      const f = (n: number) => n.toLocaleString(appLocale(), { maximumFractionDigits: n >= 1000 ? 1 : 4 });
       legendEl.style.opacity = '1';
       legendEl.innerHTML = `<span style="color:${C.mut}">O</span> ${f(bar.open)}  <span style="color:${C.mut}">H</span> ${f(bar.high)}  <span style="color:${C.mut}">L</span> ${f(bar.low)}  <span style="color:${C.mut}">C</span> <span style="color:${d}">${f(bar.close)}</span>`;
     };
@@ -1315,14 +1316,14 @@ export function AssetChart({
             aria-label={t('chart.replay.position', { i: replayIndex + 1, n: replayTimesRef.current.length })}
           />
           <span className="num text-[11px]" style={{ color: 'var(--color-ink)' }}>
-            {t('chart.replay.position', { i: replayIndex + 1, n: replayTimesRef.current.length })} · {new Date(replay.until * 1000).toLocaleString()}
+            {t('chart.replay.position', { i: replayIndex + 1, n: replayTimesRef.current.length })} · {new Date(replay.until * 1000).toLocaleString(appLocale())}
           </span>
           {state === 'loading' ? <span className="label">…</span> : null}
           <button type="button" onClick={() => setReplay(null)} className="ml-auto rounded border px-2 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
             {t('chart.replay.end')}
           </button>
           <p className="label w-full" style={{ color: 'var(--color-warn)' }}>
-            {t('chart.replay.note', { time: new Date(replay.until * 1000).toLocaleString() })}
+            {t('chart.replay.note', { time: new Date(replay.until * 1000).toLocaleString(appLocale()) })}
           </p>
         </div>
       )}

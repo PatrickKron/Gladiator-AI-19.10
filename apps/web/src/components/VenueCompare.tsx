@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { fmtNum } from './ui.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Börsen-Vergleich im Order-Ticket (Vision-Punkt 2): echte, öffentliche Kurse
@@ -143,7 +144,7 @@ export function VenueCompare({
             </tbody>
           </table>
           <p className="mt-1.5 text-[11px]" style={{ color: 'var(--color-mut)' }}>
-            {t('venues.footer', { time: new Date(data.fetchedAt).toLocaleTimeString() })}
+            {t('venues.footer', { time: new Date(data.fetchedAt).toLocaleTimeString(appLocale()) })}
           </p>
         </div>
       )}

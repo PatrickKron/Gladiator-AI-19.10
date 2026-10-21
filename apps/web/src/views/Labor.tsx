@@ -15,6 +15,7 @@ import {
 } from '../components/EquityChart.js';
 import { MonteCarloPanel } from '../components/MonteCarloPanel.js';
 import { OptimizationProposals } from '../components/OptimizationProposals.js';
+import { appLocale } from '../lib/locale.js';
 
 /** Schnellstart-Vorlagen (P1.6) — ein Klick füllt die Konfiguration. */
 const QUICK_TEMPLATES: { symbol: string; timeframe: ChartTf; setupType: 'scalp' | 'swing' | 'position'; riskPct: number }[] = [
@@ -694,7 +695,7 @@ export function Labor() {
                         color: tp.direction === 'bullish' ? 'var(--color-pos)' : 'var(--color-neg)',
                       }}
                     >
-                      {tp.kind} {tp.direction === 'bullish' ? '▲' : '▼'} {new Date(tp.ts).toLocaleDateString('de-DE')}
+                      {tp.kind} {tp.direction === 'bullish' ? '▲' : '▼'} {new Date(tp.ts).toLocaleDateString(appLocale())}
                     </span>
                   ))}
                 </div>
@@ -756,7 +757,7 @@ export function Labor() {
                       }}
                     >
                       <td className="py-1.5 pr-3" style={{ color: 'var(--color-mut)' }}>{i + 1}</td>
-                      <td className="py-1.5 pr-3">{new Date(tr.entryTs).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                      <td className="py-1.5 pr-3">{new Date(tr.entryTs).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' })}</td>
                       <td className="py-1.5 pr-3" style={{ color: tr.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>{tr.direction}</td>
                       <td className="py-1.5 pr-3 text-right" style={{ color: tr.rMultiple >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>{fmt(tr.rMultiple)}</td>
                       <td className="py-1.5 pr-3 text-right">{fmt(tr.netPnl)}</td>
@@ -918,7 +919,7 @@ export function Labor() {
                       symbol: g.symbol ?? t('labor.all'),
                       tf: g.timeframe ?? t('labor.allTf'),
                       source: g.source,
-                      date: new Date(g.createdAt as unknown as string).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }),
+                      date: new Date(g.createdAt as unknown as string).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' }),
                     })}
                   </p>
                 </div>
@@ -969,7 +970,7 @@ export function Labor() {
                         }
                       />
                     </td>
-                    <td className="py-1.5 pr-3">{new Date(r.createdAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                    <td className="py-1.5 pr-3">{new Date(r.createdAt).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' })}</td>
                     <td className="py-1.5 pr-3">v{r.version} · {r.symbol} {r.timeframe} · {(r.config as { setupType?: string })?.setupType}</td>
                     <td className="py-1.5 pr-3 text-right" style={{ color: Number(r.netReturn) >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>{fmt(Number(r.netReturn))}</td>
                     <td className="py-1.5 pr-3 text-right">{fmt(Number(r.maxDrawdown))}</td>
@@ -986,7 +987,7 @@ export function Labor() {
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             {compareRows.map((r) => (
               <div key={r.id} className="rounded-xl border p-4" style={{ borderColor: 'var(--color-line)' }}>
-                <p className="label">v{r.version} · {r.symbol} {r.timeframe} · {new Date(r.createdAt).toLocaleDateString('de-DE')}</p>
+                <p className="label">v{r.version} · {r.symbol} {r.timeframe} · {new Date(r.createdAt).toLocaleDateString(appLocale())}</p>
                 <ul className="num mt-3 space-y-1.5 text-sm">
                   <li className="flex justify-between"><span style={{ color: 'var(--color-mut)' }}>{t('labor.netReturn')}</span><span>{fmt(Number(r.netReturn))} %</span></li>
                   <li className="flex justify-between"><span style={{ color: 'var(--color-mut)' }}>{t('labor.maxDrawdown')}</span><span>{fmt(Number(r.maxDrawdown))} %</span></li>

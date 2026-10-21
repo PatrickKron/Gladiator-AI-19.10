@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
 import { AUDIT_ACTION_PREFIXES, auditQuery, type AuditFilterForm, type AuditQuery } from '../lib/protocol.js';
+import { appLocale } from '../lib/locale.js';
 
 /**
  * Protokoll (10_ §6): das unveränderliche Audit-Log — jede sicherheitsrelevante
@@ -163,7 +164,7 @@ export function Protokoll() {
                 {items.map((r) => (
                   <tr key={r.id} className="align-top" style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
                     <td className="num py-1.5 pr-3 whitespace-nowrap">
-                      {new Date(r.ts).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'medium' })}
+                      {new Date(r.ts).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'medium' })}
                     </td>
                     <td className="num py-1.5 pr-3">{r.action}</td>
                     <td className="py-1.5 pr-3" style={{ color: 'var(--color-mut)' }}>

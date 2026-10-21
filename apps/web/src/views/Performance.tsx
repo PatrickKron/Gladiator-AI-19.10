@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
+import { appLocale } from '../lib/locale.js';
 
 const pct = (v: number | null | undefined) => {
   if (v == null) return '—';
@@ -216,18 +217,18 @@ export function Performance({ embedded = false }: { embedded?: boolean }) {
                           key={i}
                           className="flex-1 rounded-t"
                           style={{ height: h, minWidth: 3, background: color, opacity: 0.7 }}
-                          title={`${new Date(e.ts).toLocaleDateString()} · ${e.value.toFixed(4)}`}
+                          title={`${new Date(e.ts).toLocaleDateString(appLocale())} · ${e.value.toFixed(4)}`}
                         />
                       );
                     });
                   })()}
                 </div>
                 <div className="mt-1 flex justify-between text-[10px]" style={{ color: 'var(--color-mut)' }}>
-                  <span>{equity[0] && new Date(equity[0].ts).toLocaleDateString()}</span>
+                  <span>{equity[0] && new Date(equity[0].ts).toLocaleDateString(appLocale())}</span>
                   <span className="num">
                     {equity[equity.length - 1]?.value.toFixed(4)}
                   </span>
-                  <span>{equity[equity.length - 1] && new Date(equity[equity.length - 1]!.ts).toLocaleDateString()}</span>
+                  <span>{equity[equity.length - 1] && new Date(equity[equity.length - 1]!.ts).toLocaleDateString(appLocale())}</span>
                 </div>
               </div>
             </Panel>
@@ -288,7 +289,7 @@ export function Performance({ embedded = false }: { embedded?: boolean }) {
                   <tbody>
                     {dashboard.timeSeries.slice(-30).map((row, i) => (
                       <tr key={i} className="border-t" style={{ borderColor: 'var(--color-line)' }}>
-                        <td className="py-1 num">{new Date(row.ts).toLocaleDateString()}</td>
+                        <td className="py-1 num">{new Date(row.ts).toLocaleDateString(appLocale())}</td>
                         <td className="py-1 num text-right" style={{ color: row.returnPct >= 0 ? pos : neg }}>
                           {pct(row.returnPct)}
                         </td>
@@ -338,7 +339,7 @@ export function Performance({ embedded = false }: { embedded?: boolean }) {
                         {v.sampleCount ?? '?'} samples
                       </span>
                       <span style={{ color: 'var(--color-mut)' }}>
-                        {new Date(v.createdAt).toLocaleDateString()}
+                        {new Date(v.createdAt).toLocaleDateString(appLocale())}
                       </span>
                     </div>
                   </div>
