@@ -4,6 +4,17 @@ export * from './indicators-extra.js';
 export { computeSwings } from './swings.js';
 export { detectStructure, type StructureOptions } from './structure.js';
 export { detectOrderBlocks, detectFvgs, type Zone } from './zones.js';
+export {
+  dealingRangeAt,
+  detectEqualLevels,
+  detectLiquidity,
+  detectSweeps,
+  premiumDiscount,
+  type DealingRange,
+  type LiquidityLevel,
+  type LiquidityOptions,
+  type LiquiditySweep,
+} from './liquidity.js';
 export { computeScore, riskClassOf, type ConfluenceFlags, type RiskClass, type TradingSession } from './scoring.js';
 export { sessionOf, isActiveSession } from './session.js';
 export { evaluateSmcCoreAt, SMC_CORE_DEFAULTS, type SmcCoreParams, type SetupCandidate, type SmcContext } from './smc-core.js';
