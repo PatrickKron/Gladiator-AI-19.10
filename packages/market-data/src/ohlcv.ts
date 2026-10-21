@@ -101,7 +101,10 @@ export async function getOhlcv(
     eq(ohlcv.timeframe, opts.timeframe),
   );
 
-  const ranged = opts.since !== undefined || opts.until !== undefined;
+  // `since` (ggf. mit `until`): Zeitfenster aufsteigend. Nur `until`: die
+  // letzten N Kerzen BIS zum Stichtag (Replay, look-ahead-frei) — wie ohne
+  // Stichtag, nur abgeschnitten.
+  const ranged = opts.since !== undefined;
   const rows = ranged
     ? await db
         .select()
@@ -109,7 +112,7 @@ export async function getOhlcv(
         .where(
           and(
             base,
-            opts.since ? gte(ohlcv.ts, opts.since) : undefined,
+            gte(ohlcv.ts, opts.since!),
             opts.until ? lte(ohlcv.ts, opts.until) : undefined,
           ),
         )
@@ -119,7 +122,7 @@ export async function getOhlcv(
         await db
           .select()
           .from(ohlcv)
-          .where(base)
+          .where(and(base, opts.until ? lte(ohlcv.ts, opts.until) : undefined))
           .orderBy(desc(ohlcv.ts))
           .limit(Math.min(opts.limit ?? 200, 1000))
       ).reverse();

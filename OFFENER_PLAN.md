@@ -25,9 +25,9 @@
 - **Keine Betriebs-Keys hinterlegt** (`app_secrets` leer), **keine Börse verbunden** (`exchange_connections` leer).
 - Signale: 306 erzeugt — 304 `expired`, 2 `filled`. 3 Strategie-Versionen im Status `paper`.
 
-## Stand Session 13/14 (2026-10-21, Cloud, bis PR #62 gemergt)
+## Stand Session 13/14 (2026-10-21, Cloud, bis PR #63 gemergt)
 
-- GitHub `main` enthält alles bis PR #62; **der Server ist noch auf altem Stand** — Ausrollen (`git pull origin main && git push server main`) spielt die Migrationen bis **0039** automatisch ein (u. a. 0032 „Ausgang unklar“-Kontext, 0033/0034 Rug-Schutz, 0035/0036 Dev-Verkauf-Schutz, 0037 Copy-Mindestgröße, 0038 Chart-Indikatoren, 0039 gespeicherte Screens). `npm install` nicht vergessen (neue Pakete `lightweight-charts-indicators`, `oakscriptjs`). Alternativ Container: `docker compose --profile app up -d` (`SELFHOST.md`).
+- GitHub `main` enthält alles bis PR #63; **der Server ist noch auf altem Stand** — Ausrollen (`git pull origin main && git push server main`) spielt die Migrationen bis **0039** automatisch ein (u. a. 0032 „Ausgang unklar“-Kontext, 0033/0034 Rug-Schutz, 0035/0036 Dev-Verkauf-Schutz, 0037 Copy-Mindestgröße, 0038 Chart-Indikatoren, 0039 gespeicherte Screens). `npm install` nicht vergessen (neue Pakete `lightweight-charts-indicators`, `oakscriptjs`). Alternativ Container: `docker compose --profile app up -d` (`SELFHOST.md`).
 - Neu heute: Prüfung jeder Aggregator-Transaktion vor dem Signieren, „Ausgang unklar“ klärt sich selbst, MEV-Schutz (Flashbots), Steuer-Export der Swaps (EUR/EZB), MC-Orders, Rug-Schutz (nur Pools mit konstantem Produkt, folgt Pool-Umzügen), Sicherheitscheck mit Top-10/LP-Sperre/Ersteller, Dev-Verkauf-Schutz (EVM, nur echte Verkäufe an Pools/Router), Schutz-Abzeichen an den Beständen.
 - Bekannte Grenzen: Dev-Verkauf über frische Zwischen-Wallet/unbekannten Aggregator unsichtbar; Rug-Schutz entscheidet nichts, wenn DexScreener den Pool ganz weglässt; Solana-LP-Sperre/Ersteller liefert GoPlus nicht.
 
@@ -38,7 +38,7 @@ Ziel: die Chart-, Indikator-, Screener-, Replay- und Backtest-Funktionen der 20 
 - [x] **Phase 1 · Indikator-Bibliothek** (PR #60): `@gladiator/indicators` (Server) + Chart-Menü, Einstellungen, Persistenz, Live-Kerze. 117 Standard + 45 Kerzenmuster, MIT.
 - [x] **Phase 1b · Smart Money ausbauen** (PR #61, eigene Engine, kein Port): Equal Highs/Lows, Sweeps (BSL/SSL), Dealing Range mit Premium/Discount, Order Blocks/FVG als Boxen. Offen: Sweep/Discount als Confluence im Scoring — erst nach Messung im Backtest (Phase 4).
 - [x] **Phase 2 · Markt-Screener** (PR #62) `#/screener`: Bedingungen (Vergleich mit Indikator-Plots, Kerzenmuster, Struktur, Liquidität, Dealing Range) über alle Symbole mit echten Kerzen, serverseitig mit derselben Bibliothek/Engine, 10 Vorlagen, gespeicherte Screens (Migration 0039), Klick → Chart. Offen: Alarm „Screen hat neuen Treffer“ (Glocke/Push) — kleiner Folgeschritt, wenn gewünscht.
-- [ ] **Phase 3 · Chart-Replay** (Bar-Replay): Startpunkt wählen, Play/Pause/Schritt/Tempo, Indikatoren je Schritt nur aus vergangenen Kerzen (look-ahead-frei — auch als Test für Repainting).
+- [x] **Phase 3 · Chart-Replay** (PR #63): Bar-Replay am Voll-Chart (Schritt vor/zurück, Play/Pause, Tempo 1/2/4×, Schieber); je Stichtag rechnet der Server alles aus den Kerzen bis dahin (look-ahead-frei, auch als Repainting-Prüfung). Offen: Replay-Trades (Paper-Order im Replay, Ergebnis am Ende) — wenn gewünscht.
 - [ ] **Phase 3b · Mehrfach-Charts**: Layout 1 / 2 / 4, eigenes Symbol + Zeitrahmen je Zelle, Indikatoren je Zelle aus der DB.
 - [ ] **Phase 4 · Backtest-Labor**: Monte-Carlo (Trade-Reihenfolge mischen, deterministischer Seed, Drawdown-Verteilung) + Strategievergleich nebeneinander — netto wie bisher.
 - [ ] **Phase 5 · Aktien/Forex** zuletzt: Alpaca-Adapter (Markt­daten + Paper) — ohne Key ehrlich „nicht verbunden“; yfinance/OpenBB nicht (Lizenz/ToS).
