@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { isUnauthorized, trpc } from '../api.js';
 import type { SignalRow } from '../components/SignalCard.js';
 import { SignalListRow } from '../components/SignalListRow.js';
-import { ErrorBox, Loading, PageHeader } from '../components/ui.js';
+import { EmptyState, ErrorBox, Loading, PageHeader } from '../components/ui.js';
 import { HindsightPanel } from '../components/HindsightPanel.js';
 import { DEFAULT_FILTERS, type SignalFilters } from '../lib/signal-filters.js';
 import { decodeListFilters, encodeListFilters, splitByExpiry } from '../lib/signal-list.js';
@@ -254,8 +254,8 @@ export function Signals() {
           <Loading />
         </div>
       ) : rows.length === 0 ? (
-        <div className="glass p-6 text-sm leading-relaxed" style={{ color: 'var(--color-mut)' }}>
-          {filters.status === 'new' ? t('dashboard.noSetup') : t('signals.empty')}
+        <div className="glass p-6">
+          <EmptyState text={filters.status === 'new' ? t('dashboard.noSetup') : t('signals.empty')} actionLabel={t('signals.emptyCta')} href="#/screener" />
         </div>
       ) : (
         <>

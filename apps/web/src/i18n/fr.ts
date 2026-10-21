@@ -374,6 +374,7 @@ export const fr: Catalog = {
     loadFailed: "{{n}} source(s) de données n'ont pas pu être chargée(s) — certaines sections peuvent être incomplètes.",
   },
   nav: {
+    more: "Plus",
     calm: "Calme et clarté",
     wealth: 'Patrimoine',
     trade: 'Trader',
@@ -637,6 +638,7 @@ export const fr: Catalog = {
     analysisPromptHint: 'Optionnel : si défini, l’IA évalue en plus la situation (EXECUTE/SKIP) une fois les règles remplies, avant de créer un signal. Les variables {symbol} {side} {vix} {dxy_change} {grs} sont remplies avec des données en direct. Sans ANTHROPIC_API_KEY, l’agent continue en mode règles uniquement.',
   },
   screener: {
+    notRunCta: "Lancer le screener",
     title: "Screener de marché",
     subtitle: "Des conditions sur tous les symboles avec de vraies bougies — calculées sur le serveur avec la même bibliothèque d’indicateurs et le même moteur Smart Money que le graphique.",
     hint: "Univers = symboles avec de vraies bougies en base (base + favoris). Ce que le screener trouve, le graphique l’affiche avec les mêmes chiffres.",
@@ -724,6 +726,7 @@ export const fr: Catalog = {
     "hint_risk-off": "Risk-off : volatilité élevée, liquidité mince — trader plus petit, stops plus serrés, respecter les gates.",
   },
   chart: {
+    tools: "Outils",
     view: "Affichage",
     viewHint: "Ce que montre le graphique — le choix reste dans le navigateur.",
     builtin: "Intégrés",
@@ -869,6 +872,7 @@ export const fr: Catalog = {
     empty: 'Aucun résultat',
   },
   today: {
+    emptyCta: "Explorer les marchés",
     title: "Important aujourd’hui",
     all: "Tous les signaux",
     empty: "Rien d’urgent. Le moteur scanne toutes les 5 minutes — nouveaux signaux, événements à impact et alertes apparaissent ici.",
@@ -954,6 +958,7 @@ export const fr: Catalog = {
     aiAgentsNone: 'Pas encore d’agents — créez-en un dans Modèles IA.',
   },
   discover: {
+    myEmptyCta: "Afficher tous les actifs",
     title: 'Découvrir',
     subtitle: 'Les {{assets}} instruments de {{packages}} packs — rechercher, filtrer, mettre en favori et trader la crypto directement sur le compte démo.',
     searchPlaceholder: 'Rechercher par ticker ou nom — p. ex. BTC, Apple, Gold …',
@@ -994,6 +999,7 @@ export const fr: Catalog = {
     assetCount: '{{n}} instruments',
   },
   signals: {
+    emptyCta: "Lancer le screener",
     why: "Pourquoi",
     riskLine: "Risque",
     openTicket: "Ouvrir le ticket",
@@ -1168,6 +1174,7 @@ export const fr: Catalog = {
     title: 'Laboratoire de stratégies',
   },
   labor: {
+    noRunsCta: "Lancer un backtest",
     openRun: "Ouvrir",
     openRunHint: "Recalculer le run avec la même configuration sur les mêmes bougies de la BD — rien n’est inventé.",
     reopened: "Run du {{date}} recalculé.",
@@ -1658,6 +1665,7 @@ export const fr: Catalog = {
     sizingBlocked: 'Le risk gate bloquerait :',
   },
   agents: {
+    myEmptyCta: "Créer ton premier agent",
     tabOverview: "Aperçu",
     myTitle: 'Mes agents',
     myHint: "Créez ici vos propres agents : agents de trading avec règles, événements et risque individuels dans l'Atelier — agents RL apprenants dans Modèles IA.",
@@ -2020,6 +2028,7 @@ export const fr: Catalog = {
     noDataHint: 'Les données apparaissent dès que les agents RL exécutent des épisodes et que des snapshots quotidiens sont générés.',
   },
   profile: {
+    viewSimpleHint: "Simple : les pages pro sont derrière « Plus » dans la barre de segments et le graphique montre une barre courte. Pro : tout est visible.",
     resetTitle: "Réinitialiser l'affichage",
     viewTitle: "Affichage",
     viewHint: "Simple montre l’essentiel, Pro ajoute colonnes et détails — à changer à tout moment.",
@@ -2048,6 +2057,7 @@ export const fr: Catalog = {
     oneUser: 'Un seul type d\'utilisateur avec accès complet — pas de rôles, pas de tiers (décision de périmètre 2026-07-02).',
   },
   demo: {
+    noHistoryCta: "Faire ton premier trade paper",
     previewCosts: "Frais + slippage",
     advanced: "Avancé",
     closedTitle: "Position fermée",
@@ -2431,6 +2441,23 @@ export const fr: Catalog = {
     ambientRainHint: "L’ancien aspect derrière le contenu — un choix assumé. Raccourci : g, puis m.",
     saverHint: "Touchez ou appuyez sur une touche pour continuer",
     preview: "Tester l’impulsion",
+  },
+  setup: {
+    title: "Ton départ",
+    doneTitle: "Tout est configuré",
+    count: "{{n}} sur {{total}}",
+    step_risk: "Définir les règles de risque",
+    step_watch: "Suivre ton premier marché",
+    step_paperTrade: "Faire ton premier trade paper",
+    step_notify: "Configurer les notifications",
+    step_exchange: "Connecter une plateforme",
+    hint_risk: "Décide combien tu risques par trade — chaque ordre passe par cette porte.",
+    hint_watch: "Marque un actif avec ☆ — il apparaît sous « Mes marchés ».",
+    hint_paperTrade: "Entraîne-toi avec de l’argent fictif sur de vrais carnets d’ordres — rien ne peut arriver.",
+    hint_notify: "Ajoute un bot Telegram ou active le push dans la cloche — signaux et alertes t’atteindront.",
+    hint_exchange: "Connecter d’abord, lire d’abord — l’app ne trade qu’après ton accord par plateforme.",
+    doneHint: "Tu es prêt. Tu peux masquer cette carte maintenant.",
+    hide: "Masquer",
   },
   hotkeys: {
     title: "Raccourcis clavier",

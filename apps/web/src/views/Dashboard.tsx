@@ -15,6 +15,7 @@ import { loadTf } from '../lib/chart-tf.js';
 import { feedSymbol } from '../lib/pairs.js';
 import { normalizeRegime, REGIME_COLORS, REGIME_ICONS, type RegimeData } from '../lib/regime.js';
 import { getUiMode, onUiModeChange, type UiMode } from '../lib/ui-mode.js';
+import { SetupProgress } from '../components/SetupProgress.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 import { appLocale } from '../lib/locale.js';
 import { TodayList } from '../components/TodayList.js';
@@ -731,6 +732,9 @@ export function Dashboard() {
 
       {/* Heute-Hero: Gesamtvermögen (Demo + Paper) — die EINE große Zahl, Kurve, drei Aktionen */}
       <HeroWealth account={account} signalCount={signalRows === null ? null : signalRows.length} />
+
+      {/* Dein Start (Welle F): Einrichtungs-Fortschritt aus echten Zuständen — verschwindet auf Wunsch */}
+      <SetupProgress />
 
       {/* Heute wichtig: Signale, Termine, Ereignisse, Vorschläge — eine Liste */}
       <TodayList />

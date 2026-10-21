@@ -5,7 +5,7 @@ import { changePassword, logout, trpc } from '../api.js';
 import { Loading, PageHeader, Panel } from '../components/ui.js';
 import { LANGUAGES, setLanguage, storedLanguage, type LanguageCode } from '../i18n/index.js';
 import { appLocale } from '../lib/locale.js';
-import { UiModeToggle } from '../components/Shell.js';
+import { HotkeyHelpButton, UiModeToggle } from '../components/Shell.js';
 import { getEffectPrefs, onEffectPrefs, requestRainBurst, setEffectPrefs, type EffectPrefs } from '../lib/effects.js';
 
 /** Profil (09_ §3.11): Konto, Sprache, Sitzung — ein User-Typ, keine Rollen/Tiers. */
@@ -144,8 +144,11 @@ export function Profil() {
               <UiModeToggle className="flex w-fit" />
             </div>
             <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
-              {t('profile.viewHint')}
+              {t('profile.viewHint')} {t('profile.viewSimpleHint')}
             </p>
+            <div className="mt-4">
+              <HotkeyHelpButton />
+            </div>
           </Panel>
           <EffectsPanel />
           <ViewResetPanel />

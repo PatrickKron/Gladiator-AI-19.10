@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
-import { Empty, ErrorBox, Loading, PageHeader, Panel, TabBar } from '../components/ui.js';
+import { Empty, EmptyState, ErrorBox, Loading, PageHeader, Panel, TabBar } from '../components/ui.js';
 import { FeatureCard } from './Funktionen.js';
 import { NAV_PAGES } from '../lib/navigation.js';
 import { useHashTab } from '../lib/use-hash-tab.js';
@@ -58,7 +58,7 @@ function MyAgentsPanel() {
         {t('agents.myHint')}
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
-        <a href="#/werkstatt" className="rounded border px-3 py-2 text-xs font-medium transition-colors"
+        <a href="#/agenten?tab=werkstatt" className="rounded border px-3 py-2 text-xs font-medium transition-colors"
           style={{ borderColor: 'rgba(96,165,250,0.5)', color: 'var(--color-cyan)', background: 'rgba(96,165,250,0.08)' }}>
           + {t('agents.createWorkshopCta')}
         </a>
@@ -71,11 +71,11 @@ function MyAgentsPanel() {
       {mine === null ? (
         <div className="mt-4"><Loading /></div>
       ) : mine.length === 0 && activeRl.length === 0 ? (
-        <p className="mt-4 text-sm" style={{ color: 'var(--color-mut)' }}>{t('agents.myEmpty')}</p>
+        <EmptyState text={t('agents.myEmpty')} actionLabel={t('agents.myEmptyCta')} href="#/agenten?tab=werkstatt" />
       ) : (
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           {mine.map((a) => (
-            <a key={a.id} href="#/werkstatt" className="rounded-[0.625rem] border p-4 transition-colors hover:border-cyan-400/40"
+            <a key={a.id} href="#/agenten?tab=werkstatt" className="rounded-[0.625rem] border p-4 transition-colors hover:border-cyan-400/40"
               style={{ borderColor: 'rgba(96,165,250,0.2)' }}>
               <p className="flex flex-wrap items-center justify-between gap-2 text-sm font-medium">
                 <span>{a.name}</span>

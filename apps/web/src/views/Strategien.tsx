@@ -555,7 +555,7 @@ export function Strategien() {
         title={t('ia.page_strategies')}
         subtitle={t('builder.subtitle')}
         right={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {tabs.map((x) => (
               <button
                 key={x.id}

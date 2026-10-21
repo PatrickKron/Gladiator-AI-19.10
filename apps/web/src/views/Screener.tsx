@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
-import { PageHeader } from '../components/ui.js';
+import { EmptyState, PageHeader } from '../components/ui.js';
 import { buildChartUrl, CHART_TFS, CHART_VENUES, type ChartTf, type ChartVenue } from '../lib/chart-url.js';
 import { cachedCatalog, loadCatalog } from '../lib/indicator-catalog.js';
 import { clampNumber, type MenuEntry, type MenuInput } from '../lib/indicator-menu.js';
@@ -80,7 +80,7 @@ function OperandEditor({ value, onChange, catalog }: { value: Operand; onChange:
   const standard = useMemo(() => catalog.filter((e) => e.group === 'standard').sort((a, b) => a.name.localeCompare(b.name)), [catalog]);
   const entry = value.kind === 'indicator' ? catalog.find((e) => e.id === value.id) : undefined;
   return (
-    <span className="flex flex-wrap items-center gap-1.5">
+    <span className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
       <select value={value.kind} onChange={(e) => onChange(defaultOperand(e.target.value as OperandKind))} className={selCls} aria-label={t('screener.value')}>
         {OPERAND_KINDS.map((k) => (
           <option key={k} value={k}>
@@ -399,7 +399,7 @@ export function Screener() {
           </span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
           <span className="label mr-1">{t('screener.presets')}</span>
           {presets.map((p) => (
             <button key={p.id} type="button" onClick={() => applyPreset(p)} className={chipCls} style={chipStyle(false)}>
@@ -487,7 +487,7 @@ export function Screener() {
       </div>
 
       <div className="glass p-4">
-        {!result && <p className="text-sm" style={{ color: 'var(--color-mut)' }}>{t('screener.notRun')}</p>}
+        {!result && <EmptyState text={t('screener.notRun')} actionLabel={t('screener.notRunCta')} onAction={() => void run()} />}
         {result && rows.length === 0 && <p className="text-sm" style={{ color: 'var(--color-mut)' }}>{t('screener.noMatches')}</p>}
         {result && rows.length > 0 && (
           // Treffer als Karten (Welle C): Symbol, Kurs, Veränderung, je Bedingung ein Chip — Klick öffnet den Chart im selben Zeitrahmen

@@ -49,4 +49,6 @@ export const VIEW_PREFERENCE_KEYS = [
   'gladiator.demoMode',
   'gladiator.effects',
   'gladiator.chartToggles',
+  'gladiator.setupHidden',
+  'gladiator.setupDone',
 ];

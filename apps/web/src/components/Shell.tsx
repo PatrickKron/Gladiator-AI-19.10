@@ -8,7 +8,7 @@ import { isDemoMode, onDemoModeChange } from '../lib/demo-mode.js';
 import { getUiMode, onUiModeChange, setUiMode, type UiMode } from '../lib/ui-mode.js';
 import { currentSessionEnd, nextSessionStart, sessionAt, type MarketSession } from '../lib/market-session.js';
 import { CommandPalette } from './CommandPalette.js';
-import { AREAS, NAV_PAGES, pageForHash, type AreaId } from '../lib/navigation.js';
+import { AREAS, pageForHash, subnavPages, type AreaId } from '../lib/navigation.js';
 import { GOTO_KEYS, MATRIX_KEY, resolveHotkey } from '../lib/hotkeys.js';
 import { getEffectPrefs, setEffectPrefs } from '../lib/effects.js';
 import { isTypingTarget } from '../lib/watchlist.js';
@@ -122,8 +122,12 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [demoMode, setDemoModeState] = useState(() => isDemoMode());
+  const [uiMode, setUiModeState] = useState<UiMode>(() => getUiMode());
+  const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => onDemoModeChange(setDemoModeState), []);
+  useEffect(() => onUiModeChange(() => setUiModeState(getUiMode())), []);
+  useEffect(() => setMoreOpen(false), [route]);
 
   // Command-Palette: global per Cmd/Ctrl+K öffnen.
   useEffect(() => {
@@ -183,7 +187,8 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
   }, [route]);
   const activePage = pageForHash(activeHash);
   const activeArea: AreaId = activePage?.area ?? 'today';
-  const areaPages = useMemo(() => NAV_PAGES.filter((p) => p.area === activeArea), [activeArea]);
+  // Einfach-Modus (Welle F): Profi-Seiten des Bereichs stehen hinter „Mehr" — nichts fehlt, kein Link ändert sich.
+  const { shown: areaPages, more: morePages } = useMemo(() => subnavPages(activeArea, uiMode, activeHash), [activeArea, uiMode, activeHash]);
 
   const areaLinks = (variant: 'side' | 'tab') =>
     AREAS.map((area) => {
@@ -260,14 +265,30 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
         </header>
 
         {/* Seiten des Bereichs als Segmente */}
-        {areaPages.length > 1 && (
-          <nav className="subnav mx-auto max-w-6xl px-4 pt-3 md:px-6" aria-label={t(AREAS.find((a) => a.id === activeArea)!.labelKey)}>
-            {areaPages.map((p) => (
-              <a key={p.hash} href={p.hash} aria-current={activeHash === p.hash ? 'page' : undefined} title={t(p.descKey)}>
-                {t(p.labelKey)}
-              </a>
-            ))}
-          </nav>
+        {areaPages.length + morePages.length > 1 && (
+          <div className="mx-auto max-w-6xl px-4 pt-3 md:px-6">
+            <nav className="subnav" aria-label={t(AREAS.find((a) => a.id === activeArea)!.labelKey)}>
+              {areaPages.map((p) => (
+                <a key={p.hash} href={p.hash} aria-current={activeHash === p.hash ? 'page' : undefined} title={t(p.descKey)}>
+                  {t(p.labelKey)}
+                </a>
+              ))}
+              {morePages.length > 0 && (
+                <button type="button" className="subnav-more" aria-expanded={moreOpen} aria-controls="subnav-more" onClick={() => setMoreOpen((o) => !o)}>
+                  {t('nav.more')} <span aria-hidden="true">{moreOpen ? '▴' : '▾'}</span>
+                </button>
+              )}
+            </nav>
+            {morePages.length > 0 && moreOpen && (
+              <nav id="subnav-more" className="subnav subnav--more mt-1.5" aria-label={t('nav.more')}>
+                {morePages.map((p) => (
+                  <a key={p.hash} href={p.hash} title={t(p.descKey)}>
+                    {t(p.labelKey)}
+                  </a>
+                ))}
+              </nav>
+            )}
+          </div>
         )}
 
         <main className="mx-auto max-w-6xl px-4 pt-5 pb-6 md:px-6">{children}</main>
@@ -285,6 +306,23 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       {helpOpen && <HotkeyHelp onClose={() => setHelpOpen(false)} />}
     </div>
+  );
+}
+
+/** Tastenkürzel-Hilfe als Knopf (Profil → Ansicht): auch ohne „?"-Taste und auf dem Handy erreichbar. */
+export function HotkeyHelpButton() {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className="btn inline-flex items-center gap-2 px-3 py-1.5 text-sm" onClick={() => setOpen(true)}>
+        {t('hotkeys.title')}
+        <kbd className="mono rounded border px-1.5 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+          ?
+        </kbd>
+      </button>
+      {open && <HotkeyHelp onClose={() => setOpen(false)} />}
+    </>
   );
 }
 

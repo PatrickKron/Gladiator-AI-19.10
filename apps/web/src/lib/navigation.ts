@@ -33,6 +33,8 @@ export type NavPage = {
   icon: string;
   keywords?: string[];
   tabs?: NavTab[];
+  /** Einfach-Modus (Welle F): Seite steht in der Segmentleiste hinter „Mehr" — bleibt erreichbar, kein Link ändert sich. */
+  advanced?: boolean;
 };
 
 /** Genau 5 Bereiche (Patricks Vorgabe aus dem Umbau 2026-07-10). */
@@ -70,6 +72,7 @@ export const PAGES = [
   },
   {
     id: 'screener',
+    advanced: true,
     hash: '#/screener',
     area: 'market',
     labelKey: 'ia.page_screener',
@@ -88,6 +91,7 @@ export const PAGES = [
   },
   {
     id: 'marketState',
+    advanced: true,
     hash: '#/marktlage',
     area: 'market',
     labelKey: 'ia.page_marketState',
@@ -192,6 +196,7 @@ export const PAGES = [
   },
   {
     id: 'lab',
+    advanced: true,
     hash: '#/labor',
     area: 'agents',
     labelKey: 'ia.page_lab',
@@ -201,6 +206,7 @@ export const PAGES = [
   },
   {
     id: 'aiModels',
+    advanced: true,
     hash: '#/intelligenz',
     area: 'agents',
     labelKey: 'ia.page_aiModels',
@@ -240,6 +246,7 @@ export const PAGES = [
   },
   {
     id: 'protocol',
+    advanced: true,
     hash: '#/protokoll',
     area: 'system',
     labelKey: 'ia.page_protocol',
@@ -260,6 +267,19 @@ export const PAGES = [
 
 /** Breiter Typ für Iteration (Tabs/Keywords optional). */
 export const NAV_PAGES: readonly NavPage[] = PAGES;
+
+/**
+ * Segmentleiste eines Bereichs (Welle F): im Einfach-Modus stehen „advanced"-Seiten
+ * hinter „Mehr" — außer der gerade aktiven, die bleibt sichtbar. Profi zeigt alles.
+ */
+export function subnavPages(area: AreaId, mode: 'einfach' | 'profi', activeHash: string): { shown: NavPage[]; more: NavPage[] } {
+  const pages = NAV_PAGES.filter((p) => p.area === area);
+  if (mode === 'profi') return { shown: pages, more: [] };
+  return {
+    shown: pages.filter((p) => !p.advanced || p.hash === activeHash),
+    more: pages.filter((p) => p.advanced && p.hash !== activeHash),
+  };
+}
 
 export type PageHash = (typeof PAGES)[number]['hash'];
 export type PageId = (typeof PAGES)[number]['id'];

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
-import { Empty, ErrorBox, Loading, PageHeader } from '../components/ui.js';
+import { Empty, EmptyState, ErrorBox, Loading, PageHeader } from '../components/ui.js';
 import { FavStar } from '../components/FavStar.js';
 import { getLatest, onTick } from '../lib/prices.js';
 import { feedSymbol } from '../lib/pairs.js';
@@ -387,7 +387,11 @@ export function Pakete() {
           {catalog === null ? (
             <Loading />
           ) : results.length === 0 ? (
-            <Empty text={onlyFavs && query.trim() === '' ? t('discover.myEmpty') : t('discover.noResults')} />
+            onlyFavs && query.trim() === '' ? (
+              <EmptyState text={t('discover.myEmpty')} actionLabel={t('discover.myEmptyCta')} onAction={() => setOnlyFavs(false)} />
+            ) : (
+              <Empty text={t('discover.noResults')} />
+            )
           ) : (
             <ul className="mt-2">
               {results.map((a) => (
