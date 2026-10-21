@@ -1,5 +1,6 @@
 export { runBacktest, DEFAULT_COSTS, ZERO_COSTS, type BacktestConfig, type BacktestResult, type BacktestTrade, type CostModel, type Evaluator } from './engine.js';
 export { computeMetrics, maxDrawdownPct, type Metrics } from './metrics.js';
+export { runMonteCarlo, simulatePath, mulberry32, percentile, type MonteCarloInput, type MonteCarloResult, type MonteCarloMode, type Percentiles } from './montecarlo.js';
 export { runWalkForward, type WalkForwardConfig, type WalkForwardResult, type WalkForwardWindow } from './walkforward.js';
 export { rapsGrid, explainRapsChoice, LEVERAGE_CANDIDATES, TP_SCHEMA_IDS, type RapsResult, type RapsCell, type RapsTrade, type TpSchemaId } from './raps.js';
 export {

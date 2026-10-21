@@ -11,7 +11,7 @@ export function fmt(n: number | null | undefined, digits = 2): string {
   return n.toLocaleString('de-DE', { maximumFractionDigits: digits, minimumFractionDigits: 0 });
 }
 
-export function MetricCard({ label, value, tone }: { label: string; value: string; tone?: 'pos' | 'neg' }) {
+export function MetricCard({ label, value, tone, hint }: { label: string; value: string; tone?: 'pos' | 'neg'; /** Kleine Zusatzzeile (z. B. Spanne 5–95 %) */ hint?: string }) {
   return (
     <div className="glass p-4">
       <p className="label">{label}</p>
@@ -21,6 +21,11 @@ export function MetricCard({ label, value, tone }: { label: string; value: strin
       >
         {value}
       </p>
+      {hint && (
+        <p className="num mt-1 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+          {hint}
+        </p>
+      )}
     </div>
   );
 }

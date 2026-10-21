@@ -13,6 +13,7 @@ import {
   fmt,
   type ComparableRun,
 } from '../components/EquityChart.js';
+import { MonteCarloPanel } from '../components/MonteCarloPanel.js';
 import { OptimizationProposals } from '../components/OptimizationProposals.js';
 
 /** Schnellstart-Vorlagen (P1.6) — ein Klick füllt die Konfiguration. */
@@ -572,6 +573,9 @@ export function Labor() {
             <h2 className="label">{t('labor.equityTitle', { start: fmt(10000, 0) })}</h2>
             <div className="mt-4"><EquityChart points={run.equityCurve} emptyText={t('labor.tooFewPoints')} step /></div>
           </section>
+
+          {/* Monte-Carlo über die Trade-Reihenfolge (Repo-Masterliste, Phase 4) */}
+          <MonteCarloPanel key={run.backtestId} rMultiples={run.rMultiples} riskPct={riskPct} />
 
           {runWindow && run.trades.length > 0 && (() => {
             // Symbol/Timeframe aus dem RAPS-clusterKey (`slug|symbol|setup|tf|all|all`) —
