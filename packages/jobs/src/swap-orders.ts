@@ -13,7 +13,11 @@ const { swapOrders, swapWallets } = schema;
  * Ticket (Angebot, Sicherheitscheck beim Kauf, Gate, Paper/Live).
  */
 
-export type SwapOrderKind = 'take_profit' | 'stop_loss' | 'trailing_stop' | 'limit_buy' | 'dca';
+export type SwapOrderKind = 'take_profit' | 'stop_loss' | 'trailing_stop' | 'limit_buy' | 'dca' | 'alert_above' | 'alert_below';
+
+/** Reine Preisalarme: lösen nur eine Meldung aus, nie einen Swap. */
+export const ALERT_KINDS: SwapOrderKind[] = ['alert_above', 'alert_below'];
+export const isAlertKind = (k: SwapOrderKind): boolean => ALERT_KINDS.includes(k);
 
 export const SWAP_ORDER_LABEL: Record<SwapOrderKind, string> = {
   take_profit: 'Take-Profit',
@@ -21,6 +25,8 @@ export const SWAP_ORDER_LABEL: Record<SwapOrderKind, string> = {
   trailing_stop: 'Trailing-Stop',
   limit_buy: 'Limit-Kauf',
   dca: 'DCA-Kauf',
+  alert_above: 'Preisalarm über',
+  alert_below: 'Preisalarm unter',
 };
 
 export type OrderState = { kind: SwapOrderKind; triggerPriceUsd: number | null; trailPct: number | null; peakPriceUsd: number | null };
@@ -41,6 +47,10 @@ export function evaluateSwapOrder(o: OrderState, priceUsd: number): { trigger: b
     case 'dca':
       // zeitgesteuert (runDcaOrders), nie preisgesteuert
       return { trigger: false, peakPriceUsd: null };
+    case 'alert_above':
+      return { trigger: o.triggerPriceUsd !== null && priceUsd >= o.triggerPriceUsd, peakPriceUsd: null };
+    case 'alert_below':
+      return { trigger: o.triggerPriceUsd !== null && priceUsd <= o.triggerPriceUsd, peakPriceUsd: null };
     case 'trailing_stop': {
       const peak = Math.max(o.peakPriceUsd ?? priceUsd, priceUsd);
       const trail = o.trailPct ?? 0;
@@ -58,6 +68,8 @@ export function validateNewOrder(o: OrderState, priceUsd: number): string | null
   }
   if (!(o.triggerPriceUsd !== null && o.triggerPriceUsd > 0)) return 'Auslösepreis fehlt.';
   if (o.kind === 'take_profit' && o.triggerPriceUsd <= priceUsd) return 'Take-Profit muss über dem aktuellen Preis liegen.';
+  if (o.kind === 'alert_above' && o.triggerPriceUsd <= priceUsd) return 'Alarm „über“ muss über dem aktuellen Preis liegen.';
+  if (o.kind === 'alert_below' && o.triggerPriceUsd >= priceUsd) return 'Alarm „unter“ muss unter dem aktuellen Preis liegen.';
   if ((o.kind === 'stop_loss' || o.kind === 'limit_buy') && o.triggerPriceUsd >= priceUsd) {
     return `${SWAP_ORDER_LABEL[o.kind]} muss unter dem aktuellen Preis liegen.`;
   }
@@ -94,6 +106,19 @@ async function fireOrder(db: Db, o: OrderRow, w: SwapWalletRow, priceUsd: number
   if (claimed.length === 0) return; // anderer Lauf war schneller
   out.triggered++;
   const label = SWAP_ORDER_LABEL[o.kind];
+  if (isAlertKind(o.kind)) {
+    // nur melden — kein Swap, kein Geld bewegt
+    await closeOrder(db, o.id, 'filled', {});
+    out.filled++;
+    await notifySafe(db, {
+      userId: w.userId,
+      kind: 'price_alert',
+      title: `${o.symbol} ${o.kind === 'alert_above' ? 'über' : 'unter'} ${Number(o.triggerPriceUsd).toPrecision(4)} $`,
+      body: `Aktuell ${priceUsd.toPrecision(4)} $ (${w.label})`,
+      link: '#/traden?tab=wallet',
+    });
+    return;
+  }
   const side = o.kind === 'limit_buy' ? 'buy' : 'sell';
   try {
     const p = await prepareSwap(db, w, {
@@ -125,7 +150,7 @@ async function fireOrder(db: Db, o: OrderRow, w: SwapWalletRow, priceUsd: number
           .set({ status: 'cancelled', closedAt: new Date(), error: 'Bestand verkauft' })
           .where(
             // Kauf-Orders (Limit-Kauf, DCA) bleiben — sie bauen den Bestand ja gerade auf
-            and(eq(swapOrders.walletId, w.id), eq(swapOrders.token, o.token), eq(swapOrders.status, 'open'), notInArray(swapOrders.kind, ['limit_buy', 'dca'])),
+            and(eq(swapOrders.walletId, w.id), eq(swapOrders.token, o.token), eq(swapOrders.status, 'open'), notInArray(swapOrders.kind, ['limit_buy', 'dca', 'alert_above', 'alert_below'])),
           );
       }
     }

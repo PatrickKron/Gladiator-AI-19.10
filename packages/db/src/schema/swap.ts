@@ -101,8 +101,9 @@ export const swapTrades = pgTable(
 
 /**
  * Limit-Orders + Auto-Sell (Vision-Punkt 5e, „wie Trojan“): Take-Profit,
- * Stop-Loss, Trailing-Stop (Verkauf eines Anteils), Limit-Kauf und DCA
- * (fester Betrag in festen Abständen, optional mit Preisgrenze). Der Worker
+ * Stop-Loss, Trailing-Stop (Verkauf eines Anteils), Limit-Kauf, DCA
+ * (fester Betrag in festen Abständen, optional mit Preisgrenze) und reine
+ * Preisalarme (`alert_above`/`alert_below`: nur Meldung, nie ein Swap). Der Worker
  * prüft die Kurse jede Minute; ausgelöst wird über denselben Swap-Pfad wie das
  * Ticket (Gate, Paper/Live). Live nur, wenn beim Anlegen bestätigt.
  */
@@ -115,7 +116,7 @@ export const swapOrders = pgTable(
       .references(() => swapWallets.id, { onDelete: 'cascade' }),
     token: text('token').notNull(),
     symbol: text('symbol').notNull(),
-    kind: text('kind').$type<'take_profit' | 'stop_loss' | 'trailing_stop' | 'limit_buy' | 'dca'>().notNull(),
+    kind: text('kind').$type<'take_profit' | 'stop_loss' | 'trailing_stop' | 'limit_buy' | 'dca' | 'alert_above' | 'alert_below'>().notNull(),
     /** Auslösepreis (USD) für Take-Profit, Stop-Loss, Limit-Kauf */
     triggerPriceUsd: numeric('trigger_price_usd'),
     /** Trailing-Stop: Abstand vom Höchstkurs in % */
@@ -148,7 +149,7 @@ export const swapOrders = pgTable(
   (t) => [
     index('swap_orders_status_idx').on(t.status),
     index('swap_orders_wallet_idx').on(t.walletId, t.createdAt),
-    check('swap_orders_kind_check', sql`${t.kind} IN ('take_profit', 'stop_loss', 'trailing_stop', 'limit_buy', 'dca')`),
+    check('swap_orders_kind_check', sql`${t.kind} IN ('take_profit', 'stop_loss', 'trailing_stop', 'limit_buy', 'dca', 'alert_above', 'alert_below')`),
     check('swap_orders_dca_check', sql`${t.kind} <> 'dca' OR (${t.intervalMinutes} > 0 AND ${t.runsTotal} > 0 AND ${t.nextRunAt} IS NOT NULL)`),
     check('swap_orders_status_check', sql`${t.status} IN ('open', 'executing', 'filled', 'failed', 'cancelled')`),
   ],

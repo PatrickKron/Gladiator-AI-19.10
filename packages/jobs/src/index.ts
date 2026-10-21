@@ -93,6 +93,8 @@ export {
   stoppableOrders,
   dcaAfterRun,
   SWAP_ORDER_LABEL,
+  ALERT_KINDS,
+  isAlertKind,
   type DcaResult,
   type SwapOrderKind,
   type OrderState,

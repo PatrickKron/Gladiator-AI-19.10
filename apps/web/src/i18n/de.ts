@@ -1922,6 +1922,9 @@ export const de = {
     err_unknown: 'Unbekannter Fehler.',
   },
   swap: {
+    kind_alert_above: "Alarm über",
+    kind_alert_below: "Alarm unter",
+    alertOnly: "Nur Meldung (Glocke + Push) — es wird nichts gekauft oder verkauft.",
     autoNote: "Nach dem Kauf: Take-Profit {{tp}}, Stop-Loss {{sl}} vom Kaufkurs.",
     autoLiveNote: "Mit dieser Bestätigung werden auch Take-Profit {{tp}} und Stop-Loss {{sl}} angelegt — sie verkaufen später automatisch mit echtem Geld.",
     autoTpSl: "Auto-TP/SL nach dem Kauf",

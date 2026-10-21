@@ -529,7 +529,7 @@ export const swapsRouter = router({
       z.object({
         walletId: z.string().uuid(),
         token: z.string().min(32).max(64),
-        kind: z.enum(['take_profit', 'stop_loss', 'trailing_stop', 'limit_buy', 'dca']),
+        kind: z.enum(['take_profit', 'stop_loss', 'trailing_stop', 'limit_buy', 'dca', 'alert_above', 'alert_below']),
         /** DCA: Abstand (5 min bis 30 Tage), Anzahl Käufe, optionale Preisgrenze */
         intervalMinutes: z.number().int().min(5).max(43_200).optional(),
         runsTotal: z.number().int().min(2).max(500).optional(),
@@ -551,7 +551,9 @@ export const swapsRouter = router({
       if (input.slippageBps !== undefined && input.slippageBps > w.maxSlippageBps) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Slippage liegt über der Obergrenze dieser Wallet.' });
       }
-      if (w.mode === 'live') {
+      // Preisalarm: nur Meldung, bewegt nie Geld → keine Live-Freigabe/Bestätigung nötig
+      const alert = input.kind === 'alert_above' || input.kind === 'alert_below';
+      if (w.mode === 'live' && !alert) {
         if (!liveKeysAllowed() || !w.liveApprovedAt) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Diese Wallet ist nicht für Live-Swaps freigegeben.' });
         if (input.confirmLive !== true) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Live-Order bitte ausdrücklich bestätigen — sie wird später automatisch ausgeführt.' });
       }
@@ -563,7 +565,7 @@ export const swapsRouter = router({
       }
       const info = await cachedTokenInfo(chain, input.token).catch((err: unknown) => asTrpc(netError(err)));
       if (info.priceUsd === null) throw new TRPCError({ code: 'BAD_GATEWAY', message: 'Kein aktueller Kurs — Order nicht prüfbar.' });
-      if (!buy) {
+      if (!buy && !alert) {
         if (w.mode === 'live') await syncLiveBalances(ctx.db, w, { address: info.address, symbol: info.symbol, decimals: info.decimals }).catch((err: unknown) => asTrpc(netError(err)));
         const held = (await walletBalances(ctx.db, w.id)).find((b) => b.token === input.token);
         if (!held || BigInt(held.amountAtomic) === 0n) throw new TRPCError({ code: 'BAD_REQUEST', message: `Kein ${info.symbol}-Bestand in dieser Wallet.` });
@@ -581,7 +583,7 @@ export const swapsRouter = router({
           triggerPriceUsd: input.kind === 'trailing_stop' || dca ? null : String(input.triggerPriceUsd),
           trailPct: input.kind === 'trailing_stop' ? String(input.trailPct) : null,
           peakPriceUsd: input.kind === 'trailing_stop' ? String(info.priceUsd) : null,
-          sellPercent: buy ? null : String(input.sellPercent ?? 100),
+          sellPercent: buy || alert ? null : String(input.sellPercent ?? 100),
           buyAmount: buy ? input.buyAmount! : null,
           slippageBps: input.slippageBps ?? null,
           // DCA: erster Kauf im nächsten Worker-Takt
@@ -589,10 +591,10 @@ export const swapsRouter = router({
           runsTotal: dca ? input.runsTotal! : null,
           nextRunAt: dca ? new Date() : null,
           maxPriceUsd: dca && input.maxPriceUsd !== undefined ? String(input.maxPriceUsd) : null,
-          confirmedLive: w.mode === 'live' && input.confirmLive === true,
+          confirmedLive: w.mode === 'live' && !alert && input.confirmLive === true,
         })
         .returning();
-      if (w.mode === 'live') {
+      if (w.mode === 'live' && !alert) {
         await ctx.db.insert(auditLog).values({ actor: 'user', userId: ctx.user.id, action: 'swap.live_order_create', entityType: 'swap_order', entityId: o!.id, details: { chain, kind: input.kind, token: input.token, triggerPriceUsd: input.triggerPriceUsd ?? null, trailPct: input.trailPct ?? null, sellPercent: input.sellPercent ?? null, buyAmount: input.buyAmount ?? null, intervalMinutes: input.intervalMinutes ?? null, runsTotal: input.runsTotal ?? null, maxPriceUsd: input.maxPriceUsd ?? null }, ip: ctx.ip });
       }
       return { id: o!.id };

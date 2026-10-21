@@ -1923,6 +1923,9 @@ export const en: Catalog = {
     err_unknown: 'Unknown error.',
   },
   swap: {
+    kind_alert_above: "Alert above",
+    kind_alert_below: "Alert below",
+    alertOnly: "Notification only (bell + push) — nothing is bought or sold.",
     autoNote: "After the buy: take-profit {{tp}}, stop-loss {{sl}} from the buy price.",
     autoLiveNote: "This confirmation also creates take-profit {{tp}} and stop-loss {{sl}} — they will later sell automatically with real money.",
     autoTpSl: "Auto TP/SL after buy",
