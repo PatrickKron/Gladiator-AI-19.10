@@ -25,11 +25,28 @@
 - **Keine Betriebs-Keys hinterlegt** (`app_secrets` leer), **keine Börse verbunden** (`exchange_connections` leer).
 - Signale: 306 erzeugt — 304 `expired`, 2 `filled`. 3 Strategie-Versionen im Status `paper`.
 
-## Stand Session 13/14 (2026-10-21, Cloud, bis PR #55 gemergt)
+## Stand Session 13/14 (2026-10-21, Cloud, bis PR #60 gemergt)
 
-- GitHub `main` enthält alles bis PR #55; **der Server ist noch auf altem Stand** — Ausrollen (`git pull origin main && git push server main`) spielt die Migrationen bis **0036** automatisch ein (u. a. 0032 „Ausgang unklar“-Kontext, 0033/0034 Rug-Schutz, 0035/0036 Dev-Verkauf-Schutz). Alternativ Container: `docker compose --profile app up -d` (`SELFHOST.md`).
+- GitHub `main` enthält alles bis PR #60; **der Server ist noch auf altem Stand** — Ausrollen (`git pull origin main && git push server main`) spielt die Migrationen bis **0038** automatisch ein (u. a. 0032 „Ausgang unklar“-Kontext, 0033/0034 Rug-Schutz, 0035/0036 Dev-Verkauf-Schutz, 0037 Copy-Mindestgröße, 0038 Chart-Indikatoren). `npm install` nicht vergessen (neue Pakete `lightweight-charts-indicators`, `oakscriptjs`). Alternativ Container: `docker compose --profile app up -d` (`SELFHOST.md`).
 - Neu heute: Prüfung jeder Aggregator-Transaktion vor dem Signieren, „Ausgang unklar“ klärt sich selbst, MEV-Schutz (Flashbots), Steuer-Export der Swaps (EUR/EZB), MC-Orders, Rug-Schutz (nur Pools mit konstantem Produkt, folgt Pool-Umzügen), Sicherheitscheck mit Top-10/LP-Sperre/Ersteller, Dev-Verkauf-Schutz (EVM, nur echte Verkäufe an Pools/Router), Schutz-Abzeichen an den Beständen.
 - Bekannte Grenzen: Dev-Verkauf über frische Zwischen-Wallet/unbekannten Aggregator unsichtbar; Rug-Schutz entscheidet nichts, wenn DexScreener den Pool ganz weglässt; Solana-LP-Sperre/Ersteller liefert GoPlus nicht.
+
+## 0b · Repo-Masterliste (Patrick, 2026-10-21) — Stand, Entscheidungen, Reihenfolge
+
+Ziel: die Chart-, Indikator-, Screener-, Replay- und Backtest-Funktionen der 20 genannten Repos in der App — ohne die EINE Engine zu verdoppeln (Regel 6), ohne Lizenzrisiko, ohne geschützte Premium-Inhalte, nur öffentliche/offizielle Datenquellen, Paper zuerst.
+
+- [x] **Phase 1 · Indikator-Bibliothek** (PR #60): `@gladiator/indicators` (Server) + Chart-Menü, Einstellungen, Persistenz, Live-Kerze. 117 Standard + 45 Kerzenmuster, MIT.
+- [ ] **Phase 1b · Smart Money ausbauen** (eigene Engine, kein Port): Liquidität (Equal Highs/Lows, Sweeps), Premium/Discount-Zonen, Order Blocks/FVG als Boxen statt Linien-Paare.
+- [ ] **Phase 2 · Markt-Screener** `#/screener`: Bedingungen über Universum × Zeitrahmen, serverseitig mit derselben Bibliothek (RSI < 30, Kurs über EMA 200, Engulfing auf 4h …), Presets, gespeicherte Screens, Klick → Chart mit denselben Indikatoren.
+- [ ] **Phase 3 · Chart-Replay** (Bar-Replay): Startpunkt wählen, Play/Pause/Schritt/Tempo, Indikatoren je Schritt nur aus vergangenen Kerzen (look-ahead-frei — auch als Test für Repainting).
+- [ ] **Phase 3b · Mehrfach-Charts**: Layout 1 / 2 / 4, eigenes Symbol + Zeitrahmen je Zelle, Indikatoren je Zelle aus der DB.
+- [ ] **Phase 4 · Backtest-Labor**: Monte-Carlo (Trade-Reihenfolge mischen, deterministischer Seed, Drawdown-Verteilung) + Strategievergleich nebeneinander — netto wie bisher.
+- [ ] **Phase 5 · Aktien/Forex** zuletzt: Alpaca-Adapter (Markt­daten + Paper) — ohne Key ehrlich „nicht verbunden“; yfinance/OpenBB nicht (Lizenz/ToS).
+
+Repo-Entscheidungen (Lizenz, Architektur, eine Wahrheit):
+- **Übernommen:** deepentropy `lightweight-charts-indicators` (MIT; nur Standard + Kerzenmuster, Community-Ports nicht), CCXT (schon im Einsatz), Ideen/Struktur aus OpenCharts, LuxAlgo Vela und Jesse (Screener, Replay, Layouts, Vergleich) — nachgebaut auf unserer Engine.
+- **Nicht übernommen:** PineTS (AGPL — kommerzielle Lizenz wäre Patricks Entscheidung; unser Pine-Weg bleibt Strategien → Import), Freqtrade (GPL), VectorBT (Commons Clause), OpenBB (AGPL-Teile), Jesse/LEAN als Engine (zweite Engine — Regel 6), Vela als Chart (0.8, kompletter Chart-Umbau für nichts, was lightweight-charts 5 + Panes nicht kann), yfinance (Lizenz/ToS), REA (Entwickler-Werkzeug), die beiden TradingView-Klone (nichts Neues), „Reversed-TradingView-Premium“ (umbenannte Freqtrade-Kopie, Malware-Muster, Lizenzbruch — abgelehnt).
+- **Regeln für jede weitere Phase:** erst Architektur/Verträglichkeit prüfen, eine führende Umsetzung je Funktion, Lizenz je Repo, simulierte von echten Daten trennen, Indikatoren auf Look-ahead/Repainting testen (Replay), kleine rückrollbare Änderungen, nichts annehmen, was nicht dokumentiert ist.
 
 ## Stand nach Session 12 (2026-10-20, Cloud, PR #3–#12 gemergt)
 
@@ -68,6 +85,7 @@
 - [ ] **Alt-Secrets aus v1 widerrufen** (Telegram-Token, OpenAI `sk-proj-…`, OKX-Keys), danach `backend-node/.env` im v1-Ordner löschen — einziger offener Punkt der Sicherheits-Checkliste (`SECURITY.md` #1).
 - [ ] Optional: `HEALTHCHECKS_URL` (externer Dead-Man-Switch) · erste Börse unter Einstellungen → „Börse verbinden" (API-Key OHNE Withdraw-Recht).
 - [ ] GitHub-Repo auf **privat** stellen (enthält Server-IP, Deploy-Skripte, Sicherheits-Doku — keine Secrets).
+- [ ] **PineTS-Lizenz entscheiden** (AGPL-3.0): nur nötig, wenn Pine-Skripte DIREKT in der App laufen sollen; bis dahin bleibt der Weg Strategien → Import (TradingView-Alert bzw. DSL).
 
 ## 2 · Echtes Trading (der große Schritt)
 

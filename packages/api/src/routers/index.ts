@@ -5,6 +5,7 @@ import { catalogRouter } from './catalog.js';
 import { demoRouter } from './demo.js';
 import { drawingsRouter } from './drawings.js';
 import { exchangesRouter } from './exchanges.js';
+import { indicatorsRouter } from './indicators.js';
 import { intelligenceRouter } from './intelligence.js';
 import { labRouter } from './lab.js';
 import { marketRouter } from './market.js';
@@ -31,6 +32,7 @@ export const appRouter = router({
   demo: demoRouter,
   drawings: drawingsRouter,
   exchanges: exchangesRouter,
+  indicators: indicatorsRouter,
   intelligence: intelligenceRouter,
   lab: labRouter,
   market: marketRouter,

@@ -26,7 +26,7 @@ Dieses Repo läuft kanonisch auf dem Hetzner-Server `95.216.10.238` unter `/opt/
 
 ## Stack & Struktur
 TypeScript · Express + tRPC 11 · Drizzle + PostgreSQL/TimescaleDB · ccxt(pro) · Hyperliquid/dYdX-SDKs · BullMQ + Redis · React + Vite + Tailwind · optional Python-Quant-Service.
-`packages/{core,db,market-data,strategy-engine,exchange,risk,agents,backtest,api,jobs}`, `apps/web`, `services/quant`. Jedes Paket hat eine eigene kurze `CLAUDE.md`.
+`packages/{core,db,market-data,strategy-engine,indicators,exchange,risk,agents,backtest,api,jobs}`, `apps/web`, `services/quant`. Jedes Paket hat eine eigene kurze `CLAUDE.md`.
 
 ## Konventionen
 - npm workspaces; Node ≥ 22; ESM (`"type": "module"`); strict TypeScript (`tsconfig.base.json`).
