@@ -246,6 +246,13 @@
       "when": 1792569238762,
       "tag": "0034_common_robbie_robertson",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1792575387931,
+      "tag": "0035_sudden_vance_astro",
+      "breakpoints": true
     }
   ]
 }

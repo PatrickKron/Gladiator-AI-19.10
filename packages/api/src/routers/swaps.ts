@@ -23,6 +23,7 @@ import {
   encryptSecret,
   generateWalletKey,
   importWalletKey,
+  fetchOnchainBalances,
   fetchRugPool,
   fetchTokenCandles,
   fetchTokenDiscovery,
@@ -521,6 +522,7 @@ export const swapsRouter = router({
         trailPct: o.trailPct === null ? null : Number(o.trailPct),
         peakPriceUsd: o.peakPriceUsd === null ? null : Number(o.peakPriceUsd),
         peakLiquidityUsd: o.peakLiquidityUsd === null ? null : Number(o.peakLiquidityUsd),
+        watchAddress: o.watchAddress,
         sellPercent: o.sellPercent === null ? null : Number(o.sellPercent),
         buyAmount: o.buyAmount,
         intervalMinutes: o.intervalMinutes,
@@ -545,13 +547,14 @@ export const swapsRouter = router({
       z.object({
         walletId: z.string().uuid(),
         token: z.string().min(32).max(64),
-        kind: z.enum(['take_profit', 'stop_loss', 'trailing_stop', 'limit_buy', 'dca', 'alert_above', 'alert_below', 'rug_guard']),
+        kind: z.enum(['take_profit', 'stop_loss', 'trailing_stop', 'limit_buy', 'dca', 'alert_above', 'alert_below', 'rug_guard', 'dev_sell']),
         /** DCA: Abstand (5 min bis 30 Tage), Anzahl Käufe, optionale Preisgrenze */
         intervalMinutes: z.number().int().min(5).max(43_200).optional(),
         runsTotal: z.number().int().min(2).max(500).optional(),
         maxPriceUsd: z.number().positive().optional(),
         triggerPriceUsd: z.number().positive().optional(),
-        trailPct: z.number().min(0.5).max(90).optional(),
+        /** Trailing-Abstand bzw. Abfall in % (Grenzen je Art in validateNewOrder) */
+        trailPct: z.number().min(0.5).max(100).optional(),
         sellPercent: z.number().min(1).max(100).optional(),
         buyAmount: z.string().regex(/^\d+(\.\d+)?$/).optional(),
         slippageBps: z.number().int().min(1).max(5_000).optional(),
@@ -599,6 +602,20 @@ export const swapsRouter = router({
           throw new TRPCError({ code: 'BAD_REQUEST', message: 'Kein Pool mit konstantem Produkt (nur v3/CLMM/DLMM/Whirlpool oder Bonding-Curve) — Rug-Schutz hier nicht verlässlich.' });
         }
       }
+      // Dev-Verkauf-Schutz: Ersteller-Wallet (GoPlus) und ihr Bestand jetzt (direkt von der Kette)
+      const dev = input.kind === 'dev_sell';
+      let devWatch: { address: string; balance: bigint } | null = null;
+      if (dev) {
+        if (SWAP_CHAINS[chain].kind !== 'evm') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Dev-Verkauf-Schutz gibt es nur auf EVM-Ketten (dort nennt GoPlus die Ersteller-Wallet).' });
+        }
+        const safety = await cachedTokenSafety(chain, input.token).catch((err: unknown) => asTrpc(netError(err)));
+        if (!safety.creatorAddress) throw new TRPCError({ code: 'BAD_GATEWAY', message: 'Ersteller-Wallet unbekannt — Dev-Verkauf-Schutz nicht möglich.' });
+        const bal = await fetchOnchainBalances(chain, safety.creatorAddress, [input.token], swapNet()).catch((err: unknown) => asTrpc(netError(err)));
+        const now = bal.get(input.token) ?? 0n;
+        if (now === 0n) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Die Ersteller-Wallet hält keine Tokens mehr — nichts zu beobachten.' });
+        devWatch = { address: safety.creatorAddress, balance: now };
+      }
       const [o] = await ctx.db
         .insert(swapOrders)
         .values({
@@ -606,8 +623,10 @@ export const swapsRouter = router({
           token: input.token,
           symbol: info.symbol,
           kind: input.kind,
-          triggerPriceUsd: input.kind === 'trailing_stop' || dca || rug ? null : String(input.triggerPriceUsd),
-          trailPct: input.kind === 'trailing_stop' || rug ? String(input.trailPct) : null,
+          triggerPriceUsd: input.kind === 'trailing_stop' || dca || rug || dev ? null : String(input.triggerPriceUsd),
+          trailPct: input.kind === 'trailing_stop' || rug || dev ? String(input.trailPct) : null,
+          watchAddress: devWatch?.address ?? null,
+          watchBalance: devWatch ? devWatch.balance.toString() : null,
           // Rug-Schutz: Kurs zum Stand der festgehaltenen Pool-Liquidität (Umzug kursbereinigt vergleichen)
           peakPriceUsd: input.kind === 'trailing_stop' || rug ? String(info.priceUsd) : null,
           peakLiquidityUsd: rug && rugPool?.liquidityUsd != null ? String(rugPool.liquidityUsd) : null,
