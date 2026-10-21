@@ -163,6 +163,15 @@ export type JupiterSwapExpect = { inMint: string; outMint: string; inAmount: big
  * sonst Programm-Id), [5] Ziel-Mint; shared_accounts_route: [2] Befugnis,
  * [6] Ziel, [7] Quell-Mint, [8] Ziel-Mint.
  */
+/**
+ * Mints liegen bei echten Jupiter-Transaktionen oft in Adress-Lookup-Tabellen
+ * (hier nicht auflösbar = null; CI-Befund 2026-10-21). Das ist unbedenklich:
+ * Das Ziel-Konto muss ohnehin UNSER Token-Konto des bestätigten Mints sein, und
+ * das Token-Programm lässt nur Gutschriften dieses Mints darauf zu. Ein statisch
+ * angegebener, ABWEICHENDER Mint wird weiter verweigert.
+ */
+const mintOk = (account: string | null | undefined, expected: string) => account === null || account === expected;
+
 function assertJupiterRoute(ix: SolanaInstruction, owner: string, exp: JupiterSwapExpect, deny: (why: string) => never): void {
   const d = ix.data;
   const disc = d.slice(0, 8);
@@ -181,11 +190,11 @@ function assertJupiterRoute(ix: SolanaInstruction, owner: string, exp: JupiterSw
   if (shared) {
     if (a[2] !== owner) deny('Jupiter-Swap nicht von der eigenen Wallet.');
     if (!own.has(a[6] ?? '')) deny('Jupiter-Ziel ist nicht das eigene Token-Konto.');
-    if (a[7] !== exp.inMint || a[8] !== exp.outMint) deny('Jupiter-Tokens passen nicht zum bestätigten Angebot.');
+    if (!mintOk(a[7], exp.inMint) || !mintOk(a[8], exp.outMint)) deny('Jupiter-Tokens passen nicht zum bestätigten Angebot.');
   } else {
     if (a[1] !== owner) deny('Jupiter-Swap nicht von der eigenen Wallet.');
     if (!own.has(a[3] ?? '') || !(a[4] === JUPITER_V6 || own.has(a[4] ?? ''))) deny('Jupiter-Ziel ist nicht das eigene Token-Konto.');
-    if (a[5] !== exp.outMint) deny('Jupiter-Tokens passen nicht zum bestätigten Angebot.');
+    if (!mintOk(a[5], exp.outMint)) deny('Jupiter-Tokens passen nicht zum bestätigten Angebot.');
   }
   if (inAmount !== exp.inAmount) deny('Jupiter-Menge passt nicht zum bestätigten Angebot.');
   if (quotedOut < exp.quotedOutAmount || slippageBps !== exp.slippageBps) deny('Jupiter-Mindestmenge niedriger als bestätigt.');

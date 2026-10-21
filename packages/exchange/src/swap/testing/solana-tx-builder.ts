@@ -21,14 +21,17 @@ const shortVec = (n: number): number[] => {
   }
 };
 
-export function buildV0Tx(feePayer: string, ixs: TestIx[]): string {
+/** `lookup`: diese Konten werden (wie bei echten Jupiter-Transaktionen) über eine Adress-Lookup-Tabelle referenziert. */
+export function buildV0Tx(feePayer: string, ixs: TestIx[], opts: { lookup?: string[] } = {}): string {
+  const lookup = opts.lookup ?? [];
   const keys: string[] = [feePayer];
   const add = (k: string) => {
-    if (!keys.includes(k)) keys.push(k);
-    return keys.indexOf(k);
+    if (!lookup.includes(k) && !keys.includes(k)) keys.push(k);
   };
   for (const ix of ixs) ix.accounts.forEach(add);
   for (const ix of ixs) add(ix.program);
+  const index = (k: string) => (lookup.includes(k) ? keys.length + lookup.indexOf(k) : keys.indexOf(k));
+  const tables = lookup.length ? [1, ...new Array(32).fill(7), 0, ...shortVec(lookup.length), ...lookup.map((_, i) => i)] : [0];
   const body: number[] = [
     0x80,
     1, // ein Unterzeichner (Gebührenzahler)
@@ -38,8 +41,8 @@ export function buildV0Tx(feePayer: string, ixs: TestIx[]): string {
     ...keys.flatMap((k) => [...base58Decode(k)]),
     ...new Array(32).fill(9), // recent blockhash
     ...shortVec(ixs.length),
-    ...ixs.flatMap((ix) => [keys.indexOf(ix.program), ...shortVec(ix.accounts.length), ...ix.accounts.map((a) => keys.indexOf(a)), ...shortVec(ix.data.length), ...ix.data]),
-    0, // keine Lookup-Tabellen
+    ...ixs.flatMap((ix) => [index(ix.program), ...shortVec(ix.accounts.length), ...ix.accounts.map(index), ...shortVec(ix.data.length), ...ix.data]),
+    ...tables,
   ];
   return Buffer.from(Uint8Array.from([1, ...new Array(64).fill(0), ...body])).toString('base64');
 }

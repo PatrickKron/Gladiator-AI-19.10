@@ -37,6 +37,14 @@ describe('assertJupiterSwapTx', () => {
     expect(check(jupiterLikeIxs(me, buy, { quotedOut: 2_000_000n }))).not.toThrow();
   });
 
+  it('Mints aus einer Lookup-Tabelle (wie bei echten Jupiter-Transaktionen) → erlaubt; Ziel-Konto aus der Tabelle → verweigert', () => {
+    const viaTable = (ixs: TestIx[], lookup: string[], exp = buy) => () => assertJupiterSwapTx(bytes(buildV0Tx(me, ixs, { lookup })), me, exp);
+    expect(parseSolanaMessage(bytes(buildV0Tx(me, jupiterLikeIxs(me, buy), { lookup: [USDC] }))).lookupTables).toBe(1);
+    expect(viaTable(jupiterLikeIxs(me, buy), [USDC])).not.toThrow();
+    expect(viaTable(jupiterLikeIxs(me, buy, { kind: 'shared' }), [USDC, SOL])).not.toThrow();
+    expect(viaTable(jupiterLikeIxs(me, buy), [associatedTokenAddress(me, USDC)])).toThrow(/Ziel|fremde Wallet/);
+  });
+
   it('SOL-Überweisung an Fremde → verweigert', () => {
     expect(check([...jupiterLikeIxs(me, buy), systemTransfer(me, thief, 5_000_000_000n)])).toThrow(/fremdes Konto/);
   });
@@ -55,7 +63,7 @@ describe('assertJupiterSwapTx', () => {
     expect(check(jupiterLikeIxs(me, buy, { quotedOut: 1n }))).toThrow(/Mindestmenge/);
     expect(check(jupiterLikeIxs(me, buy, { slippageBps: 10_000 }))).toThrow(/Mindestmenge/);
     expect(check(jupiterLikeIxs(me, buy, { platformFeeBps: 100 }))).toThrow(/Plattform-Gebühr/);
-    // anderer Ziel-Mint als bestätigt
+    // anderer (statisch angegebener) Ziel-Mint als bestätigt
     expect(check(jupiterLikeIxs(me, { ...buy, outMint: generateWalletKey('solana').address }))).toThrow(/Ziel|Tokens/);
   });
 
