@@ -143,6 +143,15 @@ export type PreparedSwap = {
   verdict: SwapVerdict;
 };
 
+/** Wertverlust des Angebots in % nach unabhängigen Kursen (DexScreener); null = Kurs fehlt. */
+export function independentLossPct(side: 'buy' | 'sell', q: SwapQuote, nativePriceUsd: number, tokenPriceUsd: number | null): number | null {
+  if (!(tokenPriceUsd !== null && tokenPriceUsd > 0) || !(nativePriceUsd > 0)) return null;
+  const inUsd = Number(q.inAmount) * (side === 'buy' ? nativePriceUsd : tokenPriceUsd);
+  const outUsd = Number(q.outAmount) * (side === 'buy' ? tokenPriceUsd : nativePriceUsd);
+  if (!(inUsd > 0) || !Number.isFinite(outUsd)) return null;
+  return Math.max(0, ((inUsd - outUsd) / inUsd) * 100);
+}
+
 export async function prepareSwap(db: Db, wallet: SwapWalletRow, req: SwapRequest): Promise<PreparedSwap> {
   const chain = wallet.chain as SwapChainId;
   const native = SWAP_CHAINS[chain].native;
@@ -194,6 +203,10 @@ export async function prepareSwap(db: Db, wallet: SwapWalletRow, req: SwapReques
     throw netError(err);
   }
   const valueUsd = Number(req.side === 'buy' ? quote.inAmount : quote.outAmount) * nativePriceUsd;
+  // Live: Verlust NICHT nur nach Angabe des Aggregators — unabhängig mit den DexScreener-Kursen
+  // nachgerechnet; ein manipuliertes Angebot (zu wenig heraus) fällt so am Preis-Einfluss-Limit auf
+  const independent = independentLossPct(req.side, quote, nativePriceUsd, info.priceUsd);
+  const priceImpactPct = wallet.mode === 'live' && independent !== null ? Math.max(quote.priceImpactPct, independent) : quote.priceImpactPct;
   const safety = req.side === 'buy' ? await cachedTokenSafety(chain, req.token) : null;
   // Empfänger = eigene Wallet: Swaps werden nie mit fremdem Empfänger gebaut (Live-Schritt nutzt dieselbe Adresse)
   const verdict = judgeSwap(
@@ -204,7 +217,7 @@ export async function prepareSwap(db: Db, wallet: SwapWalletRow, req: SwapReques
       recipient: wallet.address,
       valueUsd,
       slippageBps,
-      priceImpactPct: quote.priceImpactPct,
+      priceImpactPct,
       liquidityUsd: info.liquidityUsd,
     },
     limitsOf(wallet),

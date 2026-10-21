@@ -12,7 +12,11 @@ import { base58Decode, base58Encode } from './keys.js';
  *   - Associated Token Account: Konto anlegen — zahlend und besitzend wir;
  *   - Token/Token-2022: NUR SyncNative und CloseAccount mit Auszahlung an uns
  *     (wSOL auspacken) — nie Transfer, Approve, SetAuthority …;
- *   - Jupiter v6 (der eigentliche Swap).
+ *   - Jupiter v6: GENAU EIN `route`/`shared_accounts_route` (Aufbau laut
+ *     offiziellem IDL, jup-ag/jupiter-cpi) — dekodiert: Befugnis = wir,
+ *     Ziel-Konto = unser Token-Konto des bestätigten Mints, Menge, erwartete
+ *     Menge und Slippage = bestätigtes Angebot, keine Plattform-Gebühr.
+ *     Andere Jupiter-Anweisungen (ExactOut, TokenLedger, claim …) → verweigert.
  * Alles andere — fremde Programme, Überweisungen an andere, Konto-Übergaben —
  * wird verweigert. Konten aus Adress-Lookup-Tabellen sind hier nicht
  * auflösbar; wo es auf das Ziel ankommt, verweigern wir dann (fail closed).
@@ -25,6 +29,11 @@ export const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAS6EHFLp88EzTEbtKFFuh6';
 export const ATA_PROGRAM = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
 export const JUPITER_V6 = 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4';
 const WSOL = 'So11111111111111111111111111111111111111112';
+
+const anchorDisc = (name: string) => sha256(new TextEncoder().encode(`global:${name}`)).slice(0, 8);
+const JUP_ROUTE = anchorDisc('route');
+const JUP_SHARED_ROUTE = anchorDisc('shared_accounts_route');
+const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 /** Höchste erlaubte Prioritätsgebühr (Lamports) — wir verlangen bei Jupiter höchstens 0,001 SOL. */
 export const MAX_PRIORITY_FEE_LAMPORTS = 5_000_000n;
@@ -143,27 +152,69 @@ const u64 = (d: Uint8Array, o: number) => {
   return v;
 };
 
+/** Bestätigtes Angebot, gegen das die Transaktion geprüft wird (kleinste Einheiten). */
+export type JupiterSwapExpect = { inMint: string; outMint: string; inAmount: bigint; quotedOutAmount: bigint; slippageBps: number };
+
 /**
- * Wirft, wenn die Transaktion irgendetwas außer einem Jupiter-Swap für `owner`
- * enthält. `maxSolIn`: höchstens so viele Lamports dürfen eingepackt werden
- * (Kaufbetrag; beim Verkauf 0).
+ * Prüft die eigentliche Jupiter-Anweisung. Die festen Argumente stehen am Ende
+ * der Daten (`route_plan` davor ist variabel lang):
+ *   in_amount u64 · quoted_out_amount u64 · slippage_bps u16 · platform_fee_bps u8.
+ * Konten laut IDL — route: [1] Befugnis, [3] Nutzer-Ziel, [4] Ziel (optional,
+ * sonst Programm-Id), [5] Ziel-Mint; shared_accounts_route: [2] Befugnis,
+ * [6] Ziel, [7] Quell-Mint, [8] Ziel-Mint.
  */
-export function assertJupiterSwapTx(tx: Uint8Array, owner: string, opts: { maxSolIn: bigint }): void {
+function assertJupiterRoute(ix: SolanaInstruction, owner: string, exp: JupiterSwapExpect, deny: (why: string) => never): void {
+  const d = ix.data;
+  const disc = d.slice(0, 8);
+  const shared = sameBytes(disc, JUP_SHARED_ROUTE);
+  if (!shared && !sameBytes(disc, JUP_ROUTE)) {
+    deny(`unbekannte Jupiter-Anweisung (${Buffer.from(disc).toString('hex')}, ${ix.accounts.length} Konten).`);
+  }
+  if (d.length < 8 + 19) deny('Jupiter-Anweisung zu kurz.');
+  const t = d.length - 19;
+  const inAmount = u64(d, t);
+  const quotedOut = u64(d, t + 8);
+  const slippageBps = d[t + 16]! | (d[t + 17]! << 8);
+  const platformFeeBps = d[t + 18]!;
+  const own = new Set([associatedTokenAddress(owner, exp.outMint, TOKEN_PROGRAM), associatedTokenAddress(owner, exp.outMint, TOKEN_2022_PROGRAM)]);
+  const a = ix.accounts;
+  if (shared) {
+    if (a[2] !== owner) deny('Jupiter-Swap nicht von der eigenen Wallet.');
+    if (!own.has(a[6] ?? '')) deny('Jupiter-Ziel ist nicht das eigene Token-Konto.');
+    if (a[7] !== exp.inMint || a[8] !== exp.outMint) deny('Jupiter-Tokens passen nicht zum bestätigten Angebot.');
+  } else {
+    if (a[1] !== owner) deny('Jupiter-Swap nicht von der eigenen Wallet.');
+    if (!own.has(a[3] ?? '') || !(a[4] === JUPITER_V6 || own.has(a[4] ?? ''))) deny('Jupiter-Ziel ist nicht das eigene Token-Konto.');
+    if (a[5] !== exp.outMint) deny('Jupiter-Tokens passen nicht zum bestätigten Angebot.');
+  }
+  if (inAmount !== exp.inAmount) deny('Jupiter-Menge passt nicht zum bestätigten Angebot.');
+  if (quotedOut < exp.quotedOutAmount || slippageBps !== exp.slippageBps) deny('Jupiter-Mindestmenge niedriger als bestätigt.');
+  if (platformFeeBps !== 0) deny('Plattform-Gebühr in der Jupiter-Route.');
+}
+
+/**
+ * Wirft, wenn die Transaktion irgendetwas außer genau dem bestätigten
+ * Jupiter-Swap für `owner` enthält. Eingepackt werden darf höchstens die
+ * Kaufmenge (nur bei SOL als Eingang; beim Verkauf nichts).
+ */
+export function assertJupiterSwapTx(tx: Uint8Array, owner: string, exp: JupiterSwapExpect): void {
   const msg = parseSolanaMessage(tx);
   const wsolAta = associatedTokenAddress(owner, WSOL);
+  const maxSolIn = exp.inMint === WSOL ? exp.inAmount : 0n;
   const deny = (why: string): never => {
     throw new Error(`Transaktion verweigert: ${why}`);
   };
   let cuLimit = 1_400_000n;
   let cuPrice = 0n;
   let wrapped = 0n;
-  let hasJupiter = false;
+  let jupiter = 0;
   for (const ix of msg.instructions) {
     const d = ix.data;
     switch (ix.program) {
       case COMPUTE_BUDGET:
         if (d[0] === 2 && d.length === 5) cuLimit = BigInt(u32(d, 1));
         else if (d[0] === 3 && d.length === 9) cuPrice = u64(d, 1);
+        else if ((d[0] === 1 || d[0] === 4) && d.length === 5) break; // Heap-Größe / Kontodaten-Limit: harmlos
         else deny('unbekannte ComputeBudget-Anweisung.');
         break;
       case SYSTEM_PROGRAM: {
@@ -189,14 +240,15 @@ export function assertJupiterSwapTx(tx: Uint8Array, owner: string, opts: { maxSo
         deny('Token-Anweisung außer Ein-/Auspacken (z. B. Transfer, Approve, SetAuthority).');
         break;
       case JUPITER_V6:
-        hasJupiter = true;
+        jupiter++;
+        assertJupiterRoute(ix, owner, exp, deny);
         break;
       default:
         deny(`unbekanntes Programm ${ix.program}.`);
     }
   }
-  if (!hasJupiter) deny('kein Jupiter-Swap enthalten.');
-  if (wrapped > opts.maxSolIn) deny('es würde mehr SOL eingesetzt als bestätigt.');
+  if (jupiter !== 1) deny(jupiter === 0 ? 'kein Jupiter-Swap enthalten.' : 'mehr als ein Jupiter-Swap.');
+  if (wrapped > maxSolIn) deny('es würde mehr SOL eingesetzt als bestätigt.');
   const priorityLamports = (cuLimit * cuPrice) / 1_000_000n;
   if (priorityLamports > MAX_PRIORITY_FEE_LAMPORTS) deny('Prioritätsgebühr über der Obergrenze.');
 }

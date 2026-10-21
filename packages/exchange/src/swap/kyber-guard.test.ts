@@ -36,6 +36,13 @@ describe('assertKyberSwap', () => {
     expect(() => assertKyberSwap(kyberSwapCalldata({ srcToken: USDC, dstToken: EVM_NATIVE, dstReceiver: ME, amount: 30_000_000n, minReturnAmount: 1n }), 1n, sell)).toThrow(/mitgeschickter Betrag/);
   });
 
+  it('Teilausführung erlaubt; swapSimpleMode mit nativem Eingang → verweigert; swapSimpleMode beim Token-Verkauf erlaubt', () => {
+    expect(() => assertKyberSwap(kyberSwapCalldata({ ...good, flags: 0x01n }), IN, expectBuy)).toThrow(/Teilausführung/);
+    expect(() => assertKyberSwap(kyberSwapCalldata({ ...good, simple: true }), IN, expectBuy)).toThrow(/natives Guthaben/);
+    const sell = { ...expectBuy, srcToken: USDC, dstToken: EVM_NATIVE, amountIn: 30_000_000n, minOut: 1n, nativeIn: false };
+    expect(() => assertKyberSwap(kyberSwapCalldata({ srcToken: USDC, dstToken: EVM_NATIVE, dstReceiver: ME, amount: 30_000_000n, minReturnAmount: 1n, simple: true }), 0n, sell)).not.toThrow();
+  });
+
   it('unbekannte Funktion (z. B. approve/transfer) → verweigert', () => {
     expect(() => assertKyberSwap('0xa9059cbb000000000000000000000000000000000000000000000000000000000000dead0000000000000000000000000000000000000000000000000000000000000001', 0n, expectBuy)).toThrow(/nicht lesbar/);
   });

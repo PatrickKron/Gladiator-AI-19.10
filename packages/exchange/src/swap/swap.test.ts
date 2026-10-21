@@ -54,8 +54,18 @@ describe('Aggregator-Antworten', () => {
         routePlan: [{ swapInfo: { label: 'Raydium' } }, { swapInfo: { label: 'Orca' } }, { swapInfo: { label: 'Raydium' } }],
       }),
     );
-    expect(q).toMatchObject({ inAmount: '0.1', outAmount: '15.123456', minOutAtomic: '15047839', route: ['Raydium', 'Orca'] });
+    // Mindestmenge selbst gerechnet (abgerundet), nicht `otherAmountThreshold` übernommen
+    expect(q).toMatchObject({ inAmount: '0.1', outAmount: '15.123456', minOutAtomic: '15047838', route: ['Raydium', 'Orca'] });
     expect(q.priceImpactPct).toBeCloseTo(0.12, 6);
+  });
+
+  it('Angebot über eine andere Menge als angefragt, ExactOut oder mit Plattform-Gebühr → verweigert', async () => {
+    const p = { inToken: SOL, outToken: { address: USDC_SOL, symbol: 'USDC', decimals: 6 }, inAtomic: 100_000_000n, slippageBps: 50 };
+    const base = { inAmount: '100000000', outAmount: '15123456', priceImpactPct: '0', routePlan: [] };
+    await expect(jupiterQuote(p, jsonFetch({ ...base, inAmount: '900000000' }))).rejects.toThrow(/passt nicht/);
+    await expect(jupiterQuote(p, jsonFetch({ ...base, swapMode: 'ExactOut' }))).rejects.toThrow(/passt nicht/);
+    await expect(jupiterQuote(p, jsonFetch({ ...base, platformFee: { amount: '1000', feeBps: 50 } }))).rejects.toThrow(/Plattform-Gebühr/);
+    expect((await jupiterQuote(p, jsonFetch({ ...base, swapMode: 'ExactIn', platformFee: null }))).outAtomic).toBe('15123456');
   });
 
   it('Jupiter ohne Route → ehrlicher Fehler', async () => {
@@ -85,6 +95,15 @@ describe('Aggregator-Antworten', () => {
     );
     expect(q).toMatchObject({ inAmount: '0.1', outAmount: '300', minOutAtomic: '297000000', networkFeeUsd: 0.02, route: ['uniswap-v3', 'aerodrome'] });
     expect(q.priceImpactPct).toBeCloseTo(0.4975, 3);
+  });
+
+  it('KyberSwap: Route über eine andere Menge als angefragt → verweigert', async () => {
+    await expect(
+      kyberQuote(
+        { chain: 'base', inToken: ETH, outToken: { address: USDC_BASE, symbol: 'USDC', decimals: 6 }, inAtomic: 10n ** 17n, slippageBps: 100 },
+        jsonFetch({ code: 0, data: { routeSummary: { amountIn: '900000000000000000', amountOut: '300000000' } } }),
+      ),
+    ).rejects.toThrow(/passt nicht/);
   });
 
   it('Betrag 0 wird gar nicht erst angefragt', async () => {

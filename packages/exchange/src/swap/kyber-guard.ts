@@ -8,7 +8,10 @@ import { decodeFunctionData, parseAbi } from 'viem';
  * dekodiert und muss genau zum bestätigten Angebot passen:
  *   Empfänger = eigene Wallet, Tokens = Angebot, Menge = Angebot,
  *   Mindestmenge ≥ unsere, keine Fremdgebühren, mitgeschickter ETH-Betrag
- *   = Kaufbetrag (Token-Verkauf: 0). Unbekannte Funktion → verweigert.
+ *   = Kaufbetrag (Token-Verkauf: 0), keine Teilausführung. Unbekannte Funktion
+ *   → verweigert. Offen (dokumentiert): `srcReceivers`/Executor sind nicht
+ *   prüfbar — ein Diebstahl dort bleibt durch die Mindestmenge (bestätigt +
+ *   unabhängige Preisprüfung im Swap-Service) begrenzt.
  */
 
 const DESC =
@@ -29,18 +32,27 @@ type Desc = {
   dstReceiver: string;
   amount: bigint;
   minReturnAmount: bigint;
+  flags: bigint;
+  permit: string;
 };
+
+/** MetaAggregationRouterV2: Teilausführung erlaubt (Mindestmenge nur noch anteilig) — nie für uns. */
+const FLAG_PARTIAL_FILL = 0x01n;
 
 /** Dekodiert die Swap-Beschreibung; wirft bei unbekannter Funktion. */
 export function decodeKyberDesc(data: `0x${string}`): Desc {
+  return decodeKyber(data).desc;
+}
+
+function decodeKyber(data: `0x${string}`): { fn: 'swap' | 'swapSimpleMode'; desc: Desc } {
   let decoded;
   try {
     decoded = decodeFunctionData({ abi: KYBER_ROUTER_ABI, data });
   } catch {
     throw new Error('Swap verweigert: KyberSwap-Aufrufdaten nicht lesbar (unbekannte Funktion).');
   }
-  if (decoded.functionName === 'swap') return (decoded.args[0] as { desc: Desc }).desc;
-  return decoded.args[1] as Desc;
+  if (decoded.functionName === 'swap') return { fn: 'swap', desc: (decoded.args[0] as { desc: Desc }).desc };
+  return { fn: 'swapSimpleMode', desc: decoded.args[1] as Desc };
 }
 
 const lc = (a: string) => a.toLowerCase();
@@ -50,7 +62,7 @@ export function assertKyberSwap(
   value: bigint,
   expect: { owner: string; srcToken: string; dstToken: string; amountIn: bigint; minOut: bigint; nativeIn: boolean },
 ): void {
-  const d = decodeKyberDesc(data);
+  const { fn, desc: d } = decodeKyber(data);
   const deny = (why: string): never => {
     throw new Error(`Swap verweigert: ${why}`);
   };
@@ -61,4 +73,7 @@ export function assertKyberSwap(
   if (d.srcAmounts.reduce((s, x) => s + x, 0n) > d.amount) deny('Aufteilung übersteigt die Menge.');
   if (d.feeAmounts.some((f) => f > 0n) || d.feeReceivers.length > d.feeAmounts.length) deny('Fremdgebühren in der Route.');
   if (value !== (expect.nativeIn ? expect.amountIn : 0n)) deny('mitgeschickter Betrag passt nicht zum Angebot.');
+  // swapSimpleMode nimmt kein natives ETH an — würde nur Gas kosten
+  if (fn === 'swapSimpleMode' && expect.nativeIn) deny('Route kann natives Guthaben nicht annehmen.');
+  if ((d.flags & FLAG_PARTIAL_FILL) !== 0n) deny('Teilausführung in der Route (Mindestmenge nur anteilig).');
 }

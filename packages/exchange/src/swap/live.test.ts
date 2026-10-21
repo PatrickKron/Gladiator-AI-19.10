@@ -10,7 +10,7 @@ import { parseTransaction, decodeFunctionData, parseAbi, type Hex } from 'viem';
 import { describe, expect, it } from 'vitest';
 import { EVM_NATIVE, SWAP_CHAINS, toAtomic } from './chains.js';
 import { base58Decode, generateWalletKey } from './keys.js';
-import { executeEvmSwap, executeSolanaSwap, fetchOnchainBalances, KYBER_ROUTERS } from './live.js';
+import { executeEvmSwap, executeSolanaSwap, fetchOnchainBalances, jupiterExpect, jupiterSwapRequest, KYBER_ROUTERS } from './live.js';
 import { fetchSwapQuote, JUPITER_API, KYBER_API, type SwapQuote } from './quotes.js';
 import { parseSolanaTx, signSolanaTx } from './solana-tx.js';
 import { assertJupiterSwapTx } from './solana-guard.js';
@@ -48,7 +48,7 @@ describe('Solana-Live-Swap (Netz injiziert)', () => {
 
   function net(
     status: unknown,
-    opts: { feePayer?: string; tx?: string; send?: 'ok' | 'network' | 'rejected'; statusErrors?: number } = {},
+    opts: { feePayer?: string; tx?: string; send?: 'ok' | 'network' | 'rejected'; statusErrors?: number; height?: number; history?: unknown } = {},
   ) {
     const sent: string[] = [];
     const calls: string[] = [];
@@ -57,7 +57,7 @@ describe('Solana-Live-Swap (Netz injiziert)', () => {
       const body = JSON.parse(String(init.body)) as { method?: string; params?: unknown[]; userPublicKey?: string };
       if (String(url) === `${JUPITER_API}/swap`) {
         calls.push(`jup:${body.userPublicKey}`);
-        const tx = opts.tx ?? buildV0Tx(opts.feePayer ?? k.address, jupiterLikeIxs(k.address, 10_000_000n));
+        const tx = opts.tx ?? buildV0Tx(opts.feePayer ?? k.address, jupiterLikeIxs(k.address, jupiterExpect(solQuote())));
         return new Response(JSON.stringify({ swapTransaction: tx, lastValidBlockHeight: 1_000 }));
       }
       calls.push(body.method!);
@@ -69,9 +69,10 @@ describe('Solana-Live-Swap (Netz injiziert)', () => {
       }
       if (body.method === 'getSignatureStatuses') {
         if (statusErrors-- > 0) return new Response('zu viele', { status: 429 });
-        return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { value: [status] } }));
+        const history = (body.params as [unknown, { searchTransactionHistory?: boolean }])[1]?.searchTransactionHistory;
+        return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { value: [history ? (opts.history ?? null) : status] } }));
       }
-      if (body.method === 'getBlockHeight') return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: 900 }));
+      if (body.method === 'getBlockHeight') return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: opts.height ?? 900 }));
       return new Response('?', { status: 404 });
     }) as unknown as typeof fetch;
     return { f, sent, calls };
@@ -90,7 +91,7 @@ describe('Solana-Live-Swap (Netz injiziert)', () => {
 
   it('Diebstahl in der gelieferten Transaktion (SOL an Fremde) → nicht signiert, nichts gesendet', async () => {
     const thief = generateWalletKey('solana').address;
-    const n = net(null, { tx: buildV0Tx(k.address, [...jupiterLikeIxs(k.address, 10_000_000n), systemTransfer(k.address, thief, 9_000_000_000n)]) });
+    const n = net(null, { tx: buildV0Tx(k.address, [...jupiterLikeIxs(k.address, jupiterExpect(solQuote())), systemTransfer(k.address, thief, 9_000_000_000n)]) });
     await expect(executeSolanaSwap({ quote: solQuote(), address: k.address, secret: k.secret }, n.f, { pollMs: 1 })).rejects.toThrow(/fremdes Konto/);
     expect(n.sent).toHaveLength(0);
   });
@@ -119,6 +120,23 @@ describe('Solana-Live-Swap (Netz injiziert)', () => {
     expect(r.txHash.length).toBeGreaterThan(60);
     const b = net(null, { send: 'rejected' });
     expect(await executeSolanaSwap({ quote: solQuote(), address: k.address, secret: k.secret }, b.f, { pollMs: 1 })).toMatchObject({ status: 'failed' });
+  });
+
+  it('Blockhash abgelaufen: in der Historie gelandet → filled (OCO greift), sonst failed', async () => {
+    const landed = net(null, { height: 2_000, history: { confirmationStatus: 'finalized', err: null } });
+    expect((await executeSolanaSwap({ quote: solQuote(), address: k.address, secret: k.secret }, landed.f, { pollMs: 1 })).status).toBe('filled');
+    const gone = net(null, { height: 2_000 });
+    const r = await executeSolanaSwap({ quote: solQuote(), address: k.address, secret: k.secret }, gone.f, { pollMs: 1 });
+    expect(r).toMatchObject({ status: 'failed' });
+    expect(r.error).toMatch(/abgelaufen/);
+  });
+
+  it('Jupiter liefert eine Route an ein fremdes Ziel-Konto → nicht signiert, nichts gesendet', async () => {
+    const thief = generateWalletKey('solana').address;
+    const tx = buildV0Tx(k.address, jupiterLikeIxs(k.address, jupiterExpect(solQuote()), { destination: thief }));
+    const n = net(null, { tx });
+    await expect(executeSolanaSwap({ quote: solQuote(), address: k.address, secret: k.secret }, n.f, { pollMs: 1 })).rejects.toThrow(/Ziel/);
+    expect(n.sent).toHaveLength(0);
   });
 
   it('Status-Abfrage gedrosselt (429) → weiter warten statt abbrechen; ohne Bestätigung → pending', async () => {
@@ -268,20 +286,28 @@ describe('EVM-Live-Swap (Netz injiziert)', () => {
 });
 
 describe('echte Daten: Aggregatoren bauen für eine leere Wallet (nichts wird gesendet)', () => {
-  it('Jupiter: echte v0-Transaktion, eigene Wallet ist alleiniger Gebührenzahler → signierbar', async () => {
+  async function realJupiter(inToken: SwapQuote['inToken'], outToken: SwapQuote['outToken'], inAtomic: bigint) {
     const k = generateWalletKey('solana');
-    const quote = await fetchSwapQuote({ chain: 'solana', inToken: SWAP_CHAINS.solana.native, outToken: { address: USDC_SOL, symbol: 'USDC', decimals: 6 }, inAtomic: toAtomic('0.01', 9), slippageBps: 50 });
-    const res = await fetch(`${JUPITER_API}/swap`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ quoteResponse: quote.raw, userPublicKey: k.address, wrapAndUnwrapSol: true, dynamicComputeUnitLimit: true }),
-    });
+    const quote = await fetchSwapQuote({ chain: 'solana', inToken, outToken, inAtomic, slippageBps: 50 });
+    // genau die Anfrage, die auch der Live-Pfad stellt
+    const res = await fetch(`${JUPITER_API}/swap`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(jupiterSwapRequest(quote, k.address)) });
     const { swapTransaction } = (await res.json()) as { swapTransaction: string };
+    return { k, quote, swapTransaction };
+  }
+  const USDC_TOKEN = { address: USDC_SOL, symbol: 'USDC', decimals: 6 };
+
+  it('Jupiter: echte v0-Transaktion, eigene Wallet ist alleiniger Gebührenzahler → signierbar; Wächter akzeptiert Kauf', async () => {
+    const { k, quote, swapTransaction } = await realJupiter(SWAP_CHAINS.solana.native, USDC_TOKEN, toAtomic('0.01', 9));
     const parsed = parseSolanaTx(Buffer.from(swapTransaction, 'base64'));
     expect(parsed).toMatchObject({ requiredSignatures: 1, signers: [k.address] });
     expect(() => signSolanaTx(swapTransaction, k.secret, k.address)).not.toThrow();
-    // der Wächter akzeptiert eine ECHTE Jupiter-Transaktion (Allowlist passt zur Realität)
-    expect(() => assertJupiterSwapTx(Uint8Array.from(Buffer.from(swapTransaction, 'base64')), k.address, { maxSolIn: toAtomic('0.01', 9) })).not.toThrow();
+    // der Wächter akzeptiert eine ECHTE Jupiter-Transaktion (Allowlist + Route-Aufbau passen zur Realität)
+    expect(() => assertJupiterSwapTx(Uint8Array.from(Buffer.from(swapTransaction, 'base64')), k.address, jupiterExpect(quote))).not.toThrow();
+  }, 30_000);
+
+  it('Jupiter: Wächter akzeptiert einen echten Verkauf (Token → SOL, auspacken)', async () => {
+    const { k, quote, swapTransaction } = await realJupiter(USDC_TOKEN, SWAP_CHAINS.solana.native, 2_000_000n);
+    expect(() => assertJupiterSwapTx(Uint8Array.from(Buffer.from(swapTransaction, 'base64')), k.address, jupiterExpect(quote))).not.toThrow();
   }, 30_000);
 
   it('KyberSwap: echte Route auf Base geht an den bekannten Router', async () => {

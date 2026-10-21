@@ -49,6 +49,22 @@ function assertJupiterQuote(q: SwapQuote): void {
   }
 }
 
+/** Anfrage an Jupiter `/swap` — exportiert, damit der Echtdaten-Test genau dieselbe Transaktion bauen lässt. */
+export function jupiterSwapRequest(quote: SwapQuote, address: string) {
+  return {
+    quoteResponse: quote.raw,
+    userPublicKey: address,
+    wrapAndUnwrapSol: true,
+    dynamicComputeUnitLimit: true,
+    prioritizationFeeLamports: { priorityLevelWithMaxLamports: { maxLamports: 1_000_000, priorityLevel: 'high' } },
+  };
+}
+
+/** Erwartungen des Solana-Wächters aus dem bestätigten Angebot. */
+export function jupiterExpect(q: SwapQuote) {
+  return { inMint: q.inToken.address, outMint: q.outToken.address, inAmount: BigInt(q.inAtomic), quotedOutAmount: BigInt(q.outAtomic), slippageBps: q.slippageBps };
+}
+
 async function postJson(url: string, body: unknown, fetchFn: Fetch, timeoutMs = 15_000): Promise<unknown> {
   const res = await fetchFn(url, {
     method: 'POST',
@@ -76,21 +92,10 @@ export async function executeSolanaSwap(
   opts: { pollMs?: number; timeoutMs?: number } & LiveSwapOpts = {},
 ): Promise<LiveSwapResult> {
   assertJupiterQuote(p.quote);
-  const built = (await postJson(
-    `${JUPITER_API}/swap`,
-    {
-      quoteResponse: p.quote.raw,
-      userPublicKey: p.address,
-      wrapAndUnwrapSol: true,
-      dynamicComputeUnitLimit: true,
-      prioritizationFeeLamports: { priorityLevelWithMaxLamports: { maxLamports: 1_000_000, priorityLevel: 'high' } },
-    },
-    fetchFn,
-  )) as { swapTransaction?: string; lastValidBlockHeight?: number };
+  const built = (await postJson(`${JUPITER_API}/swap`, jupiterSwapRequest(p.quote, p.address), fetchFn)) as { swapTransaction?: string; lastValidBlockHeight?: number };
   if (!built.swapTransaction) throw new Error('Jupiter: keine Transaktion erhalten.');
-  // Inhalt prüfen: nur ein Jupiter-Swap für uns, nie Überweisungen/Freigaben an andere
-  const nativeIn = p.quote.inToken.address === SWAP_CHAINS.solana.native.address;
-  assertJupiterSwapTx(Uint8Array.from(Buffer.from(built.swapTransaction, 'base64')), p.address, { maxSolIn: nativeIn ? BigInt(p.quote.inAtomic) : 0n });
+  // Inhalt prüfen: genau der bestätigte Jupiter-Swap für uns, nie Überweisungen/Freigaben an andere
+  assertJupiterSwapTx(Uint8Array.from(Buffer.from(built.swapTransaction, 'base64')), p.address, jupiterExpect(p.quote));
   await opts.beforeSign?.();
   const signed = signSolanaTx(built.swapTransaction, p.secret, p.address);
   // Signatur = Transaktions-Id steht VOR dem Senden fest
@@ -116,7 +121,16 @@ export async function executeSolanaSwap(
       if (s && (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized')) return { txHash: sig, status: 'filled', error: null, approvalTx: null };
       if (built.lastValidBlockHeight) {
         const height = (await rpc('solana', 'getBlockHeight', [{ commitment: 'confirmed' }], fetchFn)) as number;
-        if (height > built.lastValidBlockHeight) return { txHash: sig, status: 'failed', error: 'Transaktion abgelaufen (nicht in einen Block gekommen).', approvalTx: null };
+        if (height > built.lastValidBlockHeight) {
+          // abgelaufen — aber zwischen beiden Abfragen kann sie noch gelandet sein: einmal in der Historie nachsehen
+          const again = (await rpc('solana', 'getSignatureStatuses', [[sig], { searchTransactionHistory: true }], fetchFn)) as {
+            value?: ({ confirmationStatus?: string; err?: unknown } | null)[];
+          };
+          const s2 = again.value?.[0];
+          if (s2?.err) return { txHash: sig, status: 'failed', error: `On-chain fehlgeschlagen: ${JSON.stringify(s2.err)}`, approvalTx: null };
+          if (s2) return { txHash: sig, status: s2.confirmationStatus === 'processed' ? 'pending' : 'filled', error: s2.confirmationStatus === 'processed' ? UNKNOWN : null, approvalTx: null };
+          return { txHash: sig, status: 'failed', error: 'Transaktion abgelaufen (nicht in einen Block gekommen).', approvalTx: null };
+        }
       }
     } catch {
       // Abfrage-Fehler (z. B. 429) heißt nicht „nicht passiert“ — weiter versuchen

@@ -29,6 +29,8 @@ const LIMITS = { maxTradeUsd: 1_000, maxSlippageBps: 300, maxPriceImpactPct: 5, 
 /** Kette: 3 SOL Guthaben; nach dem Kauf hält die Wallet BONK. */
 let chainBonk = 0n;
 let chainLamports = 3_000_000_000n;
+/** manipuliertes Angebot: Aggregator behauptet 10 % des fairen Ergebnisses bei „0,1 % Preis-Einfluss“ */
+let rugQuote = false;
 const fakeNet = (async (url: string, init?: RequestInit) => {
   const u = String(url);
   const json = (b: unknown) => new Response(JSON.stringify(b));
@@ -40,7 +42,8 @@ const fakeNet = (async (url: string, init?: RequestInit) => {
     const q = new URL(u).searchParams;
     const amount = BigInt(q.get('amount')!);
     // 1 Lamport = 750 BONK-Atome (0,00002 $ bei 150 $/SOL), in beide Richtungen
-    const out = q.get('inputMint') === SOL_MINT ? amount * 750n : amount / 750n;
+    const fair = q.get('inputMint') === SOL_MINT ? amount * 750n : amount / 750n;
+    const out = rugQuote ? fair / 10n : fair;
     return json({ inAmount: amount.toString(), outAmount: out.toString(), priceImpactPct: '0.001', routePlan: [{ swapInfo: { label: 'Raydium' } }] });
   }
   const body = JSON.parse(String(init?.body)) as { method: string; params: unknown[] };
@@ -165,6 +168,16 @@ describe.skipIf(!hasDb)('Eigene Trading-Wallet (live)', () => {
     const audit = await db.select().from(schema.auditLog).where(and(eq(schema.auditLog.userId, userId), eq(schema.auditLog.action, 'swap.live_order_create')));
     expect(audit).toHaveLength(1);
     liveOrderId = o.id;
+  });
+
+  it('manipuliertes Angebot (viel zu wenig heraus, Aggregator meldet kaum Preis-Einfluss) → unabhängig erkannt, nichts gesendet', async () => {
+    rugQuote = true;
+    try {
+      await expect(a.swaps.execute({ walletId, side: 'buy', token: BONK, amount: '1', confirmLive: true })).rejects.toThrow(/price_impact_above_limit|Preis-Einfluss/);
+      expect(executed).toHaveLength(1);
+    } finally {
+      rugQuote = false;
+    }
   });
 
   it('mehr als das Guthaben → abgelehnt, bevor etwas gebaut wird', async () => {
