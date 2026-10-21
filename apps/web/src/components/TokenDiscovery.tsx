@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
@@ -24,11 +24,18 @@ export function TokenDiscovery({ chain, onPick }: { chain: Chain; onPick: (addre
   const [items, setItems] = useState<Item[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Nur die jüngste Anfrage darf die Liste setzen (sonst landen nach schnellem
+  // Tab-Wechsel „Im Trend“-Pools unter „Neue Pools“)
+  const reqId = useRef(0);
   const load = useCallback(async () => {
+    const id = ++reqId.current;
     try {
-      setItems(await trpc.swaps.discover.query({ chain, kind }));
+      const next = await trpc.swaps.discover.query({ chain, kind });
+      if (id !== reqId.current) return;
+      setItems(next);
       setError(null);
     } catch (err) {
+      if (id !== reqId.current) return;
       setError(err instanceof Error ? err.message : t('common.error'));
     }
   }, [chain, kind, t]);

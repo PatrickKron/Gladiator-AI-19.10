@@ -90,6 +90,7 @@ export {
   runSwapOrders,
   failStuckSwapOrders,
   runDcaOrders,
+  stoppableOrders,
   dcaAfterRun,
   SWAP_ORDER_LABEL,
   type DcaResult,

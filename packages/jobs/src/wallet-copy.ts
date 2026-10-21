@@ -87,6 +87,7 @@ export async function checkWatchedWallet(db: Db, w: WatchedRow, out: WalletCopyR
     await db.update(watchedWallets).set({ lastCheckedAt: new Date(), lastError: msg }).where(eq(watchedWallets.id, w.id));
     return;
   }
+  // erster Lauf = noch nie erfolgreich gelesen (Cursor null; '' heißt: gelesen, aber leer)
   const firstRun = w.lastSignature === null;
   // älteste zuerst, damit Kauf vor Verkauf kopiert wird
   for (const s of [...res.swaps].reverse()) {
@@ -144,7 +145,13 @@ export async function checkWatchedWallet(db: Db, w: WatchedRow, out: WalletCopyR
   }
   await db
     .update(watchedWallets)
-    .set({ lastSignature: res.newestSignature, lastCheckedAt: new Date(), lastError: null })
+    .set({
+      // '' = Wallet ohne Transaktionen: kein „erster Lauf“ mehr, der erste echte Swap wird kopiert
+      lastSignature: res.newestSignature,
+      lastCheckedAt: new Date(),
+      // Lücke ehrlich zeigen statt still zu überspringen
+      lastError: res.gap ? 'Wallet sehr aktiv — nicht alle neuen Transaktionen konnten gelesen werden (Lücke möglich).' : null,
+    })
     .where(eq(watchedWallets.id, w.id));
 }
 

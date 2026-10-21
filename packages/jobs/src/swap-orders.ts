@@ -1,4 +1,4 @@
-import { and, eq, isNull, lte, ne, sql } from 'drizzle-orm';
+import { and, eq, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import { schema, type Db } from '@gladiator/db';
 import { fetchTokenPrices, walletBalances, type SwapChainId } from '@gladiator/exchange';
 import { notifySafe } from './notify.js';
@@ -124,7 +124,8 @@ async function fireOrder(db: Db, o: OrderRow, w: SwapWalletRow, priceUsd: number
           .update(swapOrders)
           .set({ status: 'cancelled', closedAt: new Date(), error: 'Bestand verkauft' })
           .where(
-            and(eq(swapOrders.walletId, w.id), eq(swapOrders.token, o.token), eq(swapOrders.status, 'open'), ne(swapOrders.kind, 'limit_buy')),
+            // Kauf-Orders (Limit-Kauf, DCA) bleiben — sie bauen den Bestand ja gerade auf
+            and(eq(swapOrders.walletId, w.id), eq(swapOrders.token, o.token), eq(swapOrders.status, 'open'), notInArray(swapOrders.kind, ['limit_buy', 'dca'])),
           );
       }
     }
@@ -181,6 +182,15 @@ export async function runSwapOrders(db: Db): Promise<SwapOrdersResult> {
     if (ev.trigger) await fireOrder(db, order, wallet, price, out);
   }
   return out;
+}
+
+/**
+ * Beim Zurückziehen der Live-Freigabe bzw. Entfernen der Wallet: offene Orders
+ * UND gerade laufende DCA stoppen (eine laufende DCA käme sonst nach ihrem
+ * Kauf wieder auf „open“). Laufende Einzel-Orders schließen sich selbst ab.
+ */
+export function stoppableOrders(walletId: string) {
+  return and(eq(swapOrders.walletId, walletId), or(eq(swapOrders.status, 'open'), and(eq(swapOrders.status, 'executing'), eq(swapOrders.kind, 'dca'))));
 }
 
 /** Hängende „executing“-Orders (Prozess abgestürzt) nach 10 min als fehlgeschlagen markieren — nie doppelt ausführen. */
@@ -254,7 +264,10 @@ export async function runDcaOrders(db: Db, now = new Date()): Promise<DcaResult>
       out.errors.push(`DCA ${o.symbol}: ${msg}`);
       await notifySafe(db, { userId: w.userId, kind: 'system', severity: 'warn', title: `DCA-Kauf ${nr} nicht ausgeführt: ${o.symbol}`, body: `${msg} (${w.label})`, link: '#/traden?tab=wallet' });
     }
-    await db
+    // Nur zurück auf „open“, wenn niemand die Order inzwischen beendet hat (Freigabe
+    // zurückgezogen, Wallet entfernt, als hängend markiert) — sonst Zähler + Ergebnis
+    // nachtragen, Status aber stehen lassen. Nie eine gestoppte DCA wiederbeleben.
+    const reopened = await db
       .update(swapOrders)
       .set({
         status: step.done ? 'filled' : 'open',
@@ -264,7 +277,11 @@ export async function runDcaOrders(db: Db, now = new Date()): Promise<DcaResult>
         error: note,
         closedAt: step.done ? now : null,
       })
-      .where(eq(swapOrders.id, o.id));
+      .where(and(eq(swapOrders.id, o.id), eq(swapOrders.status, 'executing')))
+      .returning({ id: swapOrders.id });
+    if (reopened.length === 0) {
+      await db.update(swapOrders).set({ runsDone: step.runsDone, tradeId }).where(eq(swapOrders.id, o.id));
+    }
   }
   return out;
 }
