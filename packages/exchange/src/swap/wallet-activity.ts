@@ -25,7 +25,16 @@ export type ObservedSwap = {
   nativeAtomic: bigint | null;
   /** Gegen-Token, wenn nicht SOL (z. B. USDC) */
   counterToken: string | null;
+  /** Verkauf: Anteil des Bestands VOR dem Swap in % (Copy verkauft anteilig); null/fehlt = unbekannt */
+  soldPct?: number | null;
 };
+
+/** Verkaufter Anteil am Bestand vor dem Swap in % (2 Nachkommastellen); ohne Vorbestand null. */
+export function soldPercent(sold: bigint, pre: bigint): number | null {
+  if (pre <= 0n || sold <= 0n) return null;
+  const bp = (sold * 10_000n) / pre;
+  return Number(bp > 10_000n ? 10_000n : bp) / 100;
+}
 
 type TokenBalance = { accountIndex?: number; mint?: string; owner?: string; uiTokenAmount?: { amount?: string; decimals?: number } };
 
@@ -56,11 +65,13 @@ export function deriveSwapFromTx(signature: string, tx: ParsedTx, owner: string)
   const idx = keys.findIndex((k) => keyOf(k) === owner);
 
   // Token-Differenzen (wrapped SOL zählt als SOL)
-  const deltas = new Map<string, { delta: bigint; decimals: number }>();
+  const deltas = new Map<string, { delta: bigint; decimals: number; pre: bigint }>();
   const add = (b: TokenBalance, sign: 1n | -1n) => {
     if (b.owner !== owner || !b.mint || b.uiTokenAmount?.amount === undefined) return;
-    const cur = deltas.get(b.mint) ?? { delta: 0n, decimals: b.uiTokenAmount.decimals ?? 0 };
+    const cur = deltas.get(b.mint) ?? { delta: 0n, decimals: b.uiTokenAmount.decimals ?? 0, pre: 0n };
     cur.delta += sign * BigInt(b.uiTokenAmount.amount);
+    // Bestand vor dem Swap (für anteiliges Copy-Verkaufen)
+    if (sign === -1n) cur.pre += BigInt(b.uiTokenAmount.amount);
     deltas.set(b.mint, cur);
   };
   for (const b of meta.preTokenBalances ?? []) add(b, -1n);
@@ -95,7 +106,7 @@ export function deriveSwapFromTx(signature: string, tx: ParsedTx, owner: string)
   // Token → SOL
   if (solSide === 'in' && downs.length === 1 && ups.length === 0) {
     const [mint, d] = downs[0]!;
-    return { signature, time: tx.blockTime ?? null, side: 'sell', token: mint, tokenAtomic: -d.delta, tokenDecimals: d.decimals, nativeAtomic: sol, counterToken: null };
+    return { signature, time: tx.blockTime ?? null, side: 'sell', token: mint, tokenAtomic: -d.delta, tokenDecimals: d.decimals, nativeAtomic: sol, counterToken: null, soldPct: soldPercent(-d.delta, d.pre) };
   }
   return tokenVsStable(signature, tx.blockTime ?? null, solSide === null, ups, downs, (m) => isStablecoin('solana', m));
 }
@@ -109,8 +120,8 @@ export function tokenVsStable(
   signature: string,
   time: number | null,
   noNative: boolean,
-  ups: [string, { delta: bigint; decimals: number }][],
-  downs: [string, { delta: bigint; decimals: number }][],
+  ups: [string, { delta: bigint; decimals: number; pre?: bigint }][],
+  downs: [string, { delta: bigint; decimals: number; pre?: bigint }][],
   stable: (token: string) => boolean,
 ): ObservedSwap | null {
   if (!noNative || ups.length !== 1 || downs.length !== 1) return null;
@@ -120,7 +131,7 @@ export function tokenVsStable(
     return { signature, time, side: 'buy', token: upMint, tokenAtomic: up.delta, tokenDecimals: up.decimals, nativeAtomic: null, counterToken: downMint };
   }
   if (stable(upMint) && !stable(downMint)) {
-    return { signature, time, side: 'sell', token: downMint, tokenAtomic: -down.delta, tokenDecimals: down.decimals, nativeAtomic: null, counterToken: upMint };
+    return { signature, time, side: 'sell', token: downMint, tokenAtomic: -down.delta, tokenDecimals: down.decimals, nativeAtomic: null, counterToken: upMint, soldPct: down.pre === undefined ? null : soldPercent(-down.delta, down.pre) };
   }
   return null;
 }
