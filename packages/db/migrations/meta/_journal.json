@@ -274,6 +274,13 @@
       "when": 1792590478130,
       "tag": "0038_aspiring_rattler",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1792593821209,
+      "tag": "0039_complete_chameleon",
+      "breakpoints": true
     }
   ]
 }

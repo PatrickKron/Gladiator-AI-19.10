@@ -68,6 +68,15 @@ export const PAGES = [
     ],
   },
   {
+    id: 'screener',
+    hash: '#/screener',
+    area: 'market',
+    labelKey: 'ia.page_screener',
+    descKey: 'ia.desc_screener',
+    icon: 'M3 5h18l-7 8v6l-4 2v-8L3 5z',
+    keywords: ['scanner', 'screener', 'filter', 'bedingungen', 'conditions', 'rsi', 'überverkauft', 'oversold', 'muster', 'pattern', 'sweep', 'discount', 'universum', 'vorlagen', 'presets'],
+  },
+  {
     id: 'signals',
     hash: '#/signals',
     area: 'market',
