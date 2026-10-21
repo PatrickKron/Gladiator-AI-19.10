@@ -13,6 +13,7 @@ import { decryptSecret, importWalletKey, SOL_MINT } from '@gladiator/exchange';
 import type pg from 'pg';
 import { appRouter } from './index.js';
 import { setLiveSwapExecutorForTests, setSwapFetchForTests } from './swaps.js';
+import { executePreparedSwap, prepareSwap } from '@gladiator/jobs';
 import { buildContext, createCallerFactory } from '../trpc.js';
 import { register } from '../auth/service.js';
 
@@ -178,10 +179,26 @@ describe.skipIf(!hasDb)('Eigene Trading-Wallet (live)', () => {
     nextStatus = 'filled';
   });
 
-  it('Freigabe zurückziehen sperrt sofort; Entfernen löscht den Schlüssel erst nach Bestätigung', async () => {
+  it('Wettlauf: Freigabe zwischen Angebot und Signatur entzogen bzw. Order gestoppt → nichts gesendet', async () => {
+    const [stale] = await db.select().from(schema.swapWallets).where(eq(schema.swapWallets.id, walletId));
+    const sent = executed.length;
+    const p = await prepareSwap(db, stale!, { side: 'buy', token: BONK, amount: '0.1' });
+    // Order (noch „open“, nicht „executing“) → als gestoppt behandelt
+    await expect(executePreparedSwap(db, p, 'buy', { userId, ip: null, actor: 'system', confirmedLive: true, orderId: liveOrderId })).rejects.toThrow(/gestoppt/);
+    // Freigabe inzwischen entzogen, der mitgegebene Wallet-Datensatz ist aber noch alt
+    await db.update(schema.swapWallets).set({ liveApprovedAt: null }).where(eq(schema.swapWallets.id, walletId));
+    await expect(executePreparedSwap(db, p, 'buy', { userId, ip: null, actor: 'user', confirmedLive: true })).rejects.toThrow(/nicht für Live-Swaps freigegeben/);
+    expect(executed.length).toBe(sent);
+    await db.update(schema.swapWallets).set({ liveApprovedAt: stale!.liveApprovedAt }).where(eq(schema.swapWallets.id, walletId));
+  });
+
+  it('Freigabe zurückziehen sperrt sofort (Preisalarme bleiben); Entfernen löscht den Schlüssel erst nach Bestätigung', async () => {
+    const alarm = await a.swaps.createOrder({ walletId, token: BONK, kind: 'alert_above', triggerPriceUsd: 0.0001 });
     await a.swaps.revokeLive({ walletId });
     const [order] = await db.select().from(schema.swapOrders).where(eq(schema.swapOrders.id, liveOrderId));
     expect(order).toMatchObject({ status: 'cancelled', error: 'Live-Freigabe zurückgezogen' });
+    const [alarmRow] = await db.select().from(schema.swapOrders).where(eq(schema.swapOrders.id, alarm.id));
+    expect(alarmRow!.status).toBe('open');
     await expect(a.swaps.execute({ walletId, side: 'buy', token: BONK, amount: '0.1', confirmLive: true })).rejects.toThrow(/nicht für Live-Swaps freigegeben/);
     await expect(a.swaps.archiveWallet({ walletId })).rejects.toThrow(/Schlüssel gesichert/);
     await a.swaps.archiveWallet({ walletId, confirmKeyBackedUp: true });

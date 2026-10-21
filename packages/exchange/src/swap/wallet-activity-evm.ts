@@ -22,6 +22,13 @@ export const WETH_WITHDRAWAL_TOPIC = '0x7fcf532c15f0a6db0bd6d0e038bea71d30d808c7
 /** keccak256("Transfer(address,address,uint256)") */
 export const ERC20_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
+/**
+ * Nur Blöcke mit so vielen Bestätigungen lesen: lastverteilte öffentliche Knoten
+ * hängen oft ein paar Blöcke hinterher, und an der Spitze gibt es Reorgs — der
+ * Cursor darf nie über Blöcke springen, deren Logs der Knoten noch nicht hatte.
+ */
+export const EVM_CONFIRMATIONS = 3n;
+
 /** Höchstens so viele Blöcke je Abruf (öffentliche RPCs begrenzen `eth_getLogs`). */
 export const EVM_MAX_BLOCKS = 500;
 /** Höchstens so viele Transaktionen je Abruf (Spam-Airdrops dürfen den Takt nicht fluten). */
@@ -102,6 +109,9 @@ export function deriveEvmSwap(
   const downs = changed.filter(([, d]) => d < 0n);
   const base = { signature: hash, time };
 
+  // Native ↔ Stablecoin ist Absichern/Umschichten, kein Token-Handel → nie kopieren
+  const onlyStable = [...ups, ...downs].length === 1 && isStablecoin(chain, (ups[0] ?? downs[0])![0]);
+  if (onlyStable) return null;
   // Native → Token
   if (native < 0n && ups.length === 1 && downs.length === 0) {
     const [token, d] = ups[0]!;
@@ -117,14 +127,27 @@ export function deriveEvmSwap(
   return tokenVsStable(hash, time, native === 0n, wrap(ups), wrap(downs), (t) => isStablecoin(chain, t));
 }
 
-/** Summe ausgepackter Wrapped-Native-Beträge in einem Receipt. */
+const ZERO_TOPIC = `0x${'0'.repeat(64)}`;
+
+/**
+ * Summe ausgepackter Wrapped-Native-Beträge in einem Receipt: WETH9-`Withdrawal`
+ * bzw. — Arbitrums aeWETH meldet kein Withdrawal — ein Burn (`Transfer` an 0x0)
+ * des Wrapped-Native-Vertrags. Bekannte Lücke: Pools mit nativem ETH ohne WETH
+ * (Uniswap v4) zeigen den Erlös nirgends im Receipt → solche Verkäufe bleiben
+ * unerkannt statt geraten.
+ */
 export function unwrappedIn(chain: SwapChainId, receiptLogs: { address: string; topics: string[]; data: string }[]): bigint {
   const wrapped = lc(SWAP_CHAINS[chain].wrappedNative);
-  let sum = 0n;
+  let withdrawn = 0n;
+  let burned = 0n;
   for (const l of receiptLogs) {
-    if (lc(l.address) === wrapped && lc(l.topics[0] ?? '') === WETH_WITHDRAWAL_TOPIC && l.data && l.data !== '0x') sum += BigInt(l.data.slice(0, 66));
+    if (lc(l.address) !== wrapped || !l.data || l.data === '0x') continue;
+    const t0 = lc(l.topics[0] ?? '');
+    if (t0 === WETH_WITHDRAWAL_TOPIC) withdrawn += BigInt(l.data.slice(0, 66));
+    else if (t0 === ERC20_TRANSFER_TOPIC && l.topics.length === 3 && lc(l.topics[2]!) === ZERO_TOPIC) burned += BigInt(l.data.slice(0, 66));
   }
-  return sum;
+  // nie doppelt zählen, falls ein Vertrag beides meldet
+  return withdrawn > burned ? withdrawn : burned;
 }
 
 /** Pause vor dem einen Wiederholungsversuch bei HTTP 429 (Tests setzen 0). */
@@ -177,7 +200,10 @@ export async function fetchEvmWalletSwaps(
   const problems: string[] = [];
   for (const url of order) {
     try {
-      const latest = BigInt((await rpc(chain, url, 'eth_blockNumber', [], fetchFn)) as string);
+      const head = BigInt((await rpc(chain, url, 'eth_blockNumber', [], fetchFn)) as string);
+      const latest = head > EVM_CONFIRMATIONS ? head - EVM_CONFIRMATIONS : 0n;
+      // hinterherhängender Knoten: Cursor nie zurückdrehen (sonst wird doppelt gelesen)
+      if (cursor !== null && latest <= cursor) return { swaps: [], newestSignature: cursor.toString(), gap: false };
       const floor = latest - maxBlocks + 1n > 0n ? latest - maxBlocks + 1n : 0n;
       const from = cursor === null ? floor : cursor + 1n > floor ? cursor + 1n : floor;
       if (from > latest) return { swaps: [], newestSignature: latest.toString(), gap: false };

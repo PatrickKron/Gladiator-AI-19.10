@@ -310,18 +310,19 @@ describe.skipIf(!process.env.DATABASE_URL)('runWalletCopy EVM (echte DB, Paper, 
 
   it('erster Lauf: letzte Blöcke als Verlauf, Cursor = aktueller Block, nichts kopiert', async () => {
     evmTxs = [{ hash: `0xold${RUN}`, block: evmBlock - 10, side: 'buy' }];
+    // Cursor = Spitze − 3 Bestätigungen
     await runWalletCopy(db);
     const rows = await seen();
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ side: 'buy', token: MEME, copyStatus: 'none', copyNote: 'vor Beobachtungsbeginn', nativeAtomic: (10n ** 17n).toString() });
     const w = (await db.select().from(schema.watchedWallets).where(eq(schema.watchedWallets.id, watchedId)))[0]!;
-    expect(w.lastSignature).toBe(String(evmBlock));
+    expect(w.lastSignature).toBe(String(evmBlock - 3));
     expect(await meme()).toBe(0n);
   });
 
   it('neuer Kauf in neuem Block → Nachkauf 0,05 ETH; Verkauf → Bestand raus; nichts doppelt', async () => {
     evmBlock += 5;
-    evmTxs.push({ hash: `0xbuy${RUN}`, block: evmBlock - 1, side: 'buy' });
+    evmTxs.push({ hash: `0xbuy${RUN}`, block: evmBlock - 3, side: 'buy' }); // gerade bestätigt
     await backdate();
     await runWalletCopy(db);
     expect((await seen()).find((s) => s.signature === `0xbuy${RUN}`)).toMatchObject({ copyStatus: 'filled' });
@@ -333,7 +334,7 @@ describe.skipIf(!process.env.DATABASE_URL)('runWalletCopy EVM (echte DB, Paper, 
     expect(await meme()).toBe(5n * 10n ** 16n * 6000n);
 
     evmBlock += 3;
-    evmTxs.push({ hash: `0xsell${RUN}`, block: evmBlock, side: 'sell' });
+    evmTxs.push({ hash: `0xsell${RUN}`, block: evmBlock - 3, side: 'sell' });
     await backdate();
     await runWalletCopy(db);
     expect((await seen()).find((s) => s.signature === `0xsell${RUN}`)).toMatchObject({ side: 'sell', copyStatus: 'filled', nativeAtomic: (15n * 10n ** 16n).toString() });

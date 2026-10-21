@@ -1923,6 +1923,9 @@ export const es: Catalog = {
     err_unknown: 'Error desconocido.',
   },
   swap: {
+    positionsTitle: "Todas las posiciones",
+    unrealized: "No realizado",
+    wallet: "Wallet",
     kind_alert_above: "Alerta por encima",
     kind_alert_below: "Alerta por debajo",
     alertOnly: "Solo aviso (campana + push): no se compra ni se vende nada.",

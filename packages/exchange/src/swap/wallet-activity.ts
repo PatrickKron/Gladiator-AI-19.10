@@ -85,6 +85,8 @@ export function deriveSwapFromTx(signature: string, tx: ParsedTx, owner: string)
   const ups = changed.filter(([, d]) => d.delta > 0n);
   const downs = changed.filter(([, d]) => d.delta < 0n);
 
+  // SOL ↔ Stablecoin ist Absichern/Umschichten, kein Token-Handel → nie kopieren
+  if (ups.length + downs.length === 1 && isStablecoin('solana', (ups[0] ?? downs[0])![0])) return null;
   // SOL → Token
   if (solSide === 'out' && ups.length === 1 && downs.length === 0) {
     const [mint, d] = ups[0]!;
@@ -166,10 +168,12 @@ export async function fetchSolanaWalletSwaps(
     err: unknown;
   }[];
   const chrono = [...newestFirst].reverse();
-  const gap = Boolean(opts.until) && newestFirst.length === SOLANA_SIG_PAGE;
+  // erster Lauf nur bei null/undefined; '' = schon gelesen, aber leer → lückenlos nachholen
+  const firstRun = opts.until === null || opts.until === undefined;
+  const gap = !firstRun && newestFirst.length === SOLANA_SIG_PAGE;
   // Verlauf bzw. Überlauf: die jüngsten; sonst die ältesten (lückenlos nachholen)
-  const take = !opts.until || gap ? chrono.slice(-limit) : chrono.slice(0, limit);
-  const cursor = !opts.until ? (newestFirst[0]?.signature ?? '') : (take.at(-1)?.signature ?? opts.until);
+  const take = firstRun || gap ? chrono.slice(-limit) : chrono.slice(0, limit);
+  const cursor = firstRun ? (newestFirst[0]?.signature ?? '') : (take.at(-1)?.signature ?? opts.until ?? '');
   const swaps: ObservedSwap[] = [];
   for (const s of [...take].reverse()) {
     if (s.err) continue;

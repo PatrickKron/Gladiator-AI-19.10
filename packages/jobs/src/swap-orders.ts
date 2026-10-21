@@ -128,7 +128,7 @@ async function fireOrder(db: Db, o: OrderRow, w: SwapWalletRow, priceUsd: number
       percent: side === 'sell' ? Number(o.sellPercent ?? 100) : undefined,
       slippageBps: o.slippageBps ?? undefined,
     });
-    const r = await executePreparedSwap(db, p, side, { userId: w.userId, ip: null, actor: 'system', confirmedLive: o.confirmedLive, origin: label });
+    const r = await executePreparedSwap(db, p, side, { userId: w.userId, ip: null, actor: 'system', confirmedLive: o.confirmedLive, origin: label, orderId: o.id });
     await closeOrder(db, o.id, 'filled', { tradeId: r.tradeId });
     out.filled++;
     if (w.mode === 'paper') {
@@ -214,8 +214,10 @@ export async function runSwapOrders(db: Db): Promise<SwapOrdersResult> {
  * UND gerade laufende DCA stoppen (eine laufende DCA käme sonst nach ihrem
  * Kauf wieder auf „open“). Laufende Einzel-Orders schließen sich selbst ab.
  */
-export function stoppableOrders(walletId: string) {
-  return and(eq(swapOrders.walletId, walletId), or(eq(swapOrders.status, 'open'), and(eq(swapOrders.status, 'executing'), eq(swapOrders.kind, 'dca'))));
+export function stoppableOrders(walletId: string, opts: { keepAlerts?: boolean } = {}) {
+  const base = and(eq(swapOrders.walletId, walletId), or(eq(swapOrders.status, 'open'), and(eq(swapOrders.status, 'executing'), eq(swapOrders.kind, 'dca'))));
+  // Preisalarme handeln nie → Freigabe zurückziehen lässt sie stehen (Entfernen der Wallet nicht)
+  return opts.keepAlerts ? and(base, notInArray(swapOrders.kind, ALERT_KINDS)) : base;
 }
 
 /** Hängende „executing“-Orders (Prozess abgestürzt) nach 10 min als fehlgeschlagen markieren — nie doppelt ausführen. */
@@ -269,7 +271,7 @@ export async function runDcaOrders(db: Db, now = new Date()): Promise<DcaResult>
         note = `Kauf ${nr} übersprungen: Kurs ${p.info.priceUsd.toPrecision(4)} $ über der Preisgrenze ${cap} $`;
         out.skipped++;
       } else {
-        const r = await executePreparedSwap(db, p, 'buy', { userId: w.userId, ip: null, actor: 'system', confirmedLive: o.confirmedLive, origin: `DCA ${nr}` });
+        const r = await executePreparedSwap(db, p, 'buy', { userId: w.userId, ip: null, actor: 'system', confirmedLive: o.confirmedLive, origin: `DCA ${nr}`, orderId: o.id });
         tradeId = r.tradeId;
         out.bought++;
         if (w.mode === 'paper') {

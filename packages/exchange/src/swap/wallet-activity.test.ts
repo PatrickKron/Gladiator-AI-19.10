@@ -51,6 +51,11 @@ describe('deriveSwapFromTx', () => {
     expect(s).toMatchObject({ side: 'buy', token: BONK, counterToken: USDC, nativeAtomic: null });
   });
 
+  it('SOL ↔ USDC ist kein Token-Handel (Absichern)', () => {
+    expect(deriveSwapFromTx('sig7', tx({ sol: [2_000_000_000, 1_000_000_000 - 5_000], tokens: [{ mint: USDC, pre: '0', post: '150000000', decimals: 6 }] }), ME)).toBeNull();
+    expect(deriveSwapFromTx('sig8', tx({ sol: [1_000_000_000, 2_000_000_000 - 5_000], tokens: [{ mint: USDC, pre: '150000000', post: '0', decimals: 6 }] }), ME)).toBeNull();
+  });
+
   it('BONK → USDC = Verkauf (nicht „Kauf von USDC“); Meme ↔ Meme = kein Swap', () => {
     const sell = deriveSwapFromTx('sig5', tx({ sol: [1_000_000_000, 1_000_000_000 - 5_000], tokens: [{ mint: BONK, pre: '250', post: '0' }, { mint: USDC, pre: '0', post: '5000000', decimals: 6 }] }), ME);
     expect(sell).toMatchObject({ side: 'sell', token: BONK, tokenAtomic: 250n, counterToken: USDC });
@@ -101,6 +106,12 @@ describe('fetchSolanaWalletSwaps: Cursor', () => {
     const first = await fetchSolanaWalletSwaps(ME, { limit: 3 }, net(all));
     expect(first.swaps.map((s) => s.signature)).toEqual(['s30', 's29', 's28']);
     expect(first.newestSignature).toBe('s30');
+  });
+
+  it('Cursor "" (leer gelesen) = lückenlos nachholen, nicht „erster Lauf“', async () => {
+    const r = await fetchSolanaWalletSwaps(ME, { limit: 3, until: '' }, net(all));
+    expect(r.swaps.map((s) => s.signature)).toEqual(['s3', 's2', 's1']); // die ältesten zuerst
+    expect(r).toMatchObject({ newestSignature: 's3', gap: false });
   });
 
   it('mehr neue Signaturen als eine Seite → jüngste Seite + Lücke gemeldet', async () => {

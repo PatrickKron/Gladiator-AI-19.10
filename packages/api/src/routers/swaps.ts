@@ -172,23 +172,29 @@ async function createAutoOrders(
       results.push({ kind: x.kind, triggerPriceUsd: x.trigger, orderId: null, error: problem });
       continue;
     }
-    const [o] = await ctx.db
-      .insert(swapOrders)
-      .values({
-        walletId: w.id,
-        token: p.info.address,
-        symbol: p.info.symbol,
-        kind: x.kind,
-        triggerPriceUsd: String(x.trigger),
-        sellPercent: String(auto.sellPercent),
-        slippageBps: slippageBps ?? null,
-        confirmedLive: w.mode === 'live' && confirmedLive,
-      })
-      .returning({ id: swapOrders.id });
-    if (w.mode === 'live') {
-      await ctx.db.insert(auditLog).values({ actor: 'user', userId: ctx.user.id, action: 'swap.live_order_create', entityType: 'swap_order', entityId: o!.id, details: { chain: w.chain, kind: x.kind, token: p.info.address, triggerPriceUsd: x.trigger, sellPercent: auto.sellPercent, origin: 'auto_on_buy' }, ip: ctx.ip });
+    // Der Kauf ist schon passiert (live: gesendet) — ein DB-Problem hier darf ihn nie
+    // als Fehler erscheinen lassen (sonst kauft man womöglich doppelt)
+    try {
+      const [o] = await ctx.db
+        .insert(swapOrders)
+        .values({
+          walletId: w.id,
+          token: p.info.address,
+          symbol: p.info.symbol,
+          kind: x.kind,
+          triggerPriceUsd: String(x.trigger),
+          sellPercent: String(auto.sellPercent),
+          slippageBps: slippageBps ?? null,
+          confirmedLive: w.mode === 'live' && confirmedLive,
+        })
+        .returning({ id: swapOrders.id });
+      if (w.mode === 'live') {
+        await ctx.db.insert(auditLog).values({ actor: 'user', userId: ctx.user.id, action: 'swap.live_order_create', entityType: 'swap_order', entityId: o!.id, details: { chain: w.chain, kind: x.kind, token: p.info.address, triggerPriceUsd: x.trigger, sellPercent: auto.sellPercent, origin: 'auto_on_buy' }, ip: ctx.ip });
+      }
+      results.push({ kind: x.kind, triggerPriceUsd: x.trigger, orderId: o!.id, error: null });
+    } catch (err) {
+      results.push({ kind: x.kind, triggerPriceUsd: x.trigger, orderId: null, error: err instanceof Error ? err.message : String(err) });
     }
-    results.push({ kind: x.kind, triggerPriceUsd: x.trigger, orderId: o!.id, error: null });
   }
   return results;
 }
@@ -331,7 +337,7 @@ export const swapsRouter = router({
     const w = await ownWallet(ctx.db, ctx.user.id, input.walletId);
     const [row] = await ctx.db.update(swapWallets).set({ liveApprovedAt: null }).where(eq(swapWallets.id, w.id)).returning();
     // ohne Freigabe darf nichts mehr automatisch live ausgeführt werden
-    await ctx.db.update(swapOrders).set({ status: 'cancelled', closedAt: new Date(), error: 'Live-Freigabe zurückgezogen' }).where(stoppableOrders(w.id));
+    await ctx.db.update(swapOrders).set({ status: 'cancelled', closedAt: new Date(), error: 'Live-Freigabe zurückgezogen' }).where(stoppableOrders(w.id, { keepAlerts: true }));
     await ctx.db.insert(auditLog).values({ actor: 'user', userId: ctx.user.id, action: 'swap.live_revoke', entityType: 'swap_wallet', entityId: w.id, details: { chain: w.chain }, ip: ctx.ip });
     return walletView(row!);
   }),
@@ -641,6 +647,73 @@ export const swapsRouter = router({
     } catch (err) {
       return asTrpc(netError(err));
     }
+  }),
+
+  /**
+   * Alle offenen Token-Positionen über alle Wallets (Trojan „Positions“): Wert,
+   * Einstand, PnL je Position; Kurse je Kette gebündelt. Fehlt ein Kurs, ist
+   * der Wert null (nie geschätzt). Live-Wallets vorher mit der Kette abgleichen.
+   */
+  positions: protectedProcedure.query(async ({ ctx }) => {
+    const wallets = await ctx.db
+      .select()
+      .from(swapWallets)
+      .where(and(eq(swapWallets.userId, ctx.user.id), isNull(swapWallets.archivedAt)))
+      .orderBy(swapWallets.createdAt);
+    const rows: {
+      walletId: string;
+      walletLabel: string;
+      chain: SwapChainId;
+      mode: 'paper' | 'live';
+      token: string;
+      symbol: string;
+      amount: string;
+      priceUsd: number | null;
+      valueUsd: number | null;
+      costUsd: number;
+      pnlUsd: number | null;
+    }[] = [];
+    const problems: string[] = [];
+    const byChain = new Map<SwapChainId, typeof rows>();
+    for (const w of wallets) {
+      const chain = w.chain as SwapChainId;
+      if (w.mode === 'live') {
+        const ok = await syncLiveBalances(ctx.db, w).then(
+          () => true,
+          () => false,
+        );
+        if (!ok) problems.push(`${w.label}: Kette nicht erreichbar — Stand des letzten Abgleichs`);
+      }
+      for (const b of await walletBalances(ctx.db, w.id)) {
+        if (isNativeToken(chain, b.token) || BigInt(b.amountAtomic) === 0n) continue;
+        const row = { walletId: w.id, walletLabel: w.label, chain, mode: w.mode, token: b.token, symbol: b.symbol, amount: fromAtomic(b.amountAtomic, b.decimals), priceUsd: null, valueUsd: null, costUsd: Number(b.costUsd), pnlUsd: null };
+        rows.push(row);
+        byChain.set(chain, [...(byChain.get(chain) ?? []), row]);
+      }
+    }
+    for (const [chain, list] of byChain) {
+      try {
+        const prices = await fetchTokenPrices(chain, [...new Set(list.map((r) => r.token))], swapNet());
+        for (const r of list) {
+          const p = prices.get(r.token);
+          if (p === undefined) continue;
+          r.priceUsd = p;
+          r.valueUsd = Number(r.amount) * p;
+          r.pnlUsd = r.valueUsd - r.costUsd;
+        }
+      } catch (err) {
+        problems.push(`Kurse ${SWAP_CHAINS[chain].name}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    // größte Positionen zuerst; ohne Kurs ans Ende
+    rows.sort((a, b) => (b.valueUsd ?? -1) - (a.valueUsd ?? -1));
+    const priced = rows.filter((r) => r.valueUsd !== null);
+    return {
+      positions: rows,
+      totalValueUsd: priced.length === rows.length ? priced.reduce((s, r) => s + r.valueUsd!, 0) : null,
+      unrealizedPnlUsd: priced.length === rows.length ? priced.reduce((s, r) => s + r.pnlUsd!, 0) : null,
+      problems,
+    };
   }),
 
   /** Beobachtete Wallets (Copy-Trading, Solana). */

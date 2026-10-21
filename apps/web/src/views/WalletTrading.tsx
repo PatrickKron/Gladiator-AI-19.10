@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { TokenChart } from '../components/TokenChart.js';
+import { PositionsOverview } from '../components/PositionsOverview.js';
 import { TokenDiscovery } from '../components/TokenDiscovery.js';
 import { WatchedWallets } from '../components/WatchedWallets.js';
 import { buildAutoOrders, loadAutoOrders, saveAutoOrders, type AutoOrdersSetting } from '../lib/auto-orders.js';
@@ -43,6 +44,8 @@ export function WalletTrading() {
   const [walletId, setWalletId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  /** aus der Positionsübersicht: Token im Ticket öffnen (nonce erzwingt erneutes Öffnen) */
+  const [openToken, setOpenToken] = useState<{ token: string; nonce: number } | null>(null);
 
   const loadWallets = useCallback(async () => {
     try {
@@ -91,6 +94,15 @@ export function WalletTrading() {
             </button>
           </div>
 
+          <PositionsOverview
+            version={wallets.length}
+            chainName={(id) => config.chains.find((c) => c.id === id)?.name ?? id}
+            onOpen={(id, token) => {
+              setWalletId(id);
+              setOpenToken({ token, nonce: Date.now() });
+            }}
+          />
+
           {(creating || wallets.length === 0) && (
             <CreateWallet
               config={config}
@@ -102,7 +114,7 @@ export function WalletTrading() {
             />
           )}
 
-          {wallet && <WalletView key={wallet.id} config={config} wallet={wallet} onWalletChanged={loadWallets} />}
+          {wallet && <WalletView key={wallet.id} config={config} wallet={wallet} onWalletChanged={loadWallets} openToken={openToken} />}
 
           <WatchedWallets
             chains={config.chains.map((c) => ({ id: c.id, name: c.name, kind: c.kind, nativeSymbol: c.native.symbol, explorerTx: c.explorerTx }))}
@@ -190,7 +202,17 @@ function CreateWallet({ config, onCreated }: { config: Config; onCreated: (id: s
   );
 }
 
-function WalletView({ config, wallet, onWalletChanged }: { config: Config; wallet: Wallet; onWalletChanged: () => Promise<void> }) {
+function WalletView({
+  config,
+  wallet,
+  onWalletChanged,
+  openToken,
+}: {
+  config: Config;
+  wallet: Wallet;
+  onWalletChanged: () => Promise<void>;
+  openToken: { token: string; nonce: number } | null;
+}) {
   const { t, i18n } = useTranslation();
   const chain = config.chains.find((c) => c.id === wallet.chain)!;
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
@@ -228,6 +250,15 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
   useEffect(() => {
     void loadPortfolio();
   }, [loadPortfolio]);
+
+  // Token aus der Positionsübersicht öffnen (auch nach Wallet-Wechsel: Komponente ist neu gemountet);
+  // nur der Nonce zählt — jeder Klick öffnet genau einmal
+  const openNonce = openToken?.nonce;
+  useEffect(() => {
+    if (!openToken) return;
+    void lookup(openToken.token);
+    ticketRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [openNonce]);
 
   async function lookup(addr: string) {
     const a = addr.trim();
