@@ -193,6 +193,48 @@ export function AssetChart({
   const [data, setData] = useState<ChartData | null>(null);
   const [signals, setSignals] = useState<SignalMarker[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'empty'>('loading');
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  // ── Bar-Replay (Repo-Masterliste, Phase 3): Kerzen nur bis zum Stichtag; der
+  // Server rechnet Indikatoren, Zonen und Liquidität aus genau diesen Kerzen
+  // (kein Blick in die Zukunft). Live-Ticks pausieren. Der Zeitstrahl ist das
+  // zuletzt ohne Replay geladene Fenster.
+  const [replay, setReplay] = useState<{ until: number; playing: boolean; speed: number } | null>(null);
+  const replayRef = useRef(replay);
+  replayRef.current = replay;
+  const replayUntil = replay?.until ?? null;
+  const replayTimesRef = useRef<number[]>([]);
+  const [replayMsg, setReplayMsg] = useState<string | null>(null);
+  const REPLAY_MIN = 60;
+  const startReplay = () => {
+    const times = replayTimesRef.current;
+    if (times.length < REPLAY_MIN) {
+      setReplayMsg(t('chart.replay.tooFew'));
+      return;
+    }
+    setReplayMsg(null);
+    setReplay({ until: times[Math.max(30, times.length - 100)]!, playing: false, speed: 1 });
+  };
+  const replayIndex = replay ? replayTimesRef.current.indexOf(replay.until) : -1;
+  const replayStep = (k: number) => {
+    const times = replayTimesRef.current;
+    const cur = replayRef.current;
+    if (!cur) return;
+    const i = times.indexOf(cur.until);
+    const next = times[Math.min(times.length - 1, Math.max(30, i + k))];
+    if (next === undefined) return;
+    const atEnd = next === cur.until;
+    setReplay({ ...cur, until: next, playing: atEnd ? false : cur.playing });
+  };
+  useEffect(() => {
+    if (!replay?.playing) return;
+    const id = window.setInterval(() => {
+      if (stateRef.current !== 'ready') return; // vorigen Schritt erst fertig laden
+      replayStep(1);
+    }, 1000 / replay.speed);
+    return () => window.clearInterval(id);
+  }, [replay?.playing, replay?.speed]);
 
   // ── Zeichenwerkzeuge (Plan §5): pro Nutzer + Symbol in der DB, Timeframe-
   // unabhängig (Zeit/Preis-Anker). Der Chart-Aufbau liest Werkzeug/Zeichnungen
@@ -462,7 +504,8 @@ export function AssetChart({
     if (state !== 'ready' || instances.length === 0) return;
     const seq = ++computeSeq.current;
     const forSymbol = symbol;
-    const liveBar = withLive ? liveBarRef.current : null;
+    const until = replayRef.current?.until;
+    const liveBar = withLive && until === undefined ? liveBarRef.current : null;
     setComputing(true);
     void trpc.indicators.compute
       .query({
@@ -470,7 +513,7 @@ export function AssetChart({
         timeframe: tf,
         limit: 400,
         items: instances.map((i) => ({ key: i.id, id: i.indicatorId, inputs: i.inputs })),
-        ...(liveBar ? { liveBar } : {}),
+        ...(until !== undefined ? { until } : liveBar ? { liveBar } : {}),
       })
       .then((res) => {
         if (seq !== computeSeq.current || symbolRef.current !== forSymbol) return;
@@ -491,17 +534,17 @@ export function AssetChart({
     }
     liveDirtyRef.current = false;
     computeRef.current(liveBarRef.current !== null);
-  }, [symbol, tf, computeKey, state, instances.length]);
+  }, [symbol, tf, computeKey, state, instances.length, replayUntil]);
   // Live: nach Ticks alle 10 s (nur sichtbar, nur wenn sich die Kerze bewegt hat) neu rechnen.
   useEffect(() => {
-    if (state !== 'ready' || instances.length === 0) return;
+    if (state !== 'ready' || instances.length === 0 || replayUntil !== null) return;
     const id = setVisibleInterval(() => {
       if (!liveDirtyRef.current) return;
       liveDirtyRef.current = false;
       computeRef.current(true);
     }, 10_000);
     return () => clearVisibleInterval(id);
-  }, [state, instances.length]);
+  }, [state, instances.length, replayUntil]);
 
   const priceRef = useRef<HTMLDivElement>(null);
   const legendRef = useRef<HTMLDivElement>(null);
@@ -509,18 +552,21 @@ export function AssetChart({
   // Daten laden (Symbol/TF) — echte Kerzen + alle Indikatorserien
   useEffect(() => {
     let cancelled = false;
-    setState('loading');
-    setData(null);
+    if (replayUntil === null) {
+      setState('loading');
+      setData(null);
+    }
     liveBarRef.current = null;
     liveDirtyRef.current = false;
     void trpc.market.chartData
-      .query({ symbol, timeframe: tf, limit: 400 })
+      .query({ symbol, timeframe: tf, limit: 400, ...(replayUntil !== null ? { until: replayUntil } : {}) })
       .then((res) => {
         if (cancelled) return;
         if (!res.available || res.candles.length === 0) {
           setState('empty');
           return;
         }
+        if (replayUntil === null) replayTimesRef.current = res.candles.map((c) => c.time);
         setData(res as ChartData);
         setState('ready');
       })
@@ -530,6 +576,10 @@ export function AssetChart({
     return () => {
       cancelled = true;
     };
+  }, [symbol, tf, replayUntil]);
+  // Symbol-/TF-Wechsel beendet ein laufendes Replay (der Zeitstrahl gehört zum alten Fenster).
+  useEffect(() => {
+    setReplay(null);
   }, [symbol, tf]);
 
   // Signale dieses Symbols (Feature 2): offen + Historie, als Chart-Marker
@@ -798,7 +848,7 @@ export function AssetChart({
     // nur für Symbole im Live-Feed; ohne Ticks bleibt der geladene Stand.
     let lastBar = data.candles[data.candles.length - 1] as Bar | undefined;
     const barSec = liveBarSeconds(tf);
-    if (lastBar) {
+    if (lastBar && replayRef.current === null) {
       ensurePriceStream();
       cleanups.push(
         onTick((tick) => {
@@ -1170,6 +1220,18 @@ export function AssetChart({
             </span>
           ) : null}
         </button>
+        <button
+          onClick={() => (replay ? setReplay(null) : startReplay())}
+          className="rounded border px-2 py-0.5 text-[11px] transition-colors"
+          aria-pressed={replay !== null}
+          style={{
+            borderColor: replay ? 'rgba(245,182,66,0.6)' : 'var(--color-line)',
+            color: replay ? 'var(--color-warn)' : 'var(--color-mut)',
+            background: replay ? 'rgba(245,182,66,0.1)' : 'transparent',
+          }}
+        >
+          ⏮ {t('chart.replay.button')}
+        </button>
         <span className="mx-1 h-4 w-px" style={{ background: 'var(--color-line)' }} />
         {/* Zeichenwerkzeuge (Plan §5) — gleicher Chip-Stil wie die Indikator-Schalter */}
         <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t('chart.draw.title')}>
@@ -1192,6 +1254,66 @@ export function AssetChart({
         </div>
       </div>
 
+      {replayMsg && (
+        <p className="label mb-1.5 px-2" style={{ color: 'var(--color-warn)' }}>
+          {replayMsg}
+        </p>
+      )}
+      {replay && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 rounded border px-2 py-1.5" style={{ borderColor: 'rgba(245,182,66,0.45)', background: 'rgba(245,182,66,0.05)' }} role="group" aria-label={t('chart.replay.title')}>
+          <span className="label" style={{ color: 'var(--color-warn)' }}>
+            ⏮ {t('chart.replay.title')}
+          </span>
+          <button type="button" onClick={() => replayStep(-1)} className="rounded border px-2 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink)' }} aria-label={t('chart.replay.back')} title={t('chart.replay.back')}>
+            ◀
+          </button>
+          <button
+            type="button"
+            onClick={() => setReplay((r) => (r ? { ...r, playing: !r.playing } : r))}
+            className="rounded border px-2 py-0.5 text-[11px]"
+            style={{ borderColor: 'rgba(245,182,66,0.6)', color: 'var(--color-warn)' }}
+            aria-label={replay.playing ? t('chart.replay.pause') : t('chart.replay.play')}
+            title={replay.playing ? t('chart.replay.pause') : t('chart.replay.play')}
+          >
+            {replay.playing ? '⏸' : '▶'}
+          </button>
+          <button type="button" onClick={() => replayStep(1)} className="rounded border px-2 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink)' }} aria-label={t('chart.replay.forward')} title={t('chart.replay.forward')}>
+            ▶|
+          </button>
+          <label className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+            {t('chart.replay.speed')}
+            <select value={replay.speed} onChange={(e) => setReplay((r) => (r ? { ...r, speed: Number(e.target.value) } : r))} className="field cursor-pointer px-1 py-0.5 text-[11px]" aria-label={t('chart.replay.speed')}>
+              {[1, 2, 4].map((v) => (
+                <option key={v} value={v}>
+                  {v}×
+                </option>
+              ))}
+            </select>
+          </label>
+          <input
+            type="range"
+            min={30}
+            max={Math.max(30, replayTimesRef.current.length - 1)}
+            value={Math.max(30, replayIndex)}
+            onChange={(e) => {
+              const next = replayTimesRef.current[Number(e.target.value)];
+              if (next !== undefined) setReplay((r) => (r ? { ...r, until: next, playing: false } : r));
+            }}
+            className="w-40 accent-[#f5b642]"
+            aria-label={t('chart.replay.position', { i: replayIndex + 1, n: replayTimesRef.current.length })}
+          />
+          <span className="num text-[11px]" style={{ color: 'var(--color-ink)' }}>
+            {t('chart.replay.position', { i: replayIndex + 1, n: replayTimesRef.current.length })} · {new Date(replay.until * 1000).toLocaleString()}
+          </span>
+          {state === 'loading' ? <span className="label">…</span> : null}
+          <button type="button" onClick={() => setReplay(null)} className="ml-auto rounded border px-2 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+            {t('chart.replay.end')}
+          </button>
+          <p className="label w-full" style={{ color: 'var(--color-warn)' }}>
+            {t('chart.replay.note', { time: new Date(replay.until * 1000).toLocaleString() })}
+          </p>
+        </div>
+      )}
       {tool !== 'none' && (
         <p className="label mb-1.5 px-2" style={{ color: 'var(--color-cyan)' }}>
           {tool === 'hline'

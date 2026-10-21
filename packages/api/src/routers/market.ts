@@ -604,11 +604,14 @@ export const marketRouter = router({
         limit: z.number().int().min(60).max(1000).default(400),
         /** Kerzenquelle: 'binance' (Krypto, Default) oder 'yahoo'/'twelvedata' (Aktien/ETF). */
         venue: z.string().optional(),
+        /** Replay: nur Kerzen bis zu dieser Zeit (Unix-Sekunden) — alles darunter wird aus genau diesen Kerzen gerechnet. */
+        until: z.number().int().positive().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
       const symbol = input.symbol.toUpperCase();
-      const candles = await getOhlcv(ctx.db, { symbol, timeframe: input.timeframe, limit: input.limit, venue: input.venue });
+      const until = input.until !== undefined ? new Date(input.until * 1000) : undefined;
+      const candles = await getOhlcv(ctx.db, { symbol, timeframe: input.timeframe, limit: input.limit, venue: input.venue, until });
       if (candles.length === 0) {
         return { symbol, timeframe: input.timeframe, candles: [], available: false as const };
       }

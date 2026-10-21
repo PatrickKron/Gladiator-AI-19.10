@@ -111,19 +111,22 @@ export const indicatorsRouter = router({
         limit: z.number().int().min(60).max(1000).default(400),
         items: z.array(z.object({ key: z.string().max(64).optional(), id: z.string().max(64), inputs: inputsSchema })).max(MAX_INDICATORS_PER_SYMBOL),
         liveBar: liveBarSchema.optional(),
+        /** Replay: nur Kerzen bis zu dieser Zeit (Unix-Sekunden); eine Live-Kerze zählt dann nicht. */
+        until: z.number().int().positive().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
       const symbol = input.symbol.toUpperCase();
       const venue = input.venue ?? 'binance';
-      const candles = await getOhlcv(ctx.db, { symbol, timeframe: input.timeframe, limit: input.limit, venue });
-      const bars = applyLiveBar(candlesToBars(candles), input.liveBar);
+      const until = input.until !== undefined ? new Date(input.until * 1000) : undefined;
+      const candles = await getOhlcv(ctx.db, { symbol, timeframe: input.timeframe, limit: input.limit, venue, until });
+      const bars = applyLiveBar(candlesToBars(candles), until ? undefined : input.liveBar);
       const tickerid = tickerIdOf(venue, symbol);
       const extraCache = new Map<string, ComputeBar[]>();
       const loadExtra = async (tfs: string[]) => {
         const out: Record<string, ComputeBar[]> = {};
         for (const tf of tfs) {
-          if (!extraCache.has(tf)) extraCache.set(tf, candlesToBars(await getOhlcv(ctx.db, { symbol, timeframe: tf, limit: 1000, venue })));
+          if (!extraCache.has(tf)) extraCache.set(tf, candlesToBars(await getOhlcv(ctx.db, { symbol, timeframe: tf, limit: 1000, venue, until })));
           out[tf] = extraCache.get(tf)!;
         }
         return out;
@@ -146,7 +149,7 @@ export const indicatorsRouter = router({
             timeframe: pineTimeframe(input.timeframe),
             tickerid,
             currency: symbol.split('/')[1] ?? 'USD',
-            lastBarConfirmed: input.liveBar === undefined,
+            lastBarConfirmed: until !== undefined || input.liveBar === undefined,
             extraBars,
           });
           items.push({ key, id: item.id, inputs: r.inputs, result: r.result, error: null, ms: r.ms });
