@@ -148,33 +148,50 @@ export function judgeGoPlus(r: GoPlusResult | undefined): TokenSafety {
   return { checked: true, source: 'goplus', severe, warnings, taxPct, top10Pct, error: null };
 }
 
-async function solanaRpc(method: string, params: unknown[], fetchFn: Fetch): Promise<unknown> {
-  const res = await fetchFn(rpcUrl('solana'), {
+/**
+ * `getTokenLargestAccounts` ist teuer — der offizielle öffentliche Knoten drosselt
+ * es stark (HTTP 429, CI-Befund 2026-10-21). Für die Halter-Abfrage deshalb eine
+ * Liste öffentlicher Knoten: eigener RPC (`RPC_URL_SOLANA`) zuerst, bei
+ * Drosselung/Ablehnung der nächste; derselbe Knoten für alle drei Abfragen.
+ */
+export const SOLANA_HOLDER_RPCS = ['https://solana-rpc.publicnode.com', 'https://solana.drpc.org', 'https://api.mainnet-beta.solana.com'];
+
+async function solanaRpc(url: string, method: string, params: unknown[], fetchFn: Fetch): Promise<unknown> {
+  const res = await fetchFn(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
     signal: AbortSignal.timeout(10_000),
   });
-  if (!res.ok) throw new Error(`RPC solana: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`RPC solana (${new URL(url).host}): HTTP ${res.status}`);
   const body = (await res.json()) as { result?: unknown; error?: { message?: string } };
-  if (body.error) throw new Error(`RPC solana: ${body.error.message ?? 'Fehler'}`);
+  if (body.error) throw new Error(`RPC solana (${new URL(url).host}): ${body.error.message ?? 'Fehler'}`);
   return body.result;
 }
 
 /** Größte Konten (bis 20) + deren Besitzer von der Kette → Top-10-Wallet-Anteil. */
 export async function fetchSolanaTop10Pct(mint: string, fetchFn: Fetch = fetch): Promise<number | null> {
-  const largest = (await solanaRpc('getTokenLargestAccounts', [mint, { commitment: 'confirmed' }], fetchFn)) as { value?: { address: string; amount: string }[] };
-  const supply = (await solanaRpc('getTokenSupply', [mint, { commitment: 'confirmed' }], fetchFn)) as { value?: { amount?: string } };
-  const accs = largest.value ?? [];
-  if (accs.length === 0 || !supply.value?.amount) return null;
-  const infos = (await solanaRpc('getMultipleAccounts', [accs.map((a) => a.address), { encoding: 'jsonParsed', commitment: 'confirmed' }], fetchFn)) as {
-    value?: ({ data?: { parsed?: { info?: { owner?: string } } } } | null)[];
-  };
-  const owners = (infos.value ?? []).map((v) => v?.data?.parsed?.info?.owner ?? null);
-  return solanaTop10Pct(
-    accs.map((a, i) => ({ amount: a.amount, owner: owners[i] ?? null, ownerIsWallet: owners[i] ? isOnCurveAddress(owners[i]!) : false })),
-    supply.value.amount,
-  );
+  const candidates = [...new Set([rpcUrl('solana'), ...SOLANA_HOLDER_RPCS])];
+  const problems: string[] = [];
+  for (const url of candidates) {
+    try {
+      const largest = (await solanaRpc(url, 'getTokenLargestAccounts', [mint, { commitment: 'confirmed' }], fetchFn)) as { value?: { address: string; amount: string }[] };
+      const supply = (await solanaRpc(url, 'getTokenSupply', [mint, { commitment: 'confirmed' }], fetchFn)) as { value?: { amount?: string } };
+      const accs = largest.value ?? [];
+      if (accs.length === 0 || !supply.value?.amount) return null;
+      const infos = (await solanaRpc(url, 'getMultipleAccounts', [accs.map((a) => a.address), { encoding: 'jsonParsed', commitment: 'confirmed' }], fetchFn)) as {
+        value?: ({ data?: { parsed?: { info?: { owner?: string } } } } | null)[];
+      };
+      const owners = (infos.value ?? []).map((v) => v?.data?.parsed?.info?.owner ?? null);
+      return solanaTop10Pct(
+        accs.map((a, i) => ({ amount: a.amount, owner: owners[i] ?? null, ownerIsWallet: owners[i] ? isOnCurveAddress(owners[i]!) : false })),
+        supply.value.amount,
+      );
+    } catch (err) {
+      problems.push(err instanceof Error ? err.message : String(err));
+    }
+  }
+  throw new Error(`Halter nicht abrufbar: ${problems.join(' | ')}`);
 }
 
 export async function fetchTokenSafety(chain: SwapChainId, address: string, fetchFn: Fetch = fetch): Promise<TokenSafety> {
