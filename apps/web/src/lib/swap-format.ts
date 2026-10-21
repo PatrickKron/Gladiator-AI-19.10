@@ -89,12 +89,21 @@ export function avgEntryUsd(costUsd: number | null, amount: string): number | nu
 /**
  * Betrag in Kurzschreibweise lesen, wie Meme-Trader Marktkapitalisierungen
  * angeben: „10M“, „2,5k“, „1.2b“, „750000“ (k = Tausend, m = Million,
- * b = Milliarde). Ungültig → null.
+ * b = Milliarde). Ohne Kürzel gelten Dreiergruppen als Tausendertrenner
+ * („250,000“, „1.000.000“ — sonst würde aus 250.000 still 250). Gemischte oder
+ * unklare Schreibweisen → null statt raten.
  */
 export function parseCompactUsd(input: string): number | null {
-  const m = /^\s*\$?\s*(\d+(?:[.,]\d+)?)\s*([kmb])?\s*$/i.exec(input);
+  const m = /^\s*\$?\s*(\d[\d.,]*)\s*([kmb])?\s*$/i.exec(input);
   if (!m) return null;
-  const n = Number(m[1]!.replace(',', '.'));
+  let digits = m[1]!;
+  const seps = digits.match(/[.,]/g) ?? [];
+  if (!m[2] && seps.length > 0 && new Set(seps).size === 1 && /^\d{1,3}([.,]\d{3})+$/.test(digits)) {
+    digits = digits.replace(/[.,]/g, '');
+  } else if (seps.length > 1) {
+    return null;
+  }
+  const n = Number(digits.replace(',', '.'));
   const mult = { k: 1e3, m: 1e6, b: 1e9 }[(m[2] ?? '').toLowerCase() as 'k' | 'm' | 'b'] ?? 1;
   const v = n * mult;
   return Number.isFinite(v) && v > 0 ? v : null;

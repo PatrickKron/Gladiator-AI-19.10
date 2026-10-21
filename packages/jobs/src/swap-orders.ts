@@ -1,6 +1,6 @@
 import { and, eq, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import { schema, type Db } from '@gladiator/db';
-import { fetchTokenMarket, walletBalances, type SwapChainId } from '@gladiator/exchange';
+import { fetchPairDepths, fetchTokenPrices, walletBalances, type SwapChainId } from '@gladiator/exchange';
 import { notifySafe } from './notify.js';
 import { executePreparedSwap, prepareSwap, swapNet, type SwapWalletRow } from './swap-service.js';
 
@@ -77,14 +77,16 @@ export function evaluateSwapOrder(o: OrderState, priceUsd: number): { trigger: b
 }
 
 /**
- * Rug-Schutz (rein): Höchststand der Pool-Liquidität nachziehen; fällt sie um
- * `dropPct` darunter (Liquidität abgezogen = typischer Rug), auslösen.
+ * Rug-Schutz (rein): Höchststand der Pool-Tiefe √(Basis × Quote) nachziehen;
+ * fällt sie um `dropPct` darunter (Liquidität abgezogen = typischer Rug),
+ * auslösen. Die Pool-Tiefe bleibt bei normalem Handel gleich — ein Kursrutsch
+ * allein löst also nie aus (anders als die USD-Liquidität, die mit dem Kurs fällt).
  */
-export function evaluateRugGuard(o: { dropPct: number | null; peakLiquidityUsd: number | null }, liquidityUsd: number | null): { trigger: boolean; peakLiquidityUsd: number | null } {
-  if (liquidityUsd === null || !(liquidityUsd >= 0)) return { trigger: false, peakLiquidityUsd: o.peakLiquidityUsd };
-  const peak = Math.max(o.peakLiquidityUsd ?? liquidityUsd, liquidityUsd);
+export function evaluateRugGuard(o: { dropPct: number | null; peakDepth: number | null }, depth: number | null): { trigger: boolean; peakDepth: number | null } {
+  if (depth === null || !(depth >= 0)) return { trigger: false, peakDepth: o.peakDepth };
+  const peak = Math.max(o.peakDepth ?? depth, depth);
   const drop = o.dropPct ?? 0;
-  return { trigger: drop > 0 && peak > 0 && liquidityUsd <= peak * (1 - drop / 100), peakLiquidityUsd: peak };
+  return { trigger: drop > 0 && peak > 0 && depth <= peak * (1 - drop / 100), peakDepth: peak };
 }
 
 /** Plausibilität beim Anlegen: eine Order, die sofort auslösen würde, ist fast immer ein Tippfehler. */
@@ -206,14 +208,13 @@ export async function runSwapOrders(db: Db): Promise<SwapOrdersResult> {
     byChain.get(c)!.add(r.order.token);
   }
   const prices = new Map<string, number>();
-  const liquidity = new Map<string, number | null>();
+  const depths = new Map<string, number>();
   for (const [chain, tokens] of byChain) {
     try {
-      const m = await fetchTokenMarket(chain, [...tokens], swapNet());
-      for (const [t, v] of m) {
-        prices.set(`${chain}:${t}`, v.priceUsd);
-        liquidity.set(`${chain}:${t}`, v.liquidityUsd);
-      }
+      const p = await fetchTokenPrices(chain, [...tokens], swapNet());
+      for (const [t, v] of p) prices.set(`${chain}:${t}`, v);
+      const pools = rows.filter((r) => r.wallet.chain === chain && r.order.kind === 'rug_guard' && r.order.pairAddress).map((r) => r.order.pairAddress!);
+      if (pools.length > 0) for (const [a, d] of await fetchPairDepths(chain, pools, swapNet())) depths.set(`${chain}:${a}`, d);
     } catch (err) {
       // ohne Kurs keine Entscheidung — nichts auslösen, beim nächsten Takt neu
       out.errors.push(`Kurse ${chain}: ${err instanceof Error ? err.message : String(err)}`);
@@ -225,10 +226,12 @@ export async function runSwapOrders(db: Db): Promise<SwapOrdersResult> {
     if (price === undefined) continue;
     out.checked++;
     if (order.kind === 'rug_guard') {
-      const before = order.peakLiquidityUsd === null ? null : Number(order.peakLiquidityUsd);
-      const rg = evaluateRugGuard({ dropPct: order.trailPct === null ? null : Number(order.trailPct), peakLiquidityUsd: before }, liquidity.get(`${wallet.chain}:${order.token}`) ?? null);
-      if (rg.peakLiquidityUsd !== null && rg.peakLiquidityUsd !== before) {
-        await db.update(swapOrders).set({ peakLiquidityUsd: String(rg.peakLiquidityUsd) }).where(eq(swapOrders.id, order.id));
+      // nur der beim Anlegen festgehaltene Pool zählt; fehlt er in der Antwort → nichts entscheiden
+      const depth = order.pairAddress ? (depths.get(`${wallet.chain}:${order.pairAddress}`) ?? null) : null;
+      const before = order.peakDepth === null ? null : Number(order.peakDepth);
+      const rg = evaluateRugGuard({ dropPct: order.trailPct === null ? null : Number(order.trailPct), peakDepth: before }, depth);
+      if (rg.peakDepth !== null && rg.peakDepth !== before) {
+        await db.update(swapOrders).set({ peakDepth: String(rg.peakDepth) }).where(eq(swapOrders.id, order.id));
       }
       if (rg.trigger) await fireOrder(db, order, wallet, price, out);
       continue;

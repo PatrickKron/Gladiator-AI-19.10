@@ -35,7 +35,8 @@ type DexPair = {
   url?: string;
   baseToken?: { address?: string; name?: string; symbol?: string };
   priceUsd?: string;
-  liquidity?: { usd?: number };
+  /** usd = Gegenwert; base/quote = Token-Mengen im Pool */
+  liquidity?: { usd?: number; base?: number; quote?: number };
   fdv?: number;
   marketCap?: number;
   volume?: { h24?: number };
@@ -120,7 +121,33 @@ export async function fetchTokenInfo(chain: SwapChainId, address: string, fetchF
   };
 }
 
-/** USD-Preise mehrerer Tokens einer Kette in einem Aufruf (DexScreener erlaubt bis 30 Adressen). */
+/**
+ * Pool-Tiefe √(Basis-Menge × Quote-Menge) je Pool-Adresse (DexScreener
+ * `latest/dex/pairs`, bis 30 je Abruf). Anders als die USD-Liquidität bleibt sie
+ * bei normalem Handel gleich (konstantes Produkt) und fällt nur, wenn Liquidität
+ * ABGEZOGEN wird — genau das Signal eines Rugs. Fehlt ein Pool in der Antwort,
+ * fehlt er im Ergebnis (nie 0 geraten).
+ */
+export async function fetchPairDepths(chain: SwapChainId, pairAddresses: string[], fetchFn: Fetch = fetch): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const unique = [...new Set(pairAddresses)];
+  for (let i = 0; i < unique.length; i += 30) {
+    const batch = unique.slice(i, i + 30);
+    const res = await fetchFn(`${DEXSCREENER_API}/latest/dex/pairs/${SWAP_CHAINS[chain].dexscreenerId}/${batch.join(',')}`, {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) throw new Error(`DexScreener: HTTP ${res.status}`);
+    const body = (await res.json()) as { pairs?: DexPair[] | null };
+    for (const p of body.pairs ?? []) {
+      const base = num(p.liquidity?.base);
+      const quote = num(p.liquidity?.quote);
+      const addr = batch.find((a) => (SWAP_CHAINS[chain].kind === 'evm' ? a.toLowerCase() === p.pairAddress?.toLowerCase() : a === p.pairAddress));
+      if (addr && base !== null && quote !== null && base >= 0 && quote >= 0) out.set(addr, Math.sqrt(base * quote));
+    }
+  }
+  return out;
+}
+
 /** Preis + Liquidität des liquidesten Pools je Token (ein DexScreener-Abruf je 30 Tokens). */
 export async function fetchTokenMarket(
   chain: SwapChainId,

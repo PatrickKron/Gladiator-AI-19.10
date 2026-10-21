@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { EVM_NATIVE, fromAtomic, isTokenAddress, SOL_MINT, SWAP_CHAINS, toAtomic } from './chains.js';
 import { fetchSwapQuote, jupiterQuote, kyberQuote } from './quotes.js';
-import { fetchTokenDecimals, fetchTokenInfo, pickBestPair } from './token-info.js';
+import { fetchPairDepths, fetchTokenDecimals, fetchTokenInfo, pickBestPair } from './token-info.js';
 
 const USDC_SOL = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
@@ -160,5 +160,8 @@ describe('echte Daten (Jupiter, KyberSwap, DexScreener, RPC)', () => {
     expect(info.symbol).toBe('SOL');
     expect(info.priceUsd).toBeGreaterThan(1);
     expect(info.liquidityUsd).toBeGreaterThan(100_000);
+    // Rug-Schutz: Pool-Tiefe des liquidesten Pools (Token-Mengen aus DexScreener) ist echt und > 0
+    const depths = await fetchPairDepths('solana', [info.pairAddress!]);
+    expect(depths.get(info.pairAddress!)).toBeGreaterThan(0);
   }, 30_000);
 });
