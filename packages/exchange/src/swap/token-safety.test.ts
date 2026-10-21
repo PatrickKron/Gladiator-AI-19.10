@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { fetchTokenDiscovery } from './discovery.js';
-import { fetchSolanaTop10Pct, fetchTokenSafety, goPlusLpLockedPct, goPlusSolanaTop10Pct, goPlusTop10Pct, judgeGoPlus, judgeSolanaMint, LP_LOCKED_WARN_PCT, solanaTop10Pct, TOP10_WARN_PCT } from './token-safety.js';
+import { fetchSolanaTop10Pct, fetchTokenSafety, goPlusLpLockedPct, goPlusSolanaTop10Pct, goPlusTop10Pct, judgeGoPlus, judgeSolanaMint, CREATOR_WARN_PCT, LP_LOCKED_WARN_PCT, solanaTop10Pct, TOP10_WARN_PCT } from './token-safety.js';
 
 const TOKEN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const TOKEN22 = 'TokenzQdBNbLqP5VEhdkAS6EHFLp88EzTEbtKFFuh6';
@@ -80,6 +80,17 @@ describe('Top-10-Konzentration', () => {
     const PDA = 'FGETo8T8wMcN2wCjav8VK6eh3dLk63evNDPxzLSJra8B'; // ATA = PDA, liegt nie auf der Kurve
     expect(goPlusSolanaTop10Pct([{ account: PDA, percent: '0.5' }, { account: WALLET, percent: '0.12' }, { account: WALLET, percent: '0.3', is_locked: 1 }])).toBe(12);
     expect(goPlusSolanaTop10Pct(undefined)).toBeNull();
+  });
+
+  it('GoPlus: Ersteller-Anteil als %; Warnung über der Schwelle; fehlt er → null', () => {
+    expect(judgeGoPlus({ is_honeypot: '0', creator_percent: '0.012' })).toMatchObject({ creatorPct: 1.2, warnings: [] });
+    const big = judgeGoPlus({ is_honeypot: '0', creator_percent: '0.25' });
+    expect(big.creatorPct).toBe(25);
+    expect(big.creatorPct!).toBeGreaterThan(CREATOR_WARN_PCT);
+    expect(big.warnings).toContain('creator_holds');
+    expect(big.severe).toEqual([]);
+    expect(judgeGoPlus({ is_honeypot: '0' }).creatorPct).toBeNull();
+    expect(judgeGoPlus({ is_honeypot: '0', creator_percent: '' }).creatorPct).toBeNull();
   });
 
   it('GoPlus: gesperrte + verbrannte LP-Anteile; Warnung unter der Schwelle; ohne LP-Halter null', () => {
@@ -178,5 +189,9 @@ describe('echte Daten (Solana-RPC, GoPlus)', () => {
     expect(r.lpLockedPct, JSON.stringify(r)).not.toBeNull();
     expect(r.lpLockedPct!).toBeGreaterThanOrEqual(0);
     expect(r.lpLockedPct!).toBeLessThanOrEqual(100);
+    // Ersteller-Anteil ist eine echte Zahl (PEPE: Ersteller hat längst abgegeben)
+    expect(r.creatorPct, JSON.stringify(r)).not.toBeNull();
+    expect(r.creatorPct!).toBeGreaterThanOrEqual(0);
+    expect(r.creatorPct!).toBeLessThanOrEqual(100);
   }, 30_000);
 });
