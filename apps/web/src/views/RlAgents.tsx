@@ -51,9 +51,9 @@ const num2 = (v: string | number | null | undefined) => {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  paper: 'rgba(79,209,255,0.5)',
+  paper: 'rgba(96,165,250,0.5)',
   sandbox: 'rgba(255,199,0,0.5)',
-  live: 'rgba(61,220,151,0.5)',
+  live: 'rgba(34,197,94,0.5)',
   retired: 'rgba(255,255,255,0.15)',
 };
 
@@ -165,7 +165,7 @@ export function RlAgents({ embedded = false }: { embedded?: boolean }) {
     <button
       onClick={() => setShowCreate(!showCreate)}
       className="rounded border px-3 py-1.5 text-sm transition-colors"
-      style={{ borderColor: 'rgba(46,124,246,0.5)', color: cyan }}
+      style={{ borderColor: 'rgba(59,130,246,0.5)', color: cyan }}
     >
       + {t('rl.createAgent')}
     </button>
@@ -229,8 +229,8 @@ export function RlAgents({ embedded = false }: { embedded?: boolean }) {
               disabled={creating || !createName.trim()}
               className="rounded px-4 py-2 text-sm font-medium transition-colors"
               style={{
-                background: 'linear-gradient(92deg, rgba(46,124,246,0.25), rgba(139,92,246,0.15))',
-                border: '1px solid rgba(99,140,255,0.4)',
+                background: 'rgba(59,130,246,0.25)',
+                border: '1px solid rgba(148,163,184,0.4)',
                 color: 'var(--color-ink)',
                 opacity: creating || !createName.trim() ? 0.5 : 1,
               }}
@@ -255,8 +255,8 @@ export function RlAgents({ embedded = false }: { embedded?: boolean }) {
                     className="h-5 rounded"
                     style={{
                       width: `${Math.max(2, w.weight * 100)}%`,
-                      background: 'linear-gradient(90deg, rgba(46,124,246,0.4), rgba(139,92,246,0.25))',
-                      border: '1px solid rgba(99,140,255,0.3)',
+                      background: 'linear-gradient(90deg, rgba(59,130,246,0.4), rgba(148,163,184,0.25))',
+                      border: '1px solid rgba(148,163,184,0.3)',
                     }}
                   />
                 </div>
@@ -289,7 +289,7 @@ export function RlAgents({ embedded = false }: { embedded?: boolean }) {
                 <div
                   key={agent.id}
                   className="rounded border p-3"
-                  style={{ borderColor: agent.status === 'live' ? 'rgba(61,220,151,0.4)' : 'var(--color-line)' }}
+                  style={{ borderColor: agent.status === 'live' ? 'rgba(34,197,94,0.4)' : 'var(--color-line)' }}
                 >
                   <button
                     onClick={() => setExpanded(isExpanded ? null : agent.id)}
@@ -360,8 +360,8 @@ export function RlAgents({ embedded = false }: { embedded?: boolean }) {
                           className="mt-3 rounded border p-2 text-xs"
                           style={
                             note.kind === 'ok'
-                              ? { borderColor: 'rgba(61,220,151,0.4)', color: pos }
-                              : { borderColor: 'rgba(255,92,108,0.4)', color: neg }
+                              ? { borderColor: 'rgba(34,197,94,0.4)', color: pos }
+                              : { borderColor: 'rgba(239,68,68,0.4)', color: neg }
                           }
                         >
                           {note.text}
@@ -373,7 +373,7 @@ export function RlAgents({ embedded = false }: { embedded?: boolean }) {
                           onClick={() => handleRunEpisode(agent.id)}
                           disabled={episodeBusy !== null}
                           className="rounded border px-3 py-1 text-xs transition-colors disabled:opacity-50"
-                          style={{ borderColor: 'rgba(46,124,246,0.4)', color: cyan }}
+                          style={{ borderColor: 'rgba(59,130,246,0.4)', color: cyan }}
                         >
                           {episodeBusy === agent.id ? t('rl.episodeRunning') : t('rl.runEpisode')}
                         </button>
@@ -381,7 +381,7 @@ export function RlAgents({ embedded = false }: { embedded?: boolean }) {
                           <button
                             onClick={() => handlePromote(agent.id)}
                             className="rounded border px-3 py-1 text-xs transition-colors"
-                            style={{ borderColor: 'rgba(61,220,151,0.4)', color: pos }}
+                            style={{ borderColor: 'rgba(34,197,94,0.4)', color: pos }}
                           >
                             {t('rl.promote')}
                           </button>
@@ -390,7 +390,7 @@ export function RlAgents({ embedded = false }: { embedded?: boolean }) {
                           <button
                             onClick={() => handleRetire(agent.id)}
                             className="rounded border px-3 py-1 text-xs transition-colors"
-                            style={{ borderColor: 'rgba(255,92,108,0.35)', color: neg }}
+                            style={{ borderColor: 'rgba(239,68,68,0.35)', color: neg }}
                           >
                             {t('rl.retire')}
                           </button>

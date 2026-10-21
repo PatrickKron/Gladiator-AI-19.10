@@ -205,7 +205,7 @@ function AlertsPanel() {
             <li
               key={a.id}
               className="flex flex-wrap items-center justify-between gap-2 rounded-[0.625rem] border p-3 text-sm"
-              style={{ borderColor: a.active ? 'rgba(79,209,255,0.3)' : 'var(--color-line)', opacity: a.active ? 1 : 0.65 }}
+              style={{ borderColor: a.active ? 'rgba(96,165,250,0.3)' : 'var(--color-line)', opacity: a.active ? 1 : 0.65 }}
             >
               <span className="num">
                 {a.symbol} {a.condition === 'above' ? '\u2265' : '\u2264'} {fmtP(a.price)}
@@ -223,7 +223,7 @@ function AlertsPanel() {
                 <button
                   onClick={() => void trpc.trading.deleteAlert.mutate({ id: a.id }).then(() => load())}
                   className="rounded border px-2 py-0.5 text-xs"
-                  style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}
+                  style={{ borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }}
                 >
                   {t('secrets.delete')}
                 </button>
@@ -373,7 +373,7 @@ function LiveApprovals() {
             <li
               key={a.venueId}
               className="flex flex-wrap items-center justify-between gap-3 rounded-[0.625rem] border p-4"
-              style={{ borderColor: a.approved ? 'rgba(79,209,255,0.45)' : 'var(--color-line)' }}
+              style={{ borderColor: a.approved ? 'rgba(96,165,250,0.45)' : 'var(--color-line)' }}
             >
               <div className="min-w-0">
                 <p className="text-sm font-medium">{t(VENUE_LABEL_KEY[a.venueId] ?? a.venueId)}</p>
@@ -390,7 +390,7 @@ function LiveApprovals() {
                   onClick={() => void revoke(a.venueId)}
                   disabled={busy !== null}
                   className="shrink-0 rounded-[0.625rem] border px-3 py-1.5 text-xs disabled:opacity-50"
-                  style={{ borderColor: 'rgba(255,92,108,0.5)', color: 'var(--color-neg)' }}
+                  style={{ borderColor: 'rgba(239,68,68,0.5)', color: 'var(--color-neg)' }}
                 >
                   {t('trading.liveRevoke')}
                 </button>
@@ -566,8 +566,8 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
             className="mt-2 w-full rounded-[0.625rem] border px-2 py-1.5 text-xs transition-all disabled:opacity-50"
             style={
               settings?.killSwitchActive
-                ? { borderColor: 'rgba(61,220,151,0.5)', color: 'var(--color-pos)' }
-                : { borderColor: 'rgba(255,92,108,0.5)', color: 'var(--color-neg)', boxShadow: '0 0 14px rgba(255,92,108,0.15)' }
+                ? { borderColor: 'rgba(34,197,94,0.5)', color: 'var(--color-pos)' }
+                : { borderColor: 'rgba(239,68,68,0.5)', color: 'var(--color-neg)' }
             }
           >
             {settings?.killSwitchActive ? t('trading.killSwitchDisable') : t('trading.killSwitchEnable')}
@@ -599,8 +599,8 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
                 key={v.id}
                 className="flex items-center justify-between gap-3 rounded-[0.625rem] border p-3"
                 style={{
-                  borderColor: v.active ? 'rgba(79,209,255,0.4)' : 'var(--color-line)',
-                  boxShadow: v.active ? '0 0 20px rgba(46,124,246,0.15)' : 'none',
+                  borderColor: v.active ? 'rgba(96,165,250,0.4)' : 'var(--color-line)',
+                  boxShadow: v.active ? '0 0 20px rgba(59,130,246,0.15)' : 'none',
                 }}
               >
                 <div className="min-w-0">
@@ -614,7 +614,7 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
                   </p>
                 </div>
                 {v.active && (
-                  <span className="label shrink-0 rounded border px-1.5 py-0.5" style={{ borderColor: 'rgba(79,209,255,0.4)', color: 'var(--color-cyan)' }}>
+                  <span className="label shrink-0 rounded border px-1.5 py-0.5" style={{ borderColor: 'rgba(96,165,250,0.4)', color: 'var(--color-cyan)' }}>
                     {t('trading.venueActive')}
                   </span>
                 )}
@@ -660,7 +660,7 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
                 className="mt-4 rounded-[0.625rem] border p-3 text-xs leading-relaxed"
                 style={
                   settings.killSwitchActive
-                    ? { borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }
+                    ? { borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }
                     : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
                 }
               >
@@ -703,7 +703,7 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
               </thead>
               <tbody className="num">
                 {prot.map((o) => (
-                  <tr key={o.id} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                  <tr key={o.id} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                     <td className="py-1.5 pr-3">{o.symbol}</td>
                     <td className="py-1.5 pr-3" style={{ color: o.type === 'stop_market' ? 'var(--color-neg)' : 'var(--color-pos)' }}>
                       {o.type === 'stop_market' ? 'SL' : 'TP'}
@@ -744,7 +744,7 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
               </thead>
               <tbody className="num">
                 {history.map((tr) => (
-                  <tr key={tr.id} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                  <tr key={tr.id} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                     <td className="py-1.5 pr-3">
                       {tr.exitTs ? new Date(tr.exitTs).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                     </td>

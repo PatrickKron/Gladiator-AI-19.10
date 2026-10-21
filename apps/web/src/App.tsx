@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState, type ComponentType } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getAccessToken, onAuthChange, refreshSession } from './api.js';
 import { resolveRedirect, type PageHash } from './lib/navigation.js';
-import { MatrixRain } from './components/MatrixRain.js';
+import { RainLayer } from './components/RainLayer.js';
 import { Shell } from './components/Shell.js';
 import { Login } from './views/Login.js';
 
@@ -116,9 +116,8 @@ export function App() {
 
   return (
     <>
-      {/* Hintergrund: zwei Lichtwelten + Daten-Rain aus echten Ticks */}
-      <div className="ambient" />
-      <MatrixRain />
+      {/* Daten-Regen als Special-Effekt: Login, Ereignis-Impuls, Bildschirmschoner, Matrix-Modus (lib/effects.ts) */}
+      <RainLayer authenticated={auth === 'authenticated'} />
 
       {auth === 'restoring' ? (
         <div className="relative z-10 flex min-h-screen items-center justify-center">

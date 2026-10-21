@@ -109,7 +109,7 @@ export function DemoTrading() {
       {/* Banner: unmissverständlich Demo — echte Kurse, simulierte Ausführung */}
       <div
         className="reveal mb-5 flex flex-wrap items-center justify-between gap-3 rounded-[0.625rem] border p-4"
-        style={{ borderColor: 'rgba(225,78,207,0.5)', background: 'rgba(225,78,207,0.07)' }}
+        style={{ borderColor: 'rgba(245,158,11,0.5)', background: 'rgba(245,158,11,0.07)' }}
       >
         <div className="min-w-0">
           <p className="text-sm font-semibold" style={{ color: 'var(--color-magenta)' }}>
@@ -126,7 +126,7 @@ export function DemoTrading() {
                 onClick={() => void doReset()}
                 disabled={resetBusy}
                 className="rounded-[0.625rem] border px-3 py-1.5 text-xs disabled:opacity-50"
-                style={{ borderColor: 'rgba(255,92,108,0.6)', color: 'var(--color-neg)' }}
+                style={{ borderColor: 'rgba(239,68,68,0.6)', color: 'var(--color-neg)' }}
               >
                 {t('demo.resetConfirm')}
               </button>
@@ -142,7 +142,7 @@ export function DemoTrading() {
             <button
               onClick={() => setResetArmed(true)}
               className="rounded-[0.625rem] border px-3 py-1.5 text-xs"
-              style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}
+              style={{ borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }}
             >
               {t('demo.reset')}
             </button>
@@ -374,10 +374,10 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
   const seg = (active: boolean, tone: 'pos' | 'neg' | 'std' = 'std') => ({
     borderColor: active
       ? tone === 'pos'
-        ? 'rgba(61,220,151,0.6)'
+        ? 'rgba(34,197,94,0.6)'
         : tone === 'neg'
-          ? 'rgba(255,92,108,0.6)'
-          : 'rgba(79,209,255,0.6)'
+          ? 'rgba(239,68,68,0.6)'
+          : 'rgba(96,165,250,0.6)'
       : 'var(--color-line)',
     color: active
       ? tone === 'pos'
@@ -696,7 +696,7 @@ function PositionsPanel({ positions, onChanged }: { positions: Position[] | null
                 const draft = protDrafts[p.id] ?? { sl: p.stopLoss?.toString() ?? '', tp: p.takeProfit?.toString() ?? '' };
                 const dirty = protDrafts[p.id] !== undefined;
                 return (
-                  <tr key={p.id} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                  <tr key={p.id} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                     <td className="py-1.5 pr-3">
                       {p.symbol}
                       <span className="ml-1 text-[10px]" style={{ color: 'var(--color-mut)' }}>
@@ -742,7 +742,7 @@ function PositionsPanel({ positions, onChanged }: { positions: Position[] | null
                         onClick={() => void close(p)}
                         disabled={busy !== null}
                         className="rounded border px-2 py-0.5 text-xs disabled:opacity-50"
-                        style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}
+                        style={{ borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }}
                       >
                         {busy === p.id ? '…' : t('demo.close')}
                       </button>
@@ -797,7 +797,7 @@ function OrdersPanel({ orders, onChanged }: { orders: OpenOrder[]; onChanged: ()
             </thead>
             <tbody className="num">
               {orders.map((o) => (
-                <tr key={o.id} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                <tr key={o.id} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                   <td className="py-1.5 pr-3">{o.symbol}</td>
                   <td className="py-1.5 pr-3">{o.type}</td>
                   <td className="py-1.5 pr-3" style={{ color: o.side === 'buy' ? 'var(--color-pos)' : 'var(--color-neg)' }}>
@@ -812,7 +812,7 @@ function OrdersPanel({ orders, onChanged }: { orders: OpenOrder[]; onChanged: ()
                       className="label rounded border px-1.5 py-0.5"
                       style={
                         o.status === 'partially_filled'
-                          ? { borderColor: 'rgba(232,184,75,0.5)', color: 'var(--color-warn)' }
+                          ? { borderColor: 'rgba(245,158,11,0.5)', color: 'var(--color-warn)' }
                           : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
                       }
                     >
@@ -823,7 +823,7 @@ function OrdersPanel({ orders, onChanged }: { orders: OpenOrder[]; onChanged: ()
                     <button
                       onClick={() => void cancel(o.id)}
                       className="rounded border px-2 py-0.5 text-xs"
-                      style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}
+                      style={{ borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }}
                     >
                       {t('demo.cancel')}
                     </button>
@@ -863,7 +863,7 @@ function HistoryPanel({ history }: { history: Trade[] }) {
             </thead>
             <tbody className="num">
               {history.map((tr) => (
-                <tr key={tr.id} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                <tr key={tr.id} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                   <td className="py-1.5 pr-3">{new Date(tr.exitTs).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' })}</td>
                   <td className="py-1.5 pr-3">{tr.symbol}</td>
                   <td className="py-1.5 pr-3" style={{ color: tr.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>

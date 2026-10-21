@@ -37,16 +37,16 @@ function FanChart({ fan, start }: { fan: McResult['fan']; start: number }) {
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Monte-Carlo">
       {ticks.map((v) => (
         <g key={v}>
-          <line x1={padL} x2={W - padR} y1={y(v)} y2={y(v)} stroke="rgba(99,140,255,0.12)" />
+          <line x1={padL} x2={W - padR} y1={y(v)} y2={y(v)} stroke="rgba(148,163,184,0.12)" />
           <text x={padL - 6} y={y(v) + 3} textAnchor="end" fontSize="10" fill="#8b94b8" className="num">
             {fmt(v, 0)}
           </text>
         </g>
       ))}
       <line x1={padL} x2={W - padR} y1={y(start)} y2={y(start)} stroke="rgba(139,148,184,0.5)" strokeDasharray="3 3" />
-      <polygon points={band('p95', 'p5')} fill="rgba(79,209,255,0.10)" />
-      <polygon points={band('p75', 'p25')} fill="rgba(79,209,255,0.22)" />
-      <path d={line} fill="none" stroke="#4fd1ff" strokeWidth="1.5" />
+      <polygon points={band('p95', 'p5')} fill="rgba(96,165,250,0.10)" />
+      <polygon points={band('p75', 'p25')} fill="rgba(96,165,250,0.22)" />
+      <path d={line} fill="none" stroke="#60a5fa" strokeWidth="1.5" />
       <text x={padL} y={H - 6} fontSize="10" fill="#8b94b8">
         0
       </text>

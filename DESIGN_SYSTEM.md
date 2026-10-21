@@ -1,110 +1,123 @@
-# Gladiator v2 — Design-System „Blue Matrix Premium" (v2, Neon-Dual)
+# Gladiator v2 — Design-System v3 „Ruhe & Klarheit"
 
-> Verbindlich für alle Seiten (auch Phase 6). Richtung von Patrick (2026-07-02): dunkles, edles
-> Sci-Fi-Command-Center. **v2-Kalibrierung direkt an Patricks Referenzbild (magnific.com,
-> „Eine Website für unsere Technologie"):** tiefes Nachtblau mit ZWEI Lichtwelten
-> (Elektro-Blau/Cyan **und** Violett/Magenta), kinematisches Partikel-/Wireframe-Hero-Element,
-> Neon-Badges, Licht als tragendes Gestaltungsmittel — Bühne statt Formular.
-> Ergänzend: Arwes (Sci-Fi-UI), Hyperliquid (Datendichte), Dark-Glassmorphism, Matrix-Rain-Canvas.
+> Verbindlich für alle Seiten. Freigabe Patrick (2026-10-21): „die Sachen gleich direkt umsetzen",
+> Referenzen: **Starlink-App** (ruhig, dunkel, viel Raum, große Zahlen, ein Akzent) und
+> **Bitpanda** (eine Hauptaktion je Bildschirm, Komplexes aufklappbar, Spaß beim Benutzen).
+> Der Daten-Regen bleibt als **Special-Effekt** (§6), nicht mehr als Dauer-Hintergrund.
+> Vorgänger: v2 „Blue Matrix Premium / Neon-Dual" (Juli 2026) — ersetzt mit PR #68.
 
-## 1. Prinzipien
+## 1. Prinzipien (gelten für jede Seite)
 
-1. **Zwei Signatur-Effekte, beide datengespeist:** der Daten-Rain (echte Ticks) und die
-   Plexus-Konstellation (Hero; pulst auf echte Ticks). Licht ist das tragende Gestaltungsmittel —
-   kräftig, aber immer hinter/neben dem Content, nie im Weg.
-2. **Ehrlichkeit** — jede angezeigte Zahl ist echt oder der Zustand heißt sichtbar „nicht verbunden".
-   Auch der Rain besteht aus echten Ticks (Preise, %-Änderungen, Symbole), nie aus Zufallswerten.
-3. **Lesbarkeit vor Effekt** — Content-Kontrast AA; Rain-Opacity ≤ 0.25; Rain konkurriert nie mit Text.
-4. **Eine Lichtquelle** — zentraler blauer Glow; Karten sind Glas mit blauer Licht-Kante,
-   keine harten Schatten-Stapel.
-5. **Motion mit Absicht** — Stagger beim Laden, Micro-Glow bei Ticks, federnde Hovers.
-   Nichts loopt sinnlos. `prefers-reduced-motion` wird respektiert (Rain statisch/aus, Reveals sofort).
+1. **Eine Zahl pro Bildschirm** — oben steht die eine Zahl, um die es geht (Vermögen, Kurs, Equity,
+   Return), groß, mit Veränderung als farbigem Chip.
+2. **Eine Hauptaktion pro Bildschirm** — genau ein blauer (oder grüner) Knopf. Alles Zweite ist
+   ein stiller Textlink oder eine Sekundär-Fläche (`.btn`).
+3. **Komplexes aufklappen, nicht entfernen** — Hebel, Börsenvergleich, Overrides, Walk-Forward
+   bleiben, aber hinter „Erweitert".
+4. **Vier Farben** — Schwarzblau, Weiß, Grau, Elektro-Blau. Grün und Rot nur für Geld und
+   Richtung, Bernstein für Warnung/Demo. Keine Verläufe, kein Neon-Glow.
+5. **Fläche statt Glas** — flache Karten mit feiner Linie, Trennung durch Abstand. Kein
+   `backdrop-filter`, keine Schatten-Stapel.
+6. **Ehrlichkeit** — jede Zahl ist echt oder der Zustand heißt sichtbar „nicht verbunden".
+   Auch der Regen besteht nur aus echten Ticks.
+7. **Eine Schrift** — Inter für alles inkl. Zahlen (`.num` = Tabellenziffern). Mono (`.mono`)
+   nur für Adressen, Hashes, Protokoll, Code.
+8. **Handy zuerst** — Tableiste mit fünf Bereichen, einzeiliger Kopf, Karten in Daumen-Größe.
+9. **Spaß durch Momente, nicht durch Effekte** — Kurve zeichnet sich beim Öffnen, Ergebniskarte
+   nach einem Trade, Regen-Impuls bei echten Ereignissen. Kein Dauer-Geflimmer;
+   `prefers-reduced-motion` wird respektiert.
 
-## 2. Farben (CSS-Variablen in `apps/web/src/styles.css`)
+## 2. Farben (`@theme` in `apps/web/src/styles.css`)
 
 | Token | Wert | Verwendung |
 |---|---|---|
-| `--color-bg` | `#060818` | Grundfläche: tiefes Nachtblau (Referenzbild), nie reines Schwarz |
-| `--color-bg2` | `#0a0d24` | Vertiefungen, Bänder |
-| `--color-glass` | `rgba(120,140,255,0.05)` | Glas-Karten-Fläche (leicht blauviolett) |
-| `--color-line` | `rgba(99,140,255,0.22)` | Licht-Kante (Border) der Glas-Karten |
-| `--color-ink` | `#edf1ff` | Primärtext |
-| `--color-mut` | `#8b94b8` | Sekundärtext, Labels |
-| `--color-blue` | `#2e7cf6` | Elektro-Blau (Lichtwelt 1: Daten, Aktionen) |
-| `--color-cyan` | `#4fd1ff` | Glow-Spitzen, Rain-Köpfe, Fokus |
-| `--color-violet` | `#8b5cf6` | Violett (Lichtwelt 2: Tiefe, Sekundär-Glow) |
-| `--color-magenta` | `#e14ecf` | Magenta (Lichtwelt 2: CTAs, Hero-Akzente, Badges) |
-| `--color-pos` | `#3ddc97` | Long/positiv |
-| `--color-neg` | `#ff5c6c` | Short/negativ |
-| `--color-warn` | `#e8b84b` | Warnung, ROHBAU-Badge |
+| `--color-bg` | `#0b0d12` | Grundfläche (tiefes Schwarzblau) |
+| `--color-bg2` | `#12151c` | Karten |
+| `--color-bg3` | `#1a1e27` | Sekundär-Flächen, Schalter aus |
+| `--color-line` | `rgba(255,255,255,.08)` | Linien |
+| `--color-line2` | `rgba(255,255,255,.14)` | Linien aktiv/hover |
+| `--color-ink` | `#f2f4f8` | Text |
+| `--color-mut` | `#8a93a6` | Sekundärtext, Labels |
+| `--color-blue` | `#3b82f6` | Akzent: Aktion, aktiver Zustand |
+| `--color-cyan` | `#60a5fa` | helleres Akzentblau (Alias, Icons aktiv, Links) |
+| `--color-violet` | `#94a3b8` | neutrales Grau-Blau (Alias für „sekundär/nicht verbunden") |
+| `--color-magenta` | `#f59e0b` | Bernstein (Alias: Demo-Kennzeichen, Hinweise) |
+| `--color-pos` | `#22c55e` | Gewinn / Long |
+| `--color-neg` | `#ef4444` | Verlust / Short / Notfall |
+| `--color-warn` | `#f59e0b` | Warnung |
 
-Rain-Verlauf: Kopf `#eaf6ff` (fast weiß-blau, Glow), Schweif `#4fd1ff → #2e7cf6 → transparent`;
-Element-Opacity **0.25** (volle erlaubte Präsenz). Wortmarke: Gradient Blau → Cyan → Violett.
-Hero: **Plexus-Konstellation** (Punkte + Verbindungslinien in Blau/Violett/Magenta, langsame Drift,
-Puls-Aufleuchten bei echten Ticks — Datenbezug Pflicht).
+Die Alias-Namen `cyan`/`violet`/`magenta` bleiben aus Kompatibilität (viele Aufrufer); neue
+Stellen nutzen `blue`, `mut`, `warn`. Hartkodierte Alt-Farben wurden auf diese Werte abgebildet.
 
 ## 3. Typografie
 
-- **UI:** Inter Variable (`@fontsource-variable/inter`, selbst gehostet — kein CDN).
-- **Zahlen/Daten:** JetBrains Mono (`@fontsource/jetbrains-mono`) mit **`font-variant-numeric: tabular-nums`**
-  — Preise springen beim Ticken nicht.
-- **Hierarchie:** große, selbstbewusste Zahlen (28–36px Mono) > mittlere Controls > kleine gedämpfte Helper.
-- **Labels:** Versalien, 10.5–11.5px, `letter-spacing: 0.18em`, Farbe `--color-mut`.
-- **Wortmarke:** „GLADIATOR" in Versalien, `letter-spacing: 0.3em`, dezenter Cyan-Glow.
+- **Inter Variable** (selbst gehostet, kein CDN). Hero-Zahlen 40–56 px (`text-5xl`/`text-6xl`,
+  `font-bold`, `tracking-tight`), Überschriften 22–28 px, Text 14–16 px, Labels 12 px.
+- `.num`: Inter + `tabular-nums`. `.mono`: JetBrains Mono (Adressen, Protokoll, Code).
+- `.label`: 12 px, Gewicht 500, Farbe `mut`, **keine** Versalien, keine Sperrung.
+- Wortmarke `.wordmark`: Versalien, `letter-spacing .16em`, ohne Verlauf/Glow.
 
-## 4. Flächen & Tiefe (Glas)
+## 4. Flächen und Bausteine
 
 ```css
-.glass {
-  background: var(--color-glass);
-  backdrop-filter: blur(14px);
-  border: 1px solid var(--color-line);       /* Licht-Kante */
-  border-radius: 1rem;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.38),   /* Tiefe */
-              inset 0 1px 0 rgba(255,255,255,0.05); /* obere Kante fängt Licht */
-}
+.glass   { background: var(--color-bg2); border: 1px solid var(--color-line); border-radius: .875rem }
+.btn-primary { background: var(--color-blue); color: #fff; border-radius: .75rem; font-weight: 600 }
+.btn     { background: var(--color-bg3); border: 1px solid var(--color-line); border-radius: .75rem }
+.field   { background: var(--color-bg); border: 1px solid var(--color-line); focus: blauer Ring }
+.chip    { Pille; Varianten --pos --neg --acc --warn --mut }
 ```
 
-- Hover: Border-Glow verstärken (`box-shadow: 0 0 24px rgba(46,124,246,0.18)`), 2px Lift.
-- Ambient: 1–2 große radiale Blau-Orbs fix hinter dem Content (kein Noise, weiche Verläufe).
-- Fallback ohne `backdrop-filter`: `background: rgba(7,13,24,0.92)`.
+Alle eigenen Klassen liegen in `@layer components`, damit Tailwind-Utilities (`hidden`,
+`lg:hidden`, `flex`) sie wie erwartet überschreiben.
 
-## 5. Motion
+## 5. Navigation (Shell)
+
+- **Fünf Bereiche** aus der Registry (`lib/navigation.ts`, `AREAS` mit `hash` + `icon`):
+  Heute · Markt · Traden · Strategie · Mehr. Desktop: Seitenleiste `.areanav`; Handy: `.tabbar`
+  unten (Sicherheitsbereich eingerechnet).
+- **Unterseiten als Segmente** `.subnav` über dem Inhalt (nur wenn der Bereich mehr als eine
+  Seite hat). Kein Link ändert sich; `resolveRedirect()` bleibt.
+- Kopfzeile einzeilig: Kennzeichen (Paper, Demo, Kill-Switch), Suche ⌘K, Benachrichtigungen,
+  Feed-Status. Einfach/Profi, Session, Sprache, Abmelden nur auf dem Desktop; auf dem Handy im
+  Profil (Ansicht, Sprache, Sitzung).
+
+## 6. Special-Effekt: der Daten-Regen (`lib/effects.ts`, `components/RainLayer.tsx`)
+
+Der Regen (Canvas, rAF, drei Parallax-Ebenen, Zeichen = echte Ticks) tritt an vier Stellen auf —
+alle im Profil → Effekte schaltbar (`gladiator.effects`, Ansicht zurücksetzen löscht sie):
+
+| Stelle | Standard | Sichtbarkeit | Auslöser |
+|---|---|---|---|
+| **Login** | an | 0,25 | nicht angemeldet |
+| **Ereignis-Impuls** | an | Anstieg bis 0,55, Abklingen über 2,8 s | neue Benachrichtigung: Signal/Preis-Alarm blau, Notfall/Kill-Switch rot (`burstToneFor`) |
+| **Bildschirmschoner** | an | 0,9 + Overlay (Uhr, Live-Kurse) | 3 min ohne Eingabe (`useIdle`), nie im verborgenen Tab, nie bei reduzierter Bewegung |
+| **Matrix-Modus** | aus | 0,18 dauerhaft | Profil-Schalter oder Kürzel `g m` |
+
+Reihenfolge der Regeln (`rainIntensity`, getestet): Bildschirmschoner > Login > Impuls >
+Matrix-Modus > aus. Die Sichtbarkeit wird weich nachgeführt; bei 0 wird nicht gezeichnet
+(keine Last im Normalbetrieb). Bei `prefers-reduced-motion` nur ein Standbild ≤ 0,25.
+Hover auf einer Markt-Karte hebt weiterhin die Spalten des Symbols hervor.
+
+## 7. Motion
 
 | Moment | Rezept |
 |---|---|
-| Seiten-/Karten-Reveal | Stagger 50 ms/Karte, `translateY(12px)+opacity`, 500 ms, `cubic-bezier(0.22,1,0.36,1)` |
-| Preis-Tick | 400 ms Micro-Glow (text-shadow-Puls) in pos/neg-Farbe, danach zurück |
-| Hover/Press | federnd: `cubic-bezier(0.34,1.56,0.64,1)`, 200–250 ms |
-| Login-Erfolg | „Dekryptierung": Überschrift scrambelt 500 ms zu „ZUGRIFF GEWÄHRT", dann Übergang |
-| reduced-motion | alle Reveals sofort, Rain eingefroren (statisches, sehr dunkles Standbild) |
+| Karten-Reveal | Stagger 40 ms, `translateY(8px)+opacity`, 420 ms |
+| Preis-Tick | 420 ms Farbimpuls (grün/rot), kein Glow |
+| Regen | siehe §6 |
+| reduced-motion | Reveals sofort, Ticks ohne Animation, Regen als Standbild |
 
-## 6. Signatur: Daten-Rain (`apps/web/src/components/MatrixRain.tsx`)
+## 8. Wellen (Umsetzungsplan, je ein PR)
 
-- **Ein** Fullscreen-`<canvas>` (fixed, `z-index:0`, `pointer-events:none`), Content ab `z-index:1`.
-- `requestAnimationFrame`; Trail durch `fillRect` mit `rgba(5,8,16,0.08)` pro Frame.
-- **Zeichenquelle = echte SSE-Ticks:** je Tick werden Tokens eingespeist — Symbol („BTC"),
-  Preisziffern („61651.99"), Änderung („+2.97%"). Vor dem ersten Tick fallen nur Markenzeichen
-  (GLADIATOR/BTC/ETH/SOL-Glyphen) — nie erfundene Zahlen.
-- **3 Parallax-Ebenen:** Spalten bekommen Tiefe (Font 11/14/17px; Geschwindigkeit & Helligkeit
-  skalieren mit Tiefe — nah = schneller/heller).
-- Kopfzeichen fast weiß-blau mit `shadowBlur`-Glow, Schweif läuft dunkler aus.
-- Spalten sind Symbolen zugeordnet: grüner/roter Tick → kurzes farbiges Aufblitzen der Spalte;
-  **Hover auf Preis-Karte → Spalten dieses Symbols leuchten auf.**
-- Canvas-Element-Opacity **0.22** (≤ 0.25 Pflicht). DPR-Cap 1.5. Tab unsichtbar → rAF pausiert automatisch.
-
-## 7. Komponenten-Rezepte
-
-- **Preis-Karte:** Label (Versalien) + große Mono-Zahl (tabular-nums) + 24h-Änderung (pos/neg)
-  + Sparkline (Cyan-Verlauf, weicher Glow, Flächen-Fade nach unten).
-- **Status-Pille:** Punkt + Text; verbunden = pos, getrennt = neg, wartend = warn. Immer ehrlich.
-- **Tabellen:** Mono für Zahlen, rechtsbündig; Zeilentrenner `--color-line` in 50 % Opacity.
-- **Buttons:** Primär = Blau-Fläche mit äußerem Glow bei Hover; Sekundär = Glas mit Licht-Kante.
-- **Leerzustände:** gedämpft, klar benannt („nicht verbunden", „noch keine Daten"), nie dekoriert kaschiert.
-
-## 8. Nicht verhandelbar
-
-- Rain-Opacity ≤ 0.25; Text-Kontrast AA auf `--color-bg`.
-- Keine Fake-Daten, auch nicht „nur fürs Design".
-- Ein Canvas, ein rAF-Loop; keine Dauer-Animation ohne Datenbezug.
-- Selbst gehostete Fonts (kein CDN/Tracking).
+- [x] **A · Fundament** (PR #68): Tokens, Flächen, Typo, Shell mit fünf Bereichen + Tableiste,
+      Regen als Effekt-System, Profil → Ansicht/Effekte.
+- [ ] **B · Heute & Vermögen**: Hero mit Kurve, „Heute wichtig", drei Aktionen; Vermögen mit
+      Verlauf, Aufteilung, Kontenliste.
+- [ ] **C · Markt**: Chart auf Vollfläche, eine Werkzeugzeile, Smart-Money-Schalter, Orderbuch
+      als Schublade; Screener-Treffer als Karten; Marktlage als Ampel.
+- [ ] **D · Traden & Signale**: Kauf-Flow Betrag → Richtung → Vorschau → Bestätigen,
+      „Erweitert"; Signalkarten mit Bild und Gründen; Ergebniskarte beim Schließen.
+- [ ] **E · Strategie & Mehr**: Labor-Archiv, Agenten + Werkstatt als eine Seite,
+      Einstellungen als Gruppen mit Status-Chips.
+- [ ] **F · Spaß & Feinschliff**: Kurven-Animation, Erfolgsmomente, Einrichtungs-Fortschritt,
+      Leer-Zustände mit nächstem Schritt, Kontrast-Audit.

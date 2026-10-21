@@ -235,7 +235,7 @@ export function PaperPositions({ positions, onChanged }: { positions: PaperPosit
                     onClick={() => void save(p)}
                     disabled={busy !== null}
                     className="rounded-[0.625rem] border px-3 py-1.5 text-xs disabled:opacity-50"
-                    style={{ borderColor: 'rgba(79,209,255,0.5)', color: 'var(--color-cyan)' }}
+                    style={{ borderColor: 'rgba(96,165,250,0.5)', color: 'var(--color-cyan)' }}
                   >
                     {busy === p.id ? '…' : t('position.saveProtection')}
                   </button>
@@ -255,7 +255,7 @@ export function PaperPositions({ positions, onChanged }: { positions: PaperPosit
                       onClick={() => void close(p)}
                       disabled={busy !== null}
                       className="rounded-[0.625rem] border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-                      style={{ borderColor: 'rgba(255,92,108,0.6)', color: 'var(--color-neg)', background: 'rgba(255,92,108,0.1)' }}
+                      style={{ borderColor: 'rgba(239,68,68,0.6)', color: 'var(--color-neg)', background: 'rgba(239,68,68,0.1)' }}
                     >
                       {busy === p.id ? t('position.closing') : t('position.closeConfirm')}
                     </button>
@@ -268,7 +268,7 @@ export function PaperPositions({ positions, onChanged }: { positions: PaperPosit
                     onClick={() => setArmedClose(p.id)}
                     disabled={busy !== null}
                     className="rounded-[0.625rem] border px-3 py-1.5 text-xs disabled:opacity-50"
-                    style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}
+                    style={{ borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }}
                   >
                     {t('position.close')}
                   </button>
@@ -277,7 +277,7 @@ export function PaperPositions({ positions, onChanged }: { positions: PaperPosit
             </div>
 
             {/* Gewinn mitnehmen (Teilschluss) + Trailing-Stop */}
-            <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-3 border-t pt-3" style={{ borderColor: 'rgba(99,140,255,0.12)' }}>
+            <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-3 border-t pt-3" style={{ borderColor: 'rgba(148,163,184,0.12)' }}>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="label">{t('position.partialTitle')}</span>
                 {armedPartial?.id === p.id ? (
@@ -289,7 +289,7 @@ export function PaperPositions({ positions, onChanged }: { positions: PaperPosit
                       onClick={() => void closePart(p, armedPartial.pct)}
                       disabled={busy !== null}
                       className="rounded-[0.625rem] border px-3 py-1 text-xs font-medium disabled:opacity-50"
-                      style={{ borderColor: 'rgba(61,220,151,0.6)', color: 'var(--color-pos)', background: 'rgba(61,220,151,0.08)' }}
+                      style={{ borderColor: 'rgba(34,197,94,0.6)', color: 'var(--color-pos)', background: 'rgba(34,197,94,0.08)' }}
                     >
                       {busy === p.id ? '…' : t('position.partialConfirm')}
                     </button>
@@ -304,7 +304,7 @@ export function PaperPositions({ positions, onChanged }: { positions: PaperPosit
                       onClick={() => setArmedPartial({ id: p.id, pct })}
                       disabled={busy !== null || p.openQty <= 0}
                       className="num rounded-[0.625rem] border px-2.5 py-1 text-xs disabled:opacity-50"
-                      style={{ borderColor: 'rgba(61,220,151,0.35)', color: 'var(--color-pos)' }}
+                      style={{ borderColor: 'rgba(34,197,94,0.35)', color: 'var(--color-pos)' }}
                     >
                       {pct} %
                     </button>
@@ -332,13 +332,13 @@ export function PaperPositions({ positions, onChanged }: { positions: PaperPosit
                   }}
                   disabled={busy !== null || !p.stopLoss || (p.trailPct !== null && trailDrafts[p.id] === undefined)}
                   className="rounded-[0.625rem] border px-2.5 py-1 text-xs disabled:opacity-40"
-                  style={{ borderColor: 'rgba(79,209,255,0.45)', color: 'var(--color-cyan)' }}
+                  style={{ borderColor: 'rgba(96,165,250,0.45)', color: 'var(--color-cyan)' }}
                 >
                   {p.trailPct === null ? t('position.trailOn') : t('position.trailUpdate')}
                 </button>
                 {p.trailPct !== null && (
                   <>
-                    <span className="label rounded border px-1.5 py-0.5" style={{ borderColor: 'rgba(79,209,255,0.45)', color: 'var(--color-cyan)' }}>
+                    <span className="label rounded border px-1.5 py-0.5" style={{ borderColor: 'rgba(96,165,250,0.45)', color: 'var(--color-cyan)' }}>
                       {t('position.trailActive', { pct: fmt(p.trailPct) })}
                     </span>
                     <button onClick={() => void setTrailing(p, null)} disabled={busy !== null} className="px-1 text-xs" style={{ color: 'var(--color-mut)' }}>
@@ -356,14 +356,14 @@ export function PaperPositions({ positions, onChanged }: { positions: PaperPosit
               <div
                 role="alert"
                 className="mt-3 flex flex-wrap items-center gap-3 rounded-[0.625rem] border p-3 text-xs"
-                style={{ borderColor: 'rgba(232,184,75,0.5)', color: 'var(--color-warn)' }}
+                style={{ borderColor: 'rgba(245,158,11,0.5)', color: 'var(--color-warn)' }}
               >
                 <span className="min-w-0 flex-1">{t('position.widenWarn')}</span>
                 <button
                   onClick={() => void save(p, true)}
                   disabled={busy !== null}
                   className="rounded-[0.625rem] border px-3 py-1.5 font-medium"
-                  style={{ borderColor: 'rgba(232,184,75,0.6)' }}
+                  style={{ borderColor: 'rgba(245,158,11,0.6)' }}
                 >
                   {t('position.widenConfirm')}
                 </button>

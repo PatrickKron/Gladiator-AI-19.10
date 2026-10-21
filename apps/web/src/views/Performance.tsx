@@ -118,7 +118,7 @@ export function Performance({ embedded = false }: { embedded?: boolean }) {
           onClick={() => setPeriod(p)}
           className="rounded border px-3 py-1 text-xs transition-colors"
           style={{
-            borderColor: p === period ? 'rgba(46,124,246,0.5)' : 'var(--color-line)',
+            borderColor: p === period ? 'rgba(59,130,246,0.5)' : 'var(--color-line)',
             color: p === period ? cyan : 'var(--color-mut)',
           }}
         >
@@ -312,14 +312,14 @@ export function Performance({ embedded = false }: { embedded?: boolean }) {
                   <div
                     key={v.id}
                     className="flex items-center justify-between rounded border p-2"
-                    style={{ borderColor: v.promoted ? 'rgba(61,220,151,0.4)' : 'var(--color-line)' }}
+                    style={{ borderColor: v.promoted ? 'rgba(34,197,94,0.4)' : 'var(--color-line)' }}
                   >
                     <div className="flex items-center gap-2">
                       <span className="num text-sm font-medium">v{v.version}</span>
                       {v.promoted && (
                         <span
                           className="rounded border px-1.5 py-0.5 text-[10px]"
-                          style={{ borderColor: 'rgba(61,220,151,0.5)', color: pos }}
+                          style={{ borderColor: 'rgba(34,197,94,0.5)', color: pos }}
                         >
                           {t('perf.promoted')}
                         </span>

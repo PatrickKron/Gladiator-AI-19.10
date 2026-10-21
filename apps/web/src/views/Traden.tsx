@@ -12,8 +12,8 @@ import { WalletTrading } from './WalletTrading.js';
  */
 
 const ACCOUNT_STYLE: Record<TradeAccount, { active: string; color: string }> = {
-  demo: { active: 'rgba(225,78,207,0.16)', color: 'var(--color-magenta)' },
-  agent: { active: 'rgba(79,209,255,0.14)', color: 'var(--color-cyan)' },
+  demo: { active: 'rgba(245,158,11,0.16)', color: 'var(--color-magenta)' },
+  agent: { active: 'rgba(96,165,250,0.14)', color: 'var(--color-cyan)' },
   wallet: { active: 'rgba(52,211,153,0.14)', color: 'var(--color-pos)' },
 };
 

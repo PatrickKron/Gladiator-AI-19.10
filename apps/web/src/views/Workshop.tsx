@@ -174,7 +174,7 @@ function MiniSelect({ label, value, options, onChange }: { label: string; value:
 }
 
 const secondaryBtn = 'rounded-[0.625rem] border px-3 py-1.5 text-xs transition-all';
-const secondaryStyle = { borderColor: 'rgba(139,92,246,0.4)', color: 'var(--color-violet)' } as const;
+const secondaryStyle = { borderColor: 'rgba(148,163,184,0.4)', color: 'var(--color-violet)' } as const;
 const ghostStyle = { borderColor: 'var(--color-line)', color: 'var(--color-mut)' } as const;
 
 // ── Bedingungs-Editor ───────────────────────────────────────────────────────
@@ -268,7 +268,7 @@ function CondRow({ cond, onChange, onRemove }: { cond: Cond; onChange: (c: Cond)
           <NumBox label="mult" step={0.1} value={cond.supertrend.mult} onChange={(v) => onChange({ supertrend: { ...cond.supertrend, mult: v } })} />
         </>
       )}
-      <button onClick={onRemove} className={secondaryBtn} style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}>
+      <button onClick={onRemove} className={secondaryBtn} style={{ borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }}>
         ✕
       </button>
     </div>
@@ -539,7 +539,7 @@ function AnalysisView({ analysis }: { analysis: Analysis }) {
         <p className="label">{t('sw.analysisSummary')}</p>
         <p className="mt-1 text-sm leading-relaxed">{analysis.summary}</p>
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
-          <span className="rounded-full border px-3 py-1" style={{ borderColor: 'rgba(79,209,255,0.5)', color: 'var(--color-ink)' }}>
+          <span className="rounded-full border px-3 py-1" style={{ borderColor: 'rgba(96,165,250,0.5)', color: 'var(--color-ink)' }}>
             {t(`sw.type_${analysis.strategyType}`, analysis.strategyType)}
           </span>
           <span className="rounded-full border px-3 py-1" style={ghostStyle}>{analysis.direction}</span>
@@ -551,7 +551,7 @@ function AnalysisView({ analysis }: { analysis: Analysis }) {
             <table className="mt-1 w-full text-sm">
               <tbody>
                 {analysis.indicators.map((ind, i) => (
-                  <tr key={i} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                  <tr key={i} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                     <td className="py-1 pr-3 font-medium">{ind.name}</td>
                     <td className="num py-1 pr-3 text-xs" style={{ color: 'var(--color-mut)' }}>{ind.params ?? ''}</td>
                     <td className="py-1 text-xs" style={{ color: 'var(--color-mut)' }}>{ind.role ?? ''}</td>
@@ -567,7 +567,7 @@ function AnalysisView({ analysis }: { analysis: Analysis }) {
             <table className="mt-1 w-full text-sm">
               <tbody>
                 {analysis.parameters.map((p, i) => (
-                  <tr key={i} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                  <tr key={i} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                     <td className="py-1 pr-3">{p.name}</td>
                     <td className="num py-1 pr-3">{p.value ?? '—'}</td>
                     <td className="py-1 text-xs" style={{ color: 'var(--color-mut)' }}>{p.description ?? ''}</td>
@@ -592,7 +592,7 @@ function AnalysisView({ analysis }: { analysis: Analysis }) {
           ))}
         </ul>
         {analysis.notTranslatable.length > 0 && (
-          <div className="mt-4 rounded-[0.625rem] border border-dashed p-3" style={{ borderColor: 'rgba(139,92,246,0.35)' }}>
+          <div className="mt-4 rounded-[0.625rem] border border-dashed p-3" style={{ borderColor: 'rgba(148,163,184,0.35)' }}>
             <p className="text-xs font-medium" style={{ color: 'var(--color-violet)' }}>{t('sw.analysisNotTranslatable')}</p>
             <ul className="mt-1 list-disc pl-5 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
               {analysis.notTranslatable.map((c, i) => (
@@ -749,8 +749,8 @@ function ChatPanel({ session, messages, onChanged }: { session: SessionDetail['s
               className="rounded-[0.875rem] border px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap"
               style={
                 m.role === 'user'
-                  ? { borderColor: 'rgba(79,209,255,0.35)', background: 'rgba(46,124,246,0.12)' }
-                  : { borderColor: 'rgba(139,92,246,0.35)', background: 'rgba(139,92,246,0.08)' }
+                  ? { borderColor: 'rgba(96,165,250,0.35)', background: 'rgba(59,130,246,0.12)' }
+                  : { borderColor: 'rgba(148,163,184,0.35)', background: 'rgba(148,163,184,0.08)' }
               }
             >
               {m.content}
@@ -768,13 +768,13 @@ function ChatPanel({ session, messages, onChanged }: { session: SessionDetail['s
         {live && (
           <>
             <div className="max-w-[85%] self-end">
-              <div className="rounded-[0.875rem] border px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap" style={{ borderColor: 'rgba(79,209,255,0.35)', background: 'rgba(46,124,246,0.12)' }}>
+              <div className="rounded-[0.875rem] border px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap" style={{ borderColor: 'rgba(96,165,250,0.35)', background: 'rgba(59,130,246,0.12)' }}>
                 {live.user}
               </div>
             </div>
             {live.reply && (
               <div className="max-w-[85%] self-start">
-                <div className="rounded-[0.875rem] border px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap" style={{ borderColor: 'rgba(139,92,246,0.35)', background: 'rgba(139,92,246,0.08)' }}>
+                <div className="rounded-[0.875rem] border px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap" style={{ borderColor: 'rgba(148,163,184,0.35)', background: 'rgba(148,163,184,0.08)' }}>
                   {live.reply}
                 </div>
               </div>
@@ -845,7 +845,7 @@ function TradesTable({ trades }: { trades: TradeRow[] }) {
         </thead>
         <tbody className="num">
           {trades.slice().reverse().map((tr, i) => (
-            <tr key={i} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+            <tr key={i} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
               <td className="py-1 pr-3">{new Date(tr.entryTs).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' })}</td>
               <td className="py-1 pr-3">{tr.direction}</td>
               <td className="py-1 pr-3 text-right" style={{ color: tr.rMultiple >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>{fmt(tr.rMultiple)}</td>
@@ -1002,7 +1002,7 @@ function BacktestPanel({
                     {doneRuns.map((r) => {
                       const m = r.metrics as Metrics | null;
                       return (
-                        <tr key={r.id} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                        <tr key={r.id} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                           <td className="py-1 pr-2">
                             <input type="checkbox" checked={compare[r.id] ?? false} onChange={(e) => setCompare({ ...compare, [r.id]: e.target.checked })} />
                           </td>
@@ -1186,7 +1186,7 @@ function VersionsPanel({
                         <button onClick={() => void checkValidity(v.id)} disabled={busy !== null} className={secondaryBtn} style={ghostStyle}>
                           {busy === `validity-${v.id}` ? t('common.loading') : t('sw.checkValidity')}
                         </button>
-                        <button onClick={() => void promote(v.id)} disabled={busy !== null || !val?.verdict?.passed} title={val?.verdict?.passed ? '' : t('sw.promoteGateHint')} className={secondaryBtn} style={{ borderColor: 'rgba(61,220,151,0.5)', color: 'var(--color-pos)' }}>
+                        <button onClick={() => void promote(v.id)} disabled={busy !== null || !val?.verdict?.passed} title={val?.verdict?.passed ? '' : t('sw.promoteGateHint')} className={secondaryBtn} style={{ borderColor: 'rgba(34,197,94,0.5)', color: 'var(--color-pos)' }}>
                           {busy === `promote-${v.id}` ? t('common.loading') : t('sw.promote')}
                         </button>
                       </>
@@ -1325,7 +1325,7 @@ export function Workshop({ embedded = false }: { embedded?: boolean } = {}) {
                   className={secondaryBtn}
                   style={
                     s.id === selectedId
-                      ? { borderColor: 'rgba(79,209,255,0.5)', color: 'var(--color-ink)', background: 'rgba(46,124,246,0.14)' }
+                      ? { borderColor: 'rgba(96,165,250,0.5)', color: 'var(--color-ink)', background: 'rgba(59,130,246,0.14)' }
                       : ghostStyle
                   }
                 >
@@ -1333,7 +1333,7 @@ export function Workshop({ embedded = false }: { embedded?: boolean } = {}) {
                   {s.strategyId && <span className="ml-1.5" style={{ color: 'var(--color-warn)' }} title={t('sw.linkedStrategy')}>◆</span>}
                 </button>
                 {s.id === selectedId && (
-                  <button onClick={() => void removeSession(s.id)} title={t('sw.deleteSession')} className={secondaryBtn} style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}>
+                  <button onClick={() => void removeSession(s.id)} title={t('sw.deleteSession')} className={secondaryBtn} style={{ borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }}>
                     ✕
                   </button>
                 )}

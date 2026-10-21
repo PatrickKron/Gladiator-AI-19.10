@@ -108,8 +108,8 @@ export function VenueCompare({
                     className={ok ? 'cursor-pointer' : ''}
                     title={ok ? t('venues.clickToSelect') : (v.error ?? undefined)}
                     style={{
-                      borderTop: '1px solid rgba(99,140,255,0.08)',
-                      background: isSel ? 'rgba(79,209,255,0.1)' : 'transparent',
+                      borderTop: '1px solid rgba(148,163,184,0.08)',
+                      background: isSel ? 'rgba(96,165,250,0.1)' : 'transparent',
                       opacity: ok ? 1 : 0.55,
                     }}
                   >

@@ -83,7 +83,7 @@ function VersionRow({ v, busy, onPromote }: { v: Version; busy: boolean; onPromo
             disabled={busy || !passed}
             title={passed ? '' : t('builder.noBacktestHint')}
             className="rounded border px-2 py-1 text-xs disabled:opacity-40"
-            style={{ borderColor: 'rgba(61,220,151,0.4)', color: 'var(--color-pos)' }}
+            style={{ borderColor: 'rgba(34,197,94,0.4)', color: 'var(--color-pos)' }}
           >
             {t('builder.promote')} ({t('builder.promoteDraftToPaper')})
           </button>
@@ -152,7 +152,7 @@ function StrategyRow({ s, onChanged }: { s: Strategy; onChanged: () => void }) {
         </span>
       </button>
       {open && (
-        <div className="mt-3 border-t pt-3" style={{ borderColor: 'rgba(99,140,255,0.12)' }}>
+        <div className="mt-3 border-t pt-3" style={{ borderColor: 'rgba(148,163,184,0.12)' }}>
           {s.description && (
             <p className="mb-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
               {s.description}
@@ -248,7 +248,7 @@ function PineTab({ onRegistered }: { onRegistered: () => void }) {
         </p>
       )}
       {result && (
-        <div className="mt-4 rounded-[0.625rem] border p-3" style={{ borderColor: 'rgba(61,220,151,0.4)' }}>
+        <div className="mt-4 rounded-[0.625rem] border p-3" style={{ borderColor: 'rgba(34,197,94,0.4)' }}>
           <p className="text-sm" style={{ color: 'var(--color-pos)' }}>
             ✓ {t('builder.pineRegistered')}
           </p>
@@ -357,7 +357,7 @@ function PineAnalyzePanel() {
           onClick={() => void doImprove()}
           disabled={busy !== null || code.trim().length < 20}
           className="rounded-[0.625rem] border px-5 py-2 text-sm transition-colors disabled:opacity-50"
-          style={{ borderColor: 'rgba(139,92,246,0.5)', color: 'var(--color-violet, #8b5cf6)' }}
+          style={{ borderColor: 'rgba(148,163,184,0.5)', color: 'var(--color-violet, #94a3b8)' }}
         >
           {busy === 'improve' ? t('builder.pineImproving') : t('builder.pineImproveBtn')}
         </button>
@@ -475,7 +475,7 @@ function PineAnalyzePanel() {
       )}
 
       {analysis && (
-        <div className="mt-4 rounded-[0.625rem] border p-4" style={{ borderColor: analysis.llm.used ? 'rgba(139,92,246,0.4)' : 'var(--color-line)' }}>
+        <div className="mt-4 rounded-[0.625rem] border p-4" style={{ borderColor: analysis.llm.used ? 'rgba(148,163,184,0.4)' : 'var(--color-line)' }}>
           <p className="label">{t('builder.pineLlmTitle')}</p>
           {analysis.llm.used ? (
             <p className="mt-3 text-xs leading-relaxed whitespace-pre-wrap">{analysis.llm.analysis}</p>
@@ -488,7 +488,7 @@ function PineAnalyzePanel() {
       )}
 
       {improved && (
-        <div className="mt-4 rounded-[0.625rem] border p-4" style={{ borderColor: 'rgba(61,220,151,0.4)' }}>
+        <div className="mt-4 rounded-[0.625rem] border p-4" style={{ borderColor: 'rgba(34,197,94,0.4)' }}>
           <div className="flex items-center justify-between gap-3">
             <p className="label">{t('builder.pineImprovedTitle')}</p>
             <button
@@ -499,7 +499,7 @@ function PineAnalyzePanel() {
               {copied ? t('builder.pineCopied') : t('builder.pineCopy')}
             </button>
           </div>
-          <pre className="num mt-3 max-h-96 overflow-auto rounded p-3 text-xs leading-relaxed select-all" style={{ background: 'rgba(4,6,20,0.7)' }}>
+          <pre className="num mt-3 max-h-96 overflow-auto rounded p-3 text-xs leading-relaxed select-all" style={{ background: 'rgba(11,13,18,0.7)' }}>
             {improved.improved}
           </pre>
           {improved.notes && (
@@ -564,10 +564,9 @@ export function Strategien() {
                 style={
                   tab === x.id
                     ? {
-                        borderColor: 'rgba(79,209,255,0.5)',
+                        borderColor: 'rgba(96,165,250,0.5)',
                         color: 'var(--color-ink)',
-                        background: 'linear-gradient(92deg, rgba(46,124,246,0.2), rgba(139,92,246,0.14))',
-                        boxShadow: '0 0 16px rgba(46,124,246,0.2)',
+                        background: 'rgba(59,130,246,0.2)',
                       }
                     : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
                 }

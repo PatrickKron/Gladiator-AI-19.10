@@ -70,7 +70,7 @@ function BucketTable({ title, rows }: { title: string; rows: [string, Bucket][] 
         </thead>
         <tbody className="num">
           {rows.map(([name, b]) => (
-            <tr key={name} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+            <tr key={name} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
               <td className="py-1 pr-3">{name}</td>
               <td className="py-1 pr-3 text-right">{b.trades}</td>
               <td className="py-1 pr-3 text-right">{fmt(b.winRate * 100, 1)} %</td>
@@ -419,7 +419,7 @@ export function Labor() {
               key={i}
               onClick={() => applyConfig(tpl)}
               className="num rounded-[0.625rem] border px-3 py-1.5 text-xs"
-              style={{ borderColor: 'rgba(139,92,246,0.4)', color: 'var(--color-violet)' }}
+              style={{ borderColor: 'rgba(148,163,184,0.4)', color: 'var(--color-violet)' }}
             >
               {tpl.setupType} · {tpl.symbol} · {tpl.timeframe}
             </button>
@@ -614,7 +614,7 @@ export function Labor() {
                 </thead>
                 <tbody className="num">
                   {[1, 2, 3, 5, 7, 10].map((lev) => (
-                    <tr key={lev} style={{ borderTop: '1px solid rgba(99,140,255,0.1)' }}>
+                    <tr key={lev} style={{ borderTop: '1px solid rgba(148,163,184,0.1)' }}>
                       <td className="py-1.5 text-left">{lev}×</td>
                       {(['A', 'B', 'C', 'D'] as const).map((s) => {
                         const cell = run.raps.grid.find((g) => g.leverage === lev && g.tpSchema === s);
@@ -626,7 +626,7 @@ export function Labor() {
                             style={{
                               color: cell?.excluded ? 'var(--color-neg)' : isBest ? 'var(--color-pos)' : 'var(--color-ink)',
                               opacity: cell?.excluded ? 0.5 : 1,
-                              textShadow: isBest ? '0 0 12px rgba(61,220,151,0.6)' : 'none',
+                              textShadow: isBest ? '0 0 12px rgba(34,197,94,0.6)' : 'none',
                             }}
                             title={cell?.excluded ? t('labor.liqRate', { pct: (cell.liquidationRate * 100).toFixed(1) }) : ''}
                           >
@@ -670,7 +670,7 @@ export function Labor() {
                   </thead>
                   <tbody className="num">
                     {Object.entries(run.analysis.byConfluence).map(([tag, c]) => (
-                      <tr key={tag} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                      <tr key={tag} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                         <td className="py-1 pr-3">{tag}</td>
                         <td className="py-1 pr-3 text-right">{c.withTrades}</td>
                         <td className="py-1 pr-3 text-right">{fmt(c.withExpectancyR)}</td>
@@ -752,8 +752,8 @@ export function Labor() {
                       onClick={() => setSelectedTrade(i === selectedTrade ? null : i)}
                       className="cursor-pointer"
                       style={{
-                        borderTop: '1px solid rgba(99,140,255,0.08)',
-                        background: i === selectedTrade ? 'rgba(79,209,255,0.1)' : 'transparent',
+                        borderTop: '1px solid rgba(148,163,184,0.08)',
+                        background: i === selectedTrade ? 'rgba(96,165,250,0.1)' : 'transparent',
                       }}
                     >
                       <td className="py-1.5 pr-3" style={{ color: 'var(--color-mut)' }}>{i + 1}</td>
@@ -797,7 +797,7 @@ export function Labor() {
               </thead>
               <tbody className="num">
                 {wf.windows.map((w, i) => (
-                  <tr key={i} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                  <tr key={i} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                     <td className="py-1.5 pr-3">{t('labor.wfWindowRow', { n: i + 1, start: w.oosStart, end: w.oosEnd })}</td>
                     <td className="py-1.5 pr-3">{JSON.stringify(w.bestParams)}</td>
                     <td className="py-1.5 pr-3 text-right">{fmt(w.isNetPnl)}</td>
@@ -837,9 +837,9 @@ export function Labor() {
                 onClick={() => setCompareSel((prev) => (on ? prev.filter((x) => x !== s.id) : [...prev, s.id]))}
                 className="rounded border px-3 py-1.5 text-xs transition-colors"
                 style={{
-                  borderColor: on ? 'rgba(79,209,255,0.5)' : 'var(--color-line)',
+                  borderColor: on ? 'rgba(96,165,250,0.5)' : 'var(--color-line)',
                   color: on ? 'var(--color-cyan)' : 'var(--color-mut)',
-                  background: on ? 'rgba(79,209,255,0.08)' : 'transparent',
+                  background: on ? 'rgba(96,165,250,0.08)' : 'transparent',
                 }}
               >
                 {on ? '✓ ' : ''}{s.slug}
@@ -874,7 +874,7 @@ export function Labor() {
                 </thead>
                 <tbody className="num">
                   {strategyRuns.map((r) => (
-                    <tr key={r.key} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                    <tr key={r.key} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                       <td className="py-1.5 pr-3">
                         <span className="inline-block h-2 w-3 rounded" style={{ background: r.color, marginRight: 6 }} />
                         {r.label}
@@ -927,7 +927,7 @@ export function Labor() {
                   onClick={() => void onToggleGate(g.id, !g.isActive)}
                   className="shrink-0 rounded border px-3 py-1.5 text-xs"
                   style={{
-                    borderColor: g.isActive ? 'rgba(61,220,151,0.4)' : 'var(--color-line)',
+                    borderColor: g.isActive ? 'rgba(34,197,94,0.4)' : 'var(--color-line)',
                     color: g.isActive ? 'var(--color-pos)' : 'var(--color-mut)',
                   }}
                 >
@@ -960,7 +960,7 @@ export function Labor() {
               </thead>
               <tbody className="num">
                 {runs.map((r) => (
-                  <tr key={r.id} style={{ borderTop: '1px solid rgba(99,140,255,0.08)' }}>
+                  <tr key={r.id} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                     <td className="py-1.5 pr-3">
                       <input
                         type="checkbox"

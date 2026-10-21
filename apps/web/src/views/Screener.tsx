@@ -47,9 +47,9 @@ const loadTf = (): ChartTf => {
 const selCls = 'field cursor-pointer px-2 py-1 text-xs';
 const chipCls = 'rounded border px-2 py-0.5 text-[11px] transition-colors';
 const chipStyle = (on: boolean) => ({
-  borderColor: on ? 'rgba(79,209,255,0.5)' : 'var(--color-line)',
+  borderColor: on ? 'rgba(96,165,250,0.5)' : 'var(--color-line)',
   color: on ? 'var(--color-cyan)' : 'var(--color-mut)',
-  background: on ? 'rgba(79,209,255,0.08)' : 'transparent',
+  background: on ? 'rgba(96,165,250,0.08)' : 'transparent',
 });
 
 function NumBox({ value, min, max, int, onChange, label }: { value: number; min?: number; max?: number; int?: boolean; onChange: (n: number) => void; label: string }) {
@@ -427,7 +427,7 @@ export function Screener() {
               <button type="button" onClick={() => void saveScreen(false)} disabled={!name.trim()} className={`${chipCls} disabled:opacity-40`} style={chipStyle(false)}>
                 {t('screener.update')}
               </button>
-              <button type="button" onClick={() => void deleteScreen()} className={chipCls} style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}>
+              <button type="button" onClick={() => void deleteScreen()} className={chipCls} style={{ borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }}>
                 {t('screener.delete')}
               </button>
             </>
@@ -465,12 +465,12 @@ export function Screener() {
             onClick={() => void run()}
             disabled={running || conditions.length === 0 || !Array.isArray(catalog) || universe === 0}
             className="rounded border px-3 py-1 text-xs disabled:opacity-40"
-            style={{ borderColor: 'rgba(79,209,255,0.5)', color: 'var(--color-cyan)', background: 'rgba(79,209,255,0.08)' }}
+            style={{ borderColor: 'rgba(96,165,250,0.5)', color: 'var(--color-cyan)', background: 'rgba(96,165,250,0.08)' }}
           >
             {running ? t('screener.running') : `▶ ${t('screener.run')}`}
           </button>
           <label className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--color-mut)' }}>
-            <input type="checkbox" checked={onlyMatches} onChange={(e) => setOnlyMatches(e.target.checked)} className="accent-[#4fd1ff]" />
+            <input type="checkbox" checked={onlyMatches} onChange={(e) => setOnlyMatches(e.target.checked)} className="accent-[#60a5fa]" />
             {t('screener.onlyMatches')}
           </label>
           {result && (
@@ -507,7 +507,7 @@ export function Screener() {
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.symbol} className="border-t" style={{ borderColor: 'rgba(99,140,255,0.08)' }}>
+                  <tr key={r.symbol} className="border-t" style={{ borderColor: 'rgba(148,163,184,0.08)' }}>
                     <td className="py-1.5 pr-3">
                       <a href={buildChartUrl(r.symbol, tf, venue)} className="num underline-offset-2 hover:underline" style={{ color: r.matches ? 'var(--color-cyan)' : 'var(--color-ink)' }} title={t('screener.openChart')}>
                         {r.symbol}
@@ -519,7 +519,7 @@ export function Screener() {
                       )}
                     </td>
                     <td className="num py-1.5 pr-3 text-right">{fmtNum(r.close)}</td>
-                    <td className="num py-1.5 pr-3 text-right" style={{ color: (r.changePct ?? 0) >= 0 ? '#3ddc97' : '#ff5c6c' }}>
+                    <td className="num py-1.5 pr-3 text-right" style={{ color: (r.changePct ?? 0) >= 0 ? '#22c55e' : '#ef4444' }}>
                       {r.changePct == null ? '—' : `${r.changePct >= 0 ? '+' : ''}${r.changePct.toFixed(2)} %`}
                     </td>
                     <td className="num py-1.5 pr-3 text-right">{r.candles}</td>
@@ -528,7 +528,7 @@ export function Screener() {
                       if (!res) return <td key={i} className="py-1.5 pr-3 text-right">—</td>;
                       const text = c.kind === 'compare' ? `${fmtNum(res.left)} / ${fmtNum(res.right)}` : c.kind === 'range' ? `${fmtNum(res.left)} %` : fmtNum(res.left);
                       return (
-                        <td key={i} className="num py-1.5 pr-3 text-right" title={res.note ?? undefined} style={{ color: res.ok ? '#3ddc97' : res.note ? 'var(--color-warn)' : 'var(--color-mut)' }}>
+                        <td key={i} className="num py-1.5 pr-3 text-right" title={res.note ?? undefined} style={{ color: res.ok ? '#22c55e' : res.note ? 'var(--color-warn)' : 'var(--color-mut)' }}>
                           {res.ok ? '✓' : res.note ? '⚠' : '✗'} {text}
                         </td>
                       );

@@ -50,10 +50,10 @@ type Timeframe = ChartTf;
 const BASE_TIMEFRAMES: Timeframe[] = ['15m', '1h', '4h', '1d'];
 
 const C = {
-  cyan: '#4fd1ff',
-  green: '#3ddc97',
-  red: '#ff5c6c',
-  violet: '#8b5cf6',
+  cyan: '#60a5fa',
+  green: '#22c55e',
+  red: '#ef4444',
+  violet: '#94a3b8',
   amber: '#f5b642',
   mut: '#8b94b8',
   faint: 'rgba(139,148,184,0.35)',
@@ -85,11 +85,11 @@ type SignalMarker = {
 
 /** Farbe je Signal-Status (Feature 2): offen/bestätigt/gefüllt/geschlossen/abgelehnt. */
 const SIGNAL_STATUS_COLOR: Record<SignalMarker['status'], string> = {
-  new: '#4fd1ff', // offen — cyan
+  new: '#60a5fa', // offen — cyan
   confirmed: '#f5b642', // bestätigt — amber
-  filled: '#3ddc97', // im Markt — grün
+  filled: '#22c55e', // im Markt — grün
   closed: '#8b94b8', // geschlossen — grau
-  rejected: '#ff5c6c', // abgelehnt — rot
+  rejected: '#ef4444', // abgelehnt — rot
   expired: 'rgba(139,148,184,0.6)', // verfallen — blassgrau
 };
 const SIGNAL_STATUS_LABEL: Record<SignalMarker['status'], string> = {
@@ -109,12 +109,12 @@ const PANE_HEIGHT = 120;
 const baseChartOptions = (timeframe: Timeframe, height: number) => ({
   height,
   layout: { background: { color: 'transparent' }, textColor: C.mut, fontSize: 10 },
-  grid: { vertLines: { color: 'rgba(99,140,255,0.05)' }, horzLines: { color: 'rgba(99,140,255,0.05)' } },
+  grid: { vertLines: { color: 'rgba(148,163,184,0.05)' }, horzLines: { color: 'rgba(148,163,184,0.05)' } },
   crosshair: { mode: CrosshairMode.Normal },
-  panes: { separatorColor: 'rgba(99,140,255,0.18)', separatorHoverColor: 'rgba(79,209,255,0.35)', enableResize: false },
-  rightPriceScale: { borderColor: 'rgba(99,140,255,0.18)' },
+  panes: { separatorColor: 'rgba(148,163,184,0.18)', separatorHoverColor: 'rgba(96,165,250,0.35)', enableResize: false },
+  rightPriceScale: { borderColor: 'rgba(148,163,184,0.18)' },
   timeScale: {
-    borderColor: 'rgba(99,140,255,0.18)',
+    borderColor: 'rgba(148,163,184,0.18)',
     // Uhrzeit nur bei Intraday-TFs; Tages-/Wochen-/Monatskerzen zeigen nur das Datum.
     timeVisible: !['1d', '1w', '1M'].includes(timeframe),
     rightOffset: 4,
@@ -761,8 +761,8 @@ export function AssetChart({
       downColor: C.red,
       borderUpColor: C.green,
       borderDownColor: C.red,
-      wickUpColor: 'rgba(61,220,151,0.6)',
-      wickDownColor: 'rgba(255,92,108,0.6)',
+      wickUpColor: 'rgba(34,197,94,0.6)',
+      wickDownColor: 'rgba(239,68,68,0.6)',
       priceLineVisible: false,
     });
     candle.setData(data.candles as never);
@@ -982,7 +982,7 @@ export function AssetChart({
         markers.push({
           time: sec as UTCTimestamp,
           position: long ? 'belowBar' : 'aboveBar',
-          color: '#e14ecf', // magenta — im Marker-Farbschema sonst ungenutzt
+          color: '#f59e0b', // magenta — im Marker-Farbschema sonst ungenutzt
           shape: 'square',
           text: `▣ ${s.strategySlug.slice(0, 12)}·${long ? 'L' : 'S'}·${SIGNAL_STATUS_LABEL[s.status]}`,
         });
@@ -1018,8 +1018,8 @@ export function AssetChart({
           toTime: z.active ? null : z.toTime,
           top: z.top,
           bottom: z.bottom,
-          fill: bull ? 'rgba(61,220,151,0.10)' : 'rgba(255,92,108,0.10)',
-          stroke: bull ? 'rgba(61,220,151,0.45)' : 'rgba(255,92,108,0.45)',
+          fill: bull ? 'rgba(34,197,94,0.10)' : 'rgba(239,68,68,0.10)',
+          stroke: bull ? 'rgba(34,197,94,0.45)' : 'rgba(239,68,68,0.45)',
           label: `${isFvg ? 'FVG' : 'OB'} ${bull ? '↑' : '↓'}`,
         });
       }
@@ -1041,8 +1041,8 @@ export function AssetChart({
     }
     if (toggles.pd && data.range) {
       const r = data.range;
-      smcItems.push({ kind: 'box', fromTime: r.fromTime, toTime: null, top: r.high, bottom: r.equilibrium, fill: 'rgba(255,92,108,0.06)', label: 'Premium', labelColor: 'rgba(255,92,108,0.8)' });
-      smcItems.push({ kind: 'box', fromTime: r.fromTime, toTime: null, top: r.equilibrium, bottom: r.low, fill: 'rgba(61,220,151,0.06)', label: 'Discount', labelColor: 'rgba(61,220,151,0.8)' });
+      smcItems.push({ kind: 'box', fromTime: r.fromTime, toTime: null, top: r.high, bottom: r.equilibrium, fill: 'rgba(239,68,68,0.06)', label: 'Premium', labelColor: 'rgba(239,68,68,0.8)' });
+      smcItems.push({ kind: 'box', fromTime: r.fromTime, toTime: null, top: r.equilibrium, bottom: r.low, fill: 'rgba(34,197,94,0.06)', label: 'Discount', labelColor: 'rgba(34,197,94,0.8)' });
       smcItems.push({ kind: 'line', fromTime: r.fromTime, toTime: null, price: r.equilibrium, color: C.faint, dash: [4, 4], label: 'EQ' });
     }
     smcPrim.setItems(smcItems);
@@ -1076,8 +1076,8 @@ export function AssetChart({
     // ── Oszillator-Unterfenster (v5-Panes im selben Chart) ──
     const paneOf = (key: string) => panes.panes.find((p) => p.key === key)?.index;
     const levels3070 = (s: ReturnType<typeof price.addSeries<'Line'>>) => {
-      s.createPriceLine({ price: 70, color: 'rgba(255,92,108,0.4)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '70' });
-      s.createPriceLine({ price: 30, color: 'rgba(61,220,151,0.4)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '30' });
+      s.createPriceLine({ price: 70, color: 'rgba(239,68,68,0.4)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '70' });
+      s.createPriceLine({ price: 30, color: 'rgba(34,197,94,0.4)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '30' });
     };
     const addMacd = (pane: number, m: { line: unknown[]; signal: unknown[]; histogram: unknown[] }) => {
       price.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false }, pane).setData(m.histogram as never);
@@ -1153,9 +1153,9 @@ export function AssetChart({
       onClick={() => setToggles((prev) => ({ ...prev, [key]: !prev[key] }))}
       className="rounded border px-2 py-0.5 text-[11px] transition-colors"
       style={{
-        borderColor: toggles[key] ? 'rgba(79,209,255,0.5)' : 'var(--color-line)',
+        borderColor: toggles[key] ? 'rgba(96,165,250,0.5)' : 'var(--color-line)',
         color: toggles[key] ? 'var(--color-cyan)' : 'var(--color-mut)',
-        background: toggles[key] ? 'rgba(79,209,255,0.08)' : 'transparent',
+        background: toggles[key] ? 'rgba(96,165,250,0.08)' : 'transparent',
       }}
     >
       {label}
@@ -1169,9 +1169,9 @@ export function AssetChart({
       aria-pressed={tool === key}
       className="rounded border px-2 py-0.5 text-[11px] transition-colors"
       style={{
-        borderColor: tool === key ? 'rgba(79,209,255,0.5)' : 'var(--color-line)',
+        borderColor: tool === key ? 'rgba(96,165,250,0.5)' : 'var(--color-line)',
         color: tool === key ? 'var(--color-cyan)' : 'var(--color-mut)',
-        background: tool === key ? 'rgba(79,209,255,0.08)' : 'transparent',
+        background: tool === key ? 'rgba(96,165,250,0.08)' : 'transparent',
       }}
     >
       {label}
@@ -1188,9 +1188,9 @@ export function AssetChart({
               onClick={() => changeTf(f)}
               className="num rounded border px-2 py-0.5 text-[11px] transition-colors"
               style={{
-                borderColor: tf === f ? 'rgba(79,209,255,0.5)' : 'var(--color-line)',
+                borderColor: tf === f ? 'rgba(96,165,250,0.5)' : 'var(--color-line)',
                 color: tf === f ? 'var(--color-cyan)' : 'var(--color-mut)',
-                background: tf === f ? 'rgba(79,209,255,0.08)' : 'transparent',
+                background: tf === f ? 'rgba(96,165,250,0.08)' : 'transparent',
               }}
             >
               {f}
@@ -1219,15 +1219,15 @@ export function AssetChart({
           aria-haspopup="dialog"
           aria-expanded={menuOpen}
           style={{
-            borderColor: instances.length > 0 || strategySlugs.length > 0 ? 'rgba(139,92,246,0.55)' : 'var(--color-line)',
+            borderColor: instances.length > 0 || strategySlugs.length > 0 ? 'rgba(148,163,184,0.55)' : 'var(--color-line)',
             color: instances.length > 0 || strategySlugs.length > 0 ? 'var(--color-violet)' : 'var(--color-mut)',
-            background: menuOpen ? 'rgba(139,92,246,0.1)' : 'transparent',
+            background: menuOpen ? 'rgba(148,163,184,0.1)' : 'transparent',
           }}
         >
           ＋ {t('chart.ind.button')}
           {instances.length > 0 ? <span className="num"> ({instances.length})</span> : null}
           {strategySlugs.length > 0 ? (
-            <span className="num" style={{ color: '#e14ecf' }}>
+            <span className="num" style={{ color: '#f59e0b' }}>
               {' '}
               ▣{strategySlugs.length}
             </span>
@@ -1358,11 +1358,11 @@ export function AssetChart({
       <div style={{ display: state === 'ready' ? 'block' : 'none' }}>
         <div className="relative">
           <div ref={legendRef} className="num pointer-events-none absolute left-2 top-1 z-10 text-[11px]" style={{ opacity: 0 }} />
-          <div ref={priceRef} className="w-full overflow-hidden rounded" style={{ background: 'rgba(4,6,20,0.45)' }} />
+          <div ref={priceRef} className="w-full overflow-hidden rounded" style={{ background: 'rgba(11,13,18,0.45)' }} />
           {panes.panes.map((p) => {
             const err = p.key.startsWith('ind:') ? computed.get(p.key.slice(4))?.error : undefined;
             return (
-              <p key={p.key} className="label pointer-events-none absolute left-2 z-10 px-1" style={{ top: p.top + 2, background: 'rgba(4,6,20,0.6)' }}>
+              <p key={p.key} className="label pointer-events-none absolute left-2 z-10 px-1" style={{ top: p.top + 2, background: 'rgba(11,13,18,0.6)' }}>
                 {p.label}
                 {err ? <span style={{ color: 'var(--color-warn)' }}> · ⚠ {err}</span> : null}
               </p>
@@ -1385,7 +1385,7 @@ export function AssetChart({
                 <span
                   key={inst.id}
                   className="flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px]"
-                  style={{ borderColor: item?.error ? 'rgba(255,92,108,0.5)' : 'rgba(139,92,246,0.35)', color: hidden ? 'var(--color-mut)' : 'var(--color-ink)', opacity: hidden ? 0.6 : 1 }}
+                  style={{ borderColor: item?.error ? 'rgba(239,68,68,0.5)' : 'rgba(148,163,184,0.35)', color: hidden ? 'var(--color-mut)' : 'var(--color-ink)', opacity: hidden ? 0.6 : 1 }}
                   title={item?.error ?? entry?.name ?? inst.indicatorId}
                 >
                   <span className="inline-block h-2 w-2 rounded-full" style={{ background: entry ? legendColor(entry, inst.style) : C.mut }} />

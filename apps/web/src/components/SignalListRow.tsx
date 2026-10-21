@@ -131,7 +131,7 @@ export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDeci
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <span
             className="num inline-block w-16 shrink-0 rounded px-1 py-0.5 text-center text-xs font-semibold tracking-wider"
-            style={{ color: dirColor, border: `1px solid ${dirColor}`, boxShadow: `0 0 10px ${long ? 'rgba(61,220,151,0.22)' : 'rgba(255,92,108,0.22)'}` }}
+            style={{ color: dirColor, border: `1px solid ${dirColor}`, boxShadow: `0 0 10px ${long ? 'rgba(34,197,94,0.22)' : 'rgba(239,68,68,0.22)'}` }}
           >
             {long ? 'LONG' : 'SHORT'}
           </span>
@@ -175,7 +175,7 @@ export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDeci
             {verdict.riskReject && !isExpired && (
               <span
                 className="cursor-help rounded border px-1.5 py-0.5 text-[11px] font-medium"
-                style={{ color: 'var(--color-neg)', borderColor: 'rgba(255,92,108,0.55)', background: 'rgba(255,92,108,0.08)' }}
+                style={{ color: 'var(--color-neg)', borderColor: 'rgba(239,68,68,0.55)', background: 'rgba(239,68,68,0.08)' }}
                 title={t('signals.riskVetoHint', { reason: verdict.riskReject })}
               >
                 ✕ {t('signals.riskVeto')}
@@ -214,7 +214,7 @@ export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDeci
                   onClick={() => void decide('confirm')}
                   disabled={busy !== null}
                   className="rounded-[0.625rem] border border-dashed px-2.5 py-1 text-xs disabled:opacity-50"
-                  style={{ borderColor: 'rgba(255,92,108,0.6)', color: 'var(--color-neg)' }}
+                  style={{ borderColor: 'rgba(239,68,68,0.6)', color: 'var(--color-neg)' }}
                   title={t('signals.blockedBtnHint', { reason: verdict.riskReject })}
                 >
                   ⛔ {t('signals.blockedBtn')}
@@ -253,7 +253,7 @@ export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDeci
       {open && (
         <div className="px-3 pb-3 sm:px-4">
           {verdict.riskReject && isNew && (
-            <div className="mb-3 rounded border p-2.5 text-xs leading-relaxed" style={{ borderColor: 'rgba(255,92,108,0.45)', color: 'var(--color-neg)' }}>
+            <div className="mb-3 rounded border p-2.5 text-xs leading-relaxed" style={{ borderColor: 'rgba(239,68,68,0.45)', color: 'var(--color-neg)' }}>
               {t('signals.riskVetoHint', { reason: verdict.riskReject })}
             </div>
           )}

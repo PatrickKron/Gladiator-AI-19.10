@@ -132,7 +132,7 @@ function NewsPanel() {
         <>
           <div className="mt-4 space-y-4">
             {grouped.groups.map((g) => (
-              <div key={g.ticker} className="rounded-[0.625rem] border p-4" style={{ borderColor: 'rgba(232,184,75,0.3)' }}>
+              <div key={g.ticker} className="rounded-[0.625rem] border p-4" style={{ borderColor: 'rgba(245,158,11,0.3)' }}>
                 <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                   <span style={{ color: 'var(--color-warn)' }}>{'★'}</span>
                   <span className="text-[15px] leading-snug font-medium">{g.name}</span>
@@ -165,7 +165,7 @@ function NewsPanel() {
             </p>
           )}
           {summary && (
-            <div className="mt-3 rounded-[0.625rem] border p-4" style={{ borderColor: 'rgba(139,92,246,0.35)' }}>
+            <div className="mt-3 rounded-[0.625rem] border p-4" style={{ borderColor: 'rgba(148,163,184,0.35)' }}>
               <p className="label" style={{ color: 'var(--color-violet)' }}>
                 {t('magazine.summaryTitle')}
               </p>
@@ -179,7 +179,7 @@ function NewsPanel() {
       {/* ── Alle News: der Rest ohne Favoriten-Treffer ── */}
       <div
         className="mt-6 h-px w-full"
-        style={{ background: 'linear-gradient(90deg, rgba(46,124,246,0.5), rgba(139,92,246,0.35), transparent 80%)' }}
+        style={{ background: 'linear-gradient(90deg, rgba(59,130,246,0.5), rgba(148,163,184,0.35), transparent 80%)' }}
       />
       <h2 className="label mt-5">{t('magazine.allNews')}</h2>
       <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
@@ -213,7 +213,7 @@ function ArticleCard({ a, stagger }: { a: Article; stagger: number }) {
   return (
     <article className="glass glass-hover reveal p-5" style={{ '--stagger': Math.min(stagger, 10) } as React.CSSProperties}>
       <div className="flex items-center gap-2">
-        <span className="label rounded border px-1.5 py-0.5" style={{ borderColor: 'rgba(139,92,246,0.4)', color: 'var(--color-violet)' }}>
+        <span className="label rounded border px-1.5 py-0.5" style={{ borderColor: 'rgba(148,163,184,0.4)', color: 'var(--color-violet)' }}>
           {a.category}
         </span>
         {!a.isPublished && (

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
+import { burstToneFor, requestRainBurst } from '../lib/effects.js';
 import { currentSubscription, disablePush, enablePush, pushSupported } from '../lib/push.js';
 
 /**
@@ -30,10 +31,25 @@ export function NotificationBell() {
   const [busy, setBusy] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
 
+  // Steigt die Zahl ungelesener Ereignisse, löst das jüngste (Signal, Alarm, Notfall) einen Regen-Impuls aus.
+  const lastUnread = useRef<number | null>(null);
   const refreshCount = useCallback(() => {
     trpc.notifications.unreadCount
       .query()
-      .then((r) => setUnread(r.unread))
+      .then((r) => {
+        const prev = lastUnread.current;
+        lastUnread.current = r.unread;
+        setUnread(r.unread);
+        if (prev !== null && r.unread > prev) {
+          trpc.notifications.list
+            .query({ limit: 1 })
+            .then((list) => {
+              const tone = list[0] ? burstToneFor(list[0].kind) : null;
+              if (tone) requestRainBurst(tone);
+            })
+            .catch(() => {});
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -141,7 +157,7 @@ export function NotificationBell() {
         <div
           // Position als Style: .glass setzt selbst position:relative und würde „absolute" überstimmen
           className="glass z-50 w-[min(92vw,380px)] p-3"
-          style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', background: 'rgba(9,12,32,0.97)', backdropFilter: 'blur(18px)' }}
+          style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', background: 'rgba(18,21,28,0.97)', backdropFilter: 'blur(18px)' }}
           role="dialog"
           aria-label={t('notif.title')}
         >

@@ -72,7 +72,7 @@ export function Watchlist({ value, onSelect }: { value: string; onSelect: (symbo
                 type="button"
                 onClick={() => onSelect(s)}
                 className="num flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs"
-                style={{ background: active ? 'rgba(79,209,255,0.12)' : 'transparent', color: active ? 'var(--color-ink)' : 'var(--color-mut)' }}
+                style={{ background: active ? 'rgba(96,165,250,0.12)' : 'transparent', color: active ? 'var(--color-ink)' : 'var(--color-mut)' }}
                 aria-current={active ? 'true' : undefined}
               >
                 <span className="truncate">

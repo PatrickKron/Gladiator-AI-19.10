@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { isUnauthorized, refreshSession, trpc } from '../api.js';
 import { Sparkline } from '../components/Sparkline.js';
 import { setRainHighlight } from '../components/MatrixRain.js';
-import { PlexusHero } from '../components/PlexusHero.js';
 import { SignalCard, type SignalRow } from '../components/SignalCard.js';
 import { Empty, ErrorBox, Loading, Panel, StatusDot } from '../components/ui.js';
 import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
@@ -36,7 +35,7 @@ function FavoriteBriefingCard({ symbol }: { symbol: string }) {
   const { t } = useTranslation();
   const ctx = useAssetContext(symbol, 60_000);
   return (
-    <div className="rounded-[0.625rem] border p-4" style={{ borderColor: 'rgba(232,184,75,0.3)' }}>
+    <div className="rounded-[0.625rem] border p-4" style={{ borderColor: 'rgba(245,158,11,0.3)' }}>
       <p className="flex items-center gap-1.5 text-sm font-medium">
         <span style={{ color: 'var(--color-warn)' }}>{'\u2605'}</span> {symbol}
       </p>
@@ -435,6 +434,13 @@ function WatchCard({ symbol, isFavorite, closes, stagger, onRemoved }: { symbol:
   const pulseTimer = useRef(0);
 
   useEffect(() => onFeedState(setFeed), []);
+  // Stream verbunden, aber kein Tick für dieses Symbol (z. B. Quelle beim Server getrennt): nach 8 s nicht ewig „Lädt …“.
+  const [waited, setWaited] = useState(false);
+  useEffect(() => {
+    setWaited(false);
+    const timer = window.setTimeout(() => setWaited(true), 8_000);
+    return () => window.clearTimeout(timer);
+  }, [symbol]);
 
   useEffect(() => {
     const off = onTick((x) => {
@@ -486,7 +492,7 @@ function WatchCard({ symbol, isFavorite, closes, stagger, onRemoved }: { symbol:
             {change == null ? '24h —' : `${change >= 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(2)} % · 24h`}
           </p>
         </>
-      ) : feed === 'disconnected' ? (
+      ) : feed === 'disconnected' || waited ? (
         // ehrlich: kein Live-Tick und keine eigenen Kerzen — nicht ewig „Lädt …" pulsieren
         <>
           <p className="num mt-3 text-[32px] leading-none font-semibold" style={{ color: 'var(--color-mut)' }}>
@@ -661,11 +667,6 @@ export function Dashboard() {
 
   return (
     <div className="relative">
-      {/* Hero-Konstellation hinter Begrüßung + Preiskarten (pulst auf echte Ticks) */}
-      <div className="pointer-events-none absolute inset-x-0 -top-8 h-[380px] overflow-hidden" aria-hidden="true">
-        <PlexusHero density={22} className="opacity-60" />
-      </div>
-
       <header className="reveal relative mb-8" style={{ '--stagger': 0 } as React.CSSProperties}>
         <h1 className="text-2xl font-semibold tracking-tight">
           {greeting}
@@ -689,7 +690,7 @@ export function Dashboard() {
           onClick={() => setAddOpen((o) => !o)}
           aria-expanded={addOpen}
           className="rounded-[0.625rem] border px-3 py-1.5 text-xs transition-colors"
-          style={{ borderColor: 'rgba(79,209,255,0.45)', color: 'var(--color-cyan)' }}
+          style={{ borderColor: 'rgba(96,165,250,0.45)', color: 'var(--color-cyan)' }}
         >
           + {t('dashboard.addMarket')}
         </button>
@@ -870,7 +871,7 @@ export function Dashboard() {
               </thead>
               <tbody>
                 {ingest.map((r) => (
-                  <tr key={`${r.symbol}-${r.timeframe}`} style={{ borderTop: '1px solid rgba(79,209,255,0.07)' }}>
+                  <tr key={`${r.symbol}-${r.timeframe}`} style={{ borderTop: '1px solid rgba(96,165,250,0.07)' }}>
                     <td className="py-2 pr-4">{r.symbol}</td>
                     <td className="num py-2 pr-4">{r.timeframe}</td>
                     <td className="num py-2 pr-4 text-right">{r.candles.toLocaleString(appLocale())}</td>

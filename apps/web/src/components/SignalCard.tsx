@@ -444,7 +444,7 @@ function AdjustTicket({
 
   if (loadError) {
     return (
-      <div className="mt-4 rounded border p-3 text-xs" style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}>
+      <div className="mt-4 rounded border p-3 text-xs" style={{ borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }}>
         {loadError}
         <button className="ml-2 underline" onClick={onCancel}>{t('common.close')}</button>
       </div>
@@ -480,7 +480,7 @@ function AdjustTicket({
   };
 
   return (
-    <div className="mt-4 rounded border p-3" style={{ borderColor: 'rgba(99,140,255,0.35)' }}>
+    <div className="mt-4 rounded border p-3" style={{ borderColor: 'rgba(148,163,184,0.35)' }}>
       {/* Referenz: was die Strategie vorschlägt — bleibt IMMER sichtbar */}
       <p className="text-[11px]" style={{ color: 'var(--color-mut)' }}>
         {t('ticket.suggestionRef', {
@@ -768,7 +768,7 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
         <div className="flex flex-wrap items-center gap-2.5">
           <span
             className="num rounded px-1.5 py-0.5 text-xs font-semibold tracking-wider"
-            style={{ color: dirColor, border: `1px solid ${dirColor}`, boxShadow: `0 0 12px ${long ? 'rgba(61,220,151,0.25)' : 'rgba(255,92,108,0.25)'}` }}
+            style={{ color: dirColor, border: `1px solid ${dirColor}`, boxShadow: `0 0 12px ${long ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'}` }}
           >
             {long ? 'LONG' : 'SHORT'}
           </span>
@@ -784,7 +784,7 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
               className="rounded border px-1.5 py-0.5 text-[10px]"
               style={
                 exp.soon
-                  ? { borderColor: 'rgba(232,184,75,0.5)', color: 'var(--color-warn)' }
+                  ? { borderColor: 'rgba(245,158,11,0.5)', color: 'var(--color-warn)' }
                   : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
               }
               title={t('signals.expiresHint')}
@@ -865,12 +865,12 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
 
       {error && <p className="mt-3 text-xs" style={{ color: 'var(--color-neg)' }}>{error}</p>}
       {success && (
-        <p className="mt-3 rounded border p-2 text-xs" style={{ borderColor: 'rgba(61,220,151,0.4)', color: 'var(--color-pos)' }}>
+        <p className="mt-3 rounded border p-2 text-xs" style={{ borderColor: 'rgba(34,197,94,0.4)', color: 'var(--color-pos)' }}>
           {success}
         </p>
       )}
       {blocked && (
-        <div className="mt-3 rounded border p-2 text-xs" style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}>
+        <div className="mt-3 rounded border p-2 text-xs" style={{ borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }}>
           <p className="font-medium">{t('signals.riskBlocked')}</p>
           <ul className="mt-1 list-disc pl-4">
             {blocked.map((r, i) => <li key={i}>{r}</li>)}

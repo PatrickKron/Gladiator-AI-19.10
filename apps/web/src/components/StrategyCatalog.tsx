@@ -76,7 +76,7 @@ function CatalogCard({ entry, onChanged }: { entry: CatalogEntry; onChanged: () 
           </p>
         </div>
         {active && (
-          <span className="label shrink-0 rounded border px-1.5 py-0.5" style={{ borderColor: 'rgba(61,220,151,0.45)', color: 'var(--color-pos)' }}>
+          <span className="label shrink-0 rounded border px-1.5 py-0.5" style={{ borderColor: 'rgba(34,197,94,0.45)', color: 'var(--color-pos)' }}>
             {t('catalog.active')}
           </span>
         )}
@@ -96,7 +96,7 @@ function CatalogCard({ entry, onChanged }: { entry: CatalogEntry; onChanged: () 
 
       {/* ECHTE Backtest-Zahlen — oder ehrlich „noch nicht geprüft" */}
       {bt ? (
-        <div className="mt-3 rounded border p-2.5 text-xs" style={{ borderColor: passed ? 'rgba(61,220,151,0.35)' : 'rgba(245,182,66,0.35)' }}>
+        <div className="mt-3 rounded border p-2.5 text-xs" style={{ borderColor: passed ? 'rgba(34,197,94,0.35)' : 'rgba(245,182,66,0.35)' }}>
           <p style={{ color: 'var(--color-mut)' }}>
             {t('catalog.provenTitle', {
               months: Math.max(1, Math.round((new Date(bt.toTs).getTime() - new Date(bt.fromTs).getTime()) / (30 * 86_400_000))),

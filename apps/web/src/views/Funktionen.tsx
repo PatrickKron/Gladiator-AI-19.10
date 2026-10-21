@@ -37,7 +37,7 @@ export function FeatureCard({ page }: { page: NavPage }) {
       <a href={page.hash} className="group flex items-start gap-3">
         <span
           className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[0.625rem] border"
-          style={{ borderColor: 'rgba(99,140,255,0.35)', color: 'var(--color-cyan)', background: 'rgba(46,124,246,0.08)' }}
+          style={{ borderColor: 'rgba(148,163,184,0.35)', color: 'var(--color-cyan)', background: 'rgba(59,130,246,0.08)' }}
         >
           <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d={page.icon} />

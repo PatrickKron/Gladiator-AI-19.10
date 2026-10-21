@@ -35,12 +35,12 @@ export type BadgeStyle = { color: string; borderColor: string; background: strin
  * die Badge lesbar UND farblich eindeutig einer Klasse zuordenbar.
  */
 const CLASS_STYLE: Record<string, BadgeStyle> = {
-  CRYPTO: { color: 'var(--color-cyan)', borderColor: 'rgba(79,209,255,0.45)', background: 'rgba(79,209,255,0.08)' },
-  STOCK: { color: 'var(--color-violet)', borderColor: 'rgba(139,92,246,0.5)', background: 'rgba(139,92,246,0.10)' },
-  ETF: { color: 'var(--color-warn)', borderColor: 'rgba(232,184,75,0.45)', background: 'rgba(232,184,75,0.08)' },
-  INDEX: { color: 'var(--color-blue)', borderColor: 'rgba(46,124,246,0.55)', background: 'rgba(46,124,246,0.10)' },
-  FUTURE: { color: 'var(--color-magenta)', borderColor: 'rgba(225,78,207,0.45)', background: 'rgba(225,78,207,0.08)' },
-  COMMODITY: { color: 'var(--color-pos)', borderColor: 'rgba(61,220,151,0.45)', background: 'rgba(61,220,151,0.08)' },
+  CRYPTO: { color: 'var(--color-cyan)', borderColor: 'rgba(96,165,250,0.45)', background: 'rgba(96,165,250,0.08)' },
+  STOCK: { color: 'var(--color-violet)', borderColor: 'rgba(148,163,184,0.5)', background: 'rgba(148,163,184,0.10)' },
+  ETF: { color: 'var(--color-warn)', borderColor: 'rgba(245,158,11,0.45)', background: 'rgba(245,158,11,0.08)' },
+  INDEX: { color: 'var(--color-blue)', borderColor: 'rgba(59,130,246,0.55)', background: 'rgba(59,130,246,0.10)' },
+  FUTURE: { color: 'var(--color-magenta)', borderColor: 'rgba(245,158,11,0.45)', background: 'rgba(245,158,11,0.08)' },
+  COMMODITY: { color: 'var(--color-pos)', borderColor: 'rgba(34,197,94,0.45)', background: 'rgba(34,197,94,0.08)' },
 };
 
 export function classStyle(assetType: string): BadgeStyle {

@@ -19,7 +19,10 @@ export const GOTO_KEYS: { key: string; hash: string; labelKey: string }[] = [
 /** Zeitfenster für die zweite Taste nach „g“. */
 export const SEQUENCE_MS = 1_200;
 
-export type HotkeyAction = { type: 'goto'; hash: string } | { type: 'help' } | { type: 'search' } | { type: 'pending' } | null;
+export type HotkeyAction = { type: 'goto'; hash: string } | { type: 'help' } | { type: 'search' } | { type: 'matrix' } | { type: 'pending' } | null;
+
+/** „g m“: Matrix-Modus (Dauer-Regen hinter dem Inhalt) ein/aus — Special-Effekt, keine Seite. */
+export const MATRIX_KEY = 'm';
 
 /**
  * Bewertet eine Taste. `pendingSince` = Zeitpunkt des letzten „g“ (oder null).
@@ -28,7 +31,8 @@ export type HotkeyAction = { type: 'goto'; hash: string } | { type: 'help' } | {
 export function resolveHotkey(key: string, pendingSince: number | null, now: number): HotkeyAction {
   if (pendingSince !== null && now - pendingSince <= SEQUENCE_MS) {
     const hit = GOTO_KEYS.find((g) => g.key === key.toLowerCase());
-    return hit ? { type: 'goto', hash: hit.hash } : null;
+    if (hit) return { type: 'goto', hash: hit.hash };
+    return key.toLowerCase() === MATRIX_KEY ? { type: 'matrix' } : null;
   }
   if (key === 'g') return { type: 'pending' };
   if (key === '?') return { type: 'help' };
@@ -43,4 +47,5 @@ export const VIEW_PREFERENCE_KEYS = [
   'gladiator.chartBookDock',
   'gladiator.selectedAsset',
   'gladiator.demoMode',
+  'gladiator.effects',
 ];

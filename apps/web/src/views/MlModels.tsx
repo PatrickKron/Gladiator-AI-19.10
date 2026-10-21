@@ -82,7 +82,7 @@ export function MlModels({ embedded = false }: { embedded?: boolean }) {
               className="h-full rounded"
               style={{
                 width: `${Math.min(100, (stats.usable / 30) * 100)}%`,
-                background: 'linear-gradient(90deg, rgba(46,124,246,0.7), rgba(139,92,246,0.5))',
+                background: 'linear-gradient(90deg, rgba(59,130,246,0.7), rgba(148,163,184,0.5))',
               }}
             />
           </div>
@@ -152,7 +152,7 @@ export function MlModels({ embedded = false }: { embedded?: boolean }) {
                 <div
                   key={m.id}
                   className="rounded border p-3"
-                  style={{ borderColor: m.isActive ? 'rgba(46,124,246,0.4)' : 'var(--color-line)' }}
+                  style={{ borderColor: m.isActive ? 'rgba(59,130,246,0.4)' : 'var(--color-line)' }}
                 >
                   <button
                     onClick={() => setExpanded(isExpanded ? null : m.id)}
@@ -165,7 +165,7 @@ export function MlModels({ embedded = false }: { embedded?: boolean }) {
                         className="rounded border px-1.5 py-0.5 text-[10px]"
                         style={
                           m.isActive
-                            ? { borderColor: 'rgba(61,220,151,0.5)', color: pos }
+                            ? { borderColor: 'rgba(34,197,94,0.5)', color: pos }
                             : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
                         }
                       >

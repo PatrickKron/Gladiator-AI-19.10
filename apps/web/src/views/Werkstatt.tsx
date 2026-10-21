@@ -377,7 +377,7 @@ function AgentForm({
                 onClick={() => setF(formFromTemplate(tpl))}
                 title={tpl.description}
                 className="rounded-[0.625rem] border px-3 py-1.5 text-xs"
-                style={{ borderColor: 'rgba(139,92,246,0.4)', color: 'var(--color-violet)' }}
+                style={{ borderColor: 'rgba(148,163,184,0.4)', color: 'var(--color-violet)' }}
               >
                 {tpl.name}
               </button>
@@ -445,7 +445,7 @@ function AgentForm({
               className="rounded-[0.625rem] border px-3 py-1.5 text-xs transition-all"
               style={
                 f.ds[d]
-                  ? { borderColor: 'rgba(79,209,255,0.5)', color: 'var(--color-ink)', background: 'rgba(46,124,246,0.14)' }
+                  ? { borderColor: 'rgba(96,165,250,0.5)', color: 'var(--color-ink)', background: 'rgba(59,130,246,0.14)' }
                   : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
               }
             >
@@ -531,7 +531,7 @@ function AgentForm({
 
       {/* Sofort-Test des aktuellen Entwurfs (ohne Speichern) */}
       {(draftBusy || draft) && (
-        <div className="mt-4 rounded-[0.625rem] border border-dashed p-3" style={{ borderColor: 'rgba(79,209,255,0.3)' }}>
+        <div className="mt-4 rounded-[0.625rem] border border-dashed p-3" style={{ borderColor: 'rgba(96,165,250,0.3)' }}>
           <p className="label mb-1">{t('workshop.draftResult')}</p>
           {draftBusy ? (
             <span className="text-xs" style={{ color: 'var(--color-mut)' }}>{t('workshop.quickTestRunning')}</span>
@@ -550,7 +550,7 @@ function AgentForm({
             {t('workshop.nameRequiredHint')}
           </span>
         )}
-        <button onClick={() => void testDraft()} disabled={draftBusy} className="rounded-[0.625rem] border px-5 py-2 text-sm disabled:opacity-50" style={{ borderColor: 'rgba(79,209,255,0.4)', color: 'var(--color-cyan)' }}>
+        <button onClick={() => void testDraft()} disabled={draftBusy} className="rounded-[0.625rem] border px-5 py-2 text-sm disabled:opacity-50" style={{ borderColor: 'rgba(96,165,250,0.4)', color: 'var(--color-cyan)' }}>
           {draftBusy ? t('workshop.quickTestRunning') : t('workshop.draftTest')}
         </button>
         <button onClick={onCancel} className="rounded-[0.625rem] border px-5 py-2 text-sm" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
@@ -584,7 +584,7 @@ function BacktestBox({ agentId }: { agentId: string }) {
     <div className="rounded-[0.625rem] border p-4" style={{ borderColor: 'var(--color-line)' }}>
       <div className="flex items-center justify-between gap-3">
         <p className="label">{t('workshop.backtestTitle')}</p>
-        <button onClick={() => void run()} disabled={busy} className="rounded border px-3 py-1.5 text-xs disabled:opacity-50" style={{ borderColor: 'rgba(79,209,255,0.4)', color: 'var(--color-cyan)' }}>
+        <button onClick={() => void run()} disabled={busy} className="rounded border px-3 py-1.5 text-xs disabled:opacity-50" style={{ borderColor: 'rgba(96,165,250,0.4)', color: 'var(--color-cyan)' }}>
           {busy ? t('workshop.backtestRunning') : t('workshop.backtestRun')}
         </button>
       </div>
@@ -854,7 +854,7 @@ function AgentCard({ a, onChanged, onEdit }: { a: Agent; onChanged: () => void; 
           </span>
           <span className="label" style={{ color: 'var(--color-cyan)' }}>{t('common.paper')}</span>
           {a.analysisPrompt && (
-            <span className="label rounded border px-1.5 py-0.5" style={{ borderColor: 'rgba(139,92,246,0.5)', color: 'var(--color-violet)' }} title={a.analysisPrompt}>
+            <span className="label rounded border px-1.5 py-0.5" style={{ borderColor: 'rgba(148,163,184,0.5)', color: 'var(--color-violet)' }} title={a.analysisPrompt}>
               {t('workshop.aiBadge')}
             </span>
           )}
@@ -872,7 +872,7 @@ function AgentCard({ a, onChanged, onEdit }: { a: Agent; onChanged: () => void; 
 
       {/* Schnelltest-Ergebnis (30 T) */}
       {(quickBusy || quick) && (
-        <div className="mt-2 rounded border border-dashed px-3 py-2" style={{ borderColor: 'rgba(79,209,255,0.3)' }}>
+        <div className="mt-2 rounded border border-dashed px-3 py-2" style={{ borderColor: 'rgba(96,165,250,0.3)' }}>
           {quickBusy ? (
             <span className="text-xs" style={{ color: 'var(--color-mut)' }}>{t('workshop.quickTestRunning')}</span>
           ) : quick ? (
@@ -883,10 +883,10 @@ function AgentCard({ a, onChanged, onEdit }: { a: Agent; onChanged: () => void; 
       {actionError && <p className="mt-2 text-[11px]" style={{ color: 'var(--color-neg)' }}>{actionError}</p>}
 
       {confirmDel ? (
-        <div className="mt-3 rounded-[0.625rem] border p-3" style={{ borderColor: 'rgba(255,92,108,0.4)' }}>
+        <div className="mt-3 rounded-[0.625rem] border p-3" style={{ borderColor: 'rgba(239,68,68,0.4)' }}>
           <p className="text-xs leading-relaxed" style={{ color: 'var(--color-neg)' }}>{t('workshop.confirmDelete')}</p>
           <div className="mt-2 flex gap-2">
-            <button onClick={() => void remove()} disabled={busy} className={btn} style={{ borderColor: 'rgba(255,92,108,0.5)', color: 'var(--color-neg)' }}>
+            <button onClick={() => void remove()} disabled={busy} className={btn} style={{ borderColor: 'rgba(239,68,68,0.5)', color: 'var(--color-neg)' }}>
               {t('workshop.confirmDeleteYes')}
             </button>
             <button onClick={() => setConfirmDel(false)} disabled={busy} className={btn} style={btnMut}>
@@ -896,7 +896,7 @@ function AgentCard({ a, onChanged, onEdit }: { a: Agent; onChanged: () => void; 
         </div>
       ) : (
         <div className="mt-3 flex flex-wrap gap-2">
-          <button onClick={() => void quickTest()} disabled={quickBusy} className={btn} style={{ borderColor: 'rgba(79,209,255,0.4)', color: 'var(--color-cyan)' }}>
+          <button onClick={() => void quickTest()} disabled={quickBusy} className={btn} style={{ borderColor: 'rgba(96,165,250,0.4)', color: 'var(--color-cyan)' }}>
             {quickBusy ? t('workshop.quickTestRunning') : t('workshop.quickTest')}
           </button>
           {a.status === 'active' ? (
@@ -904,7 +904,7 @@ function AgentCard({ a, onChanged, onEdit }: { a: Agent; onChanged: () => void; 
               {t('workshop.pause')}
             </button>
           ) : a.status === 'paused' ? (
-            <button onClick={() => void setStatus('active')} disabled={busy} className={btn} style={{ borderColor: 'rgba(61,220,151,0.4)', color: 'var(--color-pos)' }}>
+            <button onClick={() => void setStatus('active')} disabled={busy} className={btn} style={{ borderColor: 'rgba(34,197,94,0.4)', color: 'var(--color-pos)' }}>
               {t('workshop.activate')}
             </button>
           ) : null}
@@ -917,7 +917,7 @@ function AgentCard({ a, onChanged, onEdit }: { a: Agent; onChanged: () => void; 
           <button onClick={() => void clone()} disabled={busy} className={btn} style={btnMut}>
             {t('workshop.clone')}
           </button>
-          <button onClick={() => setConfirmDel(true)} disabled={busy} className={btn} style={{ borderColor: 'rgba(255,92,108,0.35)', color: 'var(--color-neg)' }}>
+          <button onClick={() => setConfirmDel(true)} disabled={busy} className={btn} style={{ borderColor: 'rgba(239,68,68,0.35)', color: 'var(--color-neg)' }}>
             {t('workshop.delete')}
           </button>
           <span className="label ml-auto self-center">
@@ -992,7 +992,7 @@ export function Werkstatt() {
 
       {createdNotice && (
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-[0.625rem] border px-4 py-3 text-sm"
-          style={{ borderColor: 'rgba(232,184,75,0.5)', background: 'rgba(232,184,75,0.08)', color: 'var(--color-warn)' }}>
+          style={{ borderColor: 'rgba(245,158,11,0.5)', background: 'rgba(245,158,11,0.08)', color: 'var(--color-warn)' }}>
           <span>✓ {t('workshop.createdPausedNotice')}</span>
           <button onClick={() => setCreatedNotice(false)} className="text-xs underline" style={{ color: 'var(--color-mut)' }}>
             {t('common.close')}

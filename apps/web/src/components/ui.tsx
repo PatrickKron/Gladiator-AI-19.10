@@ -2,7 +2,7 @@ import { useCallback, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { appLocale } from '../lib/locale.js';
 
-/** Gemeinsame UI-Bausteine (Design-System v2 Neon-Dual) — Loading/Empty/Error/NotConnected sind Pflicht-States (09_ §1). */
+/** Gemeinsame UI-Bausteine (Design-System v3 „Ruhe & Klarheit“) — Loading/Empty/Error/NotConnected sind Pflicht-States (09_ §1). */
 
 export function PageHeader({ title, subtitle, right }: { title: string; subtitle?: string; right?: ReactNode }) {
   return (
@@ -18,10 +18,7 @@ export function PageHeader({ title, subtitle, right }: { title: string; subtitle
         </div>
         {right}
       </div>
-      <div
-        className="mt-5 h-px w-full"
-        style={{ background: 'linear-gradient(90deg, rgba(46,124,246,0.5), rgba(139,92,246,0.35), transparent 80%)' }}
-      />
+      <div className="mt-5 h-px w-full" style={{ background: 'var(--color-line)' }} />
     </header>
   );
 }
@@ -56,7 +53,7 @@ export function Loading() {
 
 export function ErrorBox({ message }: { message: string }) {
   return (
-    <div className="glass mb-6 p-4 text-sm" style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}>
+    <div className="glass mb-6 p-4 text-sm" style={{ borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }}>
       {message}
     </div>
   );
@@ -76,7 +73,7 @@ export function NotConnected({ detail }: { detail: string }) {
   return (
     <div
       className="mt-4 rounded-[0.625rem] border border-dashed p-4"
-      style={{ borderColor: 'rgba(139,92,246,0.35)' }}
+      style={{ borderColor: 'rgba(148,163,184,0.35)' }}
     >
       <p className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--color-violet)' }}>
         <span className="neon-dot neon-dot--violet" /> {t('common.notConnected').toUpperCase()}
@@ -121,7 +118,7 @@ export function TabBar<T extends string>({
           aria-selected={active === tb.id}
           onClick={() => onChange(tb.id)}
           className="shrink-0 border-b-2 px-4 py-2 text-sm transition-colors"
-          style={active === tb.id ? { borderColor: 'var(--color-cyan)', color: 'var(--color-ink)' } : { borderColor: 'transparent', color: 'var(--color-mut)' }}
+          style={active === tb.id ? { borderColor: 'var(--color-blue)', color: 'var(--color-ink)' } : { borderColor: 'transparent', color: 'var(--color-mut)' }}
         >
           {tb.label}
         </button>
@@ -156,7 +153,7 @@ export function LoadFailures({ failed, onRetry }: { failed: string[]; onRetry: (
     <div
       role="alert"
       className="glass mb-5 flex flex-wrap items-center justify-between gap-3 p-4 text-sm"
-      style={{ borderColor: 'rgba(255,92,108,0.4)' }}
+      style={{ borderColor: 'rgba(239,68,68,0.4)' }}
     >
       <span style={{ color: 'var(--color-neg)' }}>
         {t('ia.loadFailed', { n: failed.length })} <span className="num text-xs" style={{ color: 'var(--color-mut)' }}>({failed.join(', ')})</span>

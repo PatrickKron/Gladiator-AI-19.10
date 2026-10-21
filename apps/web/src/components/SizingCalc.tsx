@@ -109,7 +109,7 @@ export function SizingCalc({ defaultSymbol = 'BTC/USDT' }: { defaultSymbol?: str
             </ul>
           ) : null}
           {!result.allowed && (
-            <div className="mt-3 rounded border p-2 text-xs" style={{ borderColor: 'rgba(255,92,108,0.4)', color: 'var(--color-neg)' }}>
+            <div className="mt-3 rounded border p-2 text-xs" style={{ borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }}>
               <p className="font-medium">{t('trading.sizingBlocked')}</p>
               <ul className="mt-1 list-disc pl-4">
                 {result.reasons.map((r, i) => (

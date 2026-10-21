@@ -114,9 +114,9 @@ export function Signals() {
   // „on" statt „active", um das Signal-Array `active` nicht zu verschatten.
   const pill = (on: boolean, warn = false) =>
     ({
-      borderColor: on ? (warn ? 'rgba(232,184,75,0.6)' : 'rgba(79,209,255,0.5)') : 'var(--color-line)',
+      borderColor: on ? (warn ? 'rgba(245,158,11,0.6)' : 'rgba(96,165,250,0.5)') : 'var(--color-line)',
       color: on ? (warn ? 'var(--color-warn)' : 'var(--color-cyan)') : 'var(--color-mut)',
-      background: on ? (warn ? 'rgba(232,184,75,0.08)' : 'rgba(79,209,255,0.08)') : 'transparent',
+      background: on ? (warn ? 'rgba(245,158,11,0.08)' : 'rgba(96,165,250,0.08)') : 'transparent',
     }) as React.CSSProperties;
 
   const reload = () => void load(filters);
@@ -207,7 +207,7 @@ export function Signals() {
                 key={k}
                 onClick={() => set({ [k]: 'all' } as Partial<SignalFilters>)}
                 className="num rounded-[0.625rem] border px-2 py-1 text-xs"
-                style={{ borderColor: 'rgba(79,209,255,0.4)', color: 'var(--color-cyan)' }}
+                style={{ borderColor: 'rgba(96,165,250,0.4)', color: 'var(--color-cyan)' }}
                 title={t('signals.clearFilter')}
               >
                 {filters[k]} ✕

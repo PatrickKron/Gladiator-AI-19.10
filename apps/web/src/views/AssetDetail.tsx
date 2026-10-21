@@ -163,9 +163,9 @@ export function AssetDetail() {
                   aria-pressed={layout === l}
                   className="rounded border px-2 py-0.5 text-[11px] transition-colors"
                   style={{
-                    borderColor: layout === l ? 'rgba(79,209,255,0.5)' : 'var(--color-line)',
+                    borderColor: layout === l ? 'rgba(96,165,250,0.5)' : 'var(--color-line)',
                     color: layout === l ? 'var(--color-cyan)' : 'var(--color-mut)',
-                    background: layout === l ? 'rgba(79,209,255,0.08)' : 'transparent',
+                    background: layout === l ? 'rgba(96,165,250,0.08)' : 'transparent',
                   }}
                 >
                   {l === 1 ? '▭' : l === 2 ? '▯▯' : '⊞'} {t(`asset.layout_${l}`)}

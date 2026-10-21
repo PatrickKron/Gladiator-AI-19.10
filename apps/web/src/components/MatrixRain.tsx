@@ -1,14 +1,17 @@
 import { useEffect, useRef } from 'react';
 import { ensurePriceStream, getLatest, onTick } from '../lib/prices.js';
+import type { RainTone } from '../lib/effects.js';
 
 /**
- * Signatur-Effekt „Daten-Rain" (DESIGN_SYSTEM.md §6):
- * Vollbild-Canvas, requestAnimationFrame, Trail via Alpha-Overlay.
- * Zeichenquelle sind ECHTE SSE-Ticks (Symbol, Preisziffern, %-Änderung) —
- * vor dem ersten Tick fallen nur Markenglyphen, nie erfundene Zahlen.
- * 3 Parallax-Ebenen über Glyphgröße (größer = schneller = näher).
- * Grüne/rote Ticks lassen die Spalten ihres Symbols kurz aufblitzen;
- * Hover auf einer Preis-Karte hebt die Spalten des Symbols hervor.
+ * Daten-Regen (Special-Effekt, Design-System v3): Vollbild-Canvas, rAF,
+ * Schweif über Alpha-Overlay. Zeichenquelle sind ECHTE SSE-Ticks (Symbol,
+ * Preisziffern, %-Änderung) — vor dem ersten Tick fallen nur Markenglyphen,
+ * nie erfundene Zahlen. Drei Parallax-Ebenen über Glyphgröße.
+ *
+ * Die Komponente zeichnet nur; WANN und WIE STARK sie sichtbar ist, entscheidet
+ * RainLayer über `intensity` (0 … 1, weich nachgeführt) und `tone`
+ * (Ereignis-Impuls: blau, grün, rot). Hover auf einer Markt-Karte hebt die
+ * Spalten des Symbols hervor (setRainHighlight).
  */
 
 const SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
@@ -19,15 +22,18 @@ const DEPTHS = [
   { font: 17, alpha: 1 },
 ] as const;
 const STEP_MS = 42;
-const FADE = 'rgba(5, 8, 16, 0.09)';
-const BODY = '#3e8bff';
-const HEAD = '#eaf6ff';
-const GLOW = '#4fd1ff';
-const POS = '#3ddc97';
-const NEG = '#ff5c6c';
+const FADE = 'rgba(11, 13, 18, 0.09)';
+const HEAD = '#eaf2ff';
+const TONES: Record<RainTone, { body: string; glow: string }> = {
+  accent: { body: '#3b82f6', glow: '#60a5fa' },
+  pos: { body: '#22c55e', glow: '#4ade80' },
+  neg: { body: '#ef4444', glow: '#f87171' },
+};
+const POS = '#22c55e';
+const NEG = '#ef4444';
 const FLASH_MS = 700;
 
-// Hover-Kopplung (Preis-Karte → Rain), modulweiter Zustand.
+// Hover-Kopplung (Markt-Karte → Regen), modulweiter Zustand.
 let highlightSymbol: string | null = null;
 export function setRainHighlight(symbol: string | null): void {
   highlightSymbol = symbol;
@@ -41,8 +47,21 @@ type Column = {
   streamPos: number;
 };
 
-export function MatrixRain() {
+export function MatrixRain({ intensity, tone = 'accent', focusSymbol = null }: { intensity: number; tone?: RainTone; focusSymbol?: string | null }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const targetRef = useRef(intensity);
+  const toneRef = useRef<RainTone>(tone);
+  const focusRef = useRef<string | null>(focusSymbol);
+  targetRef.current = intensity;
+  toneRef.current = tone;
+  focusRef.current = focusSymbol;
+
+  // Eingeschränkte Bewegung: kein rAF-Lauf, aber die Sichtbarkeit folgt dem Zustand (Standbild, höchstens 0,25).
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    canvas.style.opacity = String(Math.min(0.25, intensity));
+  }, [intensity]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -85,7 +104,7 @@ export function MatrixRain() {
       canvas.style.width = `${window.innerWidth}px`;
       canvas.style.height = `${window.innerHeight}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = '#050810';
+      ctx.fillStyle = '#0b0d12';
       ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
 
       columns = [];
@@ -112,9 +131,11 @@ export function MatrixRain() {
 
     function drawStep(now: number) {
       if (!ctx) return;
-      // Trail: alles Vorherige leicht Richtung Hintergrund abdunkeln
+      // Schweif: alles Vorherige leicht Richtung Hintergrund abdunkeln
       ctx.fillStyle = FADE;
       ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+      const palette = TONES[toneRef.current];
+      const focus = focusRef.current ?? highlightSymbol;
 
       for (const col of columns) {
         const { font, alpha } = DEPTHS[col.depth];
@@ -122,22 +143,22 @@ export function MatrixRain() {
         const ch = pool[col.streamPos % pool.length] ?? '·';
         const flash = flashes.get(col.symbol);
         const flashing = flash !== undefined && flash.until > now;
-        const highlighted = highlightSymbol === col.symbol;
+        const highlighted = focus === col.symbol;
 
         ctx.font = `${font}px "JetBrains Mono", monospace`;
 
-        // Körperzeichen an der vorherigen Kopfposition (Schweif in Blau auslaufend)
-        const bodyColor = flashing ? flash.color : highlighted ? GLOW : BODY;
+        // Körperzeichen an der vorherigen Kopfposition (Schweif in der Tonfarbe)
+        const bodyColor = flashing ? flash.color : highlighted ? palette.glow : palette.body;
         ctx.globalAlpha = alpha * (highlighted ? 0.95 : 0.6);
         ctx.fillStyle = bodyColor;
         ctx.fillText(ch, col.x, col.y);
 
-        // Kopfzeichen: fast weiß-blau mit Glow
+        // Kopfzeichen: fast weiß mit Glow
         const nextY = col.y + font;
         const headCh = pool[(col.streamPos + 1) % pool.length] ?? '·';
         ctx.globalAlpha = Math.min(1, alpha * (highlighted ? 1.4 : 1));
         ctx.fillStyle = HEAD;
-        ctx.shadowColor = flashing ? flash.color : GLOW;
+        ctx.shadowColor = flashing ? flash.color : palette.glow;
         ctx.shadowBlur = col.depth === 2 || highlighted ? 14 : 8;
         ctx.fillText(headCh, col.x, nextY);
         ctx.shadowBlur = 0;
@@ -152,10 +173,16 @@ export function MatrixRain() {
       ctx.globalAlpha = 1;
     }
 
+    // Sichtbarkeit weich nachführen; bei 0 wird nicht gezeichnet (keine Last im Normalbetrieb).
+    let shown = 0;
     let raf = 0;
     let last = 0;
     function loop(now: number) {
-      if (now - last >= STEP_MS) {
+      const target = targetRef.current;
+      shown += (target - shown) * 0.08;
+      if (Math.abs(target - shown) < 0.004) shown = target;
+      if (canvas) canvas.style.opacity = shown.toFixed(3);
+      if (shown > 0.005 && now - last >= STEP_MS) {
         last = now;
         drawStep(now);
       }
@@ -176,12 +203,5 @@ export function MatrixRain() {
     };
   }, []);
 
-  return (
-    <canvas
-      ref={canvasRef}
-      aria-hidden="true"
-      className="pointer-events-none fixed inset-0 z-0"
-      style={{ opacity: 0.25 }}
-    />
-  );
+  return <canvas ref={canvasRef} aria-hidden="true" className="pointer-events-none fixed inset-0 z-0" style={{ opacity: 0 }} />;
 }

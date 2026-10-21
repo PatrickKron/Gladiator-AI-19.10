@@ -27,9 +27,9 @@ import { appLocale } from '../lib/locale.js';
  */
 
 const C = {
-  cyan: '#4fd1ff',
-  green: '#3ddc97',
-  red: '#ff5c6c',
+  cyan: '#60a5fa',
+  green: '#22c55e',
+  red: '#ef4444',
   amber: '#f5b642',
   mut: '#8b94b8',
 };
@@ -99,10 +99,10 @@ export function BacktestChart({
       width: el.clientWidth,
       height: 360,
       layout: { background: { color: 'transparent' }, textColor: C.mut, fontSize: 10 },
-      grid: { vertLines: { color: 'rgba(99,140,255,0.05)' }, horzLines: { color: 'rgba(99,140,255,0.05)' } },
+      grid: { vertLines: { color: 'rgba(148,163,184,0.05)' }, horzLines: { color: 'rgba(148,163,184,0.05)' } },
       crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: 'rgba(99,140,255,0.18)' },
-      timeScale: { borderColor: 'rgba(99,140,255,0.18)', timeVisible: timeframe !== '1d', rightOffset: 4 },
+      rightPriceScale: { borderColor: 'rgba(148,163,184,0.18)' },
+      timeScale: { borderColor: 'rgba(148,163,184,0.18)', timeVisible: timeframe !== '1d', rightOffset: 4 },
     });
     chartRef.current = chart;
     const candle = chart.addSeries(CandlestickSeries, {
@@ -110,8 +110,8 @@ export function BacktestChart({
       downColor: C.red,
       borderUpColor: C.green,
       borderDownColor: C.red,
-      wickUpColor: 'rgba(61,220,151,0.6)',
-      wickDownColor: 'rgba(255,92,108,0.6)',
+      wickUpColor: 'rgba(34,197,94,0.6)',
+      wickDownColor: 'rgba(239,68,68,0.6)',
       priceLineVisible: false,
     });
     candleRef.current = candle;
@@ -256,7 +256,7 @@ export function BacktestChart({
     const entrySec = toSec(tr.entryTs);
     const exitSec = toSec(tr.exitTs);
     const path = chart.addSeries(LineSeries, {
-      color: tr.netPnl >= 0 ? 'rgba(61,220,151,0.9)' : 'rgba(255,92,108,0.9)',
+      color: tr.netPnl >= 0 ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)',
       lineWidth: 2,
       lineStyle: LineStyle.Dotted,
       priceLineVisible: false,
@@ -335,7 +335,7 @@ export function BacktestChart({
           }}
         >
           <div ref={legendRef} className="num pointer-events-none absolute left-2 top-1 z-10 text-[11px]" style={{ opacity: 0 }} />
-          <div ref={containerRef} className="w-full overflow-hidden rounded" style={{ background: 'rgba(4,6,20,0.45)' }} />
+          <div ref={containerRef} className="w-full overflow-hidden rounded" style={{ background: 'rgba(11,13,18,0.45)' }} />
         </div>
         <p className="label mt-1.5 px-2">
           {t('labor.btInWindow', { visible: visibleTrades.length, total: trades.length })}
