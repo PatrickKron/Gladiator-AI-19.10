@@ -174,6 +174,24 @@ describe.skipIf(!hasDb)('Wallet-Trading: Paper-Swaps über das Swap-Gate', () =>
     await expect(a.swaps.cancelOrder({ orderId: tp.id })).rejects.toThrow(/nicht mehr offen/);
   });
 
+  it('Auto-TP/SL beim Kauf: Orders relativ zum tatsächlichen Kaufkurs (inkl. Pool-Gebühr)', async () => {
+    const r = await a.swaps.execute({ walletId, side: 'buy', token: BONK, amount: '0.5', autoOrders: { takeProfitPct: 50, stopLossPct: 20, sellPercent: 100 } });
+    const entry = r.quote.valueUsd / Number(r.quote.outAmount);
+    expect(entry).toBeGreaterThan(BONK_USD); // Gebühr macht den Einstieg etwas teurer
+    expect(r.autoOrders.map((o) => o.kind)).toEqual(['take_profit', 'stop_loss']);
+    expect(r.autoOrders.every((o) => o.orderId !== null && o.error === null)).toBe(true);
+    expect(r.autoOrders[0]!.triggerPriceUsd).toBeCloseTo(entry * 1.5, 12);
+    expect(r.autoOrders[1]!.triggerPriceUsd).toBeCloseTo(entry * 0.8, 12);
+    const listed = (await a.swaps.orders({ walletId })).filter((o) => r.autoOrders.some((x) => x.orderId === o.id));
+    expect(listed.map((o) => [o.kind, o.sellPercent, o.status]).sort()).toEqual([
+      ['stop_loss', 100, 'open'],
+      ['take_profit', 100, 'open'],
+    ]);
+    for (const o of listed) await a.swaps.cancelOrder({ orderId: o.id });
+    // ohne autoOrders: keine Orders
+    expect((await a.swaps.execute({ walletId, side: 'buy', token: BONK, amount: '0.1' })).autoOrders).toEqual([]);
+  });
+
   it('DCA: braucht Betrag, Abstand und Anzahl; erster Kauf sofort fällig', async () => {
     await expect(a.swaps.createOrder({ walletId, token: BONK, kind: 'dca', intervalMinutes: 60, runsTotal: 5 })).rejects.toThrow(/Betrag/);
     await expect(a.swaps.createOrder({ walletId, token: BONK, kind: 'dca', buyAmount: '0.1' })).rejects.toThrow(/Abstand und Anzahl/);

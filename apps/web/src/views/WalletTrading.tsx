@@ -4,6 +4,7 @@ import { trpc } from '../api.js';
 import { TokenChart } from '../components/TokenChart.js';
 import { TokenDiscovery } from '../components/TokenDiscovery.js';
 import { WatchedWallets } from '../components/WatchedWallets.js';
+import { buildAutoOrders, loadAutoOrders, saveAutoOrders, type AutoOrdersSetting } from '../lib/auto-orders.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
 import { avgEntryUsd, bpsLabel, fmtAmount, fmtPct, fmtUsd, initialsPercent, pnlPercent, slippageChoices, swapReasonKey } from '../lib/swap-format.js';
@@ -207,6 +208,12 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
   const lang = i18n.language;
 
   const [ordersVersion, setOrdersVersion] = useState(0);
+  const [auto, setAuto] = useState<AutoOrdersSetting>(() => loadAutoOrders(wallet.id));
+  const changeAuto = (next: AutoOrdersSetting) => {
+    setAuto(next);
+    saveAutoOrders(wallet.id, next);
+  };
+  const autoBuilt = buildAutoOrders(auto);
   const ticketRef = useRef<HTMLDivElement>(null);
 
   const loadPortfolio = useCallback(async () => {
@@ -269,14 +276,20 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
         slippageBps: slippage,
         ...pending,
         ...(wallet.mode === 'live' ? { confirmLive: true } : {}),
+        ...(pending.side === 'buy' && autoBuilt.value ? { autoOrders: autoBuilt.value } : {}),
       });
       const q = r.quote;
+      const autoText = r.autoOrders
+        .map((o) => (o.error ? `${t(`swap.kind_${o.kind}`)}: ${o.error}` : `${t(`swap.kind_${o.kind}`)} @ ${fmtUsd(o.triggerPriceUsd, lang)}`))
+        .join(' · ');
       setMsg({
         ok: true,
         text:
           t('swap.done', { inAmount: fmtAmount(q.inAmount, lang), inSymbol: q.inSymbol, outAmount: fmtAmount(q.outAmount, lang), outSymbol: q.outSymbol }) +
-          (r.trade.txHash ? ` · Tx ${r.trade.txHash.slice(0, 10)}…` : ''),
+          (r.trade.txHash ? ` · Tx ${r.trade.txHash.slice(0, 10)}…` : '') +
+          (autoText ? ` · ${autoText}` : ''),
       });
+      if (r.autoOrders.length > 0) setOrdersVersion((v) => v + 1);
       setQuote(null);
       setPending(null);
       await loadPortfolio();
@@ -368,6 +381,25 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
                 {t('swap.available', { amount: fmtAmount(nativeHolding.amount, lang), symbol: chain.native.symbol })}
               </p>
             )}
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+              <label className="flex items-center gap-1.5" title={t('swap.autoHint')}>
+                <input type="checkbox" checked={auto.enabled} onChange={(e) => changeAuto({ ...auto, enabled: e.target.checked })} />
+                {t('swap.autoTpSl')}
+              </label>
+              {auto.enabled && (
+                <>
+                  <label className="flex items-center gap-1">
+                    TP +
+                    <input className="field num w-14 px-1.5 py-0.5 text-[11px]" inputMode="decimal" value={auto.takeProfitPct} onChange={(e) => changeAuto({ ...auto, takeProfitPct: e.target.value })} />%
+                  </label>
+                  <label className="flex items-center gap-1">
+                    SL −
+                    <input className="field num w-14 px-1.5 py-0.5 text-[11px]" inputMode="decimal" value={auto.stopLossPct} onChange={(e) => changeAuto({ ...auto, stopLossPct: e.target.value })} />%
+                  </label>
+                  {autoBuilt.error && <span style={{ color: 'var(--color-warn)' }}>{t('swap.autoInvalid')}</span>}
+                </>
+              )}
+            </div>
 
             <p className="label mt-3">{t('swap.sell')}</p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -436,12 +468,20 @@ function WalletView({ config, wallet, onWalletChanged }: { config: Config; walle
                 ))}
               </ul>
             )}
+            {pending?.side === 'buy' && autoBuilt.value && (
+              <p className="mt-2 text-[11px]" style={{ color: wallet.mode === 'live' ? 'var(--color-warn)' : 'var(--color-mut)' }}>
+                {t(wallet.mode === 'live' ? 'swap.autoLiveNote' : 'swap.autoNote', {
+                  tp: autoBuilt.value.takeProfitPct !== undefined ? `+${autoBuilt.value.takeProfitPct} %` : '—',
+                  sl: autoBuilt.value.stopLossPct !== undefined ? `−${autoBuilt.value.stopLossPct} %` : '—',
+                })}
+              </p>
+            )}
             <div className="mt-3 flex gap-2">
               <button
                 type="button"
                 className="btn px-3 py-1.5 text-sm"
                 style={wallet.mode === 'live' ? { borderColor: 'var(--color-warn)' } : undefined}
-                disabled={busy || !quote.verdict.allowed || (wallet.mode === 'live' && !wallet.liveApproved)}
+                disabled={busy || !quote.verdict.allowed || (pending?.side === 'buy' && autoBuilt.error) || (wallet.mode === 'live' && !wallet.liveApproved)}
                 onClick={() => void confirm()}
               >
                 {wallet.mode === 'paper' ? t('swap.confirmPaper') : t('swap.confirmLive')}

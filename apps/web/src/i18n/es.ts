@@ -1923,6 +1923,11 @@ export const es: Catalog = {
     err_unknown: 'Error desconocido.',
   },
   swap: {
+    autoNote: "Tras la compra: take-profit {{tp}}, stop-loss {{sl}} desde el precio de compra.",
+    autoLiveNote: "Esta confirmación también crea take-profit {{tp}} y stop-loss {{sl}}: venderán más tarde automáticamente con dinero real.",
+    autoTpSl: "TP/SL automático tras la compra",
+    autoHint: "Tras cada compra crea take-profit y stop-loss relativos al precio real de compra (100 % de la posición cada uno). Campo vacío = esa parte desactivada. Se recuerda por wallet.",
+    autoInvalid: "TP 1–10.000 %, SL 1–95 %",
     avgEntryHint: "Precio medio de entrada (coste incl. comisiones ÷ cantidad)",
     initials: "Recuperar inversión ({{pct}})",
     initialsHint: "Vende lo justo para recuperar el coste (incl. ~1 % de margen por comisiones); el resto sigue como posición gratuita.",
