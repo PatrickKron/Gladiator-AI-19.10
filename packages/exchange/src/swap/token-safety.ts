@@ -28,11 +28,18 @@ export type TokenSafety = {
    * Bonding-Curves und Lock-Verträge zählen nicht; null = nicht prüfbar.
    */
   top10Pct?: number | null;
+  /**
+   * Anteil der Pool-Anteile (LP-Tokens), der gesperrt oder verbrannt ist (in %) —
+   * nicht gesperrte LP kann der Ersteller jederzeit abziehen (Rug); null = nicht prüfbar.
+   */
+  lpLockedPct?: number | null;
   error: string | null;
 };
 
 /** Ab diesem Anteil der Top-10-Wallets: Warnung (Abverkaufsrisiko durch wenige Halter). */
 export const TOP10_WARN_PCT = 30;
+/** Unter diesem gesperrten/verbrannten LP-Anteil: Warnung (Liquidität kann abgezogen werden). */
+export const LP_LOCKED_WARN_PCT = 80;
 
 type Fetch = typeof fetch;
 
@@ -128,6 +135,19 @@ export function goPlusTop10Pct(holders: { address?: string; percent?: string; is
   return Math.round(sum * 100 * 100) / 100;
 }
 
+/**
+ * Gesperrter bzw. verbrannter Anteil der Pool-Anteile laut GoPlus (`lp_holders`,
+ * Anteil 0–1 am LP-Angebot): Lock-Verträge (`is_locked`) und Burn-Adressen zählen.
+ * Keine LP-Halter (z. B. v3-Pools ohne LP-Token) → null, nie „sicher“ geraten.
+ */
+export function goPlusLpLockedPct(lpHolders: { address?: string; percent?: string; is_locked?: number | string }[] | undefined): number | null {
+  if (!lpHolders || lpHolders.length === 0) return null;
+  const sum = lpHolders
+    .filter((h) => String(h.is_locked) === '1' || BURN_ADDRESSES.has((h.address ?? '').toLowerCase()))
+    .reduce((s, h) => s + (Number(h.percent) || 0), 0);
+  return Math.min(100, Math.round(sum * 100 * 100) / 100);
+}
+
 type GoPlusResult = Record<string, unknown>;
 
 const flag = (v: unknown) => v === '1';
@@ -152,7 +172,9 @@ export function judgeGoPlus(r: GoPlusResult | undefined): TokenSafety {
   const taxPct = taxes.length > 0 && taxes.every(Number.isFinite) ? Math.max(...taxes) * 100 : null;
   const top10Pct = goPlusTop10Pct(r.holders as Parameters<typeof goPlusTop10Pct>[0]);
   if (top10Pct !== null && top10Pct > TOP10_WARN_PCT) warnings.push('top10_concentrated');
-  return { checked: true, source: 'goplus', severe, warnings, taxPct, top10Pct, error: null };
+  const lpLockedPct = goPlusLpLockedPct(r.lp_holders as Parameters<typeof goPlusLpLockedPct>[0]);
+  if (lpLockedPct !== null && lpLockedPct < LP_LOCKED_WARN_PCT) warnings.push('lp_unlocked');
+  return { checked: true, source: 'goplus', severe, warnings, taxPct, top10Pct, lpLockedPct, error: null };
 }
 
 /**
