@@ -1,6 +1,6 @@
 import { and, eq, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import { schema, type Db } from '@gladiator/db';
-import { fetchPairDepths, fetchTokenPrices, walletBalances, type SwapChainId } from '@gladiator/exchange';
+import { fetchPairDepths, fetchTokenMarket, walletBalances, type SwapChainId, type TokenMarket } from '@gladiator/exchange';
 import { notifySafe } from './notify.js';
 import { executePreparedSwap, prepareSwap, swapNet, type SwapWalletRow } from './swap-service.js';
 
@@ -87,6 +87,19 @@ export function evaluateRugGuard(o: { dropPct: number | null; peakDepth: number 
   const peak = Math.max(o.peakDepth ?? depth, depth);
   const drop = o.dropPct ?? 0;
   return { trigger: drop > 0 && peak > 0 && depth <= peak * (1 - drop / 100), peakDepth: peak };
+}
+
+/**
+ * Rug-Schutz: Umzug statt Rug (rein). Fällt der beobachtete Pool, weil der
+ * Token in einen NEUEN, tiefen Pool umgezogen ist (z. B. Abschluss einer
+ * pump.fun-Bonding-Curve), wird der neue Pool übernommen statt verkauft. Ein Rug
+ * erzeugt keinen neuen tiefen Pool: Er muss mindestens die Hälfte der
+ * USD-Liquidität haben, die der alte Pool beim Anlegen hatte.
+ */
+export function rugGuardMigrates(o: { pairAddress: string | null; peakLiquidityUsd: number | null }, best: { pairAddress: string | null; liquidityUsd: number | null; depth: number | null } | null): boolean {
+  if (!best || !best.pairAddress || !o.pairAddress || best.pairAddress === o.pairAddress) return false;
+  if (o.peakLiquidityUsd === null || !(o.peakLiquidityUsd > 0) || best.liquidityUsd === null || best.depth === null || !(best.depth > 0)) return false;
+  return best.liquidityUsd >= o.peakLiquidityUsd * 0.5;
 }
 
 /** Plausibilität beim Anlegen: eine Order, die sofort auslösen würde, ist fast immer ein Tippfehler. */
@@ -209,10 +222,14 @@ export async function runSwapOrders(db: Db): Promise<SwapOrdersResult> {
   }
   const prices = new Map<string, number>();
   const depths = new Map<string, number>();
+  const markets = new Map<string, TokenMarket>();
   for (const [chain, tokens] of byChain) {
     try {
-      const p = await fetchTokenPrices(chain, [...tokens], swapNet());
-      for (const [t, v] of p) prices.set(`${chain}:${t}`, v);
+      const m = await fetchTokenMarket(chain, [...tokens], swapNet());
+      for (const [t, v] of m) {
+        prices.set(`${chain}:${t}`, v.priceUsd);
+        markets.set(`${chain}:${t}`, v);
+      }
       const pools = rows.filter((r) => r.wallet.chain === chain && r.order.kind === 'rug_guard' && r.order.pairAddress).map((r) => r.order.pairAddress!);
       if (pools.length > 0) for (const [a, d] of await fetchPairDepths(chain, pools, swapNet())) depths.set(`${chain}:${a}`, d);
     } catch (err) {
@@ -233,7 +250,26 @@ export async function runSwapOrders(db: Db): Promise<SwapOrdersResult> {
       if (rg.peakDepth !== null && rg.peakDepth !== before) {
         await db.update(swapOrders).set({ peakDepth: String(rg.peakDepth) }).where(eq(swapOrders.id, order.id));
       }
-      if (rg.trigger) await fireOrder(db, order, wallet, price, out);
+      if (rg.trigger) {
+        const best = markets.get(`${wallet.chain}:${order.token}`) ?? null;
+        const peakUsd = order.peakLiquidityUsd === null ? null : Number(order.peakLiquidityUsd);
+        if (rugGuardMigrates({ pairAddress: order.pairAddress, peakLiquidityUsd: peakUsd }, best)) {
+          // Token ist umgezogen: neuen Pool beobachten, nicht verkaufen
+          await db
+            .update(swapOrders)
+            .set({ pairAddress: best!.pairAddress, peakDepth: String(best!.depth), peakLiquidityUsd: best!.liquidityUsd === null ? null : String(best!.liquidityUsd) })
+            .where(and(eq(swapOrders.id, order.id), eq(swapOrders.status, 'open')));
+          await notifySafe(db, {
+            userId: wallet.userId,
+            kind: 'system',
+            title: `Rug-Schutz: ${order.symbol} ist in einen neuen Pool umgezogen`,
+            body: `Der alte Pool hat Liquidität verloren, der Token handelt jetzt in einem neuen, tiefen Pool — der Rug-Schutz beobachtet ab sofort diesen (${wallet.label}). Nichts verkauft.`,
+            link: '#/traden?tab=wallet',
+          });
+          continue;
+        }
+        await fireOrder(db, order, wallet, price, out);
+      }
       continue;
     }
     const ev = evaluateSwapOrder(stateOf(order), price);

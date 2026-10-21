@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, schema, type Db } from '@gladiator/db';
 import { fundPaperWallet, SOL_MINT, walletBalances } from '@gladiator/exchange';
 import type pg from 'pg';
-import { dcaAfterRun, evaluateRugGuard, evaluateSwapOrder, failStuckSwapOrders, runDcaOrders, runSwapOrders, stoppableOrders, validateNewOrder } from './swap-orders.js';
+import { dcaAfterRun, evaluateRugGuard, evaluateSwapOrder, rugGuardMigrates, failStuckSwapOrders, runDcaOrders, runSwapOrders, stoppableOrders, validateNewOrder } from './swap-orders.js';
 import { setSwapFetchForTests } from './swap-service.js';
 
 describe('evaluateSwapOrder', () => {
@@ -49,6 +49,15 @@ describe('evaluateRugGuard', () => {
     expect(evaluateRugGuard(st, null)).toEqual({ trigger: false, peakDepth: 150_000 });
     // Rug-Schutz ist nie preisgesteuert
     expect(evaluateSwapOrder({ kind: 'rug_guard', triggerPriceUsd: null, trailPct: 50, peakPriceUsd: null }, 1).trigger).toBe(false);
+  });
+
+  it('Umzug statt Rug: neuer, tiefer Pool (≥ halbe Start-Liquidität) wird übernommen; sonst nicht', () => {
+    const o = { pairAddress: 'Alt', peakLiquidityUsd: 100_000 };
+    expect(rugGuardMigrates(o, { pairAddress: 'Neu', liquidityUsd: 60_000, depth: 5 })).toBe(true);
+    expect(rugGuardMigrates(o, { pairAddress: 'Neu', liquidityUsd: 40_000, depth: 5 })).toBe(false);
+    expect(rugGuardMigrates(o, { pairAddress: 'Alt', liquidityUsd: 900_000, depth: 5 })).toBe(false);
+    expect(rugGuardMigrates(o, null)).toBe(false);
+    expect(rugGuardMigrates({ ...o, peakLiquidityUsd: null }, { pairAddress: 'Neu', liquidityUsd: 60_000, depth: 5 })).toBe(false);
   });
 
   it('Plausibilität: Abfall 10 bis 90 %', () => {
@@ -94,6 +103,8 @@ let bonkUsd = 0.00002;
 /** BONK-Pool (Rug-Schutz): Token-Mengen im Pool; Tiefe = √(Basis × Quote) */
 let bonkPool = { base: 4e9, quote: 4e5 };
 const BONK_POOL = 'BonkPool111111111111111111111111111111111111';
+/** liquidester BONK-Pool laut DexScreener (Umzug nachstellen) */
+let bonkBestPool = BONK_POOL;
 /** Wird während des Angebotsabrufs ausgeführt (Wettlauf nachstellen). */
 let duringQuote: (() => Promise<void>) | null = null;
 const fakeNet = (async (url: string, init?: RequestInit) => {
@@ -109,7 +120,7 @@ const fakeNet = (async (url: string, init?: RequestInit) => {
   }
   if (u.includes('dexscreener')) {
     const addrs = u.split('/').pop()!.split(',');
-    return json(addrs.map((a) => ({ chainId: 'solana', baseToken: { address: a, symbol: a === SOL_MINT ? 'SOL' : 'Bonk' }, priceUsd: String(a === SOL_MINT ? 150 : bonkUsd), liquidity: { usd: 1e8 } })));
+    return json(addrs.map((a) => ({ chainId: 'solana', baseToken: { address: a, symbol: a === SOL_MINT ? 'SOL' : 'Bonk' }, priceUsd: String(a === SOL_MINT ? 150 : bonkUsd), pairAddress: a === SOL_MINT ? 'SolPool' : bonkBestPool, liquidity: { usd: 1e8, base: 4e9, quote: 4e5 } })));
   }
   if (u.includes('jup.ag')) {
     const q = new URL(u).searchParams;
@@ -318,6 +329,26 @@ describe.skipIf(!process.env.DATABASE_URL)('runSwapOrders (echte DB, Paper)', ()
     const notes = await db.select().from(schema.notifications).where(eq(schema.notifications.userId, userId));
     expect(notes.map((n) => n.title)).toContain('Rug-Schutz ausgeführt: Bonk');
     bonkPool = { base: 4e9, quote: 4e5 };
+  });
+
+  it('Rug-Schutz: Token zieht in einen neuen, tiefen Pool um → neuer Pool wird beobachtet, nichts verkauft', async () => {
+    bonkUsd = 0.00001;
+    const buy = await addOrder({ kind: 'limit_buy', triggerPriceUsd: '0.00002', buyAmount: '0.5' });
+    await runSwapOrders(db);
+    expect((await status(buy.id)).status).toBe('filled');
+    const held = (await walletBalances(db, walletId)).find((b) => b.token === BONK)!.amountAtomic;
+    const rg = await addOrder({ kind: 'rug_guard', trailPct: '50', sellPercent: '100', pairAddress: BONK_POOL, peakDepth: String(Math.sqrt(4e9 * 4e5)), peakLiquidityUsd: '100000000' });
+    // alter Pool leer (Bonding-Curve abgeschlossen), DexScreener nennt einen neuen liquidesten Pool
+    bonkPool = { base: 4e6, quote: 4e2 };
+    bonkBestPool = 'NeuerPool1111111111111111111111111111111111';
+    await runSwapOrders(db);
+    expect(await status(rg.id)).toMatchObject({ status: 'open', pairAddress: bonkBestPool });
+    expect((await walletBalances(db, walletId)).find((b) => b.token === BONK)!.amountAtomic).toBe(held);
+    const notes = await db.select().from(schema.notifications).where(eq(schema.notifications.userId, userId));
+    expect(notes.some((n) => /neuen Pool umgezogen/.test(n.title))).toBe(true);
+    bonkPool = { base: 4e9, quote: 4e5 };
+    bonkBestPool = BONK_POOL;
+    await db.update(schema.swapOrders).set({ status: 'cancelled' }).where(eq(schema.swapOrders.id, rg.id));
   });
 
   it('Rug-Schutz: fehlt der festgehaltene Pool in der Antwort, wird nichts entschieden', async () => {

@@ -148,13 +148,17 @@ export async function fetchPairDepths(chain: SwapChainId, pairAddresses: string[
   return out;
 }
 
-/** Preis + Liquidität des liquidesten Pools je Token (ein DexScreener-Abruf je 30 Tokens). */
-export async function fetchTokenMarket(
-  chain: SwapChainId,
-  addresses: string[],
-  fetchFn: Fetch = fetch,
-): Promise<Map<string, { priceUsd: number; liquidityUsd: number | null }>> {
-  const out = new Map<string, { priceUsd: number; liquidityUsd: number | null }>();
+export type TokenMarket = {
+  priceUsd: number;
+  liquidityUsd: number | null;
+  /** liquidester Pool und dessen Tiefe √(Basis × Quote) (Rug-Schutz: Umzug erkennen) */
+  pairAddress: string | null;
+  depth: number | null;
+};
+
+/** Preis, Liquidität und liquidester Pool je Token (ein DexScreener-Abruf je 30 Tokens). */
+export async function fetchTokenMarket(chain: SwapChainId, addresses: string[], fetchFn: Fetch = fetch): Promise<Map<string, TokenMarket>> {
+  const out = new Map<string, TokenMarket>();
   const lookups = addresses.map((a) => (isNativeToken(chain, a) ? SWAP_CHAINS[chain].wrappedNative : a));
   for (let i = 0; i < lookups.length; i += 30) {
     const batch = [...new Set(lookups.slice(i, i + 30))];
@@ -167,9 +171,16 @@ export async function fetchTokenMarket(
       const best = pickBestPair(pairs, chain, lookup);
       const p = num(best?.priceUsd);
       if (p === null) continue;
-      const liquidityUsd = num(best?.liquidity?.usd);
+      const base = num(best?.liquidity?.base);
+      const quote = num(best?.liquidity?.quote);
+      const m: TokenMarket = {
+        priceUsd: p,
+        liquidityUsd: num(best?.liquidity?.usd),
+        pairAddress: best?.pairAddress ?? null,
+        depth: base !== null && quote !== null && base >= 0 && quote >= 0 ? Math.sqrt(base * quote) : null,
+      };
       addresses.forEach((a, idx) => {
-        if (lookups[idx] === lookup) out.set(a, { priceUsd: p, liquidityUsd });
+        if (lookups[idx] === lookup) out.set(a, m);
       });
     }
   }
