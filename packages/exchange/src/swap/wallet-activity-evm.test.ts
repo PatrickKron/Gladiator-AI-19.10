@@ -274,11 +274,18 @@ describe('echte Daten (Base-RPC)', () => {
     const UR = '0x6fF5693b99212Da76ad316178A184AB56D299b43';
     const start = await fetchTokenOutflows('base', USDC, UR, null);
     expect(start.transfers).toEqual([]);
-    const head = BigInt(start.cursor);
+    let head = BigInt(start.cursor);
     expect(head).toBeGreaterThan(20_000_000n);
-    // die letzten 40 Blöcke (~80 s; manche Knoten erlauben höchstens 50): der Router gibt laufend USDC aus
-    const page = await fetchTokenOutflows('base', USDC, UR, head - 40n);
+    // die letzten 40 Blöcke (~80 s; manche Knoten erlauben höchstens 50): der Router gibt laufend USDC aus.
+    // Ein ruhiges 80-Sekunden-Fenster kommt vor (CI-Befund 2026-10-21: 0 Transfers) → bis zu vier
+    // weitere Versuche auf je frischen Blöcken statt eines größeren Fensters (Knoten-Limit bleibt gewahrt).
+    let page = await fetchTokenOutflows('base', USDC, UR, head - 40n);
     expect(BigInt(page.cursor)).toBeGreaterThanOrEqual(head);
+    for (let attempt = 0; page.transfers.length === 0 && attempt < 4; attempt++) {
+      await new Promise((r) => setTimeout(r, 20_000));
+      head = BigInt((await fetchTokenOutflows('base', USDC, UR, null)).cursor);
+      page = await fetchTokenOutflows('base', USDC, UR, head - 40n);
+    }
     expect(page.transfers.length).toBeGreaterThan(0);
     for (const t of page.transfers) {
       expect(t.to).toMatch(/^0x[0-9a-f]{40}$/);
@@ -288,5 +295,5 @@ describe('echte Daten (Base-RPC)', () => {
     // Swaps des Routers prägen ihm keine LP-Token → echte Belege, keine Liquidität
     const lp = await liquidityMintTxs('base', page.transfers.slice(0, 3).map((t) => t.tx), UR);
     expect(lp.size).toBe(0);
-  }, 60_000);
+  }, 180_000);
 });
