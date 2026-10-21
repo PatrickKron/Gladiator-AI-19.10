@@ -25,6 +25,12 @@
 - **Keine Betriebs-Keys hinterlegt** (`app_secrets` leer), **keine Börse verbunden** (`exchange_connections` leer).
 - Signale: 306 erzeugt — 304 `expired`, 2 `filled`. 3 Strategie-Versionen im Status `paper`.
 
+## Stand Session 13/14 (2026-10-21, Cloud, bis PR #55 gemergt)
+
+- GitHub `main` enthält alles bis PR #55; **der Server ist noch auf altem Stand** — Ausrollen (`git pull origin main && git push server main`) spielt die Migrationen bis **0036** automatisch ein (u. a. 0032 „Ausgang unklar“-Kontext, 0033/0034 Rug-Schutz, 0035/0036 Dev-Verkauf-Schutz). Alternativ Container: `docker compose --profile app up -d` (`SELFHOST.md`).
+- Neu heute: Prüfung jeder Aggregator-Transaktion vor dem Signieren, „Ausgang unklar“ klärt sich selbst, MEV-Schutz (Flashbots), Steuer-Export der Swaps (EUR/EZB), MC-Orders, Rug-Schutz (nur Pools mit konstantem Produkt, folgt Pool-Umzügen), Sicherheitscheck mit Top-10/LP-Sperre/Ersteller, Dev-Verkauf-Schutz (EVM, nur echte Verkäufe an Pools/Router), Schutz-Abzeichen an den Beständen.
+- Bekannte Grenzen: Dev-Verkauf über frische Zwischen-Wallet/unbekannten Aggregator unsichtbar; Rug-Schutz entscheidet nichts, wenn DexScreener den Pool ganz weglässt; Solana-LP-Sperre/Ersteller liefert GoPlus nicht.
+
 ## Stand nach Session 12 (2026-10-20, Cloud, PR #3–#12 gemergt)
 
 - Alles bis PR #12 ist in `main` (Details `WORKOVER.md` Session 11/12). Was Claude ohne Patrick erledigen konnte, ist erledigt; offen sind nur die Punkte unten mit Patrick-Bezug.

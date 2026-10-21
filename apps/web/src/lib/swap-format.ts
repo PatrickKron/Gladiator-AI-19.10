@@ -121,3 +121,17 @@ export function mcapTriggerPrice(priceUsd: number, mcapNowUsd: number, mcapTarge
   if (!(priceUsd > 0) || !(mcapNowUsd > 0) || !(mcapTargetUsd > 0)) return null;
   return (priceUsd * mcapTargetUsd) / mcapNowUsd;
 }
+
+/** Schutz-Orders in fester Reihenfolge (Kurzanzeige an den Beständen). */
+export const PROTECTION_KINDS = ['take_profit', 'stop_loss', 'trailing_stop', 'rug_guard', 'dev_sell'] as const;
+export type ProtectionKind = (typeof PROTECTION_KINDS)[number];
+
+/**
+ * Welche Schutz-Orders sind für diesen Bestand offen? (EVM-Adressen ohne
+ * Groß-/Kleinschreibung; Kauf-Orders und Alarme zählen nicht.)
+ */
+export function protectionKinds(orders: { token: string; kind: string; status: string }[], token: string): ProtectionKind[] {
+  const same = (a: string) => (a.startsWith('0x') ? a.toLowerCase() === token.toLowerCase() : a === token);
+  const open = new Set(orders.filter((o) => o.status === 'open' && same(o.token)).map((o) => o.kind));
+  return PROTECTION_KINDS.filter((k) => open.has(k));
+}
