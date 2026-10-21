@@ -994,6 +994,9 @@ export const es: Catalog = {
     assetCount: '{{n}} instrumentos',
   },
   signals: {
+    why: "Por qué",
+    riskLine: "Riesgo",
+    openTicket: "Abrir ticket",
     subtitleList: 'Todos los setups como filas compactas — los más recientes primero, los caducados atenuados al final. Haz clic en una fila para ver gráfico, razones del enjambre y detalles. Fuentes: escaneo del engine (cada 5 min), webhook de TradingView, instrucción DSL, manual.',
     rowsSummary: '{{n}} señales',
     expiredSummary: 'de ellas {{n}} caducadas',
@@ -2041,6 +2044,11 @@ export const es: Catalog = {
     oneUser: 'Un solo tipo de usuario con acceso completo — sin roles, sin tiers (decisión de alcance 2026-07-02).',
   },
   demo: {
+    previewCosts: "Comisión + slippage",
+    advanced: "Avanzado",
+    closedTitle: "Posición cerrada",
+    closedResult: "Resultado",
+    closedOk: "Continuar",
     leverage: 'Apalancamiento',
     leverageHint: 'Con apalancamiento solo comprometes una parte del valor de la posición como margen. Las ganancias y pérdidas afectan al valor completo; si el precio alcanza el precio de liquidación, se pierde el margen.',
     leverageLimit: 'Límite {{max}}× (Ajustes › Trading)',

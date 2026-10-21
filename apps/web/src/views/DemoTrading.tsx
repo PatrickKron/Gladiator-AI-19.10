@@ -389,26 +389,126 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
   });
 
   return (
-    <Panel label={t('demo.ticketTitle')} stagger={5} className="mt-5">
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_20rem]">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-1">
-            <span className="label">{t('dashboard.symbol')}</span>
-            <AssetSelect value={symbol} onChange={setSymbol} />
-          </label>
-          <div className="flex items-end gap-2">
-            <div className="flex-1">
-              <span className="label">{t('demo.direction')}</span>
-              <div className="mt-1 flex gap-1">
-                <button onClick={() => setDirection('long')} className="flex-1 rounded-[0.625rem] border px-3 py-1.5 text-sm" style={seg(direction === 'long', 'pos')}>
-                  {t('demo.long')}
+    <section className="reveal mt-5" style={{ '--stagger': 5 } as React.CSSProperties}>
+      {/* Kauf-Flow nach Bitpanda (Welle D): Betrag → Richtung → Vorschau → EIN Knopf; alles Weitere unter „Erweitert“ */}
+      <div className="glass mx-auto max-w-xl p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span className="text-sm font-semibold">{t('demo.ticketTitle')}</span>
+          <AssetSelect value={symbol} onChange={setSymbol} />
+        </div>
+
+        {/* 1 · Betrag */}
+        <div className="mt-5 text-center">
+          <p className="label">{amountMode === 'qty' ? t('demo.qty') : t('demo.amount')}</p>
+          <div className="mt-1 flex items-baseline justify-center gap-2">
+            {amountMode === 'eur' ? (
+              <input
+                value={amountEur}
+                onChange={(e) => setAmountEur(e.target.value)}
+                inputMode="decimal"
+                placeholder="100"
+                aria-label={t('demo.amount')}
+                className="num w-44 bg-transparent text-center text-[40px] font-bold tracking-tight outline-none"
+                disabled={eurUsd === null}
+              />
+            ) : (
+              <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal" placeholder="0.01" aria-label={t('demo.qty')} className="num w-52 bg-transparent text-center text-[32px] font-bold tracking-tight outline-none" />
+            )}
+            <span className="text-xl font-semibold" style={{ color: 'var(--color-mut)' }}>
+              {amountMode === 'eur' ? '€' : symbol.split('/')[0]}
+            </span>
+          </div>
+          {amountMode === 'eur' && (
+            <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+              {[50, 100, 500, 1000].map((v) => (
+                <button key={v} type="button" onClick={() => setAmountEur(String(v))} className={`chip ${amountEur === String(v) ? 'chip--acc' : 'chip--mut'}`} disabled={eurUsd === null}>
+                  {v}
                 </button>
-                <button onClick={() => setDirection('short')} className="flex-1 rounded-[0.625rem] border px-3 py-1.5 text-sm" style={seg(direction === 'short', 'neg')}>
-                  {t('demo.short')}
-                </button>
-              </div>
+              ))}
             </div>
-            <div className="flex-1">
+          )}
+          <p className="num mt-2 min-h-4 text-xs" style={{ color: 'var(--color-mut)' }}>
+            {amountMode === 'eur' && eurUsd === null ? (
+              <span style={{ color: 'var(--color-warn)' }}>{t('demo.noEurRate')}</span>
+            ) : amountMode === 'eur' && derivedQty !== null ? (
+              <>
+                {leverage > 1 && <>{t('demo.positionSize', { eur: fmt(eurAmount * leverage, 0), lev: leverage })} · </>}≈ {fmt(derivedQty, 6)} {symbol.split('/')[0]} · {t('demo.rateUsed', { rate: fmt(eurUsd ?? 0, 4) })}
+              </>
+            ) : amountMode === 'eur' && eurAmount > 0 ? (
+              <span style={{ color: 'var(--color-warn)' }}>{t('demo.noLivePrice')}</span>
+            ) : null}
+          </p>
+        </div>
+
+        {/* 2 · Richtung */}
+        <div className="mt-4 grid grid-cols-2 gap-1 rounded-xl p-1" style={{ background: 'var(--color-bg3)' }} role="group" aria-label={t('demo.direction')}>
+          <button type="button" onClick={() => setDirection('long')} aria-pressed={direction === 'long'} className="rounded-lg py-2 text-sm font-semibold transition-colors" style={direction === 'long' ? { background: 'rgba(34,197,94,0.16)', color: 'var(--color-pos)' } : { color: 'var(--color-mut)' }}>
+            {t('demo.long')}
+          </button>
+          <button type="button" onClick={() => setDirection('short')} aria-pressed={direction === 'short'} className="rounded-lg py-2 text-sm font-semibold transition-colors" style={direction === 'short' ? { background: 'rgba(239,68,68,0.16)', color: 'var(--color-neg)' } : { color: 'var(--color-mut)' }}>
+            {t('demo.short')}
+          </button>
+        </div>
+
+        {/* 3 · Vorschau aus dem ECHTEN Buch (kompakt) */}
+        <div className="mt-4 rounded-xl border px-4 py-1" style={{ borderColor: 'var(--color-line)', background: 'var(--color-bg)' }}>
+          {!valid ? (
+            <p className="py-2 text-xs" style={{ color: 'var(--color-mut)' }}>
+              {t('demo.previewHint')}
+            </p>
+          ) : previewing && !preview ? (
+            <Loading />
+          ) : preview === null ? (
+            <p className="py-2 text-xs" style={{ color: 'var(--color-mut)' }}>
+              {t('demo.previewUnavailable')}
+            </p>
+          ) : !preview.ok ? (
+            <p className="py-2 text-xs" style={{ color: 'var(--color-warn)' }}>
+              {t(`demo.err_${preview.reason}`)}
+            </p>
+          ) : (
+            <ul className="num text-sm">
+              <li className="flex justify-between gap-3 border-b py-2" style={{ borderColor: 'var(--color-line)' }}>
+                <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewFill')}</span>
+                <span>{preview.estFillPrice !== null ? fmt(preview.estFillPrice) : '—'}</span>
+              </li>
+              <li className="flex justify-between gap-3 border-b py-2" style={{ borderColor: 'var(--color-line)' }}>
+                <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewCosts')}</span>
+                <span>{fmt(preview.estFee + preview.estSlippage)} $</span>
+              </li>
+              <li className="flex justify-between gap-3 py-2">
+                <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewNotional')}</span>
+                <span>{fmt(preview.estNotional)} $</span>
+              </li>
+              {preview.liquidationPrice !== null && (
+                <li className="flex justify-between gap-3 border-t py-2" style={{ borderColor: 'var(--color-line)' }}>
+                  <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewLiquidation')}</span>
+                  <span style={{ color: 'var(--color-warn)' }}>{fmt(preview.liquidationPrice)}</span>
+                </li>
+              )}
+              {preview.estRestingQty > 0 && (
+                <li className="flex justify-between gap-3 border-t py-2" style={{ borderColor: 'var(--color-line)' }}>
+                  <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewResting')}</span>
+                  <span>{fmt(preview.estRestingQty, 6)}</span>
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
+
+        {/* Erweitert: alles bleibt, nur aufgeklappt */}
+        <details className="group mt-3">
+          <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl px-4 py-2.5 text-sm" style={{ background: 'var(--color-bg3)' }}>
+            <span>
+              {t('demo.advanced')}
+              <span className="ml-2 text-xs" style={{ color: 'var(--color-mut)' }}>
+                {type === 'limit' ? 'Limit' : 'Market'} · {leverage}× · {slPct > 0 ? `SL −${slPct.toLocaleString(appLocale())} %` : t('demo.off')} · {tpPct > 0 ? `TP +${tpPct.toLocaleString(appLocale())} %` : t('demo.off')} · {VENUE_NAMES[venue] ?? venue}
+              </span>
+            </span>
+            <span className="text-xs transition-transform group-open:rotate-90" style={{ color: 'var(--color-mut)' }}>›</span>
+          </summary>
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            <div>
               <span className="label">{t('demo.orderType')}</span>
               <div className="mt-1 flex gap-1">
                 <button onClick={() => setType('market')} className="flex-1 rounded-[0.625rem] border px-3 py-1.5 text-sm" style={seg(type === 'market')}>
@@ -418,205 +518,129 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
                   Limit
                 </button>
               </div>
+              {type === 'limit' && (
+                <label className="mt-2 flex flex-col gap-1">
+                  <span className="label">{t('demo.limitPrice')}</span>
+                  <input value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} inputMode="decimal" className={inputCls} />
+                </label>
+              )}
             </div>
-          </div>
-          {/* Hebel (Isolated Margin): Schnellwahl bis zur Obergrenze aus den Einstellungen */}
-          <div className="flex flex-col gap-1 sm:col-span-2">
-            <div className="flex items-center justify-between">
-              <span className="label">
-                {t('demo.leverage')}
-                <span className="ml-1 cursor-help" title={t('demo.leverageHint')} style={{ color: 'var(--color-mut)' }}>ⓘ</span>
-              </span>
-              <span className="num text-sm">{leverage}×</span>
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {LEVERAGE_STEPS.filter((v) => v <= (maxLeverage ?? 1)).map((v) => (
-                <button key={v} onClick={() => setLeverage(v)} className="rounded border px-2 py-1 text-xs" style={seg(leverage === v)}>
-                  {v}×
-                </button>
-              ))}
-              <input
-                type="number"
-                min={1}
-                max={maxLeverage ?? 1}
-                step={1}
-                value={leverage}
-                onChange={(e) => setLeverage(Math.max(1, Math.min(maxLeverage ?? 1, Math.round(num(e.target.value)) || 1)))}
-                className="field num w-20 px-2.5 py-1.5 text-sm"
-                aria-label={t('demo.leverage')}
-              />
-            </div>
-            <p className="text-[11px]" style={{ color: 'var(--color-mut)' }}>
-              {maxLeverage === null ? t('demo.leverageNoLimit') : t('demo.leverageLimit', { max: maxLeverage })}
-            </p>
-          </div>
-          {/* Betrag in € (Standard) oder Stückzahl (Profi-Umschalter) */}
-          <div className="flex flex-col gap-1 sm:col-span-2">
-            <div className="flex items-center justify-between">
+            <div>
               <span className="label">{amountMode === 'qty' ? t('demo.qty') : t('demo.amount')}</span>
-              <div className="flex overflow-hidden rounded-[0.625rem] border text-xs" style={{ borderColor: 'var(--color-line)' }}>
+              <div className="mt-1 flex overflow-hidden rounded-[0.625rem] border text-xs" style={{ borderColor: 'var(--color-line)' }}>
                 {(['eur', 'qty'] as const).map((m) => (
-                  <button key={m} onClick={() => setAmountMode(m)} className="px-2 py-1" style={seg(amountMode === m)}>
+                  <button key={m} onClick={() => setAmountMode(m)} className="flex-1 px-2 py-1.5" style={seg(amountMode === m)}>
                     {m === 'eur' ? '€' : t('demo.qtyShort')}
                   </button>
                 ))}
               </div>
             </div>
-            {amountMode === 'eur' ? (
-              <>
-                <div className="flex items-center gap-2">
-                  <input
-                    value={amountEur}
-                    onChange={(e) => setAmountEur(e.target.value)}
-                    inputMode="decimal"
-                    placeholder="100"
-                    className={inputCls}
-                    disabled={eurUsd === null}
-                  />
-                  <span className="num text-sm" style={{ color: 'var(--color-mut)' }}>€</span>
-                  {[50, 100, 500, 1000].map((v) => (
-                    <button key={v} onClick={() => setAmountEur(String(v))} className="rounded border px-2 py-1 text-xs" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }} disabled={eurUsd === null}>
-                      {v}
-                    </button>
-                  ))}
-                </div>
-                {eurUsd === null ? (
-                  <p className="text-[11px]" style={{ color: 'var(--color-warn)' }}>{t('demo.noEurRate')}</p>
-                ) : derivedQty !== null ? (
-                  <p className="num text-[11px]" style={{ color: 'var(--color-mut)' }}>
-                    {leverage > 1 && <>{t('demo.positionSize', { eur: fmt(eurAmount * leverage, 0), lev: leverage })} · </>}
-                    ≈ {fmt(derivedQty, 6)} {symbol.split('/')[0]} · {t('demo.rateUsed', { rate: fmt(eurUsd, 4) })}
-                  </p>
-                ) : eurAmount > 0 ? (
-                  <p className="text-[11px]" style={{ color: 'var(--color-warn)' }}>{t('demo.noLivePrice')}</p>
-                ) : null}
-              </>
-            ) : (
-              <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal" placeholder="0.01" className={inputCls} />
-            )}
-          </div>
-          {type === 'limit' && (
-            <label className="flex flex-col gap-1">
-              <span className="label">{t('demo.limitPrice')}</span>
-              <input value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} inputMode="decimal" className={inputCls} />
-            </label>
-          )}
-          {/* Absicherung in Klartext: „Verkaufe automatisch bei −x %" */}
-          <div className="flex flex-col gap-1">
-            <span className="label">
-              {getUiMode() === 'profi' ? t('demo.stopLossOpt') : t('ticket.protection')}
-              <span className="ml-1 cursor-help" title={t('ticket.protectionHint')} style={{ color: 'var(--color-mut)' }}>ⓘ</span>
-            </span>
-            <div className="flex items-center gap-2">
-              <input type="range" min={0} max={20} step={0.5} value={slPct} onChange={(e) => setSlPct(Number(e.target.value))} className="w-full" />
-              <span className="num w-24 shrink-0 text-right text-xs">
-                {slPct > 0 ? `−${slPct.toLocaleString(appLocale())} %` : t('demo.off')}
-              </span>
-            </div>
-            {slPct > 0 && slPrice !== undefined && (
-              <p className="num text-[11px]" style={{ color: 'var(--color-mut)' }}>
-                {t('ticket.protectionText', { pct: slPct.toLocaleString(appLocale()) })} (≈ {fmt(slPrice)})
+            {/* Hebel (Isolated Margin): Schnellwahl bis zur Obergrenze aus den Einstellungen */}
+            <div className="flex flex-col gap-1 sm:col-span-2">
+              <div className="flex items-center justify-between">
+                <span className="label">
+                  {t('demo.leverage')}
+                  <span className="ml-1 cursor-help" title={t('demo.leverageHint')} style={{ color: 'var(--color-mut)' }}>ⓘ</span>
+                </span>
+                <span className="num text-sm">{leverage}×</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {LEVERAGE_STEPS.filter((v) => v <= (maxLeverage ?? 1)).map((v) => (
+                  <button key={v} onClick={() => setLeverage(v)} className="rounded border px-2 py-1 text-xs" style={seg(leverage === v)}>
+                    {v}×
+                  </button>
+                ))}
+                <input
+                  type="number"
+                  min={1}
+                  max={maxLeverage ?? 1}
+                  step={1}
+                  value={leverage}
+                  onChange={(e) => setLeverage(Math.max(1, Math.min(maxLeverage ?? 1, Math.round(num(e.target.value)) || 1)))}
+                  className="field num w-20 px-2.5 py-1.5 text-sm"
+                  aria-label={t('demo.leverage')}
+                />
+              </div>
+              <p className="text-[11px]" style={{ color: 'var(--color-mut)' }}>
+                {maxLeverage === null ? t('demo.leverageNoLimit') : t('demo.leverageLimit', { max: maxLeverage })}
               </p>
-            )}
-          </div>
-          {/* Gewinn sichern: „Verkaufe automatisch bei +x %" */}
-          <div className="flex flex-col gap-1">
-            <span className="label">
-              {getUiMode() === 'profi' ? t('demo.takeProfitOpt') : t('demo.takeProfitSimple')}
-              <span className="ml-1 cursor-help" title={t('demo.takeProfitHint')} style={{ color: 'var(--color-mut)' }}>ⓘ</span>
-            </span>
-            <div className="flex items-center gap-2">
-              <input type="range" min={0} max={50} step={0.5} value={tpPct} onChange={(e) => setTpPct(Number(e.target.value))} className="w-full" />
-              <span className="num w-24 shrink-0 text-right text-xs">
-                {tpPct > 0 ? `+${tpPct.toLocaleString(appLocale())} %` : t('demo.off')}
-              </span>
             </div>
-            {tpPct > 0 && tpPrice !== undefined && (
-              <p className="num text-[11px]" style={{ color: 'var(--color-mut)' }}>≈ {fmt(tpPrice)}</p>
-            )}
-          </div>
-        </div>
-
-        {/* Kosten-Vorschau aus dem ECHTEN Buch */}
-        <div className="rounded-[0.625rem] border p-4 text-sm" style={{ borderColor: 'var(--color-line)' }}>
-          <p className="label">{t('demo.previewTitle')}</p>
-          {!valid ? (
-            <p className="mt-3 text-xs" style={{ color: 'var(--color-mut)' }}>
-              {t('demo.previewHint')}
-            </p>
-          ) : previewing && !preview ? (
-            <Loading />
-          ) : preview === null ? (
-            <p className="mt-3 text-xs" style={{ color: 'var(--color-mut)' }}>
-              {t('demo.previewUnavailable')}
-            </p>
-          ) : !preview.ok ? (
-            <p className="mt-3 text-xs" style={{ color: 'var(--color-warn)' }}>
-              {t(`demo.err_${preview.reason}`)}
-            </p>
-          ) : (
-            <ul className="num mt-3 space-y-1.5">
-              <li className="flex justify-between gap-3">
-                <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewFill')}</span>
-                <span>{preview.estFillPrice !== null ? fmt(preview.estFillPrice) : '—'}</span>
-              </li>
-              <li className="flex justify-between gap-3">
-                <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewSpread')}</span>
-                <span>{preview.spread !== null ? fmt(preview.spread, 4) : '—'}</span>
-              </li>
-              <li className="flex justify-between gap-3">
-                <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewSlippage')}</span>
-                <span>{fmt(preview.estSlippage)} $</span>
-              </li>
-              <li className="flex justify-between gap-3">
-                <span style={{ color: 'var(--color-mut)' }}>
-                  {t('demo.previewFee')} ({preview.estFeeRole})
-                </span>
-                <span>{fmt(preview.estFee)} $</span>
-              </li>
-              <li className="flex justify-between gap-3">
-                <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewNotional')}</span>
-                <span>{fmt(preview.estNotional)} $</span>
-              </li>
-              <li className="flex justify-between gap-3">
-                <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewMargin', { lev: preview.leverage })}</span>
-                <span>{fmt(preview.margin)} $</span>
-              </li>
-              <li className="flex justify-between gap-3">
-                <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewLiquidation')}</span>
-                <span style={preview.liquidationPrice !== null ? { color: 'var(--color-warn)' } : undefined}>
-                  {preview.liquidationPrice !== null ? fmt(preview.liquidationPrice) : t('demo.noLiquidation')}
-                </span>
-              </li>
-              {preview.estRestingQty > 0 && (
-                <li className="flex justify-between gap-3">
-                  <span style={{ color: 'var(--color-mut)' }}>{t('demo.previewResting')}</span>
-                  <span>{fmt(preview.estRestingQty, 6)}</span>
-                </li>
+            {/* Absicherung in Klartext: „Verkaufe automatisch bei −x %" */}
+            <div className="flex flex-col gap-1">
+              <span className="label">
+                {getUiMode() === 'profi' ? t('demo.stopLossOpt') : t('ticket.protection')}
+                <span className="ml-1 cursor-help" title={t('ticket.protectionHint')} style={{ color: 'var(--color-mut)' }}>ⓘ</span>
+              </span>
+              <div className="flex items-center gap-2">
+                <input type="range" min={0} max={20} step={0.5} value={slPct} onChange={(e) => setSlPct(Number(e.target.value))} className="w-full" />
+                <span className="num w-24 shrink-0 text-right text-xs">{slPct > 0 ? `−${slPct.toLocaleString(appLocale())} %` : t('demo.off')}</span>
+              </div>
+              {slPct > 0 && slPrice !== undefined && (
+                <p className="num text-[11px]" style={{ color: 'var(--color-mut)' }}>
+                  {t('ticket.protectionText', { pct: slPct.toLocaleString(appLocale()) })} (≈ {fmt(slPrice)})
+                </p>
               )}
-            </ul>
-          )}
-        </div>
-      </div>
+            </div>
+            {/* Gewinn sichern: „Verkaufe automatisch bei +x %" */}
+            <div className="flex flex-col gap-1">
+              <span className="label">
+                {getUiMode() === 'profi' ? t('demo.takeProfitOpt') : t('demo.takeProfitSimple')}
+                <span className="ml-1 cursor-help" title={t('demo.takeProfitHint')} style={{ color: 'var(--color-mut)' }}>ⓘ</span>
+              </span>
+              <div className="flex items-center gap-2">
+                <input type="range" min={0} max={50} step={0.5} value={tpPct} onChange={(e) => setTpPct(Number(e.target.value))} className="w-full" />
+                <span className="num w-24 shrink-0 text-right text-xs">{tpPct > 0 ? `+${tpPct.toLocaleString(appLocale())} %` : t('demo.off')}</span>
+              </div>
+              {tpPct > 0 && tpPrice !== undefined && <p className="num text-[11px]" style={{ color: 'var(--color-mut)' }}>≈ {fmt(tpPrice)}</p>}
+            </div>
+            {preview && preview.ok && (
+              <ul className="num text-xs sm:col-span-2" style={{ color: 'var(--color-mut)' }}>
+                <li className="flex justify-between gap-3 py-1">
+                  <span>{t('demo.previewSpread')}</span>
+                  <span style={{ color: 'var(--color-ink)' }}>{preview.spread !== null ? fmt(preview.spread, 4) : '—'}</span>
+                </li>
+                <li className="flex justify-between gap-3 py-1">
+                  <span>{t('demo.previewSlippage')}</span>
+                  <span style={{ color: 'var(--color-ink)' }}>{fmt(preview.estSlippage)} $</span>
+                </li>
+                <li className="flex justify-between gap-3 py-1">
+                  <span>
+                    {t('demo.previewFee')} ({preview.estFeeRole})
+                  </span>
+                  <span style={{ color: 'var(--color-ink)' }}>{fmt(preview.estFee)} $</span>
+                </li>
+                <li className="flex justify-between gap-3 py-1">
+                  <span>{t('demo.previewMargin', { lev: preview.leverage })}</span>
+                  <span style={{ color: 'var(--color-ink)' }}>{fmt(preview.margin)} $</span>
+                </li>
+              </ul>
+            )}
+            <div className="sm:col-span-2">
+              <VenueCompare symbol={symbol} side={direction === 'long' ? 'buy' : 'sell'} selected={venue} onSelect={(v) => setVenue(v as DemoVenue)} />
+            </div>
+          </div>
+        </details>
 
-      <div className="mt-4">
-        <VenueCompare symbol={symbol} side={direction === 'long' ? 'buy' : 'sell'} selected={venue} onSelect={(v) => setVenue(v as DemoVenue)} />
+        {error && (
+          <p className="mt-3 text-xs" style={{ color: 'var(--color-neg)' }}>
+            {error}
+          </p>
+        )}
+        {success && (
+          <p className="mt-3 rounded-xl px-3 py-2 text-sm" style={{ background: 'rgba(34,197,94,0.12)', color: 'var(--color-pos)' }}>
+            {success}
+          </p>
+        )}
+        <button
+          onClick={() => void place()}
+          disabled={busy || !valid}
+          className="btn-primary mt-4 w-full py-3 text-[15px] disabled:opacity-50"
+          style={{ background: direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)', color: direction === 'long' ? '#06260f' : '#fff' }}
+        >
+          {busy ? t('common.loading') : t(direction === 'long' ? 'demo.buyNow' : 'demo.sellNow')}
+        </button>
       </div>
-
-      {error && (
-        <p className="mt-3 text-xs" style={{ color: 'var(--color-neg)' }}>
-          {error}
-        </p>
-      )}
-      {success && (
-        <p className="mt-3 text-xs" style={{ color: 'var(--color-pos)' }}>
-          {success}
-        </p>
-      )}
-      <button onClick={() => void place()} disabled={busy || !valid} className="btn-primary mt-4 px-5 py-2 text-sm disabled:opacity-50">
-        {busy ? t('common.loading') : t(direction === 'long' ? 'demo.buyNow' : 'demo.sellNow')}
-      </button>
-    </Panel>
+    </section>
   );
 }
 
@@ -625,12 +649,20 @@ function PositionsPanel({ positions, onChanged }: { positions: Position[] | null
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [protDrafts, setProtDrafts] = useState<Record<string, { sl: string; tp: string }>>({});
+  // Ergebniskarte (Welle D, Prinzip 9): nach dem Schließen das echte Netto-Ergebnis aus der Historie zeigen.
+  const [closed, setClosed] = useState<Trade | null>(null);
 
   async function close(p: Position) {
     setBusy(p.id);
     setError(null);
     try {
       await trpc.demo.closePosition.mutate({ positionId: p.id });
+      try {
+        const [last] = await trpc.demo.history.query({ limit: 1 });
+        if (last && last.symbol === p.symbol) setClosed(last);
+      } catch {
+        // ohne Historie keine Karte — die Position ist trotzdem geschlossen
+      }
       onChanged();
     } catch (err) {
       setError(reasonText(t, err));
@@ -669,6 +701,31 @@ function PositionsPanel({ positions, onChanged }: { positions: Position[] | null
         <p className="mt-2 text-xs" style={{ color: 'var(--color-neg)' }}>
           {error}
         </p>
+      )}
+      {closed && (
+        <div className="reveal mt-4 rounded-xl border p-4" style={{ borderColor: closed.netPnl >= 0 ? 'rgba(34,197,94,0.45)' : 'rgba(239,68,68,0.45)', background: closed.netPnl >= 0 ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)' }} role="status">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold">
+                {t('demo.closedTitle')} · {closed.symbol} <span className={`chip ${closed.direction === 'long' ? 'chip--pos' : 'chip--neg'} ml-1`}>{closed.direction === 'long' ? 'Long' : 'Short'}</span>
+              </p>
+              <p className="num mt-1 text-xs" style={{ color: 'var(--color-mut)' }}>
+                {fmt(closed.entryPrice)} → {fmt(closed.exitPrice)} · {t('demo.previewCosts')} {fmt(closed.fees + closed.slippage)} $
+                {closed.rMultiple !== null ? ` · ${fmt(closed.rMultiple, 2)} R` : ''}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="label">{t('demo.closedResult')}</p>
+              <p className="num text-2xl font-bold tracking-tight" style={{ color: closed.netPnl >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+                {closed.netPnl >= 0 ? '+' : ''}
+                {fmt(closed.netPnl)} $
+              </p>
+            </div>
+            <button type="button" className="btn" onClick={() => setClosed(null)}>
+              {t('demo.closedOk')}
+            </button>
+          </div>
+        </div>
       )}
       {positions === null ? (
         <Loading />

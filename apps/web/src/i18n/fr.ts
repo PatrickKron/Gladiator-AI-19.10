@@ -994,6 +994,9 @@ export const fr: Catalog = {
     assetCount: '{{n}} instruments',
   },
   signals: {
+    why: "Pourquoi",
+    riskLine: "Risque",
+    openTicket: "Ouvrir le ticket",
     subtitleList: "Tous les setups en lignes compactes — les plus récents d'abord, les expirés estompés à la fin. Cliquez sur une ligne pour le graphique, les avis de l'essaim et les détails. Sources : scan engine (toutes les 5 min), webhook TradingView, instruction DSL, manuel.",
     rowsSummary: '{{n}} signaux',
     expiredSummary: 'dont {{n}} expirés',
@@ -2041,6 +2044,11 @@ export const fr: Catalog = {
     oneUser: 'Un seul type d\'utilisateur avec accès complet — pas de rôles, pas de tiers (décision de périmètre 2026-07-02).',
   },
   demo: {
+    previewCosts: "Frais + slippage",
+    advanced: "Avancé",
+    closedTitle: "Position fermée",
+    closedResult: "Résultat",
+    closedOk: "Continuer",
     leverage: 'Levier',
     leverageHint: 'Avec un levier, tu n’engages qu’une partie de la valeur de la position comme marge. Gains et pertes portent sur la valeur totale ; si le prix atteint le prix de liquidation, la marge est perdue.',
     leverageLimit: 'Limite {{max}}× (Paramètres › Trading)',

@@ -118,8 +118,9 @@ Hover auf einer Markt-Karte hebt weiterhin die Spalten des Symbols hervor.
       (Zeitrahmen · Ansicht ▾ · Smart Money · Bibliothek · Zeichnen ▾ · Replay), ruhige
       Standardansicht (EMA, Volumen, Signale), Ansicht bleibt im Browser; Screener-Treffer
       als Karten; Marktlage mit Lagebild-Streifen (Regime-Score als Ampel).
-- [ ] **D · Traden & Signale**: Kauf-Flow Betrag → Richtung → Vorschau → Bestätigen,
-      „Erweitert"; Signalkarten mit Bild und Gründen; Ergebniskarte beim Schließen.
+- [x] **D · Traden & Signale** (PR #71): Kauf-Flow Betrag → Richtung → Vorschau → ein Knopf,
+      alles Weitere unter „Erweitert"; Signalkarten mit Bild von Anfang an, Gründe und Risiko in
+      Worten, eine Primäraktion; Ergebniskarte mit echtem Netto-Ergebnis beim Schließen.
 - [ ] **E · Strategie & Mehr**: Labor-Archiv, Agenten + Werkstatt als eine Seite,
       Einstellungen als Gruppen mit Status-Chips.
 - [ ] **F · Spaß & Feinschliff**: Kurven-Animation, Erfolgsmomente, Einrichtungs-Fortschritt,

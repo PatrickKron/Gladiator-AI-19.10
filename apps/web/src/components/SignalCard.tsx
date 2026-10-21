@@ -711,14 +711,14 @@ function AdjustTicket({
  */
 export function SignalCard({ signal, onDecided, readOnly = false }: { signal: SignalRow; onDecided: () => void; readOnly?: boolean }) {
   const { t } = useTranslation();
-  const [showChart, setShowChart] = useState(false);
+  // Das Bild gehört zur Karte (Welle D): bei offenen Signalen von Anfang an sichtbar, bei abgelaufenen auf Wunsch.
+  const [showChart, setShowChart] = useState(signal.status === 'new');
   const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [blocked, setBlocked] = useState<string[] | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [ticketOpen, setTicketOpen] = useState(false);
   const long = signal.direction === 'long';
-  const dirColor = long ? 'var(--color-pos)' : 'var(--color-neg)';
   const exp = signal.status === 'new' ? expiryInfo(signal.createdAt, signal.timeframe) : null;
 
   async function executeConfirm(
@@ -766,12 +766,7 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
     <div className="glass glass-hover p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2.5">
-          <span
-            className="num rounded px-1.5 py-0.5 text-xs font-semibold tracking-wider"
-            style={{ color: dirColor, border: `1px solid ${dirColor}`, boxShadow: `0 0 12px ${long ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'}` }}
-          >
-            {long ? 'LONG' : 'SHORT'}
-          </span>
+          <span className={`chip ${long ? 'chip--pos' : 'chip--neg'}`}>{long ? 'Long' : 'Short'}</span>
           <span className="flex items-center gap-1 font-medium">
             <FavStarSymbol symbol={signal.symbol} initialFavorite={signal.isFavorite} />
             <a href={buildChartUrl(signal.symbol, signal.timeframe)} className="hover:underline" title={t('chart.title')}>
@@ -809,9 +804,8 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
         <div className="flex items-center gap-2">
           <RegimeBadge symbol={signal.symbol} timeframe={signal.timeframe} />
           <MlBadge signalId={signal.id} />
-          <span className="num text-lg font-semibold" style={{ color: RISK_COLOR[signal.riskClass] }}>
+          <span className="num text-2xl font-bold tracking-tight" style={{ color: RISK_COLOR[signal.riskClass] }} title={`${Number(signal.score).toLocaleString(appLocale(), { minimumFractionDigits: 1 })} / 10`}>
             {Number(signal.score).toLocaleString(appLocale(), { minimumFractionDigits: 1 })}
-            <span className="text-xs font-normal" style={{ color: 'var(--color-mut)' }}> / 10</span>
           </span>
         </div>
       </div>
@@ -833,16 +827,13 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-1.5">
-        {signal.confluence.map((tag) => (
-          <span key={tag} className="rounded border px-1.5 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
-            {tag}
-          </span>
-        ))}
-        <span className="rounded border px-1.5 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
-          {t('common.session')}: {signal.session}
-        </span>
-      </div>
+      {/* Gründe und Risiko in Worten (Welle D) */}
+      <p className="mt-4 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+        <span className="font-semibold" style={{ color: 'var(--color-ink)' }}>{t('signals.why')}:</span> {signal.confluence.join(' · ')}
+      </p>
+      <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+        <span className="font-semibold" style={{ color: 'var(--color-ink)' }}>{t('signals.riskLine')}:</span> {t(`signals.risk_${signal.riskClass}`)} · {t('common.session')} {signal.session} · {signal.setupType}
+      </p>
 
       <LifecycleChips signal={signal} />
 
@@ -888,20 +879,11 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
               onCancel={() => setTicketOpen(false)}
             />
           ) : (
-            <div className="mt-4 flex items-center gap-2.5">
-              <button
-                onClick={() => void decide('confirm')}
-                disabled={busy !== null}
-                className="btn-primary flex-1 px-3 py-2 text-sm disabled:opacity-50"
-              >
-                {busy === 'confirm' ? t('signals.confirming') : t('signals.confirmBtn')}
+            <div className="mt-4 grid grid-cols-[1fr_auto] items-center gap-2">
+              <button onClick={() => void decide('confirm')} disabled={busy !== null} className="btn-primary px-3 py-2.5 text-sm disabled:opacity-50">
+                {busy === 'confirm' ? t('signals.confirming') : t('signals.openTicket')}
               </button>
-              <button
-                onClick={() => void decide('reject')}
-                disabled={busy !== null}
-                className="flex-1 rounded-[0.625rem] border px-3 py-2 text-sm transition-colors disabled:opacity-50"
-                style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
-              >
+              <button onClick={() => void decide('reject')} disabled={busy !== null} className="btn disabled:opacity-50">
                 {busy === 'reject' ? t('signals.rejecting') : t('signals.rejectBtn')}
               </button>
             </div>

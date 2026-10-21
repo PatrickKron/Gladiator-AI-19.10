@@ -994,6 +994,9 @@ export const it: Catalog = {
     assetCount: '{{n}} strumenti',
   },
   signals: {
+    why: "Perché",
+    riskLine: "Rischio",
+    openTicket: "Apri ticket",
     subtitleList: 'Tutti i setup come righe compatte — i più recenti in alto, gli scaduti attenuati in fondo. Clicca una riga per grafico, motivazioni dello sciame e dettagli. Fonti: scansione engine (ogni 5 min), webhook TradingView, istruzione DSL, manuale.',
     rowsSummary: '{{n}} segnali',
     expiredSummary: 'di cui {{n}} scaduti',
@@ -2041,6 +2044,11 @@ export const it: Catalog = {
     oneUser: 'Un solo tipo di utente con accesso completo — niente ruoli, niente tier (decisione di scope 2026-07-02).',
   },
   demo: {
+    previewCosts: "Commissione + slippage",
+    advanced: "Avanzate",
+    closedTitle: "Posizione chiusa",
+    closedResult: "Risultato",
+    closedOk: "Continua",
     leverage: 'Leva',
     leverageHint: 'Con la leva impegni come margine solo una parte del valore della posizione. Profitti e perdite valgono sul valore pieno; se il prezzo raggiunge il prezzo di liquidazione, il margine è perso.',
     leverageLimit: 'Limite {{max}}× (Impostazioni › Trading)',
