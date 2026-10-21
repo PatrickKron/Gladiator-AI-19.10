@@ -1,6 +1,17 @@
 import { and, eq, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import { schema, type Db } from '@gladiator/db';
-import { fetchOnchainBalances, fetchPairDepths, fetchRugPool, fetchTokenPrices, walletBalances, type PoolDepth, type SwapChainId } from '@gladiator/exchange';
+import {
+  fetchPairDepths,
+  fetchRugPool,
+  fetchTokenOutflows,
+  fetchTokenPairs,
+  fetchTokenPrices,
+  KYBER_ROUTERS,
+  UNISWAP_V4_POOL_MANAGER,
+  walletBalances,
+  type PoolDepth,
+  type SwapChainId,
+} from '@gladiator/exchange';
 import { notifySafe } from './notify.js';
 import { executePreparedSwap, prepareSwap, swapNet, type SwapWalletRow } from './swap-service.js';
 
@@ -115,15 +126,19 @@ export function rugGuardMigrates(
 }
 
 /**
- * Dev-Verkauf-Schutz (rein): Hat die Ersteller-Wallet mindestens `dropPct` % ihres
- * Bestands beim Anlegen abgegeben, auslösen (Dev verkauft = typisches Warnsignal).
- * Ganzzahlig in der kleinsten Einheit — keine Rundung bei 18 Nachkommastellen.
+ * Dev-Verkauf-Schutz (rein): Hat die Ersteller-Wallet seit dem Anlegen mindestens
+ * `dropPct` % ihres damaligen Bestands VERKAUFT, auslösen. Gezählt wird nur, was
+ * an einen Pool des Tokens oder einen Swap-Router ging (`devSoldAtomic`) — Locks,
+ * Vesting, Burns und Umbuchungen sind kein Verkauf. Ganzzahlig in der kleinsten Einheit.
  */
-export function evaluateDevSell(startAtomic: bigint, nowAtomic: bigint, dropPct: number): boolean {
-  if (startAtomic <= 0n || !(dropPct > 0) || dropPct > 100) return false;
-  // nowAtomic <= start × (1 − drop/100), in Basispunkten gerechnet
-  const keepBp = BigInt(Math.round((100 - dropPct) * 100));
-  return nowAtomic * 10_000n <= startAtomic * keepBp;
+export function evaluateDevSell(startAtomic: bigint, soldAtomic: bigint, dropPct: number): boolean {
+  if (startAtomic <= 0n || soldAtomic <= 0n || !(dropPct > 0) || dropPct > 100) return false;
+  return soldAtomic * 10_000n >= startAtomic * BigInt(Math.round(dropPct * 100));
+}
+
+/** Summe der Transfers an Verkaufs-Ziele (Pools des Tokens, Uniswap-v4-PoolManager, Router). */
+export function devSoldAtomic(transfers: { to: string; amount: bigint }[], sinks: Set<string>): bigint {
+  return transfers.filter((t) => sinks.has(t.to.toLowerCase())).reduce((s, t) => s + t.amount, 0n);
 }
 
 /** Plausibilität beim Anlegen: eine Order, die sofort auslösen würde, ist fast immer ein Tippfehler. */
@@ -266,16 +281,28 @@ export async function runSwapOrders(db: Db): Promise<SwapOrdersResult> {
     if (price === undefined) continue;
     out.checked++;
     if (order.kind === 'dev_sell') {
-      if (!order.watchAddress || order.watchBalance === null) continue;
-      let now: bigint | undefined;
+      if (!order.watchAddress || order.watchBalance === null || order.watchBlock === null) continue;
+      const chain = wallet.chain as SwapChainId;
+      let sold: bigint;
+      let cursor: string;
       try {
-        now = (await fetchOnchainBalances(wallet.chain as SwapChainId, order.watchAddress, [order.token], swapNet())).get(order.token);
+        const page = await fetchTokenOutflows(chain, order.token, order.watchAddress, BigInt(order.watchBlock), swapNet());
+        cursor = page.cursor;
+        sold = 0n;
+        if (page.transfers.length > 0) {
+          // Verkaufs-Ziele: alle Pools des Tokens + v4-PoolManager + bekannte Router
+          const pools = (await fetchTokenPairs(chain, order.token, swapNet())).map((p) => (p.pairAddress ?? '').toLowerCase());
+          const sinks = new Set([...pools, ...KYBER_ROUTERS, ...(chain === 'solana' ? [] : [UNISWAP_V4_POOL_MANAGER[chain]])]);
+          sold = devSoldAtomic(page.transfers, sinks);
+        }
       } catch (err) {
-        // Bestand nicht lesbar → nichts entscheiden, nächster Takt
-        out.errors.push(`Dev-Bestand ${order.symbol}: ${err instanceof Error ? err.message : String(err)}`);
+        // Kette/Pools nicht lesbar → nichts entscheiden, Cursor bleibt (nächster Takt liest denselben Bereich)
+        out.errors.push(`Dev-Verkäufe ${order.symbol}: ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
-      if (now !== undefined && evaluateDevSell(BigInt(order.watchBalance), now, Number(order.trailPct))) await fireOrder(db, order, wallet, price, out);
+      const total = BigInt(order.watchSold ?? '0') + sold;
+      await db.update(swapOrders).set({ watchBlock: cursor, watchSold: total.toString() }).where(and(eq(swapOrders.id, order.id), eq(swapOrders.status, 'open')));
+      if (evaluateDevSell(BigInt(order.watchBalance), total, Number(order.trailPct))) await fireOrder(db, order, wallet, price, out);
       continue;
     }
     if (order.kind === 'rug_guard') {

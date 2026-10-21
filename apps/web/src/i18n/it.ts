@@ -1945,7 +1945,7 @@ export const it: Catalog = {
     rugListed: "liquidità del pool −{{pct}} (alla creazione {{liq}})",
     kind_dev_sell: "Protezione vendita dev",
     devDrop: "Vendita del creatore (%)",
-    devHint: "Vende il {{share}} % non appena il wallet del creatore del token ha ceduto il {{pct}} del suo saldo attuale (letto dalla catena ogni minuto; creatore secondo GoPlus). Se la catena non è leggibile, non si decide nulla. La vendita passa per gli stessi limiti (slippage, impatto sul prezzo); se fallisce non c'è un secondo tentativo.",
+    devHint: "Vende il {{share}} % non appena il wallet del creatore del token ha VENDUTO il {{pct}} del suo saldo attuale — contano solo i trasferimenti ai pool del token o ai router di swap (letto dalla catena ogni minuto; creatore secondo GoPlus). Lock, burn e trasferimenti interni non attivano; se il creatore vende da un wallet nuovo, la protezione non lo vede. Se la catena non è leggibile, non si decide nulla. La vendita passa per gli stessi limiti; se fallisce non c'è un secondo tentativo.",
     devListed: "Il creatore {{dev}} vende {{pct}}",
     alertOnly: "Solo notifica (campanella + push): non si compra né si vende nulla.",
     autoNote: "Dopo l'acquisto: take-profit {{tp}}, stop-loss {{sl}} dal prezzo di acquisto.",

@@ -10,6 +10,7 @@ import {
   ERC20_TRANSFER_TOPIC,
   EVM_LOG_RPCS,
   fetchEvmWalletSwaps,
+  fetchTokenOutflows,
   logRpcCandidates,
   padTopic,
   setEvmRetryDelayForTests,
@@ -265,5 +266,22 @@ describe('echte Daten (Base-RPC)', () => {
     const logs = (await post('eth_getLogs', [{ address: pm, topics: [V4_SWAP_TOPIC], fromBlock: `0x${(head - 200n).toString(16)}`, toBlock: `0x${head.toString(16)}` }])) as { address: string; topics: string[] }[];
     expect(logs.length).toBeGreaterThan(0);
     expect(v4SwapIn('base', logs)).toBe(true);
+  }, 60_000);
+
+  it('Dev-Verkauf-Schutz: echte ausgehende USDC-Transfers des Universal Routers, Cursor lückenlos', async () => {
+    const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+    const UR = '0x6fF5693b99212Da76ad316178A184AB56D299b43';
+    const start = await fetchTokenOutflows('base', USDC, UR, null);
+    expect(start.transfers).toEqual([]);
+    const head = BigInt(start.cursor);
+    expect(head).toBeGreaterThan(20_000_000n);
+    // die letzten 200 Blöcke (~7 min): der Router gibt laufend USDC aus
+    const page = await fetchTokenOutflows('base', USDC, UR, head - 200n);
+    expect(BigInt(page.cursor)).toBeGreaterThanOrEqual(head);
+    expect(page.transfers.length).toBeGreaterThan(0);
+    for (const t of page.transfers) {
+      expect(t.to).toMatch(/^0x[0-9a-f]{40}$/);
+      expect(t.amount).toBeGreaterThanOrEqual(0n);
+    }
   }, 60_000);
 });

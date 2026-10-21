@@ -137,8 +137,12 @@ export const swapOrders = pgTable(
     peakDepth: numeric('peak_depth'),
     /** Dev-Verkauf-Schutz: beobachtete Ersteller-Wallet (EVM) */
     watchAddress: text('watch_address'),
-    /** Dev-Verkauf-Schutz: Token-Bestand der Ersteller-Wallet beim Anlegen (kleinste Einheit); Abfall in % steht in `trailPct` */
+    /** Dev-Verkauf-Schutz: Token-Bestand der Ersteller-Wallet beim Anlegen (kleinste Einheit); Verkaufsanteil in % steht in `trailPct` */
     watchBalance: numeric('watch_balance'),
+    /** Dev-Verkauf-Schutz: zuletzt gelesener Block (Transfer-Logs des Erstellers) */
+    watchBlock: numeric('watch_block'),
+    /** Dev-Verkauf-Schutz: seit dem Anlegen VERKAUFT (an Pools/Router übertragen), kleinste Einheit */
+    watchSold: numeric('watch_sold'),
     /** Verkäufe: Anteil des Bestands beim Auslösen in % */
     sellPercent: numeric('sell_percent'),
     /** Limit-Kauf: Betrag in nativer Währung (Dezimal-String) */

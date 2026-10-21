@@ -253,6 +253,13 @@
       "when": 1792575387931,
       "tag": "0035_sudden_vance_astro",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1792576088499,
+      "tag": "0036_volatile_salo",
+      "breakpoints": true
     }
   ]
 }

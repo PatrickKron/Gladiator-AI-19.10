@@ -24,6 +24,7 @@ import {
   generateWalletKey,
   importWalletKey,
   fetchOnchainBalances,
+  fetchTokenOutflows,
   fetchRugPool,
   fetchTokenCandles,
   fetchTokenDiscovery,
@@ -604,17 +605,23 @@ export const swapsRouter = router({
       }
       // Dev-Verkauf-Schutz: Ersteller-Wallet (GoPlus) und ihr Bestand jetzt (direkt von der Kette)
       const dev = input.kind === 'dev_sell';
-      let devWatch: { address: string; balance: bigint } | null = null;
+      let devWatch: { address: string; balance: bigint; block: string } | null = null;
       if (dev) {
         if (SWAP_CHAINS[chain].kind !== 'evm') {
           throw new TRPCError({ code: 'BAD_REQUEST', message: 'Dev-Verkauf-Schutz gibt es nur auf EVM-Ketten (dort nennt GoPlus die Ersteller-Wallet).' });
         }
         const safety = await cachedTokenSafety(chain, input.token).catch((err: unknown) => asTrpc(netError(err)));
         if (!safety.creatorAddress) throw new TRPCError({ code: 'BAD_GATEWAY', message: 'Ersteller-Wallet unbekannt — Dev-Verkauf-Schutz nicht möglich.' });
+        // eigene Wallet als „Ersteller“: jeder eigene Verkauf würde den Schutz auslösen
+        if (w.address && safety.creatorAddress.toLowerCase() === w.address.toLowerCase()) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Diese Wallet ist selbst der Ersteller des Tokens — Dev-Verkauf-Schutz nicht sinnvoll.' });
+        }
         const bal = await fetchOnchainBalances(chain, safety.creatorAddress, [input.token], swapNet()).catch((err: unknown) => asTrpc(netError(err)));
         const now = bal.get(input.token) ?? 0n;
         if (now === 0n) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Die Ersteller-Wallet hält keine Tokens mehr — nichts zu beobachten.' });
-        devWatch = { address: safety.creatorAddress, balance: now };
+        // Startpunkt für die Transfer-Logs: aktueller bestätigter Block
+        const start = await fetchTokenOutflows(chain, input.token, safety.creatorAddress, null, swapNet()).catch((err: unknown) => asTrpc(netError(err)));
+        devWatch = { address: safety.creatorAddress, balance: now, block: start.cursor };
       }
       const [o] = await ctx.db
         .insert(swapOrders)
@@ -627,6 +634,8 @@ export const swapsRouter = router({
           trailPct: input.kind === 'trailing_stop' || rug || dev ? String(input.trailPct) : null,
           watchAddress: devWatch?.address ?? null,
           watchBalance: devWatch ? devWatch.balance.toString() : null,
+          watchBlock: devWatch?.block ?? null,
+          watchSold: devWatch ? '0' : null,
           // Rug-Schutz: Kurs zum Stand der festgehaltenen Pool-Liquidität (Umzug kursbereinigt vergleichen)
           peakPriceUsd: input.kind === 'trailing_stop' || rug ? String(info.priceUsd) : null,
           peakLiquidityUsd: rug && rugPool?.liquidityUsd != null ? String(rugPool.liquidityUsd) : null,

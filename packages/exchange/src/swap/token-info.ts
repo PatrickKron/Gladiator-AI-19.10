@@ -186,15 +186,20 @@ export type RugPool = { pairAddress: string; liquidityUsd: number | null; depth:
  * Token nur den einen liquidesten Pool, oft ein CLMM/Whirlpool. Keiner → null.
  */
 export async function fetchRugPool(chain: SwapChainId, address: string, fetchFn: Fetch = fetch): Promise<RugPool | null> {
+  const rug = pickRugPair(await fetchTokenPairs(chain, address, fetchFn), chain, address);
+  const depth = depthOf(rug);
+  if (!rug?.pairAddress || depth === null || !(depth > 0)) return null;
+  return { pairAddress: rug.pairAddress, liquidityUsd: num(rug.liquidity?.usd), depth };
+}
+
+/** ALLE Pools eines Tokens laut DexScreener (`token-pairs/v1`) — `tokens/v1` nennt je Token nur einen. */
+export async function fetchTokenPairs(chain: SwapChainId, address: string, fetchFn: Fetch = fetch): Promise<DexPair[]> {
   const res = await fetchFn(`${DEXSCREENER_API}/token-pairs/v1/${SWAP_CHAINS[chain].dexscreenerId}/${address}`, {
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) throw new Error(`DexScreener: HTTP ${res.status}`);
   const body = (await res.json()) as unknown;
-  const rug = pickRugPair(Array.isArray(body) ? (body as DexPair[]) : [], chain, address);
-  const depth = depthOf(rug);
-  if (!rug?.pairAddress || depth === null || !(depth > 0)) return null;
-  return { pairAddress: rug.pairAddress, liquidityUsd: num(rug.liquidity?.usd), depth };
+  return Array.isArray(body) ? (body as DexPair[]) : [];
 }
 
 export async function fetchTokenPrices(chain: SwapChainId, addresses: string[], fetchFn: Fetch = fetch): Promise<Map<string, number>> {
