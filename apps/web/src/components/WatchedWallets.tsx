@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
@@ -246,18 +246,23 @@ function WatchedRow({
   const [amount, setAmount] = useState(w.copyAmount ?? '0.1');
   const copyTargetLabel = paperWallets.find((p) => p.id === w.copyWalletId)?.label;
 
+  // Ref statt Abhängigkeit: der Aufrufer übergibt evtl. je Render eine neue Funktion
+  const onCopiedRef = useRef(onCopied);
+  onCopiedRef.current = onCopied;
+  const lastIds = useRef<Set<string> | null>(null);
   const loadActivity = useCallback(async () => {
     try {
       const next = await trpc.swaps.watchedActivity.query({ id: w.id });
-      setActivity((prev) => {
-        if (prev && next.some((a) => a.copyStatus === 'filled' && !prev.some((p) => p.id === a.id))) onCopied();
-        return next;
-      });
+      const prev = lastIds.current;
+      lastIds.current = new Set(next.map((a) => a.id));
+      setActivity(next);
       setError(null);
+      // neue ausgeführte Kopie → Wallet-Bestände neu laden (außerhalb des State-Updaters, genau einmal)
+      if (prev && next.some((a) => a.copyStatus === 'filled' && !prev.has(a.id))) onCopiedRef.current();
     } catch (err) {
       setError(errText(err, t('common.error')));
     }
-  }, [w.id, t, onCopied]);
+  }, [w.id, t]);
 
   useEffect(() => {
     if (!open) return;

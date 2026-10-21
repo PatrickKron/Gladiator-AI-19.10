@@ -58,6 +58,7 @@ export function WalletTrading() {
   useEffect(() => {
     void loadWallets();
   }, [loadWallets]);
+  const reloadWallets = useCallback(() => void loadWallets(), [loadWallets]);
 
   const wallet = wallets?.find((w) => w.id === walletId) ?? null;
 
@@ -105,7 +106,7 @@ export function WalletTrading() {
           <WatchedWallets
             chains={config.chains.map((c) => ({ id: c.id, name: c.name, kind: c.kind, nativeSymbol: c.native.symbol, explorerTx: c.explorerTx }))}
             paperWallets={wallets.filter((w) => w.mode === 'paper').map((w) => ({ id: w.id, label: w.label, chain: w.chain }))}
-            onCopied={() => void loadWallets()}
+            onCopied={reloadWallets}
           />
 
           <LiveWalletPanel

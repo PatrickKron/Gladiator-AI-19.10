@@ -1,6 +1,6 @@
-import { SWAP_CHAINS, type SwapChainId } from './chains.js';
+import { isStablecoin, SWAP_CHAINS, type SwapChainId } from './chains.js';
 import { fetchTokenDecimals } from './token-info.js';
-import type { ObservedSwap } from './wallet-activity.js';
+import { tokenVsStable, type ObservedSwap, type WalletSwapsPage } from './wallet-activity.js';
 
 /**
  * Swaps einer fremden EVM-Wallet von der Kette lesen (Ethereum, Base,
@@ -8,13 +8,16 @@ import type { ObservedSwap } from './wallet-activity.js';
  * Swap-Liste je Adresse: ERC-20-Transfer-Logs von/an die Wallet blockweise per
  * `eth_getLogs`, je Transaktion Saldo-Differenzen je Token + der mitgeschickte
  * native Betrag (`value`). Wrapped Native (WETH/WBNB) zählt als nativ.
- * Überweisungen (Transaktion direkt an den Token-Vertrag), Airdrops und
- * NFT-Transfers werden nie als Swap gedeutet. Ein Verkauf gegen natives ETH
- * ist sichtbar (Token raus), der Erlös aber nicht (interner Transfer) →
- * `nativeAtomic` null statt geraten.
+ * Ein Verkauf zählt nur mit SICHTBAREM Erlös: WETH/Stablecoin an die Wallet
+ * oder ein Unwrap (`Withdrawal` des Wrapped-Native-Vertrags) in derselben
+ * Transaktion — so werden Überweisungen, Bridges, Staking, Multisend nie als
+ * Verkauf kopiert. Airdrops und NFTs sind nie ein Swap.
  */
 
 type Fetch = typeof fetch;
+
+/** keccak256("Withdrawal(address,uint256)") — WETH/WBNB auspacken (Router zahlt natives ETH aus) */
+export const WETH_WITHDRAWAL_TOPIC = '0x7fcf532c15f0a6db0bd6d0e038bea71d30d808c7d98cb3bf7268a95bf5081b65';
 
 /** keccak256("Transfer(address,address,uint256)") */
 export const ERC20_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
@@ -68,6 +71,8 @@ export function deriveEvmSwap(
   owner: string,
   decimals: (token: string) => number,
   time: number | null,
+  /** in derselben Tx ausgepacktes Wrapped Native (Router-Auszahlung in ETH), aus dem Receipt */
+  unwrapped = 0n,
 ): ObservedSwap | null {
   const me = lc(owner);
   const wrapped = lc(SWAP_CHAINS[chain].wrappedNative);
@@ -102,17 +107,24 @@ export function deriveEvmSwap(
     const [token, d] = ups[0]!;
     return { ...base, side: 'buy', token, tokenAtomic: d, tokenDecimals: decimals(token), nativeAtomic: -native, counterToken: null };
   }
-  // Token → Native: Erlös als WETH sichtbar, oder vom Owner gesendete Tx an einen Router (nicht an den Token selbst = Überweisung)
-  if (downs.length === 1 && ups.length === 0 && (native > 0n || (sentByOwner && native === 0n && tx.to !== null && lc(tx.to) !== downs[0]![0]))) {
+  // Token → Native: Erlös sichtbar als WETH an die Wallet oder als Unwrap in derselben, von ihr gesendeten Tx
+  if (downs.length === 1 && ups.length === 0 && (native > 0n || (sentByOwner && native === 0n && unwrapped > 0n))) {
     const [token, d] = downs[0]!;
-    return { ...base, side: 'sell', token, tokenAtomic: -d, tokenDecimals: decimals(token), nativeAtomic: native > 0n ? native : null, counterToken: null };
+    return { ...base, side: 'sell', token, tokenAtomic: -d, tokenDecimals: decimals(token), nativeAtomic: native > 0n ? native : unwrapped, counterToken: null };
   }
-  // Token ↔ Token (z. B. USDC → Meme)
-  if (native === 0n && ups.length === 1 && downs.length === 1) {
-    const [token, d] = ups[0]!;
-    return { ...base, side: 'buy', token, tokenAtomic: d, tokenDecimals: decimals(token), nativeAtomic: null, counterToken: downs[0]![0] };
+  // Token ↔ Stablecoin
+  const wrap = (list: [string, bigint][]) => list.map(([t, d]) => [t, { delta: d, decimals: decimals(t) }] as [string, { delta: bigint; decimals: number }]);
+  return tokenVsStable(hash, time, native === 0n, wrap(ups), wrap(downs), (t) => isStablecoin(chain, t));
+}
+
+/** Summe ausgepackter Wrapped-Native-Beträge in einem Receipt. */
+export function unwrappedIn(chain: SwapChainId, receiptLogs: { address: string; topics: string[]; data: string }[]): bigint {
+  const wrapped = lc(SWAP_CHAINS[chain].wrappedNative);
+  let sum = 0n;
+  for (const l of receiptLogs) {
+    if (lc(l.address) === wrapped && lc(l.topics[0] ?? '') === WETH_WITHDRAWAL_TOPIC && l.data && l.data !== '0x') sum += BigInt(l.data.slice(0, 66));
   }
-  return null;
+  return sum;
 }
 
 /** Pause vor dem einen Wiederholungsversuch bei HTTP 429 (Tests setzen 0). */
@@ -154,7 +166,7 @@ export async function fetchEvmWalletSwaps(
   owner: string,
   opts: { cursor?: string | null; maxBlocks?: number; maxTxs?: number } = {},
   fetchFn: Fetch = fetch,
-): Promise<{ swaps: ObservedSwap[]; newestSignature: string | null }> {
+): Promise<WalletSwapsPage> {
   const maxBlocks = BigInt(opts.maxBlocks ?? EVM_MAX_BLOCKS);
   const cursor = opts.cursor ? BigInt(opts.cursor) : null;
 
@@ -166,15 +178,18 @@ export async function fetchEvmWalletSwaps(
   for (const url of order) {
     try {
       const latest = BigInt((await rpc(chain, url, 'eth_blockNumber', [], fetchFn)) as string);
-      const floor = latest - maxBlocks + 1n;
+      const floor = latest - maxBlocks + 1n > 0n ? latest - maxBlocks + 1n : 0n;
       const from = cursor === null ? floor : cursor + 1n > floor ? cursor + 1n : floor;
-      if (from > latest) return { swaps: [], newestSignature: latest.toString() };
+      if (from > latest) return { swaps: [], newestSignature: latest.toString(), gap: false };
+      // Cursor lag weiter zurück als das Fenster → Lücke (ehrlich melden statt still)
+      const gap = cursor !== null && cursor + 1n < floor;
       const range = { fromBlock: hex(from), toBlock: hex(latest) };
       // nacheinander statt parallel: öffentliche Knoten drosseln gleichzeitige Log-Abfragen
       const outgoing = (await rpc(chain, url, 'eth_getLogs', [{ ...range, topics: [ERC20_TRANSFER_TOPIC, padTopic(owner)] }], fetchFn)) as EvmLog[];
       const incoming = (await rpc(chain, url, 'eth_getLogs', [{ ...range, topics: [ERC20_TRANSFER_TOPIC, null, padTopic(owner)] }], fetchFn)) as EvmLog[];
       workingLogRpc.set(chain, url);
-      return await readSwaps(chain, url, owner, outgoing ?? [], incoming ?? [], latest, opts.maxTxs ?? EVM_MAX_TXS, fetchFn);
+      const page = await readSwaps(chain, url, owner, outgoing ?? [], incoming ?? [], latest, cursor === null, opts.maxTxs ?? EVM_MAX_TXS, fetchFn);
+      return { ...page, gap: page.gap || gap };
     } catch (err) {
       problems.push(`${new URL(url).host}: ${err instanceof Error ? err.message : String(err)}`);
       if (workingLogRpc.get(chain) === url) workingLogRpc.delete(chain);
@@ -192,9 +207,10 @@ async function readSwaps(
   outgoing: EvmLog[],
   incoming: EvmLog[],
   latest: bigint,
+  firstRun: boolean,
   maxTxs: number,
   fetchFn: Fetch,
-): Promise<{ swaps: ObservedSwap[]; newestSignature: string | null }> {
+): Promise<WalletSwapsPage> {
   const byTx = new Map<string, EvmLog[]>();
   for (const l of [...outgoing, ...incoming]) {
     const list = byTx.get(l.transactionHash) ?? [];
@@ -202,9 +218,27 @@ async function readSwaps(
     if (!list.some((x) => x.logIndex !== undefined && x.logIndex === l.logIndex)) list.push(l);
     byTx.set(l.transactionHash, list);
   }
-  const txs = [...byTx.entries()]
-    .sort((a, b) => Number(BigInt(b[1][0]!.blockNumber) - BigInt(a[1][0]!.blockNumber)))
-    .slice(0, maxTxs);
+  const blockOf = (logs: EvmLog[]) => BigInt(logs[0]!.blockNumber);
+  const chrono = [...byTx.entries()].sort((a, b) => (blockOf(a[1]) < blockOf(b[1]) ? -1 : blockOf(a[1]) > blockOf(b[1]) ? 1 : 0));
+  let txs = chrono;
+  let cursor = latest;
+  if (chrono.length > maxTxs) {
+    if (firstRun) {
+      // Verlauf: nur die jüngsten
+      txs = chrono.slice(-maxTxs);
+    } else {
+      // lückenlos: die ältesten, an einer Blockgrenze geschnitten; Rest im nächsten Takt
+      const firstLeft = blockOf(chrono[maxTxs]![1]);
+      txs = chrono.filter(([, l]) => blockOf(l) < firstLeft);
+      if (txs.length === 0) {
+        // mehr als maxTxs in EINEM Block: diesen Block ganz lesen
+        txs = chrono.filter(([, l]) => blockOf(l) === firstLeft);
+        cursor = firstLeft;
+      } else {
+        cursor = firstLeft - 1n;
+      }
+    }
+  }
 
   const decimals = new Map<string, number>();
   const blockTime = new Map<string, number | null>();
@@ -227,8 +261,14 @@ async function readSwaps(
       const b = (await rpc(chain, url, 'eth_getBlockByNumber', [blockNo, false], fetchFn)) as { timestamp?: string } | null;
       blockTime.set(blockNo, b?.timestamp ? Number(BigInt(b.timestamp)) : null);
     }
-    const s = deriveEvmSwap(chain, hash, tx, logs, owner, (t) => decimals.get(t) ?? -1, blockTime.get(blockNo) ?? null);
+    // Erlös-Nachweis für Verkäufe gegen natives ETH: Unwrap im Receipt (nur bei eigenen Tx nötig)
+    let unwrapped = 0n;
+    if (lc(tx.from) === lc(owner)) {
+      const receipt = (await rpc(chain, url, 'eth_getTransactionReceipt', [hash], fetchFn)) as { logs?: EvmLog[] } | null;
+      unwrapped = unwrappedIn(chain, receipt?.logs ?? []);
+    }
+    const s = deriveEvmSwap(chain, hash, tx, logs, owner, (t) => decimals.get(t) ?? -1, blockTime.get(blockNo) ?? null, unwrapped);
     if (s && s.tokenDecimals >= 0) swaps.push(s);
   }
-  return { swaps, newestSignature: latest.toString() };
+  return { swaps: swaps.reverse(), newestSignature: cursor.toString(), gap: false };
 }

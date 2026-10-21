@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, schema, type Db } from '@gladiator/db';
 import { fundPaperWallet, SOL_MINT, walletBalances } from '@gladiator/exchange';
 import type pg from 'pg';
-import { dcaAfterRun, evaluateSwapOrder, failStuckSwapOrders, runDcaOrders, runSwapOrders, validateNewOrder } from './swap-orders.js';
+import { dcaAfterRun, evaluateSwapOrder, failStuckSwapOrders, runDcaOrders, runSwapOrders, stoppableOrders, validateNewOrder } from './swap-orders.js';
 import { setSwapFetchForTests } from './swap-service.js';
 
 describe('evaluateSwapOrder', () => {
@@ -63,8 +63,15 @@ describe('validateNewOrder', () => {
 
 const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
 let bonkUsd = 0.00002;
+/** Wird während des Angebotsabrufs ausgeführt (Wettlauf nachstellen). */
+let duringQuote: (() => Promise<void>) | null = null;
 const fakeNet = (async (url: string, init?: RequestInit) => {
   const u = String(url);
+  if (u.includes('jup.ag') && duringQuote) {
+    const f = duringQuote;
+    duringQuote = null;
+    await f();
+  }
   const json = (b: unknown) => new Response(JSON.stringify(b));
   if (u.includes('dexscreener')) {
     const addrs = u.split('/').pop()!.split(',');
@@ -208,5 +215,34 @@ describe.skipIf(!process.env.DATABASE_URL)('runSwapOrders (echte DB, Paper)', ()
     await runSwapOrders(db);
     expect(await status(o.id)).toMatchObject({ status: 'open', runsDone: 0 });
     await db.update(schema.swapOrders).set({ status: 'cancelled' }).where(eq(schema.swapOrders.id, o.id));
+  });
+
+  it('DCA wird nie wiederbelebt: während des Kaufs gestoppt → bleibt gestoppt, Zähler stimmt', async () => {
+    const t0 = new Date(Date.now() + 500 * 86_400_000);
+    const o = await addOrder({ kind: 'dca', buyAmount: '0.1', intervalMinutes: 60, runsTotal: 5, nextRunAt: t0 });
+    bonkUsd = 0.00002;
+    // Freigabe zurückziehen, während die DCA gerade kauft (status executing)
+    duringQuote = async () => {
+      await db.update(schema.swapOrders).set({ status: 'cancelled', closedAt: new Date(), error: 'Live-Freigabe zurückgezogen' }).where(stoppableOrders(walletId));
+    };
+    await runDcaOrders(db, t0);
+    expect(await status(o.id)).toMatchObject({ status: 'cancelled', runsDone: 1, error: 'Live-Freigabe zurückgezogen' });
+    // nächster Termin: nichts passiert mehr
+    await runDcaOrders(db, new Date(t0.getTime() + 3_600_000));
+    expect((await status(o.id)).runsDone).toBe(1);
+  });
+
+  it('Take-Profit verkauft alles → laufende DCA auf denselben Token bleibt bestehen (nur Verkaufs-Orders storniert)', async () => {
+    const t0 = new Date(Date.now() + 600 * 86_400_000);
+    const dca = await addOrder({ kind: 'dca', buyAmount: '0.1', intervalMinutes: 60, runsTotal: 3, nextRunAt: t0 });
+    bonkUsd = 0.00002;
+    await runDcaOrders(db, t0); // Bestand aufbauen
+    const sl = await addOrder({ kind: 'stop_loss', triggerPriceUsd: '0.000001', sellPercent: '100' });
+    await addOrder({ kind: 'take_profit', triggerPriceUsd: '0.000025', sellPercent: '100' });
+    bonkUsd = 0.00003;
+    expect((await runSwapOrders(db)).filled).toBeGreaterThanOrEqual(1);
+    expect(await status(sl.id)).toMatchObject({ status: 'cancelled', error: 'Bestand verkauft' });
+    expect(await status(dca.id)).toMatchObject({ status: 'open', runsDone: 1 });
+    await db.update(schema.swapOrders).set({ status: 'cancelled' }).where(eq(schema.swapOrders.id, dca.id));
   });
 });

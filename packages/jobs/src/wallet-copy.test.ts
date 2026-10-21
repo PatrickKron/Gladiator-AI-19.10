@@ -7,7 +7,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, schema, type Db } from '@gladiator/db';
-import { ERC20_TRANSFER_TOPIC, fundPaperWallet, padTopic, SOL_MINT, SWAP_CHAINS, walletBalances } from '@gladiator/exchange';
+import { ERC20_TRANSFER_TOPIC, fundPaperWallet, padTopic, SOL_MINT, SWAP_CHAINS, walletBalances, WETH_WITHDRAWAL_TOPIC } from '@gladiator/exchange';
 import type pg from 'pg';
 import { setSwapFetchForTests } from './swap-service.js';
 import { runWalletCopy } from './wallet-copy.js';
@@ -15,12 +15,13 @@ import { runWalletCopy } from './wallet-copy.js';
 const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
 const WHALE = 'WhaLe11111111111111111111111111111111111111';
 
-type Tx = { sig: string; side: 'buy' | 'sell' };
+type Tx = { sig: string; side: 'buy' | 'sell'; owner?: string };
 /** Kette der beobachteten Wallet, neueste zuerst. */
 let chainTxs: Tx[] = [];
 
 function parsedTx(t: Tx) {
-  const tok = (amount: string) => [{ accountIndex: 1, mint: BONK, owner: WHALE, uiTokenAmount: { amount, decimals: 5 } }];
+  const who = t.owner ?? WHALE;
+  const tok = (amount: string) => [{ accountIndex: 1, mint: BONK, owner: who, uiTokenAmount: { amount, decimals: 5 } }];
   return {
     blockTime: 1_700_000_000,
     meta: {
@@ -31,7 +32,7 @@ function parsedTx(t: Tx) {
       preTokenBalances: tok(t.side === 'buy' ? '0' : '900000000'),
       postTokenBalances: tok(t.side === 'buy' ? '900000000' : '0'),
     },
-    transaction: { message: { accountKeys: [{ pubkey: WHALE, signer: true }, { pubkey: 'Pool111111111111111111111111111111111111111' }] } },
+    transaction: { message: { accountKeys: [{ pubkey: who, signer: true }, { pubkey: 'Pool111111111111111111111111111111111111111' }] } },
   };
 }
 
@@ -52,8 +53,9 @@ const fakeNet = (async (url: string, init?: RequestInit) => {
   const rpc = (result: unknown) => json({ jsonrpc: '2.0', id: 1, result });
   if (body.method === 'getSignaturesForAddress') {
     const until = (body.params[1] as { until?: string }).until;
-    const idx = until ? chainTxs.findIndex((t) => t.sig === until) : chainTxs.length;
-    return rpc(chainTxs.slice(0, idx === -1 ? chainTxs.length : idx).map((t) => ({ signature: t.sig, err: null })));
+    const mine = chainTxs.filter((t) => (t.owner ?? WHALE) === body.params[0]);
+    const idx = until ? mine.findIndex((t) => t.sig === until) : mine.length;
+    return rpc(mine.slice(0, idx === -1 ? mine.length : idx).map((t) => ({ signature: t.sig, err: null })));
   }
   if (body.method === 'getTransaction') {
     const t = chainTxs.find((x) => x.sig === body.params[0]);
@@ -168,6 +170,25 @@ describe.skipIf(!process.env.DATABASE_URL)('runWalletCopy (echte DB, Paper)', ()
     expect(after.lastSignature).toBe(before.lastSignature);
   });
 
+  it('leere Wallet: Cursor "" nach dem ersten Lauf → ihr erster echter Kauf wird kopiert', async () => {
+    const saved = chainTxs;
+    chainTxs = [];
+    const [fresh] = await db
+      .insert(schema.watchedWallets)
+      .values({ userId, address: 'Frisch111111111111111111111111111111111111', label: 'Frisch', copyMode: 'paper', copyWalletId: walletId, copyAmount: '0.1' })
+      .returning();
+    await runWalletCopy(db);
+    const row = async () => (await db.select().from(schema.watchedWallets).where(eq(schema.watchedWallets.id, fresh!.id)))[0]!;
+    expect((await row()).lastSignature).toBe('');
+    chainTxs = [{ sig: `fresh-${RUN}`, side: 'buy', owner: 'Frisch111111111111111111111111111111111111' }];
+    await db.update(schema.watchedWallets).set({ lastCheckedAt: null }).where(eq(schema.watchedWallets.id, fresh!.id));
+    await runWalletCopy(db);
+    const swaps = await db.select().from(schema.watchedWalletSwaps).where(eq(schema.watchedWalletSwaps.watchedId, fresh!.id));
+    expect(swaps).toEqual([expect.objectContaining({ signature: `fresh-${RUN}`, copyStatus: 'filled' })]);
+    await db.delete(schema.watchedWallets).where(eq(schema.watchedWallets.id, fresh!.id));
+    chainTxs = saved;
+  });
+
   it('Zeitbudget: höchstens eine Wallet, wenn das Budget erschöpft ist — der Rest bleibt fällig', async () => {
     const [extra] = await db.insert(schema.watchedWallets).values({ userId, address: 'Zweite1111111111111111111111111111111111111', label: 'Zweite' }).returning();
     await backdate();
@@ -236,6 +257,11 @@ const evmNet = (async (url: string, init?: RequestInit) => {
     case 'eth_getTransactionByHash': {
       const t = evmTxs.find((x) => x.hash === body.params[0]);
       return rpc(t ? { from: EVM_WHALE, to: ROUTER, value: t.side === 'buy' ? hex(10n ** 17n) : '0x0' } : null);
+    }
+    case 'eth_getTransactionReceipt': {
+      // Verkauf: Router packt WETH aus und zahlt ETH an die Wallet (Erlös-Nachweis)
+      const t = evmTxs.find((x) => x.hash === body.params[0]);
+      return rpc({ logs: t?.side === 'sell' ? [{ address: WETH, topics: [WETH_WITHDRAWAL_TOPIC, padTopic(ROUTER)], data: word(15n * 10n ** 16n) }] : [] });
     }
     case 'eth_getBlockByNumber':
       return rpc({ timestamp: hex(1_700_000_000) });
@@ -310,7 +336,7 @@ describe.skipIf(!process.env.DATABASE_URL)('runWalletCopy EVM (echte DB, Paper, 
     evmTxs.push({ hash: `0xsell${RUN}`, block: evmBlock, side: 'sell' });
     await backdate();
     await runWalletCopy(db);
-    expect((await seen()).find((s) => s.signature === `0xsell${RUN}`)).toMatchObject({ side: 'sell', copyStatus: 'filled', nativeAtomic: null });
+    expect((await seen()).find((s) => s.signature === `0xsell${RUN}`)).toMatchObject({ side: 'sell', copyStatus: 'filled', nativeAtomic: (15n * 10n ** 16n).toString() });
     expect(await meme()).toBe(0n);
   });
 });

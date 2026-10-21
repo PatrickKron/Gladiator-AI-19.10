@@ -14,6 +14,7 @@ import {
   quoteView,
   swapNet,
   SwapError,
+  stoppableOrders,
   syncLiveBalances,
   validateNewOrder,
   type SwapWalletRow,
@@ -269,7 +270,7 @@ export const swapsRouter = router({
     const w = await ownWallet(ctx.db, ctx.user.id, input.walletId);
     const [row] = await ctx.db.update(swapWallets).set({ liveApprovedAt: null }).where(eq(swapWallets.id, w.id)).returning();
     // ohne Freigabe darf nichts mehr automatisch live ausgeführt werden
-    await ctx.db.update(swapOrders).set({ status: 'cancelled', closedAt: new Date(), error: 'Live-Freigabe zurückgezogen' }).where(and(eq(swapOrders.walletId, w.id), eq(swapOrders.status, 'open')));
+    await ctx.db.update(swapOrders).set({ status: 'cancelled', closedAt: new Date(), error: 'Live-Freigabe zurückgezogen' }).where(stoppableOrders(w.id));
     await ctx.db.insert(auditLog).values({ actor: 'user', userId: ctx.user.id, action: 'swap.live_revoke', entityType: 'swap_wallet', entityId: w.id, details: { chain: w.chain }, ip: ctx.ip });
     return walletView(row!);
   }),
@@ -315,7 +316,7 @@ export const swapsRouter = router({
         throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Erst bestätigen, dass der Schlüssel gesichert ist — er wird beim Entfernen gelöscht.' });
       }
       await ctx.db.update(swapWallets).set({ archivedAt: new Date(), encryptedKey: null, liveApprovedAt: null }).where(eq(swapWallets.id, w.id));
-      await ctx.db.update(swapOrders).set({ status: 'cancelled', closedAt: new Date(), error: 'Wallet entfernt' }).where(and(eq(swapOrders.walletId, w.id), eq(swapOrders.status, 'open')));
+      await ctx.db.update(swapOrders).set({ status: 'cancelled', closedAt: new Date(), error: 'Wallet entfernt' }).where(stoppableOrders(w.id));
       if (w.mode === 'live') {
         await ctx.db.insert(auditLog).values({ actor: 'user', userId: ctx.user.id, action: 'swap.live_wallet_remove', entityType: 'swap_wallet', entityId: w.id, details: { chain: w.chain }, ip: ctx.ip });
       }

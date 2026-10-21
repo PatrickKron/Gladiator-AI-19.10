@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { SOL_MINT } from './chains.js';
-import { deriveSwapFromTx, fetchSolanaWalletSwaps, type ParsedTx } from './wallet-activity.js';
+import { deriveSwapFromTx, fetchSolanaWalletSwaps, SOLANA_SIG_PAGE, type ParsedTx } from './wallet-activity.js';
 
 const ME = 'Wa11et1111111111111111111111111111111111111';
 const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
@@ -51,6 +51,13 @@ describe('deriveSwapFromTx', () => {
     expect(s).toMatchObject({ side: 'buy', token: BONK, counterToken: USDC, nativeAtomic: null });
   });
 
+  it('BONK → USDC = Verkauf (nicht „Kauf von USDC“); Meme ↔ Meme = kein Swap', () => {
+    const sell = deriveSwapFromTx('sig5', tx({ sol: [1_000_000_000, 1_000_000_000 - 5_000], tokens: [{ mint: BONK, pre: '250', post: '0' }, { mint: USDC, pre: '0', post: '5000000', decimals: 6 }] }), ME);
+    expect(sell).toMatchObject({ side: 'sell', token: BONK, tokenAtomic: 250n, counterToken: USDC });
+    const WIF = 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm';
+    expect(deriveSwapFromTx('sig6', tx({ sol: [1_000_000_000, 1_000_000_000 - 5_000], tokens: [{ mint: BONK, pre: '250', post: '0' }, { mint: WIF, pre: null, post: '7' }] }), ME)).toBeNull();
+  });
+
   it('kein Swap: Überweisung, Airdrop, Kontomiete, fehlgeschlagene Tx, fremde Token-Konten', () => {
     // nur SOL raus (Überweisung)
     expect(deriveSwapFromTx('a', tx({ sol: [2_000_000_000, 1_000_000_000] }), ME)).toBeNull();
@@ -62,6 +69,45 @@ describe('deriveSwapFromTx', () => {
     expect(deriveSwapFromTx('d', tx({ sol: [2_000_000_000, 1_000_000_000], tokens: [{ mint: BONK, pre: null, post: '500' }], err: { InstructionError: [0, 'x'] } }), ME)).toBeNull();
     // Token-Konten gehören jemand anderem
     expect(deriveSwapFromTx('e', tx({ sol: [2_000_000_000, 1_000_000_000], tokens: [{ mint: BONK, pre: null, post: '500', owner: 'Fremd' }] }), ME)).toBeNull();
+  });
+});
+
+describe('fetchSolanaWalletSwaps: Cursor', () => {
+  // 30 Signaturen s1 (alt) … s30 (neu); jede ist ein Kauf
+  const all = Array.from({ length: 30 }, (_, i) => `s${i + 1}`);
+  const net = (sigs: string[]) =>
+    (async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { method: string; params: unknown[] };
+      const rpc = (result: unknown) => new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result }));
+      if (body.method === 'getSignaturesForAddress') {
+        const o = body.params[1] as { limit: number; until?: string };
+        const newestFirst = [...sigs].reverse();
+        const stop = o.until ? newestFirst.indexOf(o.until) : -1;
+        return rpc((stop === -1 ? newestFirst : newestFirst.slice(0, stop)).slice(0, o.limit).map((signature) => ({ signature, err: null })));
+      }
+      return rpc(tx({ sol: [2_000_000_000, 1_000_000_000 - 5_000], tokens: [{ mint: BONK, pre: null, post: '5' }] }));
+    }) as unknown as typeof fetch;
+
+  it('ältere neue Tx zuerst, Cursor auf die zuletzt gelesene — nichts wird übersprungen', async () => {
+    const r1 = await fetchSolanaWalletSwaps(ME, { limit: 10, until: 's5' }, net(all));
+    expect(r1.swaps.map((s) => s.signature)).toEqual(['s15', 's14', 's13', 's12', 's11', 's10', 's9', 's8', 's7', 's6']);
+    expect(r1).toMatchObject({ newestSignature: 's15', gap: false });
+    const r2 = await fetchSolanaWalletSwaps(ME, { limit: 10, until: r1.newestSignature }, net(all));
+    expect(r2.swaps.at(-1)!.signature).toBe('s16');
+  });
+
+  it('leere Wallet → Cursor "" (kein ewiger erster Lauf); erster Lauf = jüngste als Verlauf', async () => {
+    expect(await fetchSolanaWalletSwaps(ME, { limit: 10 }, net([]))).toEqual({ swaps: [], newestSignature: '', gap: false });
+    const first = await fetchSolanaWalletSwaps(ME, { limit: 3 }, net(all));
+    expect(first.swaps.map((s) => s.signature)).toEqual(['s30', 's29', 's28']);
+    expect(first.newestSignature).toBe('s30');
+  });
+
+  it('mehr neue Signaturen als eine Seite → jüngste Seite + Lücke gemeldet', async () => {
+    const many = Array.from({ length: SOLANA_SIG_PAGE + 20 }, (_, i) => `m${i + 1}`);
+    const r = await fetchSolanaWalletSwaps(ME, { limit: 5, until: 'm1' }, net(many));
+    expect(r.gap).toBe(true);
+    expect(r.newestSignature).toBe(`m${SOLANA_SIG_PAGE + 20}`);
   });
 });
 

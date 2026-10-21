@@ -1,4 +1,4 @@
-import { rpcUrl, SOL_MINT } from './chains.js';
+import { isStablecoin, rpcUrl, SOL_MINT } from './chains.js';
 
 /**
  * Swaps einer fremden Solana-Wallet von der Kette lesen (Vision-Punkt 5,
@@ -95,10 +95,30 @@ export function deriveSwapFromTx(signature: string, tx: ParsedTx, owner: string)
     const [mint, d] = downs[0]!;
     return { signature, time: tx.blockTime ?? null, side: 'sell', token: mint, tokenAtomic: -d.delta, tokenDecimals: d.decimals, nativeAtomic: sol, counterToken: null };
   }
-  // Token ↔ Token (z. B. USDC → Meme): Kauf des zunehmenden Tokens
-  if (solSide === null && ups.length === 1 && downs.length === 1) {
-    const [mint, d] = ups[0]!;
-    return { signature, time: tx.blockTime ?? null, side: 'buy', token: mint, tokenAtomic: d.delta, tokenDecimals: d.decimals, nativeAtomic: null, counterToken: downs[0]![0] };
+  return tokenVsStable(signature, tx.blockTime ?? null, solSide === null, ups, downs, (m) => isStablecoin('solana', m));
+}
+
+/**
+ * Token ↔ Token nur mit Stablecoin als Gegenseite eindeutig: Stable → Token =
+ * Kauf, Token → Stable = Verkauf. Meme ↔ Meme ist weder noch → kein Swap
+ * (sonst würde ein Verkauf gegen USDC als „Kauf von USDC“ kopiert).
+ */
+export function tokenVsStable(
+  signature: string,
+  time: number | null,
+  noNative: boolean,
+  ups: [string, { delta: bigint; decimals: number }][],
+  downs: [string, { delta: bigint; decimals: number }][],
+  stable: (token: string) => boolean,
+): ObservedSwap | null {
+  if (!noNative || ups.length !== 1 || downs.length !== 1) return null;
+  const [upMint, up] = ups[0]!;
+  const [downMint, down] = downs[0]!;
+  if (stable(downMint) && !stable(upMint)) {
+    return { signature, time, side: 'buy', token: upMint, tokenAtomic: up.delta, tokenDecimals: up.decimals, nativeAtomic: null, counterToken: downMint };
+  }
+  if (stable(upMint) && !stable(downMint)) {
+    return { signature, time, side: 'sell', token: downMint, tokenAtomic: -down.delta, tokenDecimals: down.decimals, nativeAtomic: null, counterToken: upMint };
   }
   return null;
 }
@@ -116,21 +136,42 @@ async function rpc(method: string, params: unknown[], fetchFn: Fetch): Promise<u
   return body.result;
 }
 
+/** Signaturen je Abruf (eine billige Abfrage); mehr neue → Wallet zu aktiv, Lücke wird gemeldet. */
+export const SOLANA_SIG_PAGE = 100;
+
+export type WalletSwapsPage = {
+  /** neueste zuerst */
+  swaps: ObservedSwap[];
+  /** neuer Lese-Cursor; '' = Wallet hatte noch keine Transaktion (kein „erster Lauf“ mehr) */
+  newestSignature: string;
+  /** true = es gab mehr neue Transaktionen, als gelesen werden konnten → Lücke */
+  gap: boolean;
+};
+
 /**
- * Letzte Swaps einer Solana-Wallet (neueste zuerst). `until`: nur Transaktionen
- * nach dieser Signatur (für den Worker: nichts doppelt).
+ * Swaps einer Solana-Wallet seit der Signatur `until`. Verarbeitet die
+ * ÄLTESTEN `limit` neuen Transaktionen und setzt den Cursor auf die zuletzt
+ * verarbeitete — der Rest kommt im nächsten Takt, nichts wird still
+ * übersprungen. Erster Lauf (ohne `until`): nur die jüngsten als Verlauf.
+ * Mehr als eine Seite neuer Signaturen: Wallet zu aktiv → jüngste Seite, `gap`.
  */
 export async function fetchSolanaWalletSwaps(
   owner: string,
   opts: { limit?: number; until?: string | null } = {},
   fetchFn: Fetch = fetch,
-): Promise<{ swaps: ObservedSwap[]; newestSignature: string | null }> {
-  const sigs = (await rpc('getSignaturesForAddress', [owner, { limit: opts.limit ?? 15, ...(opts.until ? { until: opts.until } : {}) }], fetchFn)) as {
+): Promise<WalletSwapsPage> {
+  const limit = opts.limit ?? 15;
+  const newestFirst = (await rpc('getSignaturesForAddress', [owner, { limit: SOLANA_SIG_PAGE, ...(opts.until ? { until: opts.until } : {}) }], fetchFn)) as {
     signature: string;
     err: unknown;
   }[];
+  const chrono = [...newestFirst].reverse();
+  const gap = Boolean(opts.until) && newestFirst.length === SOLANA_SIG_PAGE;
+  // Verlauf bzw. Überlauf: die jüngsten; sonst die ältesten (lückenlos nachholen)
+  const take = !opts.until || gap ? chrono.slice(-limit) : chrono.slice(0, limit);
+  const cursor = !opts.until ? (newestFirst[0]?.signature ?? '') : (take.at(-1)?.signature ?? opts.until);
   const swaps: ObservedSwap[] = [];
-  for (const s of sigs) {
+  for (const s of [...take].reverse()) {
     if (s.err) continue;
     // Version 1 = neueste Solana-Transaktionsform (auch v0/legacy werden damit geliefert)
     const tx = (await rpc('getTransaction', [s.signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 1, commitment: 'confirmed' }], fetchFn)) as ParsedTx | null;
@@ -138,5 +179,5 @@ export async function fetchSolanaWalletSwaps(
     const swap = deriveSwapFromTx(s.signature, tx, owner);
     if (swap) swaps.push(swap);
   }
-  return { swaps, newestSignature: sigs[0]?.signature ?? opts.until ?? null };
+  return { swaps, newestSignature: cursor, gap };
 }
