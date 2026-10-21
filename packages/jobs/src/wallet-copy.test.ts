@@ -10,9 +10,20 @@ import { createDb, schema, type Db } from '@gladiator/db';
 import { ERC20_TRANSFER_TOPIC, fundPaperWallet, padTopic, SOL_MINT, SWAP_CHAINS, walletBalances, WETH_WITHDRAWAL_TOPIC } from '@gladiator/exchange';
 import type pg from 'pg';
 import { setSwapFetchForTests } from './swap-service.js';
-import { runWalletCopy } from './wallet-copy.js';
+import { copySellPercent, runWalletCopy } from './wallet-copy.js';
 
 const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+
+describe('copySellPercent', () => {
+  it('Teilverkauf → derselbe Anteil; unbekannt oder fast alles → ganz raus', () => {
+    expect(copySellPercent(25)).toBe(25);
+    expect(copySellPercent(33.3333)).toBe(33.33);
+    expect(copySellPercent(0.2)).toBe(1);
+    expect(copySellPercent(96)).toBe(100);
+    expect(copySellPercent(null)).toBe(100);
+    expect(copySellPercent(undefined)).toBe(100);
+  });
+});
 const WHALE = 'WhaLe11111111111111111111111111111111111111';
 
 type Tx = { sig: string; side: 'buy' | 'sell'; owner?: string };

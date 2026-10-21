@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { SOL_MINT } from './chains.js';
-import { deriveSwapFromTx, fetchSolanaWalletSwaps, SOLANA_SIG_PAGE, type ParsedTx } from './wallet-activity.js';
+import { deriveSwapFromTx, fetchSolanaWalletSwaps, SOLANA_SIG_PAGE, soldPercent, type ParsedTx } from './wallet-activity.js';
 
 const ME = 'Wa11et1111111111111111111111111111111111111';
 const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
@@ -34,7 +34,17 @@ describe('deriveSwapFromTx', () => {
 
   it('Verkauf: Token raus, SOL rein', () => {
     const s = deriveSwapFromTx('sig2', tx({ sol: [1_000_000_000, 1_400_000_000 - 5_000], tokens: [{ mint: BONK, pre: '500000000', post: '0' }] }), ME);
-    expect(s).toMatchObject({ side: 'sell', token: BONK, tokenAtomic: 500_000_000n, nativeAtomic: 400_000_000n });
+    expect(s).toMatchObject({ side: 'sell', token: BONK, tokenAtomic: 500_000_000n, nativeAtomic: 400_000_000n, soldPct: 100 });
+  });
+
+  it('Teilverkauf: Anteil am Bestand vor dem Swap (Copy verkauft anteilig)', () => {
+    const s = deriveSwapFromTx('sig2b', tx({ sol: [1_000_000_000, 1_100_000_000 - 5_000], tokens: [{ mint: BONK, pre: '400000000', post: '300000000' }] }), ME);
+    expect(s).toMatchObject({ side: 'sell', tokenAtomic: 100_000_000n, soldPct: 25 });
+    // gegen USDC ebenso
+    const u = deriveSwapFromTx('sig2c', tx({ sol: [1_000_000_000, 1_000_000_000 - 5_000], tokens: [{ mint: BONK, pre: '300', post: '200' }, { mint: USDC, pre: '0', post: '5000000', decimals: 6 }] }), ME);
+    expect(u?.soldPct).toBeCloseTo(33.33, 2);
+    expect(soldPercent(5n, 0n)).toBeNull();
+    expect(soldPercent(0n, 5n)).toBeNull();
   });
 
   it('wrapped SOL zählt als SOL', () => {

@@ -47,6 +47,16 @@ async function shortSymbol(chain: SwapChainId, token: string): Promise<string> {
   }
 }
 
+/**
+ * Anteil des eigenen Bestands, den ein kopierter Verkauf abgibt: so viel, wie die
+ * beobachtete Wallet von IHREM Bestand verkauft hat (Teilverkauf → Teilverkauf).
+ * Unbekannt (EVM, fehlender Vorbestand) oder fast alles (≥ 95 %) → ganz raus.
+ */
+export function copySellPercent(soldPct: number | null | undefined): number {
+  if (soldPct === null || soldPct === undefined || !(soldPct > 0) || soldPct >= 95) return 100;
+  return Math.max(1, Math.round(soldPct * 100) / 100);
+}
+
 /** Einen erkannten Swap in der Paper-Wallet nachbilden. */
 async function copySwap(db: Db, w: WatchedRow, s: ObservedSwap): Promise<{ status: 'filled' | 'skipped' | 'failed'; note: string; tradeId?: string }> {
   if (w.copyMode !== 'paper' || !w.copyWalletId || !w.copyAmount) return { status: 'skipped', note: 'Kopieren aus' };
@@ -66,7 +76,7 @@ async function copySwap(db: Db, w: WatchedRow, s: ObservedSwap): Promise<{ statu
     token = held.token;
   }
   try {
-    const p = await prepareSwap(db, wallet, s.side === 'buy' ? { side: 'buy', token, amount: w.copyAmount } : { side: 'sell', token, percent: 100 });
+    const p = await prepareSwap(db, wallet, s.side === 'buy' ? { side: 'buy', token, amount: w.copyAmount } : { side: 'sell', token, percent: copySellPercent(s.soldPct) });
     if (!p.verdict.allowed) return { status: 'skipped', note: `Gate: ${p.verdict.reasons.join(', ')}` };
     const r = await executePreparedSwap(db, p, s.side, { userId: w.userId, ip: null, actor: 'system', confirmedLive: false, origin: `Copy-Trade ${w.label}` });
     return { status: 'filled', note: `${p.quote.inAmount} ${p.quote.inToken.symbol} → ${p.quote.outAmount} ${p.quote.outToken.symbol}`, tradeId: r.tradeId };
