@@ -1,6 +1,6 @@
 import { and, eq, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import { schema, type Db } from '@gladiator/db';
-import { fetchTokenPrices, walletBalances, type SwapChainId } from '@gladiator/exchange';
+import { fetchTokenMarket, walletBalances, type SwapChainId } from '@gladiator/exchange';
 import { notifySafe } from './notify.js';
 import { executePreparedSwap, prepareSwap, swapNet, type SwapWalletRow } from './swap-service.js';
 
@@ -13,7 +13,7 @@ const { swapOrders, swapWallets } = schema;
  * Ticket (Angebot, Sicherheitscheck beim Kauf, Gate, Paper/Live).
  */
 
-export type SwapOrderKind = 'take_profit' | 'stop_loss' | 'trailing_stop' | 'limit_buy' | 'dca' | 'alert_above' | 'alert_below';
+export type SwapOrderKind = 'take_profit' | 'stop_loss' | 'trailing_stop' | 'limit_buy' | 'dca' | 'alert_above' | 'alert_below' | 'rug_guard';
 
 /** Reine Preisalarme: lösen nur eine Meldung aus, nie einen Swap. */
 export const ALERT_KINDS: SwapOrderKind[] = ['alert_above', 'alert_below'];
@@ -27,6 +27,7 @@ export const SWAP_ORDER_LABEL: Record<SwapOrderKind, string> = {
   dca: 'DCA-Kauf',
   alert_above: 'Preisalarm über',
   alert_below: 'Preisalarm unter',
+  rug_guard: 'Rug-Schutz',
 };
 
 /** Bestand weg → übrige Verkaufs-Orders für diesen Token sind gegenstandslos (OCO-Verhalten). */
@@ -64,6 +65,9 @@ export function evaluateSwapOrder(o: OrderState, priceUsd: number): { trigger: b
       return { trigger: o.triggerPriceUsd !== null && priceUsd >= o.triggerPriceUsd, peakPriceUsd: null };
     case 'alert_below':
       return { trigger: o.triggerPriceUsd !== null && priceUsd <= o.triggerPriceUsd, peakPriceUsd: null };
+    case 'rug_guard':
+      // liquiditätsgesteuert (evaluateRugGuard), nie preisgesteuert
+      return { trigger: false, peakPriceUsd: null };
     case 'trailing_stop': {
       const peak = Math.max(o.peakPriceUsd ?? priceUsd, priceUsd);
       const trail = o.trailPct ?? 0;
@@ -72,9 +76,24 @@ export function evaluateSwapOrder(o: OrderState, priceUsd: number): { trigger: b
   }
 }
 
+/**
+ * Rug-Schutz (rein): Höchststand der Pool-Liquidität nachziehen; fällt sie um
+ * `dropPct` darunter (Liquidität abgezogen = typischer Rug), auslösen.
+ */
+export function evaluateRugGuard(o: { dropPct: number | null; peakLiquidityUsd: number | null }, liquidityUsd: number | null): { trigger: boolean; peakLiquidityUsd: number | null } {
+  if (liquidityUsd === null || !(liquidityUsd >= 0)) return { trigger: false, peakLiquidityUsd: o.peakLiquidityUsd };
+  const peak = Math.max(o.peakLiquidityUsd ?? liquidityUsd, liquidityUsd);
+  const drop = o.dropPct ?? 0;
+  return { trigger: drop > 0 && peak > 0 && liquidityUsd <= peak * (1 - drop / 100), peakLiquidityUsd: peak };
+}
+
 /** Plausibilität beim Anlegen: eine Order, die sofort auslösen würde, ist fast immer ein Tippfehler. */
 export function validateNewOrder(o: OrderState, priceUsd: number): string | null {
   if (o.kind === 'dca') return null;
+  if (o.kind === 'rug_guard') {
+    if (!(o.trailPct !== null && o.trailPct >= 10 && o.trailPct <= 90)) return 'Rug-Schutz: Liquiditätsabfall 10 bis 90 %.';
+    return null;
+  }
   if (o.kind === 'trailing_stop') {
     if (!(o.trailPct !== null && o.trailPct >= 0.5 && o.trailPct <= 90)) return 'Trailing-Abstand: 0,5 bis 90 %.';
     return null;
@@ -187,10 +206,14 @@ export async function runSwapOrders(db: Db): Promise<SwapOrdersResult> {
     byChain.get(c)!.add(r.order.token);
   }
   const prices = new Map<string, number>();
+  const liquidity = new Map<string, number | null>();
   for (const [chain, tokens] of byChain) {
     try {
-      const p = await fetchTokenPrices(chain, [...tokens], swapNet());
-      for (const [t, v] of p) prices.set(`${chain}:${t}`, v);
+      const m = await fetchTokenMarket(chain, [...tokens], swapNet());
+      for (const [t, v] of m) {
+        prices.set(`${chain}:${t}`, v.priceUsd);
+        liquidity.set(`${chain}:${t}`, v.liquidityUsd);
+      }
     } catch (err) {
       // ohne Kurs keine Entscheidung — nichts auslösen, beim nächsten Takt neu
       out.errors.push(`Kurse ${chain}: ${err instanceof Error ? err.message : String(err)}`);
@@ -201,6 +224,15 @@ export async function runSwapOrders(db: Db): Promise<SwapOrdersResult> {
     const price = prices.get(`${wallet.chain}:${order.token}`);
     if (price === undefined) continue;
     out.checked++;
+    if (order.kind === 'rug_guard') {
+      const before = order.peakLiquidityUsd === null ? null : Number(order.peakLiquidityUsd);
+      const rg = evaluateRugGuard({ dropPct: order.trailPct === null ? null : Number(order.trailPct), peakLiquidityUsd: before }, liquidity.get(`${wallet.chain}:${order.token}`) ?? null);
+      if (rg.peakLiquidityUsd !== null && rg.peakLiquidityUsd !== before) {
+        await db.update(swapOrders).set({ peakLiquidityUsd: String(rg.peakLiquidityUsd) }).where(eq(swapOrders.id, order.id));
+      }
+      if (rg.trigger) await fireOrder(db, order, wallet, price, out);
+      continue;
+    }
     const ev = evaluateSwapOrder(stateOf(order), price);
     if (order.kind === 'trailing_stop' && ev.peakPriceUsd !== null && ev.peakPriceUsd !== (order.peakPriceUsd === null ? null : Number(order.peakPriceUsd))) {
       await db.update(swapOrders).set({ peakPriceUsd: String(ev.peakPriceUsd) }).where(eq(swapOrders.id, order.id));

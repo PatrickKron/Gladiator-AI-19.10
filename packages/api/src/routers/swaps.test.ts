@@ -185,8 +185,12 @@ describe.skipIf(!hasDb)('Wallet-Trading: Paper-Swaps über das Swap-Gate', () =>
     await expect(a.swaps.createOrder({ walletId, token: BONK, kind: 'limit_buy', triggerPriceUsd: 0.00001 })).rejects.toThrow(/Betrag/);
     const tp = await a.swaps.createOrder({ walletId, token: BONK, kind: 'take_profit', triggerPriceUsd: 0.00004, sellPercent: 50 });
     await a.swaps.createOrder({ walletId, token: BONK, kind: 'trailing_stop', trailPct: 15 });
+    // Rug-Schutz: Ausgangsstand = aktuelle Pool-Liquidität (hier 40.000 $), Abfall 10–90 %
+    await expect(a.swaps.createOrder({ walletId, token: BONK, kind: 'rug_guard', trailPct: 5 })).rejects.toThrow(/10 bis 90/);
+    await a.swaps.createOrder({ walletId, token: BONK, kind: 'rug_guard', trailPct: 50 });
     const list = await a.swaps.orders({ walletId });
-    expect(list.map((o) => o.kind).sort()).toEqual(['take_profit', 'trailing_stop']);
+    expect(list.find((o) => o.kind === 'rug_guard')).toMatchObject({ trailPct: 50, peakLiquidityUsd: 40_000, triggerPriceUsd: null, sellPercent: 100 });
+    expect(list.map((o) => o.kind).sort()).toEqual(['rug_guard', 'take_profit', 'trailing_stop']);
     expect(list.find((o) => o.kind === 'trailing_stop')).toMatchObject({ peakPriceUsd: 0.00002, sellPercent: 100, status: 'open' });
     await expect(b.swaps.cancelOrder({ orderId: tp.id })).rejects.toThrow(/nicht gefunden/);
     await a.swaps.cancelOrder({ orderId: tp.id });
