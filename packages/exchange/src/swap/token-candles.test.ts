@@ -33,13 +33,30 @@ describe('parseOhlcvList', () => {
   });
 });
 
+/**
+ * Echte Daten: ein einzelner Zeitüberlauf des Anbieters (10 s im Produktivcode) ist kein
+ * Befund über unseren Code — bis zu drei frische Versuche, jeder andere Fehler wirft sofort.
+ */
+async function retryOnTimeout<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
+  let last: unknown;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      last = e;
+      if (!(e instanceof Error) || !/TimeoutError|AbortError/.test(e.name)) throw e;
+    }
+  }
+  throw last;
+}
+
 describe('echte Daten (DexScreener-Pool → GeckoTerminal)', () => {
   it('SOL: liquidester Pool liefert echte, aufsteigende Stundenkerzen', async () => {
-    const info = await fetchTokenInfo('solana', SOL_MINT);
+    const info = await retryOnTimeout(() => fetchTokenInfo('solana', SOL_MINT));
     expect(info.pairAddress).toBeTruthy();
-    const candles = await fetchTokenCandles('solana', info.pairAddress!, '1h');
+    const candles = await retryOnTimeout(() => fetchTokenCandles('solana', info.pairAddress!, '1h'));
     expect(candles.length).toBeGreaterThan(24);
     for (let i = 1; i < candles.length; i++) expect(candles[i]!.time).toBeGreaterThan(candles[i - 1]!.time);
     expect(candles.at(-1)!.close).toBeGreaterThan(1);
-  }, 30_000);
+  }, 75_000);
 });
