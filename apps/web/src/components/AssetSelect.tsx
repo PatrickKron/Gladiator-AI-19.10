@@ -84,7 +84,9 @@ export function AssetSelect({
   const known = venue === 'binance' ? universe.includes(value) : rows.some((r) => r.venue === venue && r.symbol === value);
 
   return (
-    <label className="flex items-center gap-2">
+    // min-w-0/max-w-full: ein <select> ist so breit wie seine längste Option — der ehrliche
+    // „nicht verbunden“-Platzhalter darf die Seite auf dem Handy nicht breiter machen.
+    <label className="flex min-w-0 max-w-full items-center gap-2">
       <span className="label">{label ?? t('assetCtx.selector')}</span>
       <select
         value={current}
@@ -98,7 +100,7 @@ export function AssetSelect({
           }
           onChange(sym, nextVenue);
         }}
-        className="field num cursor-pointer px-3 py-1.5 text-sm"
+        className="field num min-w-0 max-w-full cursor-pointer px-3 py-1.5 text-sm"
         style={{ color: 'var(--color-cyan)' }}
       >
         <optgroup label={t('assetCtx.cryptoGroup')}>

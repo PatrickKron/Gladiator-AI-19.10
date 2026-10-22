@@ -11,3 +11,4 @@ packages/db/seed/data/
 
 # Arbeitskopien von Hintergrund-Agenten (Claude Code)
 .claude/worktrees/
+e2e-out/

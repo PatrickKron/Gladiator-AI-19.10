@@ -10,8 +10,13 @@
 import { chromium, type Browser } from 'playwright';
 import { NAV_PAGES } from '../src/lib/navigation.js';
 
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+
 const BASE = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:3010';
 const SETTLE_MS = Number(process.env.E2E_SETTLE_MS ?? 1200);
+/** Bildschirmfotos der Routen mit Befund (in der CI als Artefakt hochgeladen). */
+const OUT_DIR = process.env.E2E_OUT ?? 'e2e-out';
 
 type Finding = { sweep: string; route: string; kind: string; detail: string };
 type Viewport = { width: number; height: number };
@@ -19,6 +24,36 @@ type Viewport = { width: number; height: number };
 /** Nur echte Laufzeitfehler zählen — fehlgeschlagene Ressourcen (4xx/5xx einer nicht verbundenen Quelle) sind ehrliche Zustände. */
 const RUNTIME_ERROR = /TypeError|ReferenceError|RangeError|SyntaxError|Uncaught|Cannot read|is not a function|is not defined|Minified React error|Maximum update depth/;
 const BROKEN_TEXT = /\bundefined\b|\bNaN\b|\[object Object\]|TRPCClientError/;
+
+/**
+ * Läuft im Browser: welche Elemente stehen rechts über den Bildschirm hinaus? Elemente in
+ * einem eigenen Scroll-Container (overflow-x auto/scroll, z. B. die Segmentleiste) und
+ * fixierte Elemente zählen nicht — sie machen die Seite nicht breiter. Ergebnis als Text,
+ * damit ein Befund das Element benennt statt nur „zu breit“.
+ */
+function overflowDetail(): string {
+  const vw = window.innerWidth;
+  const sw = document.documentElement.scrollWidth;
+  if (sw <= vw + 1) return '';
+  const inScroller = (el: Element): boolean => {
+    for (let a = el.parentElement; a; a = a.parentElement) {
+      const o = getComputedStyle(a).overflowX;
+      if ((o === 'auto' || o === 'scroll') && a.getBoundingClientRect().right <= vw + 1) return true;
+    }
+    return false;
+  };
+  const hits: { right: number; text: string }[] = [];
+  for (const el of Array.from(document.querySelectorAll('body *'))) {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.right <= vw + 1) continue;
+    if (getComputedStyle(el).position === 'fixed' || inScroller(el)) continue;
+    const cls = typeof el.className === 'string' ? el.className.trim().split(/\s+/).slice(0, 3).join('.') : '';
+    const txt = (el.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 40);
+    hits.push({ right: r.right, text: `${el.tagName.toLowerCase()}${cls ? '.' + cls : ''} rechts=${Math.round(r.right)} breit=${Math.round(r.width)}${txt ? ` „${txt}“` : ''}` });
+  }
+  hits.sort((a, b) => b.right - a.right);
+  return `Seite ${sw}px breit bei ${vw}px Bildschirm — ${hits.length ? hits.slice(0, 4).map((h) => h.text).join(' | ') : 'kein Element außerhalb eines Scroll-Containers benennbar'}`;
+}
 
 /** Alle Seiten + Tabs aus der Registry — eine neue Seite wird automatisch mitgeprüft. */
 export const routes: string[] = NAV_PAGES.flatMap((p) => [p.hash, ...(p.tabs ?? []).map((t) => `${p.hash}?tab=${t.id}`)]);
@@ -55,14 +90,27 @@ async function sweep(browser: Browser, name: string, viewport: Viewport, mode: '
     }, route);
     await page.waitForTimeout(SETTLE_MS);
     const body = await page.locator('main').innerText().catch(() => '');
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+    let overflow = viewport.width < 600 ? await page.evaluate(overflowDetail) : '';
+    if (overflow) {
+      // Noch einmal messen: ein Überlauf nur während des Ladens ist kein Befund, ein bleibender schon.
+      await page.waitForTimeout(SETTLE_MS);
+      const again = await page.evaluate(overflowDetail);
+      if (!again) console.log(`  Hinweis [${name}] ${route}: Überlauf nur während des Ladens (${overflow})`);
+      overflow = again;
+    }
+    const before = findings.length;
     const push = (kind: string, detail: string) => findings.push({ sweep: name, route, kind, detail });
     for (const e of pageErrors) push('pageerror', e);
     for (const e of consoleErrors) push('console', e);
     const broken = body.match(new RegExp(`[^\\n]*(${BROKEN_TEXT.source})[^\\n]*`));
     if (broken) push('text', broken[0].trim().slice(0, 160));
     if (body.trim().length < 40) push('empty', `nur ${body.trim().length} Zeichen Text`);
-    if (viewport.width < 600 && overflow) push('overflow', 'Seite breiter als der Bildschirm');
+    if (overflow) push('overflow', overflow);
+    if (findings.length > before) {
+      mkdirSync(OUT_DIR, { recursive: true });
+      const file = join(OUT_DIR, `${name.replace('/', '-')}-${route.replace(/[^a-z0-9]+/gi, '_')}.png`);
+      await page.screenshot({ path: file, fullPage: false }).catch(() => undefined);
+    }
   }
   await ctx.close();
 }

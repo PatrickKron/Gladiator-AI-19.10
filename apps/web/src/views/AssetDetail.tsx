@@ -114,7 +114,7 @@ export function AssetDetail() {
     <div>
       {/* Kompakter Kopf (Welle C): Asset · Kurs · Ansicht 1/2/4 · Kontext — der Chart bekommt die Fläche */}
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 max-w-full items-center gap-2">
           <AssetSelect value={asset} venue={venue} onChange={changeAsset} />
           <FavStarSymbol symbol={asset} />
         </div>
