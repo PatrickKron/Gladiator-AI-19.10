@@ -110,3 +110,8 @@ export const settingsRouter = router({
       return { killSwitchActive: updated!.killSwitchActive };
     }),
 });
+
+/** Trading-Einstellungen des Nutzers (legt die Standard-Zeile an, falls sie fehlt) — für Asset-Analyse und Chat. */
+export function ensureTradingSettings(db: Db, userId: string) {
+  return ensureRow({ db, user: { id: userId } });
+}
