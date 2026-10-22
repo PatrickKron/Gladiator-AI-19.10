@@ -25,6 +25,7 @@ import { subAgentsRouter } from './sub-agents.js';
 import { swapsRouter } from './swaps.js';
 import { systemRouter } from './system.js';
 import { tradingRouter } from './trading.js';
+import { assistantRouter } from './assistant.js';
 import { workshopRouter } from './workshop.js';
 
 export const appRouter = router({
@@ -55,6 +56,7 @@ export const appRouter = router({
   system: systemRouter,
   trading: tradingRouter,
   workshop: workshopRouter,
+  assistant: assistantRouter,
 });
 
 export type AppRouter = typeof appRouter;

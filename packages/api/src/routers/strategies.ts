@@ -88,6 +88,46 @@ ${DSL_SCHEMA_DOC}
 Nutze NUR Felder aus dem Schema. Wenn die Anweisung etwas verlangt, das die DSL nicht ausdrücken kann,
 lass es weg — erfinde keine neuen Felder.`;
 
+
+/**
+ * Version draft → paper (Seite UND Gladiator-Chat, dort nur nach ausdrücklicher Bestätigung).
+ * Validitäts-Gate: ohne bestandenen Netto-Backtest keine Promotion — Mensch im Loop.
+ */
+export async function promoteVersion(db: Db, userId: string, versionId: string, ip: string | null) {
+  const [version] = await db.select().from(strategyVersions).where(eq(strategyVersions.id, versionId)).limit(1);
+  if (!version) throw new TRPCError({ code: 'NOT_FOUND', message: 'Version nicht gefunden.' });
+  if (version.status !== 'draft') {
+    throw new TRPCError({ code: 'CONFLICT', message: `Nur draft → paper möglich (Status ist ${version.status}).` });
+  }
+  const validity = await loadVersionValidity(db, versionId);
+  if (!validity.hasBacktest) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: `Kein Backtest — diese Version muss erst im Labor backtestet werden (netto, mind. ${DEFAULT_VALIDITY_THRESHOLDS.minTrades} Trades) bevor sie selbstständig laufen darf.`,
+    });
+  }
+  if (!validity.verdict!.passed) {
+    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `Backtest nicht valide: ${validity.verdict!.reasons.join(' · ')}` });
+  }
+  const [updated] = await db
+    .update(strategyVersions)
+    .set({ status: 'paper', promotedBy: userId, promotedAt: new Date() })
+    .where(eq(strategyVersions.id, versionId))
+    .returning();
+  await db.insert(auditLog).values({
+    actor: 'user',
+    userId,
+    action: 'strategy.version.promoted',
+    entityType: 'strategy_version',
+    entityId: versionId,
+    details: { from: 'draft', to: 'paper', version: version.version, gate: 'passed', backtest: validity.backtest },
+    ip,
+  });
+  return updated!;
+}
+
+export { loadVersionValidity };
+
 export const strategiesRouter = router({
   /** Alle Strategien mit letzter Version (Registry-Übersicht). */
   list: protectedProcedure.query(async ({ ctx }) => {
@@ -142,54 +182,7 @@ export const strategiesRouter = router({
    */
   promote: protectedProcedure
     .input(z.object({ versionId: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      const [version] = await ctx.db
-        .select()
-        .from(strategyVersions)
-        .where(eq(strategyVersions.id, input.versionId))
-        .limit(1);
-      if (!version) throw new TRPCError({ code: 'NOT_FOUND', message: 'Version nicht gefunden.' });
-      if (version.status !== 'draft') {
-        throw new TRPCError({ code: 'CONFLICT', message: `Nur draft → paper möglich (Status ist ${version.status}).` });
-      }
-
-      // ── Validitäts-Gate: ohne bestandenen Backtest keine Promotion ──
-      const validity = await loadVersionValidity(ctx.db, input.versionId);
-      if (!validity.hasBacktest) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: `Kein Backtest — diese Version muss erst im Labor backtestet werden (netto, mind. ${DEFAULT_VALIDITY_THRESHOLDS.minTrades} Trades) bevor sie selbstständig laufen darf.`,
-        });
-      }
-      if (!validity.verdict!.passed) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: `Backtest nicht valide: ${validity.verdict!.reasons.join(' · ')}`,
-        });
-      }
-
-      const [updated] = await ctx.db
-        .update(strategyVersions)
-        .set({ status: 'paper', promotedBy: ctx.user.id, promotedAt: new Date() })
-        .where(eq(strategyVersions.id, input.versionId))
-        .returning();
-      await ctx.db.insert(auditLog).values({
-        actor: 'user',
-        userId: ctx.user.id,
-        action: 'strategy.version.promoted',
-        entityType: 'strategy_version',
-        entityId: input.versionId,
-        details: {
-          from: 'draft',
-          to: 'paper',
-          version: version.version,
-          gate: 'passed',
-          backtest: validity.backtest,
-        },
-        ip: ctx.ip,
-      });
-      return updated!;
-    }),
+    .mutation(({ ctx, input }) => promoteVersion(ctx.db, ctx.user.id, input.versionId, ctx.ip)),
 
   /** Pine-Strategie registrieren → strategyId für den TradingView-Alert (07_ §1/§2). */
   pineRegister: protectedProcedure

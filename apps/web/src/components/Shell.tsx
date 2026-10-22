@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { logout, trpc } from '../api.js';
 import { NotificationBell } from './NotificationBell.js';
+import { AssistantPanel } from './AssistantPanel.js';
 import { ensurePriceStream, getFeedState, onFeedState, type FeedState } from '../lib/prices.js';
 import { LANGUAGES, setLanguage, storedLanguage, type LanguageCode } from '../i18n/index.js';
 import { isDemoMode, onDemoModeChange } from '../lib/demo-mode.js';
@@ -120,6 +121,8 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
   const { t } = useTranslation();
   const [killSwitch, setKillSwitch] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatPrefill, setChatPrefill] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [demoMode, setDemoModeState] = useState(() => isDemoMode());
   const [uiMode, setUiModeState] = useState<UiMode>(() => getUiMode());
@@ -142,6 +145,16 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
   }, []);
 
   // Tastenkürzel: g + Buchstabe springt, g m schaltet den Matrix-Modus, ? zeigt die Hilfe, / öffnet die Suche.
+  // Chat von überall öffnen (z. B. Leer-Zustand im Workshop): window.dispatchEvent(new CustomEvent('gladiator:chat', { detail: { prefill } }))
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      setChatPrefill((e as CustomEvent<{ prefill?: string }>).detail?.prefill ?? null);
+      setChatOpen(true);
+    };
+    window.addEventListener('gladiator:chat', onOpen);
+    return () => window.removeEventListener('gladiator:chat', onOpen);
+  }, []);
+
   useEffect(() => {
     let pendingSince: number | null = null;
     const onKey = (e: KeyboardEvent) => {
@@ -244,6 +257,17 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
           <div className="flex items-center gap-1.5 sm:gap-3">
             <UiModeToggle className="hidden sm:flex" />
             <button
+              onClick={() => setChatOpen((o) => !o)}
+              className="flex items-center gap-1.5 rounded-[0.625rem] border px-2.5 py-1.5 text-xs transition-colors"
+              style={{ borderColor: chatOpen ? 'var(--color-blue)' : 'var(--color-line)', color: chatOpen ? 'var(--color-ink)' : 'var(--color-mut)' }}
+              title={t('assistant.button')}
+              aria-label={t('assistant.button')}
+              aria-pressed={chatOpen}
+            >
+              {ico('M21 12a8 8 0 01-8 8H8l-4 3v-3.5A8 8 0 1121 12z')}
+              <span className="hidden md:inline">{t('assistant.button')}</span>
+            </button>
+            <button
               onClick={() => setPaletteOpen(true)}
               className="flex items-center gap-1.5 rounded-[0.625rem] border px-2.5 py-1.5 text-xs transition-colors"
               style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
@@ -304,6 +328,7 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
       </nav>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <AssistantPanel open={chatOpen} onClose={() => setChatOpen(false)} prefill={chatPrefill} />
       {helpOpen && <HotkeyHelp onClose={() => setHelpOpen(false)} />}
     </div>
   );

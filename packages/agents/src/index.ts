@@ -12,6 +12,12 @@ export {
   type LlmProvider,
   type LlmUsage,
   guardedStream,
+  guardedChat,
+  type LlmTool,
+  type LlmContentBlock,
+  type LlmChatMessage,
+  type LlmChatRequest,
+  type LlmChatResult,
   type LlmRequest,
 } from './provider.js';
 export { buildAgentPrompt, parseLlmVerdict, reviewLlmAgent } from './llm-agents.js';

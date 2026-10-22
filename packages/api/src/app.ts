@@ -7,6 +7,7 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { sql } from 'drizzle-orm';
 import { workshopChatStreamHandler } from './workshop/chat-stream.js';
+import { assistantStreamHandler } from './assistant/stream.js';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import type { Db } from '@gladiator/db';
 import type { LivePriceFeed, Ticker } from '@gladiator/market-data';
@@ -184,6 +185,14 @@ export function createApp(db: Db, opts: AppOptions = {}): express.Express {
     rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: true, legacyHeaders: false }),
     express.json({ limit: '32kb' }),
     workshopChatStreamHandler(db),
+  );
+
+  /** Gladiator-Chat als Stream (SSE über POST); gleiche Logik wie assistant.send. */
+  app.post(
+    '/api/assistant/:id/stream',
+    rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: true, legacyHeaders: false }),
+    express.json({ limit: '32kb' }),
+    assistantStreamHandler(db),
   );
 
   app.use(

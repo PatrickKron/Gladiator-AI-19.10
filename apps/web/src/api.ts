@@ -147,6 +147,57 @@ export async function streamWorkshopChat(sessionId: string, message: string, onD
   return done;
 }
 
+export type AssistantStreamDone = Awaited<ReturnType<typeof trpc.assistant.send.mutate>>;
+export type AssistantCard = AssistantStreamDone['cards'][number];
+export type AssistantStreamHandlers = {
+  onDelta: (text: string) => void;
+  onTool?: (e: { name: string; status: 'start' | 'done' | 'error'; detail?: string }) => void;
+  onCard?: (card: AssistantCard) => void;
+};
+
+/**
+ * Gladiator-Chat als Stream (POST + SSE über fetch): Text-Stücke, Werkzeug-Status und
+ * Karten kommen, sobald sie da sind; das Ergebnis ist dieselbe gespeicherte Antwort wie bei assistant.send.
+ */
+export async function streamAssistant(
+  conversationId: string,
+  message: string,
+  context: { route?: string; symbol?: string; locale?: string },
+  h: AssistantStreamHandlers,
+): Promise<AssistantStreamDone> {
+  const post = () =>
+    fetch(`/api/assistant/${encodeURIComponent(conversationId)}/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}) },
+      body: JSON.stringify({ message, context }),
+    });
+  let res = await post();
+  if (res.status === 401 && (await refreshSession()) === 'ok') res = await post();
+  if (!res.ok || !res.body) {
+    const err = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(err?.error ?? `HTTP ${res.status}`);
+  }
+  let done: AssistantStreamDone | null = null;
+  let failure: string | null = null;
+  const feed = createSseParser((event, data) => {
+    if (event === 'delta') h.onDelta((data as { text: string }).text);
+    else if (event === 'tool') h.onTool?.(data as { name: string; status: 'start' | 'done' | 'error'; detail?: string });
+    else if (event === 'card') h.onCard?.((data as { card: AssistantCard }).card);
+    else if (event === 'done') done = data as AssistantStreamDone;
+    else if (event === 'error') failure = (data as { message: string }).message;
+  });
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  for (;;) {
+    const { value, done: end } = await reader.read();
+    if (end) break;
+    feed(decoder.decode(value, { stream: true }));
+  }
+  if (failure) throw new Error(failure);
+  if (!done) throw new Error('Stream ohne Abschluss beendet.');
+  return done;
+}
+
 const refreshLock = webLock('gladiator.session-refresh');
 
 export async function refreshSession(): Promise<RefreshOutcome> {

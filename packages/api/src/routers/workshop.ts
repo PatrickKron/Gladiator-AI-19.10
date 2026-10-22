@@ -1,17 +1,16 @@
 import { TRPCError } from '@trpc/server';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { envAnthropicProvider } from '@gladiator/agents';
-import { parseInstructionDsl, evaluateDslAt, type InstructionDsl } from '@gladiator/strategy-engine';
-import { DEFAULT_COSTS, runBacktest, type CostModel } from '@gladiator/backtest';
-import { getOhlcv, BARS_PER_YEAR, SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
+import { parseInstructionDsl } from '@gladiator/strategy-engine';
+import { SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
 import { protectedProcedure, router } from '../trpc.js';
 import { analyzePine } from '../workshop/llm.js';
 import { performWorkshopChat, WorkshopNotFoundError, workshopLlmGuard } from '../workshop/chat-service.js';
+import { ownedSession, runDraftBacktest, saveWorkshopVersion } from '../workshop/draft-service.js';
 
-const { workshopSessions, workshopMessages, workshopBacktests, strategies, strategyVersions, auditLog } = schema;
+const { workshopSessions, workshopMessages, workshopBacktests, strategyVersions, auditLog } = schema;
 
 /**
  * Strategie-Workshop (Session 2): Pine-Script → KI-Analyse → interaktiver
@@ -36,26 +35,6 @@ const costSchema = z.object({
   fundingRatePer8h: z.number().min(-0.01).max(0.01),
 });
 
-/** Equity-Kurve fürs UI auf max. N Punkte eindampfen (wie Labor). */
-function downsample<T>(points: T[], maxPoints = 400): T[] {
-  if (points.length <= maxPoints) return points;
-  const step = points.length / maxPoints;
-  const out: T[] = [];
-  for (let i = 0; i < maxPoints; i++) out.push(points[Math.floor(i * step)]!);
-  out.push(points[points.length - 1]!);
-  return out;
-}
-
-async function ownedSession(db: Db, userId: string, id: string) {
-  const [row] = await db
-    .select()
-    .from(workshopSessions)
-    .where(and(eq(workshopSessions.id, id), eq(workshopSessions.userId, userId)))
-    .limit(1);
-  if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'Workshop-Sitzung nicht gefunden.' });
-  return row;
-}
-
 function requireLlm() {
   const provider = envAnthropicProvider();
   if (!provider.configured) {
@@ -65,18 +44,6 @@ function requireLlm() {
     });
   }
   return provider;
-}
-
-/** Entwurf einer Sitzung als validierte DSL — oder ehrlicher Fehler. */
-function requireDraft(session: { draftDsl: unknown }): InstructionDsl {
-  if (!session.draftDsl) {
-    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Kein Konfigurations-Entwurf vorhanden — erst Analyse/Dialog nutzen oder Konfiguration anlegen.' });
-  }
-  const parsed = parseInstructionDsl(session.draftDsl);
-  if (!parsed.ok) {
-    throw new TRPCError({ code: 'UNPROCESSABLE_CONTENT', message: `Entwurf ungültig: ${parsed.errors.join('; ')}` });
-  }
-  return parsed.dsl;
 }
 
 export const workshopRouter = router({
@@ -285,107 +252,13 @@ export const workshopRouter = router({
         costModel: costSchema.optional(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      const session = await ownedSession(ctx.db, ctx.user.id, input.id);
-      const base = requireDraft(session);
-      const dsl: InstructionDsl = {
-        ...base,
-        ...(input.symbol ? { symbol: input.symbol } : {}),
-        ...(input.timeframe ? { timeframe: input.timeframe } : {}),
-      };
-      const from = new Date(input.from);
-      const to = new Date(input.to);
-      if (!(from < to)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Zeitraum ungültig (from < to nötig).' });
-      const costModel: CostModel = input.costModel ?? DEFAULT_COSTS;
-
-      const [row] = await ctx.db
-        .insert(workshopBacktests)
-        .values({
-          sessionId: session.id,
-          label: input.label ?? null,
-          dsl,
-          symbol: dsl.symbol,
-          timeframe: dsl.timeframe,
-          fromTs: from,
-          toTs: to,
-          riskPctPerTrade: String(input.riskPctPerTrade),
-          costModel,
-          status: 'running',
-        })
-        .returning();
-
-      try {
-        const candles = await getOhlcv(ctx.db, { symbol: dsl.symbol, timeframe: dsl.timeframe, since: from, until: to });
-        if (candles.length < 250) {
-          throw new Error(
-            `Zu wenig echte Kerzen im Zeitraum (${candles.length}) für ${dsl.symbol}@${dsl.timeframe} — Backtest wäre nicht belastbar.`,
-          );
-        }
-        const result = runBacktest(candles, {
-          evaluate: (cs, i) => {
-            const setup = evaluateDslAt(cs, i, dsl);
-            return setup ? [setup] : [];
-          },
-          initialEquity: 10_000,
-          riskPctPerTrade: input.riskPctPerTrade,
-          costModel,
-          barsPerYear: BARS_PER_YEAR[dsl.timeframe]!,
-          tpWeights: [0.5, 0.3, 0.2],
-          setupType: dsl.setupType,
-        });
-
-        const equityCurve = downsample(result.equityCurve).map((p) => ({
-          ts: p.ts.toISOString(),
-          equity: Math.round(p.equity * 100) / 100,
-        }));
-        const trades = result.trades.slice(-200).map((t) => ({
-          entryTs: t.entryTs.toISOString(),
-          exitTs: t.exitTs.toISOString(),
-          direction: t.direction,
-          entry: t.entry,
-          stopLoss: t.stopLoss,
-          takeProfits: t.takeProfits,
-          exitPrice: t.exitPrice,
-          netPnl: Math.round(t.netPnl * 100) / 100,
-          rMultiple: Math.round(t.rMultiple * 100) / 100,
-          fees: Math.round(t.fees * 100) / 100,
-          funding: Math.round(t.funding * 100) / 100,
-          exitReason: t.exitReason,
-          session: t.session,
-        }));
-
-        await ctx.db
-          .update(workshopBacktests)
-          .set({
-            candles: candles.length,
-            metrics: result.metrics,
-            equityCurve,
-            trades,
-            status: 'done',
-            finishedAt: new Date(),
-          })
-          .where(eq(workshopBacktests.id, row!.id));
-
-        return {
-          backtestId: row!.id,
-          label: input.label ?? null,
-          symbol: dsl.symbol,
-          timeframe: dsl.timeframe,
-          candles: candles.length,
-          costModel,
-          metrics: result.metrics,
-          equityCurve,
-          trades,
-        };
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Backtest fehlgeschlagen.';
-        await ctx.db
-          .update(workshopBacktests)
-          .set({ status: 'error', error: message, finishedAt: new Date() })
-          .where(eq(workshopBacktests.id, row!.id));
-        throw new TRPCError({ code: 'BAD_REQUEST', message });
-      }
-    }),
+    .mutation(({ ctx, input }) =>
+      runDraftBacktest(ctx.db, ctx.user.id, {
+        ...input,
+        from: new Date(input.from),
+        to: new Date(input.to),
+      }),
+    ),
 
   /** Alle Draft-Backtests der Sitzung (Parameter-Set-Vergleich, neueste zuerst). */
   backtests: protectedProcedure.input(z.object({ id: z.string().uuid() })).query(async ({ ctx, input }) => {
@@ -431,64 +304,9 @@ export const workshopRouter = router({
    * dsl.id) + strategy_versions status 'draft'. Paper wird sie erst über das
    * BESTEHENDE Gate: lab.runBacktest (an der Version) → strategies.promote.
    */
-  saveVersion: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
-    const session = await ownedSession(ctx.db, ctx.user.id, input.id);
-    const dsl = requireDraft(session);
-
-    const [existing] = await ctx.db.select().from(strategies).where(eq(strategies.slug, dsl.id)).limit(1);
-    let strategyId: string;
-    if (existing) {
-      if (existing.kind !== 'dsl') {
-        throw new TRPCError({ code: 'CONFLICT', message: `Slug "${dsl.id}" gehört zu einer ${existing.kind}-Strategie — id im Entwurf ändern.` });
-      }
-      if (session.strategyId && session.strategyId !== existing.id) {
-        throw new TRPCError({ code: 'CONFLICT', message: `Sitzung ist bereits mit einer anderen Strategie verknüpft — id im Entwurf zurückändern oder neue Sitzung nutzen.` });
-      }
-      strategyId = existing.id;
-    } else {
-      const [row] = await ctx.db
-        .insert(strategies)
-        .values({
-          slug: dsl.id,
-          name: `Workshop: ${session.name}`,
-          kind: 'dsl',
-          description: `Strategie-Workshop (${dsl.symbol}@${dsl.timeframe}, ${dsl.direction}).`,
-          createdBy: ctx.user.id,
-        })
-        .returning();
-      strategyId = row!.id;
-    }
-
-    const versions = await ctx.db
-      .select({ version: strategyVersions.version })
-      .from(strategyVersions)
-      .where(eq(strategyVersions.strategyId, strategyId))
-      .orderBy(desc(strategyVersions.version))
-      .limit(1);
-    const nextVersion = (versions[0]?.version ?? 0) + 1;
-
-    const [version] = await ctx.db
-      .insert(strategyVersions)
-      .values({ strategyId, version: nextVersion, params: dsl, status: 'draft' })
-      .returning();
-
-    await ctx.db
-      .update(workshopSessions)
-      .set({ strategyId, updatedAt: new Date() })
-      .where(eq(workshopSessions.id, session.id));
-
-    await ctx.db.insert(auditLog).values({
-      actor: 'user',
-      userId: ctx.user.id,
-      action: 'workshop.version.saved',
-      entityType: 'strategy_version',
-      entityId: version!.id,
-      details: { slug: dsl.id, version: nextVersion, sessionId: session.id, dsl },
-      ip: ctx.ip,
-    });
-
-    return { strategyId, versionId: version!.id, version: nextVersion, status: 'draft' as const };
-  }),
+  saveVersion: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(({ ctx, input }) => saveWorkshopVersion(ctx.db, ctx.user.id, input.id, ctx.ip)),
 
   /** Versionshistorie der verknüpften Strategie. */
   versions: protectedProcedure.input(z.object({ id: z.string().uuid() })).query(async ({ ctx, input }) => {
