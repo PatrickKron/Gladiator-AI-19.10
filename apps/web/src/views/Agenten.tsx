@@ -165,6 +165,9 @@ export function Agenten() {
         <>
       {error && <ErrorBox message={error} />}
 
+      {/* Patricks Mängelliste 2026-10-22, Punkt 9: „Was bedeutet das?“ — drei Schritte, ein Satz je Agent, Status ehrlich */}
+      <HowItWorksPanel status={status} />
+
       {/* Eigene Agenten zuerst — inkl. Erstellen-Einstieg (Werkstatt/RL) */}
       <MyAgentsPanel />
 
@@ -297,5 +300,65 @@ export function Agenten() {
         </>
       )}
     </div>
+  );
+}
+
+const EXPLAINED: { id: string; nameKey: string }[] = [
+  { id: 'technik', nameKey: 'signals.agentTechnik' },
+  { id: 'risk', nameKey: 'signals.agentRisk' },
+  { id: 'devil', nameKey: 'signals.agentDevil' },
+  { id: 'portfolio', nameKey: 'signals.agentPortfolio' },
+  { id: 'makro', nameKey: 'signals.agentMakro' },
+  { id: 'shadow', nameKey: 'signals.agentShadow' },
+];
+
+function HowItWorksPanel({ status }: { status: Status | null }) {
+  const { t } = useTranslation();
+  const activeIds = new Set((status?.active ?? []).map((a) => a.agent));
+  const disabledReason = new Map((status?.disabled ?? []).map((d) => [d.agent, d.reason]));
+  return (
+    <section className="glass reveal p-5" style={{ '--stagger': 1 } as React.CSSProperties}>
+      <h2 className="text-base font-semibold">{t('realMoney.agentsHow')}</h2>
+      <ol className="mt-3 grid gap-3 md:grid-cols-3">
+        {(['agentsStep1', 'agentsStep2', 'agentsStep3'] as const).map((k, i) => (
+          <li key={k} className="flex gap-2 text-sm leading-relaxed">
+            <span className="num shrink-0 font-semibold" style={{ color: 'var(--color-blue)' }}>
+              {i + 1}
+            </span>
+            <span>{t(`realMoney.${k}`)}</span>
+          </li>
+        ))}
+      </ol>
+      <div className="mt-4 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+        {EXPLAINED.map((a) => {
+          const on = activeIds.has(a.id);
+          const reason = disabledReason.get(a.id);
+          return (
+            <div key={a.id} className="rounded-[0.625rem] border p-3" style={{ borderColor: 'var(--color-line)' }}>
+              <p className="flex items-center gap-2 text-sm font-medium">
+                <span className={`neon-dot ${on ? 'neon-dot--on' : 'neon-dot--violet'}`} />
+                {t(a.nameKey)}
+                {status && !on && (
+                  <span className="label ml-auto" style={{ color: 'var(--color-mut)' }}>
+                    {t('common.disabled')}
+                  </span>
+                )}
+              </p>
+              <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+                {t(`realMoney.ag_${a.id}`)}
+              </p>
+              {reason && (
+                <p className="mt-1 text-[11px]" style={{ color: 'var(--color-violet)' }}>
+                  {reason}
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+        {t('realMoney.agentsNew')}
+      </p>
+    </section>
   );
 }

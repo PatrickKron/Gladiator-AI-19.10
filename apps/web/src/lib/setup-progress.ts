@@ -14,7 +14,7 @@ export const SETUP_STEP_LINKS: Record<SetupStepId, string> = {
   watch: '#/pakete',
   paperTrade: '#/traden?tab=demo',
   notify: '#/einstellungen?tab=keys',
-  exchange: '#/einstellungen?tab=boersen',
+  exchange: '#/echtes-geld',
 };
 
 /** Ausgeblendet (Wahl des Nutzers) und zuletzt gesehener Stand — beides nur Ansichts-Merker im Browser. */

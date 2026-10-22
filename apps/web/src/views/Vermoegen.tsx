@@ -176,7 +176,7 @@ export function Vermoegen() {
                 <span className="block text-sm font-medium">{t('wealth.part_real')} <span className="chip chip--pos ml-1">{t('wealth.realBadge')}</span></span>
                 <span className="block text-xs" style={{ color: 'var(--color-mut)' }}>{t('wealth.noExchange')}</span>
               </span>
-              <a href="#/einstellungen?tab=boersen" className="btn-primary px-3 py-1.5 text-xs">
+              <a href="#/echtes-geld" className="btn-primary px-3 py-1.5 text-xs">
                 {t('wealth.connectCta')}
               </a>
             </div>
