@@ -25,3 +25,4 @@ Regeln:
 - Leer-Zustände: `EmptyState` (ui.tsx) mit ehrlichem Text + EINER Aktion — nie ein leerer Bildschirm ohne nächsten Schritt.
 - Einfach/Profi: Registry-Flag `advanced: true` steckt Profi-Seiten hinter „Mehr“ (`subnavPages()`); Komplexes aufklappen, nie entfernen.
 - Kontrast: `lib/contrast.test.ts` liest styles.css und erzwingt AA (Text 4,5:1). Volle Blau-Flächen mit weißer Schrift nutzen `--color-blue-solid`.
+- UI-Smoke: `e2e/smoke.ts` besucht jede Registry-Route in Einfach/Profi/Handy gegen die laufende App (CI-Job `ui-smoke`; lokal `E2E_CHROMIUM=… npx tsx apps/web/e2e/smoke.ts`). Seitenfehler, kaputte Texte, leere Seiten, Überlauf = rot; ein Überlauf-Befund benennt die überstehenden Elemente, Bildschirmfotos der Routen mit Befund liegen in `e2e-out/` (CI-Artefakt `ui-smoke-befunde`). Merke: ein `<select>` ist so breit wie seine längste Option — lange Platzhalter brauchen `min-w-0 max-w-full` bis hinauf zum Zeilen-Container.

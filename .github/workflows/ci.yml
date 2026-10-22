@@ -39,6 +39,66 @@ jobs:
       - run: psql "$DATABASE_URL" -c "INSERT INTO users (email) VALUES ('ci-owner@test.invalid') ON CONFLICT DO NOTHING"
       - run: npm test
 
+  # UI-Smoke (Phase 7 Härtung): gebaute Oberfläche gegen die laufende API — jede Seite und
+  # jeden Tab der Registry in Einfach, Profi und auf dem Handy; Seitenfehler, kaputte Texte,
+  # leere Seiten und Überlauf lassen den Job rot werden (apps/web/e2e/smoke.ts).
+  ui-smoke:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: timescale/timescaledb:latest-pg17
+        env:
+          POSTGRES_DB: gladiator
+          POSTGRES_USER: gladiator
+          POSTGRES_PASSWORD: ci-only
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U gladiator -d gladiator"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgres://gladiator:ci-only@127.0.0.1:5433/gladiator
+      REDIS_URL: redis://127.0.0.1:6380
+      AUTO_LOGIN_EMAIL: ci-owner@test.invalid
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate
+      - run: psql "$DATABASE_URL" -c "INSERT INTO users (email) VALUES ('ci-owner@test.invalid') ON CONFLICT DO NOTHING"
+      - run: npm run build:web
+      - run: npx playwright install --with-deps chromium
+      - name: API starten (Web + Worker, Secrets nur für diesen Lauf)
+        run: |
+          export JWT_SECRET=$(openssl rand -hex 32) ENCRYPTION_KEY=$(openssl rand -hex 32)
+          nohup npx tsx packages/api/src/start.ts > api.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3010/health | grep -q '"db":"up"'; then exit 0; fi
+            sleep 2
+          done
+          tail -100 api.log
+          exit 1
+      - run: npx tsx apps/web/e2e/smoke.ts
+      - if: failure()
+        run: tail -200 api.log
+      - name: Bildschirmfotos der Routen mit Befund
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-smoke-befunde
+          path: e2e-out/
+          if-no-files-found: ignore
+
   # Selbsthosten als Container: frische .env (setup:env), Compose mit Profil „app“,
   # Container muss migrieren, starten und /health mit db=up beantworten.
   selfhost-docker:
