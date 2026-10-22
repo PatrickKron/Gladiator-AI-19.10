@@ -43,6 +43,26 @@ describe('searchYahoo', () => {
     const bad = (async () => new Response('nope', { status: 429 })) as unknown as typeof fetch;
     await expect(searchYahoo('fail', 5, bad)).rejects.toThrow(/HTTP 429/);
   });
+  it('Forex-Schreibweise: „eurusd“ ohne Währungstreffer fragt zusätzlich EURUSD=X und stellt es voran', async () => {
+    resetYahooSearchCache();
+    const urls: string[] = [];
+    const fake = (async (url: string) => {
+      urls.push(url);
+      const q = new URL(url).searchParams.get('q');
+      const quotes = q === 'EURUSD=X' ? [{ symbol: 'EURUSD=X', shortname: 'EUR/USD', quoteType: 'CURRENCY' }] : [{ symbol: 'EURN', shortname: 'Euronav', quoteType: 'EQUITY' }];
+      return new Response(JSON.stringify({ quotes }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const hits = await searchYahoo('eurusd', 10, fake);
+    expect(hits.map((h) => h.symbol)).toEqual(['EURUSD=X', 'EURN']);
+    expect(urls.length).toBe(2);
+    // Aktien-Suchwort mit sechs Buchstaben, aber Währungstreffer schon dabei ⇒ keine zweite Anfrage
+    resetYahooSearchCache();
+    const withFx = (async () => new Response(JSON.stringify({ quotes: [{ symbol: 'USDJPY=X', shortname: 'USD/JPY', quoteType: 'CURRENCY' }] }), { status: 200 })) as unknown as typeof fetch;
+    const calls: number[] = [];
+    const counting = (async (u: string, i: RequestInit) => { calls.push(1); return withFx(u, i); }) as unknown as typeof fetch;
+    expect((await searchYahoo('usdjpy', 10, counting))[0]!.symbol).toBe('USDJPY=X');
+    expect(calls.length).toBe(1);
+  });
 });
 
 describe('echte Daten (Yahoo-Suche)', () => {
