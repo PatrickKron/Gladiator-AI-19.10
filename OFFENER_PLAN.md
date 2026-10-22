@@ -95,7 +95,7 @@ Repo-Entscheidungen (Lizenz, Architektur, eine Wahrheit):
 
 ## 1 · Patrick-Schritte (blockieren am meisten — Claude kann sie nicht erledigen)
 
-- [ ] **Auto-Deploy GitHub → Server einmalig installieren** (`deploy/install-github-sync.sh` auf dem Server + read-only Deploy-Key bei GitHub eintragen). Bis dahin deployt eine lokale Sitzung: `git pull origin main && git push server main`. Damit geht auch PR #1 live.
+- [ ] **Auto-Deploy GitHub → Server — Patricks einziger Handgriff (Session 14, PR #88):** Workflow `.github/workflows/deploy.yml` pusht nach jedem Merge auf `main` wie bisher die lokale Sitzung per `git push server main` auf den Hetzner-Server (post-receive-Hook = Server-CI, Neustart nur bei Grün). Dafür einmalig ein Repository-Secret **`DEPLOY_SSH_KEY`** anlegen (GitHub → Settings → Secrets and variables → Actions): ein SSH-Private-Key, der auf dem Server als root erlaubt ist (z. B. der Schlüssel, mit dem Patrick heute von seinem PC pusht). Fehlt das Secret, meldet der Lauf das ehrlich und tut nichts. Alternative bleibt `deploy/install-github-sync.sh` auf dem Server. Bis dahin deployt eine lokale Sitzung: `git pull origin main && git push server main`.
 
 - [ ] **ANTHROPIC_API_KEY** in Einstellungen → API-Keys → schaltet Pine-Analyse, Workshop-Dialog, Text→Strategie, Makro-/Shadow-Agent, Signal-Erklärung frei.
 - [ ] *(optional seit Vision-Punkt 3 — Benachrichtigungen kommen in der App + per Push)* **Neuer Telegram-Bot** (BotFather) → `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` → Signal-/Preis-/Kill-Switch-Alarme + Morgen-Briefing aufs Handy.

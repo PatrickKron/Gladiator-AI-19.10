@@ -1,0 +1,84 @@
+# Auto-Deploy auf den Hetzner-Server (Patrick, 2026-10-22: „ich mache da gar nichts“).
+#
+# Läuft nach jedem Push auf main (und von Hand über „Run workflow“). Er macht exakt das,
+# was bisher die lokale Sitzung tat: `git push server main` — der post-receive-Hook auf dem
+# Server führt scripts/ci.sh aus (Lint, Typecheck, Migrationen, Tests, Web-Build) und startet
+# die Dienste NUR bei grüner CI neu. Nichts davon umgeht die Server-CI.
+#
+# Einmalige Voraussetzung (nur Patrick kann das): ein SSH-Private-Key, der auf dem Server als
+# root erlaubt ist, als Repository-Secret DEPLOY_SSH_KEY (Settings → Secrets and variables →
+# Actions → New repository secret). Fehlt das Secret, meldet der Lauf das ehrlich und tut nichts.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      SERVER_HOST: 95.216.10.238
+      SERVER_REPO: /opt/gladiator-v2/app
+    steps:
+      - name: Secret vorhanden?
+        id: gate
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::warning::DEPLOY_SSH_KEY fehlt — kein Deploy. Repository → Settings → Secrets and variables → Actions → 'DEPLOY_SSH_KEY' anlegen (SSH-Private-Key, der auf dem Server als root erlaubt ist)."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout (volle Historie für den Push)
+        if: steps.gate.outputs.ok == 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: SSH-Schlüssel einrichten
+        if: steps.gate.outputs.ok == 'true'
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -T 15 -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          cat > ~/.ssh/config <<CFG
+          Host gladiator-server
+            HostName $SERVER_HOST
+            User root
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            ConnectTimeout 20
+          CFG
+          chmod 600 ~/.ssh/config
+
+      - name: Push auf den Server (post-receive-Hook = Server-CI + Neustart bei Grün)
+        if: steps.gate.outputs.ok == 'true'
+        run: |
+          git remote add server "ssh://gladiator-server$SERVER_REPO"
+          # Der Hook druckt die CI-Ausgabe über den Push-Kanal zurück; bei roter Server-CI endet der Push rot.
+          git push server HEAD:main 2>&1 | tee deploy.log
+          test "${PIPESTATUS[0]}" -eq 0
+          if ! grep -q "CI GRUEN" deploy.log; then
+            echo "::warning::Hook-Ausgabe ohne 'CI GRUEN' — bitte deploy.log prüfen."
+          fi
+
+      - name: Deploy-Log sichern
+        if: always() && steps.gate.outputs.ok == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-log
+          path: deploy.log
+          if-no-files-found: ignore
