@@ -1258,6 +1258,18 @@ export function Workshop({ embedded = false }: { embedded?: boolean } = {}) {
     void trpc.market.scanUniverse.query().then(setUniverse).catch(() => undefined);
   }, [loadSessions]);
 
+  // Deep-Link aus dem Gladiator-Chat: #/strategien?tab=workshop&session=<id> öffnet die Sitzung direkt.
+  useEffect(() => {
+    const apply = () => {
+      const q = new URLSearchParams(window.location.hash.split('?')[1] ?? '');
+      const id = q.get('session');
+      if (id) setSelectedId(id);
+    };
+    apply();
+    window.addEventListener('hashchange', apply);
+    return () => window.removeEventListener('hashchange', apply);
+  }, []);
+
   useEffect(() => {
     if (selectedId) void loadDetail(selectedId);
     else {

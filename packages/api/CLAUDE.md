@@ -16,3 +16,4 @@ Regeln:
 - Später (Phase 5/6): Pine-Webhook-Receiver (HMAC), WebSocket/SSE-Gateway, Fach-Router.
 - Markt-Screener: Router `screener.*`; Bedingungen/Auswertung/Vorlagen liegen in `@gladiator/indicators` (`src/screener/`), damit der Worker (Screen-Alarme) dieselbe Auswertung nutzt; Universum = `candleUniverse()` aus @gladiator/market-data (nur Symbole mit echten Kerzen).
 - `market.symbolSearch` / `market.ensureCandles`: Asset-Suche über alle Binance-USDT-Spot-Paare (live, 1 h gemerkt) und Backfill auf Abruf — unbekanntes Paar ist ein Fehler, nie eine leere Historie.
+- Gladiator-Chat (`src/assistant/`): Werkzeuge rufen dieselben Service-Funktionen wie die Seiten (`workshop/draft-service.ts`, `routers/screener.ts#runScreen`, `routers/strategies.ts#promoteVersion`). Alles, was scharf schaltet, kommt als Bestätigungs-Karte zurück und läuft erst über `assistant.confirm` — nie direkt aus einem Werkzeug. Jede Zahl im Chat stammt aus einem Werkzeug-Ergebnis.

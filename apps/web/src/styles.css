@@ -343,6 +343,9 @@ html {
   /* Werkzeugzeile: umbrechen statt scrollen, damit Popovers nicht abgeschnitten werden. */
   .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
   .toolbar > * { flex: 0 0 auto; }
+  /* Gladiator-Chat (Mängelliste Punkt 4): Seitenleiste rechts, auf dem Handy Vollbild über der Tableiste. */
+  .chat-panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 45; display: flex; flex-direction: column; width: 100%; background: var(--color-bg2); border-left: 1px solid var(--color-line); padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  @media (min-width: 640px) { .chat-panel { width: 26rem; } }
   .tbtn { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.3rem 0.6rem; border-radius: 0.5rem; border: 1px solid var(--color-line); font-size: 0.75rem; font-weight: 500; color: var(--color-mut); background: transparent; white-space: nowrap; }
   .tbtn:hover { color: var(--color-ink); border-color: var(--color-line2); }
   .tbtn[aria-pressed="true"], .tbtn[aria-expanded="true"] { color: var(--color-ink); background: rgba(59, 130, 246, 0.16); border-color: rgba(59, 130, 246, 0.5); }

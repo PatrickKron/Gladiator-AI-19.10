@@ -29,6 +29,36 @@ export function universeFor(db: Db, timeframe: string, venue: string): Promise<U
   return candleUniverse(db, { timeframe, venue, minCandles: MIN_CANDLES, limit: MAX_UNIVERSE });
 }
 
+
+export type RunScreenInput = { timeframe: string; conditions: z.infer<typeof conditionsSchema>; symbols?: string[]; venue?: string };
+
+/**
+ * Screen laufen lassen (Seite UND Gladiator-Chat): Fehler je Symbol (keine/zu wenige
+ * Kerzen, Indikator) landen in der Zeile — ein Symbol reißt nie den ganzen Lauf.
+ */
+export async function runScreen(db: Db, input: RunScreenInput) {
+  const venue = input.venue ?? 'binance';
+  const t0 = Date.now();
+  const universe = input.symbols ? input.symbols.map((s) => s.toUpperCase()) : (await universeFor(db, input.timeframe, venue)).map((r) => r.symbol);
+  const pineTf = pineTimeframe(input.timeframe);
+  const rows: ScreenRow[] = [];
+  for (const symbol of universe.slice(0, MAX_UNIVERSE)) {
+    const candles = await getOhlcv(db, { symbol, timeframe: input.timeframe, limit: SCREEN_CANDLES, venue });
+    if (candles.length === 0) {
+      rows.push({ symbol, candles: 0, error: 'Keine Kerzen in der DB.' });
+      continue;
+    }
+    try {
+      const r = evaluateScreen(candles, input.conditions, { timeframe: pineTf, tickerid: tickerIdOf(venue, symbol) });
+      rows.push({ symbol, candles: candles.length, error: null, ...r });
+    } catch (err) {
+      rows.push({ symbol, candles: candles.length, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  rows.sort((a, b) => Number(b.matches ?? false) - Number(a.matches ?? false) || a.symbol.localeCompare(b.symbol));
+  return { timeframe: input.timeframe, scanned: rows.length, matched: rows.filter((r) => r.matches).length, ms: Date.now() - t0, rows };
+}
+
 function toDto(r: typeof screens.$inferSelect) {
   return {
     id: r.id,
@@ -67,28 +97,7 @@ export const screenerRouter = router({
         venue: z.string().max(20).optional(),
       }),
     )
-    .query(async ({ ctx, input }) => {
-      const venue = input.venue ?? 'binance';
-      const t0 = Date.now();
-      const universe = input.symbols ? input.symbols.map((s) => s.toUpperCase()) : (await universeFor(ctx.db, input.timeframe, venue)).map((r) => r.symbol);
-      const pineTf = pineTimeframe(input.timeframe);
-      const rows: ScreenRow[] = [];
-      for (const symbol of universe.slice(0, MAX_UNIVERSE)) {
-        const candles = await getOhlcv(ctx.db, { symbol, timeframe: input.timeframe, limit: SCREEN_CANDLES, venue });
-        if (candles.length === 0) {
-          rows.push({ symbol, candles: 0, error: 'Keine Kerzen in der DB.' });
-          continue;
-        }
-        try {
-          const r = evaluateScreen(candles, input.conditions, { timeframe: pineTf, tickerid: tickerIdOf(venue, symbol) });
-          rows.push({ symbol, candles: candles.length, error: null, ...r });
-        } catch (err) {
-          rows.push({ symbol, candles: candles.length, error: err instanceof Error ? err.message : String(err) });
-        }
-      }
-      rows.sort((a, b) => Number(b.matches ?? false) - Number(a.matches ?? false) || a.symbol.localeCompare(b.symbol));
-      return { timeframe: input.timeframe, scanned: rows.length, matched: rows.filter((r) => r.matches).length, ms: Date.now() - t0, rows };
-    }),
+    .query(({ ctx, input }) => runScreen(ctx.db, input)),
 
   list: protectedProcedure.query(async ({ ctx }) => {
     const rows = await ctx.db.select().from(screens).where(eq(screens.userId, ctx.user.id)).orderBy(asc(screens.name));
