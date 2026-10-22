@@ -13,6 +13,7 @@ import { openAssistant } from './AssistantPanel.js';
  */
 
 type Analysis = Awaited<ReturnType<typeof trpc.market.assetAnalysis.query>>;
+type VerdictResult = Awaited<ReturnType<typeof trpc.market.assetVerdict.mutate>>;
 
 const TONE: Record<Tone, string> = { pos: 'var(--color-pos)', neg: 'var(--color-neg)', warn: 'var(--color-warn)', mut: 'var(--color-mut)' };
 
@@ -21,11 +22,17 @@ export function AssetAnalysis({ symbol, ctx }: { symbol: string; ctx: AssetConte
   const [a, setA] = useState<Analysis | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
+  // KI-Urteil (Mängelliste 6, zweite Stufe): auf Knopfdruck, echte Kosten, ohne Schlüssel ehrlich nicht verbunden.
+  const [ai, setAi] = useState<VerdictResult | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiErr, setAiErr] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setA(null);
     setErr(null);
+    setAi(null);
+    setAiErr(null);
     void trpc.market.assetAnalysis
       .query({ symbol })
       .then((r) => {
@@ -56,6 +63,18 @@ export function AssetAnalysis({ symbol, ctx }: { symbol: string; ctx: AssetConte
     : null;
 
   const deepen = () => openAssistant(t('analysis.deepenPrompt', { symbol }));
+  const askAi = async () => {
+    setAiBusy(true);
+    setAiErr(null);
+    try {
+      setAi(await trpc.market.assetVerdict.mutate({ symbol }));
+    } catch (e) {
+      setAiErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAiBusy(false);
+    }
+  };
+  const aiFor = (agent: 'makro' | 'shadow') => ai?.agents.find((x) => x.agent === agent) ?? null;
 
   return (
     <section className="mb-4">
@@ -64,10 +83,25 @@ export function AssetAnalysis({ symbol, ctx }: { symbol: string; ctx: AssetConte
         <span className="text-xs" style={{ color: 'var(--color-mut)' }}>
           {t('analysis.subtitle')}
         </span>
-        <button type="button" className="tbtn ml-auto" onClick={deepen}>
-          {t('analysis.deepen')}
-        </button>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <button type="button" className="tbtn" onClick={() => void askAi()} disabled={aiBusy || !a} title={a && !a.llmConfigured ? t('analysis.aiNotConfigured') : undefined}>
+            {aiBusy ? t('analysis.aiBusy') : t('analysis.ai')}
+          </button>
+          <button type="button" className="tbtn" onClick={deepen}>
+            {t('analysis.deepen')}
+          </button>
+        </div>
       </div>
+      {aiErr && (
+        <p className="mb-2 text-xs" style={{ color: 'var(--color-warn)' }}>
+          {aiErr} <a href="#/einstellungen?tab=keys" className="underline">{t('analysis.aiToKeys')}</a>
+        </p>
+      )}
+      {ai && (
+        <p className="mb-2 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+          {t('analysis.aiCost', { usd: ai.costUsd.toFixed(4), when: fmtTime(ai.asOf) })}
+        </p>
+      )}
       {err && (
         <p className="text-sm" style={{ color: 'var(--color-neg)' }}>
           {err}
@@ -82,6 +116,7 @@ export function AssetAnalysis({ symbol, ctx }: { symbol: string; ctx: AssetConte
           <Row label={t('analysis.regime')} value={c?.emaRegime ? t(`analysis.regime_${c.emaRegime}`) : '—'} tone={c?.emaRegime === 'above' ? 'pos' : c?.emaRegime === 'below' ? 'neg' : undefined} />
           <Row label={t('analysis.phase')} value={c?.marketPhase ? t(`analysis.phase_${c.marketPhase}`) : '—'} />
           <Row label={t('analysis.structure')} value={c?.lastStructure ? `${c.lastStructure.kind} ${c.lastStructure.direction} @ ${num(c.lastStructure.level, 0)}` : '—'} />
+          <AiRow outcome={aiFor('makro')} t={t} />
         </Card>
         <Card
           name={t('analysis.shadow')}
@@ -97,6 +132,7 @@ export function AssetAnalysis({ symbol, ctx }: { symbol: string; ctx: AssetConte
           <Row label={t('analysis.cotStatus')} value={a?.cot.status ? t(`analysis.cot_${a.cot.status}`) : '—'} tone={a?.cot.status === 'crowded_long' || a?.cot.status === 'crowded_short' || a?.cot.status === 'contrarian_alert' ? 'warn' : undefined} />
           <Row label={t('analysis.cotNet')} value={a?.cot.netRatio == null ? '—' : `${num(a.cot.netRatio, 3)} · P${a.cot.percentile == null ? '—' : Math.round(a.cot.percentile * 100)}`} />
           <Row label={t('analysis.cotWeek')} value={a?.cot.weekChange == null ? '—' : `${a.cot.weekChange >= 0 ? '+' : ''}${num(a.cot.weekChange, 3)}`} />
+          <AiRow outcome={aiFor('shadow')} t={t} />
         </Card>
         <Card name={t('analysis.sentinel')} sub={t('analysis.sentinelSub')} verdict={sentinel} t={t} footer={a ? (a.noTrade.calendarConnected ? t('analysis.calendarOk') : t('analysis.calendarNone')) : null}>
           <Row label={t('analysis.killSwitch')} value={a ? (a.risk.killSwitchActive ? t('analysis.on') : t('analysis.off')) : '—'} tone={a?.risk.killSwitchActive ? 'neg' : 'pos'} />
@@ -129,6 +165,37 @@ function Card({ name, sub, verdict, footer, t, children }: { name: string; sub: 
         </p>
       )}
     </div>
+  );
+}
+
+/** KI-Urteil eines Agenten als Zeile unter den Fakten — nur nach Knopfdruck, nie geraten. */
+function AiRow({ outcome, t }: { outcome: VerdictResult['agents'][number] | null; t: (k: string, o?: Record<string, unknown>) => string }) {
+  if (!outcome) return null;
+  if (!outcome.connected) {
+    return (
+      <li className="mt-2 border-t pt-2 text-xs" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+        {t('analysis.aiLabel')}: {outcome.reason}
+      </li>
+    );
+  }
+  if ('error' in outcome) {
+    return (
+      <li className="mt-2 border-t pt-2 text-xs" style={{ borderColor: 'var(--color-line)', color: 'var(--color-warn)' }}>
+        {t('analysis.aiLabel')}: {outcome.error}
+      </li>
+    );
+  }
+  const v = outcome.verdict;
+  const tone: Tone = v.stance === 'bullish' ? 'pos' : v.stance === 'bearish' ? 'neg' : 'warn';
+  return (
+    <li className="mt-2 border-t pt-2 text-sm" style={{ borderColor: 'var(--color-line)' }}>
+      <span className="font-medium" style={{ color: TONE[tone] }}>
+        {t('analysis.aiLabel')} · {t(`analysis.stance_${v.stance}`)} · {Math.round(v.confidence * 100)} %
+      </span>
+      <p className="mt-0.5 text-xs leading-snug" style={{ color: 'var(--color-mut)' }}>
+        {v.reason}
+      </p>
+    </li>
   );
 }
 

@@ -57,3 +57,46 @@ export async function reviewLlmAgent(
   verdict.refs = { context, costUsd: completion.costUsd, usage: completion.usage };
   return verdict;
 }
+
+/**
+ * KI-Urteil je ASSET (Mängelliste 6, zweite Stufe): dieselben Rollen (Makro, Shadow) ohne
+ * Signal — Haltung zum Asset aus den echten Fakten der Asset-Analyse. Striktes JSON wie oben;
+ * Müll-Antworten werden verworfen, nie zu einem Urteil gemacht.
+ */
+export type AssetStance = 'bullish' | 'bearish' | 'neutral';
+export type AssetVerdict = { agent: 'makro' | 'shadow'; stance: AssetStance; confidence: number; reason: string; costUsd: number };
+
+const SYSTEM_ASSET = `Du bist ein Trading-Analyse-Agent im Gladiator-System.
+Du bekommst ein Asset und ECHTE Kontextdaten (Makro, Positionierung, Kalender, News-Titel).
+Beurteile NUR anhand der mitgelieferten Daten — erfinde keine Fakten, keine Kurse, keine Ereignisse.
+Felder mit connected:false oder null sind NICHT verbunden: nenne das, stütze dich nicht darauf.
+Antworte AUSSCHLIESSLICH mit einem JSON-Objekt:
+{"stance":"bullish"|"bearish"|"neutral","confidence":0..1,"reason":"..."}.
+Die reason nennt konkret die Datenpunkte (Deutsch, max. 3 Sätze).`;
+
+export function buildAssetPrompt(agent: 'makro' | 'shadow', symbol: string, facts: Record<string, unknown>): string {
+  const role =
+    agent === 'makro'
+      ? 'Makro-Agent (Oracle): Bewerte Makro-/Regime-Kontext (GRS, VIX, DXY, US10Y), Event-Nähe (Kalender) und die Schlagzeilen für dieses Asset.'
+      : 'Shadow-Agent: Bewerte Positionierung und Liquiditätsrisiken (Funding, Open Interest, COT-Lage) für dieses Asset.';
+  return `${role}\n\nAsset: ${symbol}\n\nEchte Kontextdaten:\n${JSON.stringify(facts, null, 2)}`;
+}
+
+export function parseAssetVerdict(agent: 'makro' | 'shadow', text: string): Omit<AssetVerdict, 'costUsd'> {
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error(`${agent}: LLM-Antwort enthält kein JSON.`);
+  const parsed: unknown = JSON.parse(match[0]);
+  if (typeof parsed !== 'object' || parsed === null) throw new Error(`${agent}: LLM-JSON ist kein Objekt.`);
+  const o = parsed as Record<string, unknown>;
+  if (o.stance !== 'bullish' && o.stance !== 'bearish' && o.stance !== 'neutral') throw new Error(`${agent}: ungültige stance "${String(o.stance)}".`);
+  const confidence = Number(o.confidence);
+  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) throw new Error(`${agent}: confidence außerhalb [0,1].`);
+  if (typeof o.reason !== 'string' || o.reason.trim().length === 0) throw new Error(`${agent}: reason fehlt.`);
+  return { agent, stance: o.stance, confidence, reason: o.reason.trim() };
+}
+
+export async function assessAsset(agent: 'makro' | 'shadow', symbol: string, facts: Record<string, unknown>, provider: LlmProvider, guard: CostGuard | null): Promise<AssetVerdict> {
+  const prompt = buildAssetPrompt(agent, symbol, facts);
+  const completion = guard ? await guardedComplete(provider, guard, { system: SYSTEM_ASSET, prompt, maxTokens: 800 }) : await provider.complete({ system: SYSTEM_ASSET, prompt, maxTokens: 800 });
+  return { ...parseAssetVerdict(agent, completion.text), costUsd: completion.costUsd };
+}

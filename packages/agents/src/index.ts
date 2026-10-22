@@ -20,7 +20,7 @@ export {
   type LlmChatResult,
   type LlmRequest,
 } from './provider.js';
-export { buildAgentPrompt, parseLlmVerdict, reviewLlmAgent } from './llm-agents.js';
+export { assessAsset, buildAgentPrompt, buildAssetPrompt, parseAssetVerdict, parseLlmVerdict, reviewLlmAgent, type AssetStance, type AssetVerdict } from './llm-agents.js';
 export { runSwarm, type SwarmInput, type SwarmResult } from './swarm.js';
 export {
   reviewInstitutional,
