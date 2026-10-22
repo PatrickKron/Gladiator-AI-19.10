@@ -2361,6 +2361,8 @@ export const en: Catalog = {
     tab_history: 'History',
     tab_performance: 'Performance',
     ticketTitle: 'Order ticket',
+    quickTicketTitle: "Quick ticket · {{symbol}}",
+    toFullDemo: "Open practice account",
     direction: 'Direction',
     long: 'Long',
     short: 'Short',

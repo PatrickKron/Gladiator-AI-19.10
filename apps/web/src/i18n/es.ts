@@ -2361,6 +2361,8 @@ export const es: Catalog = {
     tab_history: 'Historial',
     tab_performance: 'Rendimiento',
     ticketTitle: 'Ticket de orden',
+    quickTicketTitle: "Ticket rápido · {{symbol}}",
+    toFullDemo: "Ir a la cuenta de práctica",
     direction: 'Dirección',
     long: 'Largo',
     short: 'Corto',

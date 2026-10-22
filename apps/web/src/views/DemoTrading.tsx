@@ -221,15 +221,25 @@ export function DemoTrading() {
  * LIVE-Kosten-Vorschau aus dem echten Orderbuch, dann erst [Jetzt kaufen].
  * Profi kann weiterhin direkt Stückzahl eingeben (Umschalter).
  */
-function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
+/**
+ * Order-Ticket des Übungskontos. Eigenständig auf der Demo-Seite (Asset wählbar) ODER
+ * eingebettet im Chart (Mängelliste 12: Schnell-Ticket ohne Seitenwechsel — `embedded`
+ * mit festem `symbol`/`venue` vom Chart). Beide Wege laufen über dieselbe Demo-Engine.
+ */
+export function OrderTicket({ onPlaced, symbol: fixedSymbol, venue: fixedVenue, embedded = false }: { onPlaced: () => void; symbol?: string; venue?: string; embedded?: boolean }) {
   const { t } = useTranslation();
   // Vorbelegung vom Dashboard-„Traden"-Button: peek (pur) im Initialisierer,
   // clear erst im Effect — StrictMode ruft Initialisierer doppelt auf, ein
   // „lesen+löschen" in einem Schritt würde die Übergabe im Dev-Modus verlieren.
-  const [symbol, setSymbol] = useState(() => peekPendingTradeSymbol() ?? 'BTC/USDT');
+  const [symbol, setSymbol] = useState(() => fixedSymbol ?? peekPendingTradeSymbol() ?? 'BTC/USDT');
   useEffect(() => {
-    clearPendingTradeSymbol();
-  }, []);
+    if (!fixedSymbol) clearPendingTradeSymbol();
+  }, [fixedSymbol]);
+  // Eingebettet: Symbol und Quelle folgen dem Chart.
+  useEffect(() => {
+    if (fixedSymbol) setSymbol(fixedSymbol);
+    if (fixedVenue) setVenue(isStockVenue(fixedVenue) ? fixedVenue : 'binance');
+  }, [fixedSymbol, fixedVenue]);
   const [direction, setDirection] = useState<'long' | 'short'>('long');
   const [type, setType] = useState<'market' | 'limit'>('market');
   const [amountMode, setAmountMode] = useState<'eur' | 'qty'>('eur');
@@ -393,21 +403,27 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
   });
 
   return (
-    <section className="reveal mt-5" style={{ '--stagger': 5 } as React.CSSProperties}>
+    <section className={embedded ? '' : 'reveal mt-5'} style={{ '--stagger': 5 } as React.CSSProperties}>
       {/* Kauf-Flow nach Bitpanda (Welle D): Betrag → Richtung → Vorschau → EIN Knopf; alles Weitere unter „Erweitert“ */}
-      <div className="glass mx-auto max-w-xl p-5">
+      <div className={embedded ? 'glass p-4' : 'glass mx-auto max-w-xl p-5'}>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="text-sm font-semibold">{t('demo.ticketTitle')}</span>
-          <AssetSelect
-            value={symbol}
-            venue={isStockVenue(venue) ? venue : 'binance'}
-            onChange={(sym, v) => {
-              setSymbol(sym);
-              // Aktien/ETF/Forex: Schlusskurs-Quelle als Venue; zurück zu Krypto: wieder Binance-Buch.
-              if (v === 'yahoo' || v === 'twelvedata') setVenue(v);
-              else if (isStockVenue(venue)) setVenue('binance');
-            }}
-          />
+          <span className="text-sm font-semibold">{embedded ? t('demo.quickTicketTitle', { symbol }) : t('demo.ticketTitle')}</span>
+          {embedded ? (
+            <a href="#/traden?tab=demo" className="text-xs underline decoration-dotted" style={{ color: 'var(--color-mut)' }}>
+              {t('demo.toFullDemo')}
+            </a>
+          ) : (
+            <AssetSelect
+              value={symbol}
+              venue={isStockVenue(venue) ? venue : 'binance'}
+              onChange={(sym, v) => {
+                setSymbol(sym);
+                // Aktien/ETF/Forex: Schlusskurs-Quelle als Venue; zurück zu Krypto: wieder Binance-Buch.
+                if (v === 'yahoo' || v === 'twelvedata') setVenue(v);
+                else if (isStockVenue(venue)) setVenue('binance');
+              }}
+            />
+          )}
         </div>
 
         {/* 1 · Betrag */}

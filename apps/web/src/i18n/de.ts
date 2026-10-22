@@ -2360,6 +2360,8 @@ export const de = {
     tab_history: 'Historie',
     tab_performance: 'Performance',
     ticketTitle: 'Order-Ticket',
+    quickTicketTitle: "Schnell-Ticket · {{symbol}}",
+    toFullDemo: "Zum Übungskonto",
     direction: 'Richtung',
     long: 'Long',
     short: 'Short',
