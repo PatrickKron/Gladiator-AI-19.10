@@ -29,6 +29,10 @@ const paramsSchema = z
     retestWindowBars: z.number().int().min(2).max(60),
     emaProximityPct: z.number().min(0.1).max(10),
     rsiLookbackBars: z.number().int().min(1).max(20),
+    // Experiment-Flags (Phase 1b): Sweep/Discount als Zusatz-Confluence — nur im Labor messbar, Standard aus
+    sweepConfluence: z.boolean(),
+    discountConfluence: z.boolean(),
+    sweepWindowBars: z.number().int().min(2).max(100),
   })
   .partial();
 

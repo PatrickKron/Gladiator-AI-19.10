@@ -1196,6 +1196,9 @@ export const it: Catalog = {
     title: 'Laboratorio strategie',
   },
   labor: {
+    expSweep: "Esperimento: sweep come confluenza (+0,5)",
+    expDiscount: "Esperimento: discount/premium come confluenza (+0,5)",
+    expHint: "Misurabile solo qui, disattivato di default: esegui lo stesso periodo senza e con il flag e confronta al netto. Nello scoring reale solo dopo un vantaggio dimostrato: salva come versione, Patrick promuove.",
     noRunsCta: "Avvia un backtest",
     openRun: "Apri",
     openRunHint: "Ricalcola il run con la stessa configurazione sulle stesse candele del DB — nulla è inventato.",

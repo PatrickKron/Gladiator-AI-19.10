@@ -1196,6 +1196,9 @@ export const en: Catalog = {
     title: 'Strategy lab',
   },
   labor: {
+    expSweep: "Experiment: sweep as confluence (+0.5)",
+    expDiscount: "Experiment: discount/premium as confluence (+0.5)",
+    expHint: "Measurable only here, off by default: run the same period once without and once with the flag and compare net. Into live scoring only after a proven edge — save as a version, Patrick promotes.",
     noRunsCta: "Run a backtest",
     openRun: "Open",
     openRunHint: "Recompute the run with the same configuration on the same DB candles — nothing is invented.",

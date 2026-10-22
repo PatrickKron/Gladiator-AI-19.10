@@ -66,4 +66,14 @@ describe('Confluence-Scoring (05_ §6 — exakte Gewichte, NIE hartkodiert)', ()
     expect(riskClassOf(7.0)).toBe('medium');
     expect(riskClassOf(5.9)).toBe('high');
   });
+  it('Experiment-Flags Sweep/Discount: +0,5 je, ohne Flag keine Wirkung, Deckel bleibt 10', () => {
+    const base = { trendAligned: true, structureBreak: true, validRetest: true, rsiInBand: true, volumeConfirmed: true, fvgTarget: false, sessionActive: false, rrAtLeast2: false, higherTf: 'neutral' as const, counterConfluence: false };
+    expect(computeScore(base).score).toBe(7);
+    expect(computeScore({ ...base, liquiditySweep: true }).score).toBe(7.5);
+    expect(computeScore({ ...base, liquiditySweep: true, dealingRangeFavorable: true }).score).toBe(8);
+    expect(computeScore({ ...base, liquiditySweep: true, dealingRangeFavorable: true }).confluence).toEqual(expect.arrayContaining(['Sweep', 'Discount/Premium']));
+    const full = { ...base, fvgTarget: true, sessionActive: true, rrAtLeast2: true, higherTf: 'aligned' as const, liquiditySweep: true, dealingRangeFavorable: true };
+    expect(computeScore(full).score).toBe(10);
+  });
+
 });

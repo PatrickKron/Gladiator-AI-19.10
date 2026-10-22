@@ -1,6 +1,7 @@
 import { atr, ema, rsi, sma } from './indicators.js';
 import { detectStructure } from './structure.js';
 import { detectFvgs } from './zones.js';
+import { dealingRangeAt, detectLiquidity } from './liquidity.js';
 import { computeScore, riskClassOf, type RiskClass, type TradingSession } from './scoring.js';
 import { isActiveSession, sessionOf } from './session.js';
 import type { Candle } from './types.js';
@@ -40,6 +41,14 @@ export type SmcCoreParams = {
    * Kalibrierbar; Feinabstimmung folgt im Backtesting (Phase 3).
    */
   rsiLookbackBars: number;
+  /**
+   * Experiment-Flags (Phase 1b, Labor): Sweep bzw. Discount/Premium als Zusatz-Confluence
+   * (+0,5 je). Standard aus — ins Produktiv-Scoring erst nach belegtem Vorsprung im Backtest.
+   */
+  sweepConfluence?: boolean;
+  discountConfluence?: boolean;
+  /** Fenster (Bars vor dem Entry), in dem ein Sweep in Trendrichtung zählt. */
+  sweepWindowBars?: number;
 };
 
 /** Defaults gemäß 05_ (EMA200/EMA50, RSI-Band 30–50 long / 50–70 short, Pivot 8/8). */
@@ -190,6 +199,22 @@ export function evaluateSmcCoreAt(
         ? 'aligned'
         : 'opposed';
 
+  // Experiment-Flags (Labor, Standard aus): Sweep/Discount als Zusatz-Confluence — nur auf Kerzen ≤ i.
+  let liquiditySweep = false;
+  let dealingRangeFavorable = false;
+  if (params.sweepConfluence || params.discountConfluence) {
+    const liq = detectLiquidity(candles, { leftBars: params.swingLeftBars, rightBars: params.swingRightBars });
+    if (params.sweepConfluence) {
+      const window = params.sweepWindowBars ?? 20;
+      const side = direction === 'long' ? 'sell-side' : 'buy-side';
+      liquiditySweep = liq.sweeps.some((s) => s.side === side && s.index <= i && s.index >= i - window);
+    }
+    if (params.discountConfluence) {
+      const range = dealingRangeAt(candles, liq.swings, i);
+      dealingRangeFavorable = range !== null && (direction === 'long' ? range.zone === 'discount' : range.zone === 'premium');
+    }
+  }
+
   const entry = bar.close;
   const candidates: SetupCandidate[] = [];
 
@@ -214,6 +239,8 @@ export function evaluateSmcCoreAt(
       rrAtLeast2: rr >= 2,
       higherTf,
       counterConfluence: false,
+      liquiditySweep,
+      dealingRangeFavorable,
     });
 
     // Ausspiel-Schwelle (05_ §6): unter 6 wird verworfen
