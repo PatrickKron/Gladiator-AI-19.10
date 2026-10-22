@@ -164,7 +164,7 @@ const PANE_HEIGHT = 120;
 
 const baseChartOptions = (timeframe: Timeframe, height: number) => ({
   height,
-  layout: { background: { color: 'transparent' }, textColor: C.mut, fontSize: 10 },
+  layout: { background: { color: 'transparent' }, textColor: C.mut, fontSize: 10, attributionLogo: false },
   grid: { vertLines: { color: 'rgba(148,163,184,0.05)' }, horzLines: { color: 'rgba(148,163,184,0.05)' } },
   crosshair: { mode: CrosshairMode.Normal },
   panes: { separatorColor: 'rgba(148,163,184,0.18)', separatorHoverColor: 'rgba(96,165,250,0.35)', enableResize: false },
@@ -249,6 +249,9 @@ export function AssetChart({
   // der DB liegen. Vor dem Laden Fallback auf die Basis-TFs; der aktuelle TF wird
   // immer angeboten (sonst säße man auf einem leeren Chart fest).
   const [availableTfs, setAvailableTfs] = useState<Timeframe[]>(BASE_TIMEFRAMES);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [loadingCandles, setLoadingCandles] = useState(false);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     void trpc.market.availableTimeframes
@@ -722,7 +725,22 @@ export function AssetChart({
     return () => {
       cancelled = true;
     };
-  }, [symbol, tf, replayUntil, venue]);
+  }, [symbol, tf, replayUntil, venue, reloadKey]);
+
+  // Kerzen auf Abruf (Patricks Mängelliste, Punkt 3): Deep-Link oder Favorit ohne Kerzen → nachladen, dann neu laden.
+  const loadCandlesNow = async () => {
+    setLoadingCandles(true);
+    setLoadErr(null);
+    try {
+      const r = await trpc.market.ensureCandles.mutate({ symbol });
+      if (r.candles1h === 0) throw new Error(r.errors[0] ?? 'keine Kerzen');
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      setLoadErr(t('assetCtx.loadFailed', { symbol, error: String(e instanceof Error ? e.message : e).slice(0, 140) }));
+    } finally {
+      setLoadingCandles(false);
+    }
+  };
   // Symbol-/TF-Wechsel beendet ein laufendes Replay (der Zeitstrahl gehört zum alten Fenster).
   useEffect(() => {
     setReplay(null);
@@ -1625,8 +1643,13 @@ export function AssetChart({
         </div>
       )}
       {state === 'empty' && (
-        <div className="flex h-[200px] items-center justify-center rounded border p-4 text-center text-sm leading-relaxed" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
-          {t('chart.noData', { symbol })}
+        <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded border p-4 text-center text-sm leading-relaxed" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+          <span>{loadErr ?? t('chart.noData', { symbol })}</span>
+          {venue === 'binance' && (
+            <button type="button" className="btn" disabled={loadingCandles} onClick={() => void loadCandlesNow()}>
+              {loadingCandles ? t('assetCtx.loadingCandles', { symbol }) : t('assetCtx.tapToLoad')}
+            </button>
+          )}
         </div>
       )}
 

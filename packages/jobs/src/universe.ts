@@ -9,7 +9,8 @@ import { backfillOhlcv, TIMEFRAME_MS } from '@gladiator/market-data';
  */
 
 export const BASE_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
-const MAX_UNIVERSE = 12;
+/** Patricks Mängelliste 2026-10-22: 12 war viel zu eng — 40 Symbole im Scan (Basis + Favoriten); Charts kennen daneben jedes Binance-Paar. */
+const MAX_UNIVERSE = 40;
 const QUOTES = ['USDT', 'USDC'];
 
 /** "BTCUSDT"/"btc/usdt" → "BTC/USDT"; Nicht-Krypto (AAPL) → ehrlich null. */

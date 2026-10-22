@@ -39,7 +39,7 @@ export function TokenChart({ chain, pool }: { chain: Chain; pool: string }) {
         const chart = createChart(el, {
           width: el.clientWidth,
           height: 220,
-          layout: { background: { color: 'transparent' }, textColor: '#8b94b8', fontSize: 10 },
+          layout: { background: { color: 'transparent' }, textColor: '#8b94b8', fontSize: 10, attributionLogo: false },
           grid: { vertLines: { color: 'rgba(148,163,184,0.05)' }, horzLines: { color: 'rgba(148,163,184,0.05)' } },
           crosshair: { mode: CrosshairMode.Normal },
           rightPriceScale: { borderColor: 'rgba(148,163,184,0.18)' },

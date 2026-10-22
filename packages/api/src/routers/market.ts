@@ -31,10 +31,12 @@ import {
   readFredWatchSeries,
   removeFredWatch,
   suggestFredSeries,
+  listBinanceSpotPairs,
+  searchSpotPairs,
 } from '@gladiator/market-data';
 import { noTradeWindowFor } from '@gladiator/risk';
 import { hindsightOutcome, type HindsightSignal } from '@gladiator/backtest';
-import { scanUniverse } from '@gladiator/jobs';
+import { ensureCandles, scanUniverse } from '@gladiator/jobs';
 import { CostGuard, envAnthropicProvider, guardedComplete } from '@gladiator/agents';
 import {
   atr,
@@ -468,6 +470,47 @@ export const marketRouter = router({
 
   /** Aktuelles Scan-Universum (Basis + Stern-Favoriten) — für Selektoren. */
   scanUniverse: protectedProcedure.query(({ ctx }) => scanUniverse(ctx.db)),
+
+  /**
+   * Asset-Suche (Patricks Mängelliste 2026-10-22, Punkt 3): alle Binance-Spot-Paare gegen
+   * USDT, live von der Börse (1 h gemerkt). `hasCandles` sagt, ob schon echte Kerzen in der
+   * DB liegen; ohne Verbindung zur Börse ehrlich `connected: false` statt einer Teilliste.
+   */
+  symbolSearch: protectedProcedure
+    .input(z.object({ q: z.string().max(32).default(''), limit: z.number().int().min(1).max(100).default(30) }))
+    .query(async ({ ctx, input }) => {
+      let pairs;
+      try {
+        pairs = await listBinanceSpotPairs();
+      } catch (err) {
+        return { connected: false as const, total: 0, results: [] as { symbol: string; hasCandles: boolean }[], error: String(err).slice(0, 200) };
+      }
+      const hits = searchSpotPairs(pairs, input.q, input.limit);
+      const known = await ctx.db.execute(sql`SELECT DISTINCT symbol FROM ohlcv WHERE venue = 'binance' AND timeframe = '1h'`);
+      const withCandles = new Set((known.rows as { symbol: string }[]).map((r) => r.symbol));
+      return { connected: true as const, total: pairs.length, results: hits.map((p) => ({ symbol: p.symbol, hasCandles: withCandles.has(p.symbol) })), error: null };
+    }),
+
+  /**
+   * Kerzen auf Abruf: für ein Binance-Spot-Paar alle Zeitrahmen inkrementell nachladen
+   * (derselbe Backfill wie der Scan für Favoriten). Nur echte Paare — ein unbekanntes
+   * Symbol ist ein Fehler, keine leere Historie.
+   */
+  ensureCandles: protectedProcedure.input(z.object({ symbol: z.string().min(3).max(24) })).mutation(async ({ ctx, input }) => {
+    const symbol = input.symbol.toUpperCase();
+    let pairs;
+    try {
+      pairs = await listBinanceSpotPairs();
+    } catch (err) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `Binance nicht erreichbar — ${String(err instanceof Error ? err.message : err).slice(0, 160)}` });
+    }
+    if (!pairs.some((p) => p.symbol === symbol)) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: `${symbol} ist kein Binance-Spot-Paar gegen USDT.` });
+    }
+    const res = await ensureCandles(ctx.db, symbol);
+    const n = await ctx.db.execute(sql`SELECT count(*)::int AS n FROM ohlcv WHERE venue = 'binance' AND symbol = ${symbol} AND timeframe = '1h'`);
+    return { symbol, inserted: res.inserted, errors: res.errors, candles1h: (n.rows[0] as { n: number }).n };
+  }),
 
   /**
    * Asset-Kontext (Patrick-Lücke 2/6): ALLES echt aus eigenen Kerzen + Feeds

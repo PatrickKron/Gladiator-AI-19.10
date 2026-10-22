@@ -17,13 +17,20 @@ describe('normalizeTradingPair', () => {
 });
 
 describe('buildUniverse', () => {
-  it('Basis-Symbole immer enthalten; Favoriten-Paare ergänzt, dedupliziert, Cap 12', () => {
+  it('Basis-Symbole immer enthalten; Favoriten-Paare ergänzt, dedupliziert, Cap 40', () => {
     const u = buildUniverse(['BTCUSDT', 'DOGEUSDT', 'DOGEUSDT', 'AAPL', 'LINKUSDT']);
     expect(u.slice(0, 3)).toEqual(['BTC/USDT', 'ETH/USDT', 'SOL/USDT']);
     expect(u).toContain('DOGE/USDT');
     expect(u).toContain('LINK/USDT');
     expect(new Set(u).size).toBe(u.length); // dedupe
-    expect(u.length).toBeLessThanOrEqual(12);
+    expect(u.length).toBeLessThanOrEqual(40);
+  });
+
+  it('Cap 40: der 41. Favorit fällt weg, nichts stürzt', () => {
+    const favs = Array.from({ length: 60 }, (_, i) => `T${i}USDT`);
+    const u = buildUniverse(favs);
+    expect(u.length).toBe(40);
+    expect(u.slice(0, 3)).toEqual(['BTC/USDT', 'ETH/USDT', 'SOL/USDT']);
   });
 
   it('nicht-Krypto-Favoriten (Aktien) werden ehrlich ignoriert (kein Binance-Feed)', () => {
