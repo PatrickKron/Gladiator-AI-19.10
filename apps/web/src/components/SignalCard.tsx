@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { SignalChart } from './SignalChart.js';
 import { FavStarSymbol } from './FavStar.js';
+import { openAssistant } from './AssistantPanel.js';
 import { MlBadge } from './MlBadge.js';
 import { RegimeBadge } from './RegimeBadge.js';
 import { buildChartUrl } from '../lib/chart-url.js';
@@ -893,6 +894,19 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
           </p>
         </>
       )}
+      {/* Chat-Einstieg (Mängelliste 4): Signal mit echten Werten in den Chat tragen — bewertet mit recent_signals + asset_analysis. */}
+      <button
+        type="button"
+        className="mt-2 w-full text-center text-xs underline decoration-dotted"
+        style={{ color: 'var(--color-blue)' }}
+        onClick={() =>
+          openAssistant(
+            t('signals.chatPrompt', { symbol: signal.symbol, direction: signal.direction, tf: signal.timeframe, entry: fmt(signal.entry), sl: fmt(signal.stopLoss), score: fmt(signal.score) }),
+          )
+        }
+      >
+        {t('signals.discussChat')}
+      </button>
     </div>
   );
 }

@@ -17,7 +17,7 @@ type Status = Awaited<ReturnType<typeof trpc.assistant.status.query>>;
 type Conversation = Awaited<ReturnType<typeof trpc.assistant.conversations.query>>[number];
 
 const CONV_KEY = 'gladiator.chatConversation';
-const TOOL_KEYS = ['app_overview', 'propose_strategy', 'run_backtest', 'save_version', 'lab_backtest', 'promote_version', 'run_screen', 'navigate'] as const;
+const TOOL_KEYS = ['app_overview', 'propose_strategy', 'run_backtest', 'save_version', 'lab_backtest', 'promote_version', 'run_screen', 'asset_analysis', 'agents_status', 'trading_settings', 'update_trading_settings', 'kill_switch', 'demo_account', 'recent_signals', 'navigate'] as const;
 
 /** Öffnet den Chat von überall (z. B. Leer-Zustand im Workshop). */
 export function openAssistant(prefill?: string): void {
@@ -220,7 +220,7 @@ export function AssistantPanel({ open, onClose, prefill }: { open: boolean; onCl
           <div className="text-sm" style={{ color: 'var(--color-mut)' }}>
             <p>{t('assistant.empty')}</p>
             <div className="mt-3 flex flex-col gap-2">
-              {(['suggest1', 'suggest2', 'suggest3'] as const).map((k) => (
+              {(['suggest1', 'suggest2', 'suggest3', 'suggest4'] as const).map((k) => (
                 <button key={k} type="button" className="chip text-left" onClick={() => void send(t(`assistant.${k}`))}>
                   {t(`assistant.${k}`)}
                 </button>

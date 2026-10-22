@@ -1,4 +1,4 @@
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import type { LlmTool } from '@gladiator/agents';
@@ -11,8 +11,13 @@ import { runDraftBacktest, saveWorkshopVersion, ownedSession } from '../workshop
 import { runScreen } from '../routers/screener.js';
 import { loadVersionValidity } from '../routers/strategies.js';
 import { buildAssetAnalysis } from '../market/asset-analysis.js';
+import { loadAgentsStatus } from '../routers/agents.js';
+import { ensureTradingSettings } from '../routers/settings.js';
+import { currentDemoBookSource, listDemoPositions } from '../routers/demo.js';
+import { demoAccountOverview } from '@gladiator/exchange';
+import { SETTINGS_BOUNDS, type TradingLimits } from '@gladiator/core/trading-settings';
 
-const { strategies, strategyVersions, workshopSessions, auditLog } = schema;
+const { strategies, strategyVersions, workshopSessions, auditLog, signals, signalReviews } = schema;
 
 /**
  * Werkzeuge des Gladiator-Chats (Patricks Mängelliste 2026-10-22, Punkt 4).
@@ -30,7 +35,42 @@ export type AssistantCard =
   | { kind: 'backtest'; label: string; symbol: string; timeframe: string; candles: number; trades: number; netReturnPct: number | null; profitFactor: number | null; maxDrawdownPct: number | null; winRate: number | null; hash: string }
   | { kind: 'version'; strategyId: string; versionId: string; version: number; status: string; hash: string }
   | { kind: 'screen'; timeframe: string; scanned: number; matched: string[]; hash: string }
-  | { kind: 'confirm'; action: 'promote_version'; args: { versionId: string }; label: string; status: 'pending' | 'done' | 'declined' | 'failed'; note?: string };
+  | ({ kind: 'confirm'; label: string; status: 'pending' | 'done' | 'declined' | 'failed'; note?: string } & ConfirmRequest);
+
+/**
+ * Was eine Bestätigungs-Karte nach Patricks Klick ausführt (assistant.confirm) — jede Aktion
+ * läuft über dieselbe Service-Funktion wie die Seite (Gate, Audit, Benachrichtigung inklusive).
+ */
+export type ConfirmRequest =
+  | { action: 'promote_version'; args: { versionId: string } }
+  | { action: 'update_settings'; args: Partial<TradingLimits> }
+  | { action: 'kill_switch'; args: { active: boolean } };
+
+const LIMIT_LABELS: Record<keyof TradingLimits, string> = {
+  riskPctPerTrade: 'Risiko je Trade %',
+  maxLeverage: 'max. Hebel',
+  maxOpenPositions: 'max. offene Positionen',
+  maxExposurePctPerAsset: 'max. Exposure je Asset %',
+  dailyLossLimitPct: 'Tagesverlust-Limit %',
+  weeklyLossLimitPct: 'Wochenverlust-Limit %',
+  maxDrawdownPct: 'max. Drawdown %',
+};
+const LIMIT_KEYS = Object.keys(SETTINGS_BOUNDS) as (keyof TradingLimits)[];
+
+/** Gewünschte Limit-Änderungen prüfen (nur bekannte Schlüssel, Zahl, innerhalb der Grenzen von @gladiator/core). */
+export function parseLimitChanges(input: Record<string, unknown>): Partial<TradingLimits> {
+  const out: Partial<TradingLimits> = {};
+  for (const [k, v] of Object.entries(input)) {
+    if (!LIMIT_KEYS.includes(k as keyof TradingLimits)) throw new Error(`Unbekannte Einstellung: ${k}. Erlaubt: ${LIMIT_KEYS.join(', ')}.`);
+    if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error(`${k} muss eine Zahl sein.`);
+    const b = SETTINGS_BOUNDS[k as keyof TradingLimits];
+    if (v < b.min || v > b.max) throw new Error(`${k} = ${v} liegt außerhalb der Grenzen ${b.min}–${b.max}.`);
+    if (k === 'maxOpenPositions' && !Number.isInteger(v)) throw new Error('maxOpenPositions muss ganzzahlig sein.');
+    out[k as keyof TradingLimits] = v;
+  }
+  if (Object.keys(out).length === 0) throw new Error('Keine Änderung angegeben.');
+  return out;
+}
 
 export type ToolOutcome = { result: unknown; cards?: AssistantCard[] };
 
@@ -120,6 +160,62 @@ export const ASSISTANT_TOOLS: LlmTool[] = [
     description:
       'Oracle (Makro & Regime: GRS, VIX/DXY/US10Y), Shadow (Positionierung: Funding, Open Interest, COT) und Sentinel (No-Trade-Fenster, Kill-Switch, Limits, Exposure) für ein Symbol — nur echte, synchronisierte Daten; connected:false heißt „nicht verbunden“, dann nichts dazu behaupten.',
     inputSchema: { type: 'object', properties: { symbol: { type: 'string', description: 'z. B. BTC/USDT' } }, required: ['symbol'], additionalProperties: false },
+  },
+  {
+    name: 'agents_status',
+    description:
+      'Agenten-Schwarm aus der echten App: welche Prüf-Agenten aktiv sind (technik, risk, devil, portfolio — deterministisch; makro, shadow — LLM), welche aus sind und warum (fehlender Schlüssel, Daten nicht synchronisiert), Datenlage, LLM-Budget und die echte Urteils-Statistik (Votes je Agent). Nichts davon ist einstellbar — der Schwarm läuft von selbst.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'trading_settings',
+    description:
+      'Aktuelle Trading-Limits des Nutzers (Risiko je Trade, max. Hebel, offene Positionen, Exposure je Asset, Tages-/Wochenverlust, max. Drawdown), Kill-Switch und Modus — exakt die Werte, die die Risk-Engine vor jeder Order erzwingt. Mit erlaubten Grenzen je Wert.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'update_trading_settings',
+    description:
+      'Bittet den Nutzer um Bestätigung, einzelne Trading-Limits zu ändern (nur die genannten Schlüssel; Grenzen aus trading_settings). Erst nach seiner Bestätigung wird gespeichert — danach gilt es sofort für jede Order. Führt NICHT selbst aus.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        riskPctPerTrade: { type: 'number' },
+        maxLeverage: { type: 'number' },
+        maxOpenPositions: { type: 'integer' },
+        maxExposurePctPerAsset: { type: 'number' },
+        dailyLossLimitPct: { type: 'number' },
+        weeklyLossLimitPct: { type: 'number' },
+        maxDrawdownPct: { type: 'number' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'kill_switch',
+    description:
+      'Bittet den Nutzer um Bestätigung, den Kill-Switch zu schalten (active=true: sofortiger Order-Stopp für alle Agenten-Orders; false: wieder frei). Führt NICHT selbst aus — die Karte muss bestätigt werden.',
+    inputSchema: { type: 'object', properties: { active: { type: 'boolean' } }, required: ['active'], additionalProperties: false },
+  },
+  {
+    name: 'demo_account',
+    description:
+      'Übungskonto (Demo): Guthaben, Eigenkapital, unrealisierte PnL und alle offenen Positionen mit echtem Mark-Preis (nicht erreichbar → null), Hebel, Stop/Ziel, Liquidationspreis. Nur lesend — Orders setzt der Nutzer im Ticket.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'recent_signals',
+    description:
+      'Jüngste Signale der Strategie-Engine mit den echten Urteilen der Prüf-Agenten (Vote, Konfidenz, Begründung). Filter: status (new/confirmed/rejected/expired/filled/closed), symbol, limit (max 50).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: { type: 'array', items: { type: 'string', enum: ['new', 'confirmed', 'rejected', 'expired', 'filled', 'closed'] } },
+        symbol: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 50 },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: 'navigate',
@@ -269,6 +365,99 @@ export async function executeTool(ctx: ToolCtx, name: string, input: Record<stri
       const symbol = str(input.symbol, 'symbol').toUpperCase();
       const a = await buildAssetAnalysis(ctx.db, ctx.userId, symbol);
       return { result: a, cards: [{ kind: 'link', label: `Analyse ${symbol}`, hash: `#/charts?symbol=${encodeURIComponent(symbol)}&tab=kontext` }] };
+    }
+    case 'agents_status': {
+      const status = await loadAgentsStatus(ctx.db);
+      return { result: status, cards: [{ kind: 'link', label: 'Agenten-Seite', hash: '#/agenten' }] };
+    }
+    case 'trading_settings': {
+      const row = await ensureTradingSettings(ctx.db, ctx.userId);
+      const limits: TradingLimits = {
+        riskPctPerTrade: Number(row.riskPctPerTrade),
+        maxLeverage: Number(row.maxLeverage),
+        maxOpenPositions: row.maxOpenPositions,
+        maxExposurePctPerAsset: Number(row.maxExposurePctPerAsset),
+        dailyLossLimitPct: Number(row.dailyLossLimitPct),
+        weeklyLossLimitPct: Number(row.weeklyLossLimitPct),
+        maxDrawdownPct: Number(row.maxDrawdownPct),
+      };
+      return {
+        result: { ...limits, killSwitchActive: row.killSwitchActive, mode: row.mode, updatedAt: row.updatedAt.toISOString(), bounds: SETTINGS_BOUNDS },
+        cards: [{ kind: 'link', label: 'Einstellungen → Trading', hash: '#/einstellungen?tab=trading' }],
+      };
+    }
+    case 'update_trading_settings': {
+      const changes = parseLimitChanges(input);
+      const row = await ensureTradingSettings(ctx.db, ctx.userId);
+      const current: Record<string, number> = {
+        riskPctPerTrade: Number(row.riskPctPerTrade),
+        maxLeverage: Number(row.maxLeverage),
+        maxOpenPositions: row.maxOpenPositions,
+        maxExposurePctPerAsset: Number(row.maxExposurePctPerAsset),
+        dailyLossLimitPct: Number(row.dailyLossLimitPct),
+        weeklyLossLimitPct: Number(row.weeklyLossLimitPct),
+        maxDrawdownPct: Number(row.maxDrawdownPct),
+      };
+      const label = `Limits ändern: ${Object.entries(changes)
+        .map(([k, v]) => `${LIMIT_LABELS[k as keyof TradingLimits]} ${current[k]} → ${v}`)
+        .join(' · ')}`;
+      return {
+        result: { changes, current, needsConfirmation: true, note: 'Der Nutzer muss die Karte bestätigen; erst dann wird gespeichert.' },
+        cards: [{ kind: 'confirm', action: 'update_settings', args: changes, label, status: 'pending' }],
+      };
+    }
+    case 'kill_switch': {
+      if (typeof input.active !== 'boolean') throw new Error('active (true/false) fehlt.');
+      const row = await ensureTradingSettings(ctx.db, ctx.userId);
+      if (row.killSwitchActive === input.active) return { result: { killSwitchActive: row.killSwitchActive, unchanged: true } };
+      return {
+        result: { killSwitchActive: row.killSwitchActive, requested: input.active, needsConfirmation: true, note: 'Der Nutzer muss die Karte bestätigen.' },
+        cards: [{ kind: 'confirm', action: 'kill_switch', args: { active: input.active }, label: input.active ? 'Kill-Switch EINSCHALTEN — sofortiger Order-Stopp' : 'Kill-Switch ausschalten — Agenten-Orders wieder frei', status: 'pending' }],
+      };
+    }
+    case 'demo_account': {
+      const source = currentDemoBookSource();
+      const [account, positions] = await Promise.all([demoAccountOverview(ctx.db, source, ctx.userId), listDemoPositions(ctx.db, source, ctx.userId)]);
+      return { result: { account, positions }, cards: [{ kind: 'link', label: 'Übungskonto', hash: '#/traden?tab=demo' }] };
+    }
+    case 'recent_signals': {
+      const limit = typeof input.limit === 'number' ? Math.max(1, Math.min(50, Math.floor(input.limit))) : 10;
+      const statusList = Array.isArray(input.status) && input.status.length > 0 ? input.status.map(String) : ['new', 'confirmed'];
+      const rows = await ctx.db
+        .select({
+          id: signals.id,
+          createdAt: signals.createdAt,
+          symbol: signals.symbol,
+          timeframe: signals.timeframe,
+          direction: signals.direction,
+          setupType: signals.setupType,
+          entry: signals.entry,
+          stopLoss: signals.stopLoss,
+          takeProfits: signals.takeProfits,
+          score: signals.score,
+          riskClass: signals.riskClass,
+          status: signals.status,
+          source: signals.source,
+          strategy: strategies.slug,
+        })
+        .from(signals)
+        .innerJoin(strategies, eq(strategies.id, signals.strategyId))
+        .where(and(inArray(signals.status, statusList as (typeof signals.$inferSelect)['status'][]), typeof input.symbol === 'string' ? eq(signals.symbol, input.symbol.toUpperCase()) : undefined))
+        .orderBy(desc(signals.createdAt))
+        .limit(limit);
+      const reviews =
+        rows.length === 0
+          ? []
+          : await ctx.db
+              .select({ signalId: signalReviews.signalId, agent: signalReviews.agent, vote: signalReviews.vote, confidence: signalReviews.confidence, reason: signalReviews.reason })
+              .from(signalReviews)
+              .where(inArray(signalReviews.signalId, rows.map((r) => r.id)));
+      const out = rows.map((r) => ({
+        ...r,
+        createdAt: r.createdAt.toISOString(),
+        reviews: reviews.filter((x) => x.signalId === r.id).map(({ signalId: _s, ...x }) => ({ ...x, confidence: Number(x.confidence) })),
+      }));
+      return { result: { signals: out }, cards: [{ kind: 'link', label: 'Signale', hash: '#/signale' }] };
     }
     case 'navigate': {
       const hash = str(input.hash, 'hash');

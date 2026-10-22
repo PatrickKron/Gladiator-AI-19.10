@@ -12,7 +12,7 @@ import { appRouter } from '../routers/index.js';
 import { buildContext, createCallerFactory } from '../trpc.js';
 import { register } from '../auth/service.js';
 import { ASSISTANT_SYSTEM, historyToMessages, runAssistantTurn, toolResultText } from './service.js';
-import { ASSISTANT_TOOLS } from './tools.js';
+import { ASSISTANT_TOOLS, parseLimitChanges } from './tools.js';
 
 describe('historyToMessages', () => {
   it('user → user, assistant mit Blöcken → Blöcke, tool → user-Turn mit tool_result, leere Werkzeug-Turns fallen weg', () => {
@@ -43,7 +43,17 @@ describe('toolResultText / Werkzeuge', () => {
       expect(t.description.length).toBeGreaterThan(20);
       expect(t.inputSchema.type).toBe('object');
     }
-    expect(names).toEqual(expect.arrayContaining(['propose_strategy', 'run_backtest', 'save_version', 'promote_version', 'run_screen', 'navigate', 'app_overview']));
+    expect(names).toEqual(
+      expect.arrayContaining(['propose_strategy', 'run_backtest', 'save_version', 'promote_version', 'run_screen', 'navigate', 'app_overview', 'agents_status', 'trading_settings', 'update_trading_settings', 'kill_switch', 'demo_account', 'recent_signals']),
+    );
+  });
+  it('Limit-Änderungen: nur bekannte Schlüssel, Zahlen innerhalb der Grenzen aus @gladiator/core', () => {
+    expect(parseLimitChanges({ riskPctPerTrade: 2, maxLeverage: 10 })).toEqual({ riskPctPerTrade: 2, maxLeverage: 10 });
+    expect(() => parseLimitChanges({ riskPctPerTrade: 50 })).toThrow(/außerhalb der Grenzen/);
+    expect(() => parseLimitChanges({ foo: 1 })).toThrow(/Unbekannte Einstellung/);
+    expect(() => parseLimitChanges({ maxOpenPositions: 2.5 })).toThrow(/ganzzahlig/);
+    expect(() => parseLimitChanges({})).toThrow(/Keine Änderung/);
+    expect(() => parseLimitChanges({ maxLeverage: 'viel' })).toThrow(/Zahl/);
   });
   it('Systemprompt verbietet erfundene Zahlen und Scharfschalten, enthält die DSL', () => {
     expect(ASSISTANT_SYSTEM).toMatch(/Erfinde NIE Zahlen/);
@@ -165,5 +175,101 @@ describe.skipIf(!hasDb)('Gladiator-Chat gegen die echte DB', () => {
     await expect(caller.assistant.confirm({ messageId: out.messageId, cardIndex: 0, accept: false })).rejects.toThrow(/bereits failed/);
 
     await db.delete(strategies).where(eq(strategies.id, s!.id));
+  });
+
+  /** Fake-Provider, der GENAU die angegebenen Werkzeuge ruft und dann mit Text endet. */
+  function scripted(calls: { id: string; name: string; input: Record<string, unknown> }[]): LlmProvider {
+    let n = 0;
+    const usage = { inputTokens: 1, outputTokens: 1 };
+    return {
+      id: 'fake3',
+      configured: true,
+      complete: async () => {
+        throw new Error('x');
+      },
+      chat: async () => {
+        n++;
+        if (n === 1) return { text: '', blocks: calls.map((c) => ({ type: 'tool_use' as const, ...c })), toolUses: calls, stopReason: 'tool_use', usage, costUsd: 0 };
+        return { text: 'Ok.', blocks: [{ type: 'text', text: 'Ok.' }], toolUses: [], stopReason: 'end_turn', usage, costUsd: 0 };
+      },
+    };
+  }
+
+  it('Lese-Werkzeuge liefern echten App-Zustand: Agenten, Limits mit Grenzen, Übungskonto, Signale', async () => {
+    const conv = await caller.assistant.create();
+    const events: string[] = [];
+    const out = await runAssistantTurn(
+      db,
+      userId,
+      conv.id,
+      'Zeig mir alles',
+      {},
+      scripted([
+        { id: 'a', name: 'agents_status', input: {} },
+        { id: 'b', name: 'trading_settings', input: {} },
+        { id: 'c', name: 'demo_account', input: {} },
+        { id: 'd', name: 'recent_signals', input: { limit: 3 } },
+      ]),
+      (e) => events.push(e.type === 'tool' ? `${e.name}:${e.status}` : e.type),
+    );
+    expect(events).toEqual(expect.arrayContaining(['agents_status:done', 'trading_settings:done', 'demo_account:done', 'recent_signals:done']));
+    expect(events.some((e) => e.endsWith(':error'))).toBe(false);
+    expect(out.cards.map((c) => c.kind)).toEqual(['link', 'link', 'link', 'link']);
+    // Die Limits im Werkzeug-Ergebnis sind die Werte der Seite
+    const page = await caller.settings.get();
+    const row = (await db.select().from(schema.assistantMessages).where(eq(schema.assistantMessages.conversationId, conv.id))).find((m) => m.role === 'tool')!;
+    const results = row.blocks as { toolUseId: string; content: string }[];
+    const settings = JSON.parse(results.find((r) => r.toolUseId === 'b')!.content) as { riskPctPerTrade: number; bounds: Record<string, unknown> };
+    expect(settings.riskPctPerTrade).toBe(page.riskPctPerTrade);
+    expect(settings.bounds.maxLeverage).toEqual({ min: 1, max: 125 });
+    const agents = JSON.parse(results.find((r) => r.toolUseId === 'a')!.content) as { active: { agent: string }[] };
+    expect(agents.active.map((a) => a.agent)).toEqual(expect.arrayContaining(['technik', 'risk']));
+    const demo = JSON.parse(results.find((r) => r.toolUseId === 'c')!.content) as { account: { balance?: unknown }; positions: unknown[] };
+    expect(Array.isArray(demo.positions)).toBe(true);
+  });
+
+  it('Limit-Änderung und Kill-Switch laufen NUR über Bestätigungs-Karten; außerhalb der Grenzen ist ein Werkzeug-Fehler', async () => {
+    const conv = await caller.assistant.create();
+    const before = await caller.settings.get();
+    const out = await runAssistantTurn(
+      db,
+      userId,
+      conv.id,
+      'Risiko auf 2 % und alles stoppen',
+      {},
+      scripted([
+        { id: 'u', name: 'update_trading_settings', input: { riskPctPerTrade: 2 } },
+        { id: 'k', name: 'kill_switch', input: { active: true } },
+        { id: 'x', name: 'update_trading_settings', input: { riskPctPerTrade: 99 } },
+      ]),
+    );
+    expect(out.cards.map((c) => (c.kind === 'confirm' ? c.action : c.kind))).toEqual(['update_settings', 'kill_switch']);
+    expect((out.cards[0] as { label: string }).label).toMatch(/Risiko je Trade % .* → 2/);
+    // Noch nichts passiert
+    const mid = await caller.settings.get();
+    expect(mid.riskPctPerTrade).toBe(before.riskPctPerTrade);
+    expect(mid.killSwitchActive).toBe(false);
+    // Ablehnen → bleibt; Bestätigen → gespeichert über dieselbe Funktion wie die Seite
+    const declined = await caller.assistant.confirm({ messageId: out.messageId, cardIndex: 1, accept: false });
+    expect(declined.status).toBe('declined');
+    const accepted = await caller.assistant.confirm({ messageId: out.messageId, cardIndex: 0, accept: true });
+    expect(accepted.status).toBe('done');
+    expect(accepted.note).toMatch(/riskPctPerTrade = 2/);
+    const after = await caller.settings.get();
+    expect(after.riskPctPerTrade).toBe(2);
+    expect(after.maxLeverage).toBe(before.maxLeverage);
+    expect(after.killSwitchActive).toBe(false);
+    // Kill-Switch: eigene Karte, bestätigt → aktiv, Audit vorhanden
+    const out2 = await runAssistantTurn(db, userId, conv.id, 'Stopp', {}, scripted([{ id: 'k2', name: 'kill_switch', input: { active: true } }]));
+    const done = await caller.assistant.confirm({ messageId: out2.messageId, cardIndex: 0, accept: true });
+    expect(done.status).toBe('done');
+    expect((await caller.settings.get()).killSwitchActive).toBe(true);
+    const audits = await db.select().from(schema.auditLog).where(eq(schema.auditLog.userId, userId));
+    expect(audits.some((a) => a.action === 'risk.kill_switch.on')).toBe(true);
+    expect(audits.some((a) => a.action === 'settings.update')).toBe(true);
+    // Bereits aktiv → Werkzeug meldet unverändert, keine Karte
+    const out3 = await runAssistantTurn(db, userId, conv.id, 'Stopp nochmal', {}, scripted([{ id: 'k3', name: 'kill_switch', input: { active: true } }]));
+    expect(out3.cards).toEqual([]);
+    await caller.settings.setKillSwitch({ active: false });
   });
 });

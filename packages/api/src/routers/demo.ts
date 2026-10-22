@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { schema } from '@gladiator/db';
+import { schema, type Db } from '@gladiator/db';
 import {
   COMPARE_VENUES,
   demoBookSource,
@@ -60,6 +60,49 @@ async function normalized(ctx: { db: Parameters<typeof loadRiskSettings>[0]; use
   return { ...input, symbol: input.symbol.toUpperCase(), maxLeverage: settings.maxLeverage };
 }
 
+
+/** Aktive Demo-Buchquelle (Tests können sie ersetzen) — auch für den Gladiator-Chat. */
+export function currentDemoBookSource(): DemoBookSource {
+  return books();
+}
+
+/** Offene Demo-Positionen mit uPnL gegen den echten Buch-Mid (Seite UND Chat; Kurs nicht erreichbar → ehrlich null). */
+export async function listDemoPositions(db: Db, source: DemoBookSource, userId: string) {
+  const rows = await db.select().from(demoPositions).where(eq(demoPositions.userId, userId)).orderBy(desc(demoPositions.openedAt));
+  const marks = new Map<string, number | null>();
+  for (const key of new Set(rows.map((p) => `${p.venue}|${p.symbol}`))) {
+    const [venue, symbol] = key.split('|') as [string, string];
+    try {
+      marks.set(key, midPrice(await source.fetchBook(symbol, venue)));
+    } catch {
+      marks.set(key, null);
+    }
+  }
+  return rows.map((p) => {
+    const mark = marks.get(`${p.venue}|${p.symbol}`) ?? null;
+    const sign = p.direction === 'long' ? 1 : -1;
+    const entry = Number(p.entryPrice);
+    const qty = Number(p.qty);
+    return {
+      id: p.id,
+      symbol: p.symbol,
+      direction: p.direction,
+      qty,
+      entryPrice: entry,
+      entryFee: Number(p.entryFee),
+      stopLoss: p.stopLoss === null ? null : Number(p.stopLoss),
+      takeProfit: p.takeProfit === null ? null : Number(p.takeProfit),
+      leverage: Number(p.leverage),
+      venue: p.venue,
+      margin: marginFor(entry * qty, Number(p.leverage)),
+      liquidationPrice: liquidationPrice(p.direction, entry, Number(p.leverage)),
+      markPrice: mark,
+      unrealizedPnl: mark === null ? null : (mark - entry) * qty * sign,
+      openedAt: p.openedAt.toISOString(),
+    };
+  });
+}
+
 export const demoRouter = router({
   /** Konto-Übersicht: Balance/Equity/Verfügbar/uPnL — Marks aus echten Büchern. */
   account: protectedProcedure.query(({ ctx }) => demoAccountOverview(ctx.db, books(), ctx.user.id)),
@@ -107,45 +150,7 @@ export const demoRouter = router({
   }),
 
   /** Offene Positionen mit uPnL gegen den echten Buch-Mid (nicht erreichbar → ehrlich null). */
-  positions: protectedProcedure.query(async ({ ctx }) => {
-    const rows = await ctx.db
-      .select()
-      .from(demoPositions)
-      .where(eq(demoPositions.userId, ctx.user.id))
-      .orderBy(desc(demoPositions.openedAt));
-    const marks = new Map<string, number | null>();
-    for (const key of new Set(rows.map((p) => `${p.venue}|${p.symbol}`))) {
-      const [venue, symbol] = key.split('|') as [string, string];
-      try {
-        marks.set(key, midPrice(await books().fetchBook(symbol, venue)));
-      } catch {
-        marks.set(key, null);
-      }
-    }
-    return rows.map((p) => {
-      const mark = marks.get(`${p.venue}|${p.symbol}`) ?? null;
-      const sign = p.direction === 'long' ? 1 : -1;
-      const entry = Number(p.entryPrice);
-      const qty = Number(p.qty);
-      return {
-        id: p.id,
-        symbol: p.symbol,
-        direction: p.direction,
-        qty,
-        entryPrice: entry,
-        entryFee: Number(p.entryFee),
-        stopLoss: p.stopLoss === null ? null : Number(p.stopLoss),
-        takeProfit: p.takeProfit === null ? null : Number(p.takeProfit),
-        leverage: Number(p.leverage),
-        venue: p.venue,
-        margin: marginFor(entry * qty, Number(p.leverage)),
-        liquidationPrice: liquidationPrice(p.direction, entry, Number(p.leverage)),
-        markPrice: mark,
-        unrealizedPnl: mark === null ? null : (mark - entry) * qty * sign,
-        openedAt: p.openedAt.toISOString(),
-      };
-    });
-  }),
+  positions: protectedProcedure.query(({ ctx }) => listDemoPositions(ctx.db, books(), ctx.user.id)),
 
   closePosition: protectedProcedure
     .input(z.object({ positionId: z.string().uuid(), qty: z.number().positive().optional() }))

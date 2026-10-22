@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Panel } from '../components/ui.js';
 import { AssetSelect, getSelectedAsset, getSelectedVenue, setSelectedAsset, setSelectedVenue } from '../components/AssetSelect.js';
 import { AssetAnalysis } from '../components/AssetAnalysis.js';
+import { openAssistant } from '../components/AssistantPanel.js';
 import { setPendingTradeSymbol } from '../lib/trade-symbol.js';
 import { AssetChart } from '../components/AssetChart.js';
 import { OrderBookPanel } from '../components/OrderBookPanel.js';
@@ -158,6 +159,10 @@ export function AssetDetail() {
             }}
           >
             {t('chart.trade')}
+          </button>
+          {/* Chat-Einstieg aus dem Chart: Frage mit dem gewählten Asset vorbelegt. */}
+          <button type="button" className="tbtn" onClick={() => openAssistant(t('chart.chatPrompt', { symbol: asset }))}>
+            {t('chart.chat')}
           </button>
         </div>
       </div>
