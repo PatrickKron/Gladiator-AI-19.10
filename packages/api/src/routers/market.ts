@@ -54,6 +54,8 @@ import {
 import { binanceStreamingBook, COMPARE_VENUES, fetchVenueQuotes, rankVenueQuotes, summarizeBook, type VenueQuote } from '@gladiator/exchange';
 import { protectedProcedure, router } from '../trpc.js';
 import { buildAssetAnalysis } from '../market/asset-analysis.js';
+import { assetNews } from '../market/asset-news.js';
+import { assetVerdicts } from '../market/asset-verdict.js';
 
 /**
  * Alle unterstützten Chart-Timeframes (Feature A) als zod-Enum — für chartData,
@@ -73,6 +75,8 @@ const venueQuoteCache = new Map<string, { at: number; quotes: VenueQuote[] }>();
  * das Budget gilt pro Prozess und Tag als weiche Obergrenze.
  */
 const newsLlmGuard = new CostGuard({ dailyBudgetUsd: Number(process.env.LLM_DAILY_BUDGET_USD ?? 5) });
+/** Budget für KI-Urteile je Asset (Mängelliste 6) — eigener Wächter, damit Analysen das Chat-/News-Budget nicht leeren. */
+const verdictLlmGuard = new CostGuard({ dailyBudgetUsd: Number(process.env.LLM_DAILY_BUDGET_USD ?? 5) });
 
 /** Anzeigenamen für die Antwortsprache der News-Zusammenfassung (B6-Sprachen). */
 const SUMMARY_LANGUAGES: Record<string, string> = {
@@ -479,6 +483,19 @@ export const marketRouter = router({
   assetAnalysis: protectedProcedure.input(z.object({ symbol: z.string().min(3).max(40) })).query(({ ctx, input }) => buildAssetAnalysis(ctx.db, ctx.user.id, input.symbol)),
 
   /**
+   * KI-Urteil je Asset (Mängelliste 6, zweite Stufe): Makro- und Shadow-Agent bewerten die echten
+   * Fakten der Analyse; ohne Schlüssel ehrlich PRECONDITION_FAILED, ohne Datenquelle je Agent
+   * „nicht verbunden“. Jede Antwort trägt die echten Kosten.
+   */
+  assetVerdict: protectedProcedure.input(z.object({ symbol: z.string().min(3).max(40) })).mutation(async ({ ctx, input }) => {
+    const provider = envAnthropicProvider();
+    if (!provider.configured) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Kein ANTHROPIC_API_KEY hinterlegt — das KI-Urteil braucht ihn. In Einstellungen → API-Schlüssel eintragen; die drei Karten der Analyse funktionieren auch ohne.' });
+    }
+    return assetVerdicts(ctx.db, ctx.user.id, input.symbol, provider, verdictLlmGuard);
+  }),
+
+  /**
    * Asset-Suche (Patricks Mängelliste 2026-10-22, Punkt 3): alle Binance-Spot-Paare gegen
    * USDT, live von der Börse (1 h gemerkt). `hasCandles` sagt, ob schon echte Kerzen in der
    * DB liegen; ohne Verbindung zur Börse ehrlich `connected: false` statt einer Teilliste.
@@ -612,11 +629,7 @@ export const marketRouter = router({
       const exposure = await ctx.db.execute(
         sql`SELECT coalesce(sum(qty::float * entry_price::float), 0) AS notional FROM positions WHERE symbol = ${symbol}`,
       );
-      // News-Treffer: Basis-Ticker im Titel (echte RSS-Items)
-      const base = symbol.split('/')[0]!;
-      const news = await ctx.db.execute(
-        sql`SELECT title, url, published_at FROM news_items WHERE title ILIKE ${'%' + base + '%'} ORDER BY published_at DESC LIMIT 3`,
-      );
+      const news = await assetNews(ctx.db, symbol);
 
       return {
         symbol,
@@ -634,11 +647,7 @@ export const marketRouter = router({
         openSignals: (openSignals.rows[0] as { n: number }).n,
         matchingGates: (gates.rows as { reason: string }[]).map((g) => g.reason),
         exposureNotional: Number((exposure.rows[0] as { notional: number }).notional),
-        news: (news.rows as { title: string; url: string; published_at: string }[]).map((n) => ({
-          title: n.title,
-          url: n.url,
-          publishedAt: n.published_at,
-        })),
+        news,
       };
     }),
 

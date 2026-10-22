@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Panel } from '../components/ui.js';
 import { AssetSelect, getSelectedAsset, getSelectedVenue, setSelectedAsset, setSelectedVenue } from '../components/AssetSelect.js';
 import { AssetAnalysis } from '../components/AssetAnalysis.js';
 import { openAssistant } from '../components/AssistantPanel.js';
-import { setPendingTradeSymbol } from '../lib/trade-symbol.js';
+import { OrderTicket } from './DemoTrading.js';
 import { AssetChart } from '../components/AssetChart.js';
 import { OrderBookPanel } from '../components/OrderBookPanel.js';
 import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
@@ -77,6 +77,14 @@ export function AssetDetail() {
     });
   };
   const [bookOpen, setBookOpen] = useState(bookDockOpen);
+  // Mängelliste 12: Schnell-Ticket direkt im Chart — dasselbe Demo-Ticket, Symbol/Quelle vom Chart.
+  const [ticketOpen, setTicketOpen] = useState(false);
+  const ticketRef = useRef<HTMLDivElement>(null);
+  function openTicket() {
+    if (tab !== 'chart') changeTab('chart');
+    setTicketOpen(true);
+    setTimeout(() => ticketRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+  }
   function toggleBook() {
     setBookOpen((o) => {
       try {
@@ -149,15 +157,8 @@ export function AssetDetail() {
           <button type="button" className="tbtn" aria-pressed={tab === 'kontext'} onClick={() => changeTab(tab === 'kontext' ? 'chart' : 'kontext')}>
             {t('chart.context')}
           </button>
-          {/* Patricks Mängelliste Punkt 12: aus dem Chart in einem Klick ins Ticket — Symbol wird mitgenommen. */}
-          <button
-            type="button"
-            className="btn-primary px-3 py-1.5 text-xs"
-            onClick={() => {
-              setPendingTradeSymbol(asset);
-              window.location.hash = '#/traden?tab=demo';
-            }}
-          >
+          {/* Patricks Mängelliste Punkt 12: aus dem Chart in einem Klick ins Ticket — ohne Seitenwechsel. */}
+          <button type="button" className="btn-primary px-3 py-1.5 text-xs" aria-expanded={ticketOpen} onClick={() => (ticketOpen ? setTicketOpen(false) : openTicket())}>
             {t('chart.trade')}
           </button>
           {/* Chat-Einstieg aus dem Chart: Frage mit dem gewählten Asset vorbelegt. */}
@@ -188,6 +189,11 @@ export function AssetDetail() {
                 </Panel>
               ))}
             </div>
+            {ticketOpen && (
+              <div ref={ticketRef} className="mt-3">
+                <OrderTicket symbol={asset} venue={venue} embedded onPlaced={() => undefined} />
+              </div>
+            )}
             {venue === 'binance' ? (
               <div className="mt-3">
                 <button type="button" onClick={toggleBook} className="tbtn" aria-expanded={bookOpen}>

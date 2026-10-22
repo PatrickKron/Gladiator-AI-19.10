@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseLlmVerdict, reviewLlmAgent } from './llm-agents.js';
+import { assessAsset, buildAssetPrompt, parseAssetVerdict, parseLlmVerdict, reviewLlmAgent } from './llm-agents.js';
 import type { LlmProvider } from './provider.js';
 import type { SignalFacts } from './types.js';
 
@@ -49,5 +49,30 @@ describe('LLM-Agenten: striktes Urteil-Parsing (kein Fake bei Müll-Antworten)',
     expect(v.agent).toBe('shadow');
     expect(v.vote).toBe('confirm');
     expect(v.refs?.costUsd).toBe(0.004);
+  });
+});
+
+describe('KI-Urteil je Asset (Makro/Shadow ohne Signal)', () => {
+  it('Prompt nennt Rolle, Asset und die echten Fakten', () => {
+    const p = buildAssetPrompt('shadow', 'BTC/USDT', { derivatives: { connected: true, fundingRate: 0.0001 } });
+    expect(p).toMatch(/Shadow-Agent/);
+    expect(p).toMatch(/Asset: BTC\/USDT/);
+    expect(p).toMatch(/"fundingRate": 0.0001/);
+  });
+  it('striktes Parsing: stance/confidence/reason, Müll ⇒ Fehler', () => {
+    expect(parseAssetVerdict('makro', 'ok {"stance":"neutral","confidence":0.4,"reason":"VIX 18, kein Event."}')).toEqual({ agent: 'makro', stance: 'neutral', confidence: 0.4, reason: 'VIX 18, kein Event.' });
+    expect(() => parseAssetVerdict('makro', '{"stance":"long","confidence":0.4,"reason":"x"}')).toThrow(/stance/);
+    expect(() => parseAssetVerdict('makro', '{"stance":"bullish","confidence":2,"reason":"x"}')).toThrow(/confidence/);
+    expect(() => parseAssetVerdict('makro', '{"stance":"bullish","confidence":0.5,"reason":" "}')).toThrow(/reason/);
+    expect(() => parseAssetVerdict('makro', 'keine antwort')).toThrow(/JSON/);
+  });
+  it('assessAsset hängt die echten Kosten an und nutzt den Guard', async () => {
+    const fake: LlmProvider = {
+      id: 'fake',
+      configured: true,
+      complete: async () => ({ text: '{"stance":"bearish","confidence":0.7,"reason":"Funding 0,08 %/8 h, OI +12 %."}', usage: { inputTokens: 10, outputTokens: 5 }, costUsd: 0.002 }),
+    };
+    const v = await assessAsset('shadow', 'BTC/USDT', { derivatives: { connected: true } }, fake, null);
+    expect(v).toEqual({ agent: 'shadow', stance: 'bearish', confidence: 0.7, reason: 'Funding 0,08 %/8 h, OI +12 %.', costUsd: 0.002 });
   });
 });

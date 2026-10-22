@@ -42,12 +42,23 @@ export async function searchYahoo(query: string, limit = 10, fetchFn: typeof fet
   const key = `${q.toLowerCase()}|${limit}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.hits;
+  let hits = await queryYahoo(q, limit, fetchFn);
+  // Forex-Paare („eurusd“, „gbpjpy“): Yahoo listet das Währungspaar EURUSD=X nicht immer unter den
+  // ersten Treffern des Namens (CI-Befund 2026-10-22) — die Symbol-Schreibweise mit =X ist eindeutig.
+  if (/^[a-z]{6}$/i.test(q) && !hits.some((h) => h.type === 'CURRENCY')) {
+    const fx = await queryYahoo(`${q.toUpperCase()}=X`, 3, fetchFn).catch(() => [] as StockHit[]);
+    const seen = new Set(hits.map((h) => h.symbol));
+    hits = [...fx.filter((h) => h.type === 'CURRENCY' && !seen.has(h.symbol)), ...hits].slice(0, limit);
+  }
+  cache.set(key, { at: Date.now(), hits });
+  return hits;
+}
+
+async function queryYahoo(q: string, limit: number, fetchFn: typeof fetch): Promise<StockHit[]> {
   const url = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=${Math.min(25, limit * 2)}&newsCount=0&listsCount=0&enableFuzzyQuery=false`;
   const res = await fetchFn(url, { headers: { 'User-Agent': UA, Accept: 'application/json' } });
   if (!res.ok) throw new Error(`Yahoo-Suche HTTP ${res.status}`);
-  const hits = parseYahooSearch(await res.json(), limit);
-  cache.set(key, { at: Date.now(), hits });
-  return hits;
+  return parseYahooSearch(await res.json(), limit);
 }
 
 /** Nur für Tests. */

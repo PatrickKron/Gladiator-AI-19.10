@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { newsWhen } from '../lib/news-time.js';
 import { trpc } from '../api.js';
 import { Loading } from './ui.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
@@ -114,14 +115,20 @@ export function AssetContextBody({ ctx, compact = false }: { ctx: AssetContext |
               {t('assetCtx.noNews')}
             </p>
           ) : (
-            <ul className="mt-1 space-y-1 text-xs">
-              {ctx.news.map((n) => (
-                <li key={n.url}>
-                  <a href={n.url} target="_blank" rel="noreferrer" className="hover:underline" style={{ color: 'var(--color-ink)' }}>
-                    {n.title}
-                  </a>
-                </li>
-              ))}
+            <ul className="mt-1 space-y-1.5 text-xs">
+              {ctx.news.map((n) => {
+                const when = newsWhen(n.publishedAt, new Date(), appLocale(), { today: t('magazine.today'), yesterday: t('magazine.yesterday') });
+                return (
+                  <li key={n.url}>
+                    <span className="num" style={{ color: 'var(--color-mut)' }} title={when.absolute}>
+                      {when.relative} · {n.source}
+                    </span>
+                    <a href={n.url} target="_blank" rel="noreferrer" className="block hover:underline" style={{ color: 'var(--color-ink)' }}>
+                      {n.title}
+                    </a>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
