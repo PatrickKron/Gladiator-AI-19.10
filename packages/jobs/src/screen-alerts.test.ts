@@ -38,6 +38,9 @@ describe.skipIf(!process.env.DATABASE_URL)('runScreenAlerts (echte DB)', () => {
   let risingId: string;
   const RUN = `${process.pid}-${Date.now()}`;
   const SYMBOL = `SCA${process.pid}/USDT`;
+  // Eigene Kerzenquelle je Lauf: das Universum eines Screens ist venue × Zeitrahmen — mit 'binance' würden
+  // parallel laufende Test-Dateien (eigene 1h-Kerzen) als „neue Treffer“ hineinspielen (CI-Flake).
+  const VENUE = `sca-${process.pid}`;
   const T0 = 1_760_000_000;
   const H = 3600;
   const quiet = { notify: { pushConfigured: false, sendTelegram: async () => false } };
@@ -51,19 +54,19 @@ describe.skipIf(!process.env.DATABASE_URL)('runScreenAlerts (echte DB)', () => {
     const rows = [];
     for (let i = 0; i < 300; i++) {
       const open = 100 + i * 0.1;
-      rows.push({ venue: 'binance', symbol: SYMBOL, timeframe: '1h', ts: new Date((T0 + i * H) * 1000), open: String(open), high: String(open + 0.3), low: String(open - 0.2), close: String(open + 0.1), volume: '1000' });
+      rows.push({ venue: VENUE, symbol: SYMBOL, timeframe: '1h', ts: new Date((T0 + i * H) * 1000), open: String(open), high: String(open + 0.3), low: String(open - 0.2), close: String(open + 0.1), volume: '1000' });
     }
     await db.insert(ohlcv).values(rows).onConflictDoNothing();
-    const [r] = await db.insert(screens).values({ userId, name: 'Steigt', timeframe: '1h', venue: 'binance', alert: true, conditions: rising }).returning();
+    const [r] = await db.insert(screens).values({ userId, name: 'Steigt', timeframe: '1h', venue: VENUE, alert: true, conditions: rising }).returning();
     risingId = r!.id;
     await db.insert(screens).values([
-      { userId, name: 'Unmöglich', timeframe: '1h', venue: 'binance', alert: true, conditions: impossible },
-      { userId, name: 'Ohne Alarm', timeframe: '1h', venue: 'binance', alert: false, conditions: rising },
+      { userId, name: 'Unmöglich', timeframe: '1h', venue: VENUE, alert: true, conditions: impossible },
+      { userId, name: 'Ohne Alarm', timeframe: '1h', venue: VENUE, alert: false, conditions: rising },
     ]);
   });
 
   afterAll(async () => {
-    await db.delete(ohlcv).where(and(eq(ohlcv.symbol, SYMBOL), eq(ohlcv.venue, 'binance')));
+    await db.delete(ohlcv).where(and(eq(ohlcv.symbol, SYMBOL), eq(ohlcv.venue, VENUE)));
     await db.execute(sql`DELETE FROM users WHERE id = ${userId}::uuid`); // Screens + Benachrichtigungen cascaden
     await pool.end();
   });
@@ -107,7 +110,7 @@ describe.skipIf(!process.env.DATABASE_URL)('runScreenAlerts (echte DB)', () => {
   });
 
   it('ungültige Bedingungen → Fehler für diesen Screen, die anderen laufen weiter', async () => {
-    await db.insert(screens).values({ userId, name: 'Kaputt', timeframe: '1h', venue: 'binance', alert: true, conditions: [{ kind: 'nix' }] });
+    await db.insert(screens).values({ userId, name: 'Kaputt', timeframe: '1h', venue: VENUE, alert: true, conditions: [{ kind: 'nix' }] });
     const r = await runScreenAlerts(db, quiet);
     expect(r.screens).toBe(3);
     expect(r.errors.some((e) => e.startsWith('Kaputt:'))).toBe(true);

@@ -57,6 +57,7 @@ export function AssetDetail() {
     [tab],
   );
   // Mehrfach-Charts (Repo-Masterliste, Phase 3b): Zelle 0 = Haupt-Asset, weitere Zellen eigenes Symbol + TF (Browser-Vorliebe).
+  // Fadenkreuz und Zeitbereich laufen über alle Zellen mit (syncGroup), sobald mehr als eine zu sehen ist.
   const [layout, setLayout] = useState<ChartLayout>(() => loadChartLayout().layout);
   const [cells, setCells] = useState<ChartCell[]>(() => normalizeCells(loadChartLayout().cells, loadChartLayout().layout, getSelectedAsset()));
   const changeLayout = (next: ChartLayout) => {
@@ -158,14 +159,14 @@ export function AssetDetail() {
             <div className={`grid gap-4 ${layoutGridClass(layout)}`}>
               <section className="glass reveal p-3" style={{ '--stagger': 1 } as React.CSSProperties}>
                 {venue !== 'binance' && <p className="label mb-1 px-1">{`${asset} · ${venue === 'twelvedata' ? 'Twelve Data' : 'Yahoo'}`}</p>}
-                <AssetChart symbol={asset} venue={venue} timeframeOverride={linked.tf ?? undefined} mainHeight={layout === 1 ? 460 : 340} />
+                <AssetChart symbol={asset} venue={venue} timeframeOverride={linked.tf ?? undefined} mainHeight={layout === 1 ? 460 : 340} syncGroup={layout === 1 ? undefined : 'chart-cells'} />
               </section>
               {cells.map((cell, i) => (
                 <Panel key={i} label={`${cell.symbol} · ${cell.tf}`} stagger={1}>
                   <div className="mb-2 flex justify-end">
                     <AssetSelect value={cell.symbol} venue={cell.venue} onChange={(sym, v) => updateCell(i, { symbol: sym, venue: v })} persist={false} label={t('asset.cellSymbol', { n: i + 2 })} />
                   </div>
-                  <AssetChart key={`${cell.venue}:${cell.symbol}:${i}`} symbol={cell.symbol} venue={cell.venue} timeframeOverride={cell.tf} rememberTf={false} onTimeframeChange={(tf) => updateCell(i, { tf })} />
+                  <AssetChart key={`${cell.venue}:${cell.symbol}:${i}`} symbol={cell.symbol} venue={cell.venue} timeframeOverride={cell.tf} rememberTf={false} onTimeframeChange={(tf) => updateCell(i, { tf })} syncGroup="chart-cells" />
                 </Panel>
               ))}
             </div>
