@@ -12,6 +12,10 @@ const { newsItems } = schema;
 export const NEWS_FEEDS: { source: string; url: string }[] = [
   { source: 'coindesk', url: 'https://www.coindesk.com/arc/outboundfeeds/rss/' },
   { source: 'cointelegraph', url: 'https://cointelegraph.com/rss' },
+  // Patricks Mängelliste 2026-10-22, Punkt 7: mehr Quellen — alle öffentliche, offizielle RSS-Feeds.
+  { source: 'decrypt', url: 'https://decrypt.co/feed' },
+  { source: 'theblock', url: 'https://www.theblock.co/rss.xml' },
+  { source: 'bitcoinmagazine', url: 'https://bitcoinmagazine.com/feed' },
 ];
 
 export type ParsedNewsItem = {

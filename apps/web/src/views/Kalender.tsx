@@ -98,9 +98,10 @@ function SegmentedControl({
 }
 
 /** Impact als Stufen-Pille: 3 Balken (gefüllt = Stufe) + Klartext — statt nur Farbpunkt. */
-function ImpactPill({ sev }: { sev: number }) {
+function ImpactPill({ sev, unknown = false }: { sev: number; unknown?: boolean }) {
   const { t } = useTranslation();
-  const color = IMPACT_COLOR[sev] ?? 'var(--color-mut)';
+  // Patricks Mängelliste Punkt 8: „die Wichtigkeit steht nicht dabei“ — liefert der Feed keinen Impact, sagen wir das, statt „Niedrig“ zu raten.
+  const color = unknown ? 'var(--color-mut)' : (IMPACT_COLOR[sev] ?? 'var(--color-mut)');
   return (
     <span
       className="flex items-center gap-1.5 rounded-full border px-2 py-0.5"
@@ -119,7 +120,7 @@ function ImpactPill({ sev }: { sev: number }) {
         ))}
       </span>
       <span className="text-[11px] font-medium" style={{ color }}>
-        {t(IMPACT_LABEL[sev] ?? 'calendar.impactLow')}
+        {unknown ? t('calendar.impactUnknown') : t(IMPACT_LABEL[sev] ?? 'calendar.impactLow')}
       </span>
     </span>
   );
@@ -177,7 +178,7 @@ function EventCard({ e, now, countdown }: { e: CalEvent; now: Date; countdown: s
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-1.5">
             <CurrencyChip code={e.currency} />
-            <ImpactPill sev={sev} />
+            <ImpactPill sev={sev} unknown={e.importance == null && sev <= 1} />
             {noTrade && (
               <span
                 className="label rounded-full border px-2 py-0.5"
@@ -209,15 +210,24 @@ function EventCard({ e, now, countdown }: { e: CalEvent; now: Date; countdown: s
           <span className="mt-1.5 block text-[15px] font-medium leading-snug">{e.title}</span>
 
           {/* Forecast/Previous sauber nebeneinander — mit Beschriftung statt kryptischer Zahlenreihe */}
-          {(e.forecast != null || e.previous != null) && (
+          {(e.actual != null || e.forecast != null || e.previous != null) && (
             <span className="mt-2 flex flex-wrap gap-x-6 gap-y-1">
+              {e.actual != null && (
+                <span>
+                  <span className="label block">{t('calendar.actual')}</span>
+                  <span className="num text-sm font-semibold" style={{ color: 'var(--color-ink)' }}>
+                    {e.actual}
+                    {e.unit ?? ''}
+                  </span>
+                </span>
+              )}
               <span>
                 <span className="label block">{t('calendar.forecast')}</span>
-                <span className="num text-sm">{e.forecast ?? '—'}</span>
+                <span className="num text-sm">{e.forecast != null ? `${e.forecast}${e.unit ?? ''}` : '—'}</span>
               </span>
               <span>
                 <span className="label block">{t('calendar.previous')}</span>
-                <span className="num text-sm">{e.previous ?? '—'}</span>
+                <span className="num text-sm">{e.previous != null ? `${e.previous}${e.unit ?? ''}` : '—'}</span>
               </span>
             </span>
           )}
@@ -363,7 +373,7 @@ export function Kalender() {
     <div>
       <PageHeader
         title={t('calendar.title')}
-        subtitle={t('calendar.subtitle')}
+        subtitle={`${t('calendar.subtitle')} ${t('calendar.tzHint', { tz: Intl.DateTimeFormat().resolvedOptions().timeZone })}`}
         right={
           <div className="flex flex-wrap items-center gap-2">
             <SegmentedControl

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader } from '../components/ui.js';
 import { groupNewsByFavorites } from '../lib/newsMatch.js';
+import { groupByDay, newsWhen } from '../lib/news-time.js';
 import { appLocale } from '../lib/locale.js';
 
 /** Magazin (09_ §3.6): echte v1-Artikel aus der DB + Live-News mit Favoriten-Fokus. */
@@ -12,27 +13,42 @@ type NewsItem = Awaited<ReturnType<typeof trpc.market.news.query>>[number];
 type Favorite = Awaited<ReturnType<typeof trpc.product.favorites.query>>[number];
 
 /**
- * Eine News-Zeile (Zeit · Quelle · Titel). Auf Mobil (375 px) rutscht der
- * Titel auf eine eigene Zeile — Lesbarkeit vor Dichte (Patricks Feedback).
+ * Eine News-Zeile (Patricks Mängelliste 2026-10-22, Punkt 7): relative UND absolute Zeit,
+ * Quelle, Titel, Kurztext (wenn der Feed einen liefert) und „Betrifft“-Chips für die
+ * ★-Favoriten, die die Meldung trifft. Auf dem Handy bricht alles um — nichts wird abgeschnitten.
  */
-function NewsRow({ n }: { n: NewsItem }) {
+function NewsRow({ n, now, affects }: { n: NewsItem; now: Date; affects?: string[] }) {
+  const { t } = useTranslation();
+  const when = newsWhen(n.publishedAt, now, appLocale(), { today: t('magazine.today'), yesterday: t('magazine.yesterday') });
   return (
-    <li className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
-      <span className="num shrink-0 text-xs" style={{ color: 'var(--color-mut)' }}>
-        {new Date(n.publishedAt).toLocaleTimeString(appLocale(), { hour: '2-digit', minute: '2-digit' })}
-      </span>
-      <span className="label shrink-0 rounded border px-1 py-0.5" style={{ borderColor: 'var(--color-line)' }}>
-        {n.source}
-      </span>
-      <a
-        href={n.url}
-        target="_blank"
-        rel="noreferrer"
-        className="w-full min-w-0 leading-snug hover:underline sm:w-auto sm:flex-1"
-        style={{ color: 'var(--color-ink)' }}
-      >
+    <li className="border-b py-2.5 last:border-b-0" style={{ borderColor: 'var(--color-line)' }}>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" style={{ color: 'var(--color-mut)' }}>
+        <span className="num font-medium" style={{ color: 'var(--color-ink)' }} title={when.absolute}>
+          {when.relative}
+        </span>
+        <span className="num">{when.absolute}</span>
+        <span className="label rounded border px-1 py-0.5" style={{ borderColor: 'var(--color-line)' }}>
+          {n.source}
+        </span>
+        {affects && affects.length > 0 && (
+          <span className="flex flex-wrap items-center gap-1">
+            <span>{t('magazine.affects')}</span>
+            {affects.map((a) => (
+              <span key={a} className="num rounded border px-1 py-0.5" style={{ borderColor: 'rgba(245,158,11,0.4)', color: 'var(--color-warn)' }}>
+                ★ {a}
+              </span>
+            ))}
+          </span>
+        )}
+      </div>
+      <a href={n.url} target="_blank" rel="noreferrer" className="mt-0.5 block text-[15px] leading-snug hover:underline" style={{ color: 'var(--color-ink)' }}>
         {n.title}
       </a>
+      {n.summary && (
+        <p className="mt-0.5 line-clamp-2 text-sm leading-snug" style={{ color: 'var(--color-mut)' }}>
+          {n.summary}
+        </p>
+      )}
     </li>
   );
 }
@@ -52,10 +68,15 @@ function NewsPanel() {
   const [summary, setSummary] = useState<{ text: string; costUsd: number } | null>(null);
   const [summaryBusy, setSummaryBusy] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
-    // 40 statt 12 Items: mehr echtes Material für den Favoriten-Abgleich.
-    void trpc.market.news.query({ limit: 40 }).then(setNews).catch(() => setNews([]));
+    // 60 Items: mehr echtes Material für den Favoriten-Abgleich und die Tagesgruppen.: mehr echtes Material für den Favoriten-Abgleich.
+    void trpc.market.news.query({ limit: 60 }).then(setNews).catch(() => setNews([]));
     void trpc.product.favorites.query().then(setFavorites).catch(() => setFavorites([]));
   }, []);
 
@@ -64,8 +85,17 @@ function NewsPanel() {
     [news, favorites],
   );
   const loading = news === null || favorites === null;
-  // Rest kappen, damit „Alle News" die Favoriten-Sektion nicht erdrückt.
-  const restShown = grouped.rest.slice(0, 15);
+  // Welche Favoriten trifft eine Meldung? (für die „Betrifft“-Chips)
+  const affectsByUrl = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const g of grouped.groups) for (const n of g.items) m.set(n.url, [...(m.get(n.url) ?? []), g.ticker]);
+    return m;
+  }, [grouped]);
+  const dayLabels = { today: t('magazine.today'), yesterday: t('magazine.yesterday') };
+  // Rest nach Tagen gruppiert (neueste zuerst), gekappt, damit die Seite nicht endlos wird.
+  const restShown = grouped.rest.slice(0, 40);
+  const restDays = useMemo(() => groupByDay(restShown, now, appLocale(), dayLabels), [restShown, now, dayLabels.today, dayLabels.yesterday]);
+  const newest = news && news.length > 0 ? news.reduce((a, b) => (new Date(a.publishedAt) > new Date(b.publishedAt) ? a : b)) : null;
 
   async function summarize() {
     // Jede Schlagzeile nur EINMAL ans LLM — trifft sie mehrere Favoriten,
@@ -141,9 +171,9 @@ function NewsPanel() {
                   </span>
                   <span className="label ml-auto shrink-0">{t('magazine.matchCount', { n: g.items.length })}</span>
                 </p>
-                <ul className="mt-3 space-y-2.5">
+                <ul className="mt-2">
                   {g.items.map((n) => (
-                    <NewsRow key={n.id} n={n} />
+                    <NewsRow key={n.id} n={n} now={now} />
                   ))}
                 </ul>
               </div>
@@ -184,6 +214,12 @@ function NewsPanel() {
       <h2 className="label mt-5">{t('magazine.allNews')}</h2>
       <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
         {t('magazine.newsTitle')}
+        {newest && (
+          <>
+            {' · '}
+            {t('magazine.newest', { when: newsWhen(newest.publishedAt, now, appLocale(), dayLabels).relative })}
+          </>
+        )}
       </p>
       {news === null ? (
         <Loading />
@@ -193,11 +229,18 @@ function NewsPanel() {
         <Empty text={t('magazine.allNewsAllMatched')} />
       ) : (
         <>
-          <ul className="mt-3 space-y-2.5">
-            {restShown.map((n) => (
-              <NewsRow key={n.id} n={n} />
-            ))}
-          </ul>
+          {restDays.map((d) => (
+            <div key={d.day} className="mt-3">
+              <p className="label sticky top-0 py-1" style={{ background: 'var(--color-bg2)' }}>
+                {d.day} · {t('magazine.countOnDay', { n: d.items.length })}
+              </p>
+              <ul>
+                {d.items.map((n) => (
+                  <NewsRow key={n.id} n={n} now={now} affects={affectsByUrl.get(n.url)} />
+                ))}
+              </ul>
+            </div>
+          ))}
           {grouped.rest.length > restShown.length && (
             <p className="label mt-3">{t('magazine.moreNews', { n: grouped.rest.length - restShown.length })}</p>
           )}
