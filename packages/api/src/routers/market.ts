@@ -294,8 +294,10 @@ export const marketRouter = router({
             currency: e.currency,
             importance: e.importance,
             scheduledAt: e.scheduledAt,
+            actual: e.actual,
             forecast: e.forecast,
             previous: e.previous,
+            unit: e.unit,
             impact: {
               category: impact.category,
               severity: impact.severity,
