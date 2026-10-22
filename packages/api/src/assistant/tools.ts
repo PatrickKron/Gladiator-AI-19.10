@@ -10,6 +10,7 @@ import { scanUniverse } from '@gladiator/jobs';
 import { runDraftBacktest, saveWorkshopVersion, ownedSession } from '../workshop/draft-service.js';
 import { runScreen } from '../routers/screener.js';
 import { loadVersionValidity } from '../routers/strategies.js';
+import { buildAssetAnalysis } from '../market/asset-analysis.js';
 
 const { strategies, strategyVersions, workshopSessions, auditLog } = schema;
 
@@ -113,6 +114,12 @@ export const ASSISTANT_TOOLS: LlmTool[] = [
       required: ['timeframe'],
       additionalProperties: false,
     },
+  },
+  {
+    name: 'asset_analysis',
+    description:
+      'Oracle (Makro & Regime: GRS, VIX/DXY/US10Y), Shadow (Positionierung: Funding, Open Interest, COT) und Sentinel (No-Trade-Fenster, Kill-Switch, Limits, Exposure) für ein Symbol — nur echte, synchronisierte Daten; connected:false heißt „nicht verbunden“, dann nichts dazu behaupten.',
+    inputSchema: { type: 'object', properties: { symbol: { type: 'string', description: 'z. B. BTC/USDT' } }, required: ['symbol'], additionalProperties: false },
   },
   {
     name: 'navigate',
@@ -257,6 +264,11 @@ export async function executeTool(ctx: ToolCtx, name: string, input: Record<stri
         result: { timeframe, scanned: out.scanned, matched, errors: out.rows.filter((r) => r.error).map((r) => `${r.symbol}: ${r.error}`).slice(0, 10) },
         cards: [{ kind: 'screen', timeframe, scanned: out.scanned, matched, hash: '#/screener' }],
       };
+    }
+    case 'asset_analysis': {
+      const symbol = str(input.symbol, 'symbol').toUpperCase();
+      const a = await buildAssetAnalysis(ctx.db, ctx.userId, symbol);
+      return { result: a, cards: [{ kind: 'link', label: `Analyse ${symbol}`, hash: `#/charts?symbol=${encodeURIComponent(symbol)}&tab=kontext` }] };
     }
     case 'navigate': {
       const hash = str(input.hash, 'hash');

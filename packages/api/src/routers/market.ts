@@ -52,6 +52,7 @@ import {
 } from '@gladiator/strategy-engine';
 import { binanceStreamingBook, COMPARE_VENUES, fetchVenueQuotes, rankVenueQuotes, summarizeBook, type VenueQuote } from '@gladiator/exchange';
 import { protectedProcedure, router } from '../trpc.js';
+import { buildAssetAnalysis } from '../market/asset-analysis.js';
 
 /**
  * Alle unterstützten Chart-Timeframes (Feature A) als zod-Enum — für chartData,
@@ -472,6 +473,9 @@ export const marketRouter = router({
 
   /** Aktuelles Scan-Universum (Basis + Stern-Favoriten) — für Selektoren. */
   scanUniverse: protectedProcedure.query(({ ctx }) => scanUniverse(ctx.db)),
+
+  /** Oracle · Shadow · Sentinel für ein Asset auf einen Klick (Mängelliste Punkt 6) — nur echte, synchronisierte Daten. */
+  assetAnalysis: protectedProcedure.input(z.object({ symbol: z.string().min(3).max(40) })).query(({ ctx, input }) => buildAssetAnalysis(ctx.db, ctx.user.id, input.symbol)),
 
   /**
    * Asset-Suche (Patricks Mängelliste 2026-10-22, Punkt 3): alle Binance-Spot-Paare gegen

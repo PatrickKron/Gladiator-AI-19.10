@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Panel } from '../components/ui.js';
 import { AssetSelect, getSelectedAsset, getSelectedVenue, setSelectedAsset, setSelectedVenue } from '../components/AssetSelect.js';
+import { AssetAnalysis } from '../components/AssetAnalysis.js';
 import { AssetChart } from '../components/AssetChart.js';
 import { OrderBookPanel } from '../components/OrderBookPanel.js';
 import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
@@ -182,6 +183,9 @@ export function AssetDetail() {
             )}
           </div>
         </div>
+      )}
+      {tab === 'kontext' && (
+        <AssetAnalysis symbol={asset} ctx={ctx} />
       )}
       {tab === 'kontext' && (
         <Panel label={t('assetCtx.title', { symbol: asset })} stagger={1}>
