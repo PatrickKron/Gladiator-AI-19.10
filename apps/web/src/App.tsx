@@ -47,6 +47,7 @@ const Intelligenz = lazyView(() => import('./views/Intelligenz.js'), 'Intelligen
 const Einstellungen = lazyView(() => import('./views/Einstellungen.js'), 'Einstellungen');
 const Profil = lazyView(() => import('./views/Profil.js'), 'Profil');
 const Vermoegen = lazyView(() => import('./views/Vermoegen.js'), 'Vermoegen');
+const EchtesGeld = lazyView(() => import('./views/EchtesGeld.js'), 'EchtesGeld');
 
 const Marktlage = lazyView(() => import('./views/Marktlage.js'), 'Marktlage');
 const Funktionen = lazyView(() => import('./views/Funktionen.js'), 'Funktionen');
@@ -74,6 +75,7 @@ const ROUTES = {
   '#/magazine': Magazine,
   '#/traden': Traden,
   '#/vermoegen': Vermoegen,
+  '#/echtes-geld': EchtesGeld,
   '#/agenten': Agenten,
   '#/strategien': Strategien,
   '#/labor': Labor,

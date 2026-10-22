@@ -26,6 +26,8 @@ type Perf = Awaited<ReturnType<typeof trpc.demo.performance.query>>;
 type Preview = Awaited<ReturnType<typeof trpc.demo.preview.mutate>>;
 /** Börsen, über die der Demo-Router ausführt (aus dem Router-Input abgeleitet). */
 type DemoVenue = NonNullable<Parameters<typeof trpc.demo.placeOrder.mutate>[0]['venue']>;
+/** Kerzen-Venues ohne Orderbuch (Demo führt zum letzten Schlusskurs aus). */
+const isStockVenue = (v: string): v is 'yahoo' | 'twelvedata' => v === 'yahoo' || v === 'twelvedata';
 
 const TABS = ['positions', 'orders', 'history', 'performance'] as const;
 type Tab = (typeof TABS)[number];
@@ -396,7 +398,16 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
       <div className="glass mx-auto max-w-xl p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <span className="text-sm font-semibold">{t('demo.ticketTitle')}</span>
-          <AssetSelect value={symbol} onChange={setSymbol} />
+          <AssetSelect
+            value={symbol}
+            venue={isStockVenue(venue) ? venue : 'binance'}
+            onChange={(sym, v) => {
+              setSymbol(sym);
+              // Aktien/ETF/Forex: Schlusskurs-Quelle als Venue; zurück zu Krypto: wieder Binance-Buch.
+              if (v === 'yahoo' || v === 'twelvedata') setVenue(v);
+              else if (isStockVenue(venue)) setVenue('binance');
+            }}
+          />
         </div>
 
         {/* 1 · Betrag */}
@@ -456,7 +467,7 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
         <div className="mt-4 rounded-xl border px-4 py-1" style={{ borderColor: 'var(--color-line)', background: 'var(--color-bg)' }}>
           {!valid ? (
             <p className="py-2 text-xs" style={{ color: 'var(--color-mut)' }}>
-              {t('demo.previewHint')}
+              {isStockVenue(venue) ? t('demo.stockVenueNote', { venue: venue === 'yahoo' ? 'Yahoo' : 'Twelve Data' }) : t('demo.previewHint')}
             </p>
           ) : previewing && !preview ? (
             <Loading />
@@ -618,7 +629,13 @@ function OrderTicket({ onPlaced }: { onPlaced: () => void }) {
               </ul>
             )}
             <div className="sm:col-span-2">
-              <VenueCompare symbol={symbol} side={direction === 'long' ? 'buy' : 'sell'} selected={venue} onSelect={(v) => setVenue(v as DemoVenue)} />
+              {isStockVenue(venue) ? (
+                <p className="text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+                  {t('demo.stockVenueNote', { venue: venue === 'yahoo' ? 'Yahoo' : 'Twelve Data' })}
+                </p>
+              ) : (
+                <VenueCompare symbol={symbol} side={direction === 'long' ? 'buy' : 'sell'} selected={venue} onSelect={(v) => setVenue(v as DemoVenue)} />
+              )}
             </div>
           </div>
         </details>

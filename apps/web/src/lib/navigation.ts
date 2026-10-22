@@ -157,6 +157,16 @@ export const PAGES = [
     ],
   },
   {
+    // Patricks Mängelliste 2026-10-22, Punkt 5: echtes Geld auf einen Blick erklärt — drei Wege, Status, nächster Schritt.
+    id: 'realMoney',
+    hash: '#/echtes-geld',
+    area: 'trade',
+    labelKey: 'ia.page_realMoney',
+    descKey: 'ia.desc_realMoney',
+    icon: 'M3 7h18v10H3zM7 7V5h10v2M12 10a2 2 0 100 4 2 2 0 000-4z',
+    keywords: ['echtes geld', 'real money', 'börse', 'exchange', 'wallet anschließen', 'dezentral', 'dex', 'live', 'freigabe', 'api-key'],
+  },
+  {
     id: 'wealth',
     hash: '#/vermoegen',
     area: 'trade',

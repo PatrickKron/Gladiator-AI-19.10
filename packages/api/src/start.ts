@@ -4,6 +4,9 @@
  */
 import { sql } from 'drizzle-orm';
 import { createDb, requireEnv } from '@gladiator/db';
+import { registerDemoBookSource } from '@gladiator/exchange';
+import { TWELVEDATA_VENUE, YAHOO_VENUE } from '@gladiator/market-data';
+import { CandleCloseBookSource } from './demo/candle-book-source.js';
 import { LivePriceFeed } from '@gladiator/market-data';
 import { startJobWorker } from '@gladiator/jobs';
 import { BinanceTestnetVenue, HyperliquidTestnetVenue, PaperVenue, captureBootEnv, loadSecretsIntoEnv } from '@gladiator/exchange';
@@ -32,6 +35,8 @@ const role: 'web' | 'worker' | 'all' =
   process.env.ROLE === 'web' ? 'web' : process.env.ROLE === 'worker' ? 'worker' : 'all';
 
 const { db } = createDb();
+// Demo auch für Aktien/ETF/Forex: Schlusskurs-Quelle je Kerzen-Venue (Mängelliste Punkt 11).
+for (const v of [YAHOO_VENUE, TWELVEDATA_VENUE]) registerDemoBookSource(v, new CandleCloseBookSource(db, v));
 
 // UI-gepflegte Secrets (Phase 7+): .env-Snapshot sichern, dann DB-Werte
 // entschlüsselt nach process.env laden — VOR der Venue-Konstruktion,

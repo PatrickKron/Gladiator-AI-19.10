@@ -116,9 +116,19 @@ export function binanceBookSource(): DemoBookSource {
 }
 
 let multi: MultiVenueBookSource | null = null;
+const registered = new Map<string, DemoBookSource>();
 
-/** Demo-Modus: echte Bücher aller Börsen; Binance teilt sich den Singleton. */
+/**
+ * Zusätzliche Demo-Preisquelle je Venue registrieren (Patricks Mängelliste 2026-10-22, Punkt 11:
+ * Demo auch für Aktien/ETF/Forex — die API registriert beim Start eine Schlusskurs-Quelle für
+ * 'yahoo'/'twelvedata'). Gilt für alle Aufrufer von demoBookSource() im selben Prozess (API + Worker).
+ */
+export function registerDemoBookSource(venueId: string, source: DemoBookSource): void {
+  registered.set(venueId, source);
+}
+
+/** Demo-Modus: echte Bücher aller Börsen; Binance teilt sich den Singleton; registrierte Quellen zuerst. */
 export function demoBookSource(): DemoBookSource {
-  multi ??= new MultiVenueBookSource((v) => (v === 'binance' ? binanceBookSource() : new CcxtBookSource(v)));
+  multi ??= new MultiVenueBookSource((v) => registered.get(v) ?? (v === 'binance' ? binanceBookSource() : new CcxtBookSource(v)));
   return multi;
 }

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Panel } from '../components/ui.js';
 import { AssetSelect, getSelectedAsset, getSelectedVenue, setSelectedAsset, setSelectedVenue } from '../components/AssetSelect.js';
 import { AssetAnalysis } from '../components/AssetAnalysis.js';
+import { setPendingTradeSymbol } from '../lib/trade-symbol.js';
 import { AssetChart } from '../components/AssetChart.js';
 import { OrderBookPanel } from '../components/OrderBookPanel.js';
 import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
@@ -146,6 +147,17 @@ export function AssetDetail() {
           </div>
           <button type="button" className="tbtn" aria-pressed={tab === 'kontext'} onClick={() => changeTab(tab === 'kontext' ? 'chart' : 'kontext')}>
             {t('chart.context')}
+          </button>
+          {/* Patricks Mängelliste Punkt 12: aus dem Chart in einem Klick ins Ticket — Symbol wird mitgenommen. */}
+          <button
+            type="button"
+            className="btn-primary px-3 py-1.5 text-xs"
+            onClick={() => {
+              setPendingTradeSymbol(asset);
+              window.location.hash = '#/traden?tab=demo';
+            }}
+          >
+            {t('chart.trade')}
           </button>
         </div>
       </div>

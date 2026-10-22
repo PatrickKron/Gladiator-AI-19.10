@@ -44,6 +44,7 @@ export {
   CcxtBookSource,
   DEMO_DEFAULT_VENUE,
   demoBookSource,
+  registerDemoBookSource,
   MultiVenueBookSource,
   type DemoBookSource,
 } from './demo/book-source.js';
