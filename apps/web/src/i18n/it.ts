@@ -1677,6 +1677,8 @@ export const it: Catalog = {
     noFavorites: 'Nessun preferito contrassegnato — contrassegna gli asset con ★ e le notizie corrispondenti appariranno qui per prime.',
     noFavoriteNews: 'Nessuna notizia attuale corrisponde ai tuoi preferiti ({{tickers}}) — le fonti RSS al momento non offrono nulla di pertinente.',
     matchCount: '{{n}} risultati',
+    fromUniverse: "Dall’universo di scansione",
+    fromUniverseHint: "Risultati per simboli con candele reali che non sono (ancora) preferiti ★ — stesso confronto per parole sul ticker.",
     summarizeBtn: 'Riassumi (IA)',
     summarizing: "L'IA sta riassumendo …",
     summarizeHint: 'Riassume i titoli dei preferiti tramite IA — richiede una ANTHROPIC_API_KEY (Impostazioni → Chiavi API). Senza chiave qui appare un messaggio di errore onesto.',

@@ -1677,6 +1677,8 @@ export const en: Catalog = {
     noFavorites: 'No favorites marked — star assets with ★ and the matching news will appear here first.',
     noFavoriteNews: 'No current news matches for your favorites ({{tickers}}) — the RSS sources have nothing relevant right now.',
     matchCount: '{{n}} matches',
+    fromUniverse: "From the scan universe",
+    fromUniverseHint: "Hits for symbols with real candles that are not (yet) ★ favourites — same word-wise match on the ticker.",
     summarizeBtn: 'Summarize (AI)',
     summarizing: 'AI is summarizing …',
     summarizeHint: 'Summarizes the favorite headlines via AI — requires an ANTHROPIC_API_KEY (Settings → API keys). Without a key an honest error message is shown here.',

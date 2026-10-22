@@ -1676,6 +1676,8 @@ export const de = {
     noFavorites: 'Keine Favoriten markiert — markiere Assets mit ★, dann erscheinen hier die passenden News zuerst.',
     noFavoriteNews: 'Keine aktuellen News-Treffer zu deinen Favoriten ({{tickers}}) — die RSS-Quellen liefern derzeit nichts Passendes.',
     matchCount: '{{n}} Treffer',
+    fromUniverse: "Aus dem Scan-Universum",
+    fromUniverseHint: "Treffer zu Symbolen mit echten Kerzen, die (noch) keine ★-Favoriten sind — gleicher wortweiser Abgleich über den Ticker.",
     summarizeBtn: 'Zusammenfassen (KI)',
     summarizing: 'KI fasst zusammen …',
     summarizeHint: 'Fasst die Favoriten-Schlagzeilen per KI zusammen — braucht einen ANTHROPIC_API_KEY (Einstellungen → API-Schlüssel). Ohne Key erscheint hier die ehrliche Fehlermeldung.',

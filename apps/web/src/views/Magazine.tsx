@@ -17,7 +17,9 @@ type Favorite = Awaited<ReturnType<typeof trpc.product.favorites.query>>[number]
  * Quelle, Titel, Kurztext (wenn der Feed einen liefert) und „Betrifft“-Chips für die
  * ★-Favoriten, die die Meldung trifft. Auf dem Handy bricht alles um — nichts wird abgeschnitten.
  */
-function NewsRow({ n, now, affects }: { n: NewsItem; now: Date; affects?: string[] }) {
+type Affect = { ticker: string; fav: boolean };
+
+function NewsRow({ n, now, affects }: { n: NewsItem; now: Date; affects?: Affect[] }) {
   const { t } = useTranslation();
   const when = newsWhen(n.publishedAt, now, appLocale(), { today: t('magazine.today'), yesterday: t('magazine.yesterday') });
   return (
@@ -34,8 +36,9 @@ function NewsRow({ n, now, affects }: { n: NewsItem; now: Date; affects?: string
           <span className="flex flex-wrap items-center gap-1">
             <span>{t('magazine.affects')}</span>
             {affects.map((a) => (
-              <span key={a} className="num rounded border px-1 py-0.5" style={{ borderColor: 'rgba(245,158,11,0.4)', color: 'var(--color-warn)' }}>
-                ★ {a}
+              <span key={a.ticker} className="num rounded border px-1 py-0.5" style={a.fav ? { borderColor: 'rgba(245,158,11,0.4)', color: 'var(--color-warn)' } : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+                {a.fav ? '★ ' : ''}
+                {a.ticker}
               </span>
             ))}
           </span>
@@ -65,6 +68,8 @@ function NewsPanel() {
   const { t, i18n } = useTranslation();
   const [news, setNews] = useState<NewsItem[] | null>(null);
   const [favorites, setFavorites] = useState<Favorite[] | null>(null);
+  // Mängelliste 7: Relevanz über die Favoriten hinaus — auch das Scan-Universum (Symbole mit echten Kerzen).
+  const [universe, setUniverse] = useState<{ ticker: string; name: string }[]>([]);
   const [summary, setSummary] = useState<{ text: string; costUsd: number } | null>(null);
   const [summaryBusy, setSummaryBusy] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
@@ -78,19 +83,35 @@ function NewsPanel() {
     // 60 Items: mehr echtes Material für den Favoriten-Abgleich und die Tagesgruppen.: mehr echtes Material für den Favoriten-Abgleich.
     void trpc.market.news.query({ limit: 60 }).then(setNews).catch(() => setNews([]));
     void trpc.product.favorites.query().then(setFavorites).catch(() => setFavorites([]));
+    // Namen aus der Asset-Tabelle (BTC ↔ „Bitcoin“), wo vorhanden — sonst nur der Ticker.
+    void Promise.all([trpc.market.scanUniverse.query(), trpc.product.allAssets.query().catch(() => [])])
+      .then(([u, all]) => {
+        const names = new Map(all.map((a) => [a.ticker.toUpperCase(), a.name]));
+        const tickers = [...new Set(u.map((sym) => sym.split('/')[0]!.toUpperCase()))];
+        setUniverse(tickers.map((tk) => ({ ticker: tk, name: names.get(tk) ?? tk })));
+      })
+      .catch(() => setUniverse([]));
   }, []);
 
   const grouped = useMemo(
-    () => groupNewsByFavorites(news ?? [], (favorites ?? []).map((f) => ({ ticker: f.ticker, name: f.name }))),
-    [news, favorites],
+    () => {
+      const favs = (favorites ?? []).map((f) => ({ ticker: f.ticker, name: f.name }));
+      const favSet = new Set(favs.map((f) => f.ticker.toUpperCase()));
+      const uni = universe.filter((u) => !favSet.has(u.ticker));
+      return groupNewsByFavorites(news ?? [], [...favs, ...uni]);
+    },
+    [news, favorites, universe],
   );
+  const favTickers = useMemo(() => new Set((favorites ?? []).map((f) => f.ticker.toUpperCase())), [favorites]);
+  const favGroups = grouped.groups.filter((g) => favTickers.has(g.ticker.toUpperCase()));
+  const uniGroups = grouped.groups.filter((g) => !favTickers.has(g.ticker.toUpperCase()));
   const loading = news === null || favorites === null;
-  // Welche Favoriten trifft eine Meldung? (für die „Betrifft“-Chips)
+  // Welche Märkte trifft eine Meldung? (für die „Betrifft“-Chips — ★ nur bei Favoriten)
   const affectsByUrl = useMemo(() => {
-    const m = new Map<string, string[]>();
-    for (const g of grouped.groups) for (const n of g.items) m.set(n.url, [...(m.get(n.url) ?? []), g.ticker]);
+    const m = new Map<string, Affect[]>();
+    for (const g of grouped.groups) for (const n of g.items) m.set(n.url, [...(m.get(n.url) ?? []), { ticker: g.ticker, fav: favTickers.has(g.ticker.toUpperCase()) }]);
     return m;
-  }, [grouped]);
+  }, [grouped, favTickers]);
   const dayLabels = { today: t('magazine.today'), yesterday: t('magazine.yesterday') };
   // Rest nach Tagen gruppiert (neueste zuerst), gekappt, damit die Seite nicht endlos wird.
   const restShown = grouped.rest.slice(0, 40);
@@ -152,7 +173,7 @@ function NewsPanel() {
             </a>
           </p>
         </div>
-      ) : grouped.groups.length === 0 ? (
+      ) : favGroups.length === 0 ? (
         <Empty
           text={t('magazine.noFavoriteNews', {
             tickers: [...new Set(favorites.map((f) => f.ticker))].join(', '),
@@ -161,7 +182,7 @@ function NewsPanel() {
       ) : (
         <>
           <div className="mt-4 space-y-4">
-            {grouped.groups.map((g) => (
+            {favGroups.map((g) => (
               <div key={g.ticker} className="rounded-[0.625rem] border p-4" style={{ borderColor: 'rgba(245,158,11,0.3)' }}>
                 <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                   <span style={{ color: 'var(--color-warn)' }}>{'★'}</span>
@@ -206,7 +227,35 @@ function NewsPanel() {
         </>
       )}
 
-      {/* ── Alle News: der Rest ohne Favoriten-Treffer ── */}
+      {/* ── Aus dem Scan-Universum: Treffer zu Symbolen mit echten Kerzen, die keine Favoriten sind ── */}
+      {!loading && uniGroups.length > 0 && (
+        <>
+          <h2 className="label mt-6">{t('magazine.fromUniverse')}</h2>
+          <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+            {t('magazine.fromUniverseHint')}
+          </p>
+          <div className="mt-3 space-y-3">
+            {uniGroups.map((g) => (
+              <div key={g.ticker} className="rounded-[0.625rem] border p-4" style={{ borderColor: 'var(--color-line)' }}>
+                <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  {g.name !== g.ticker && <span className="text-[15px] leading-snug font-medium">{g.name}</span>}
+                  <span className="label rounded border px-1.5 py-0.5" style={{ borderColor: 'var(--color-line)' }}>
+                    {g.ticker}
+                  </span>
+                  <span className="label ml-auto shrink-0">{t('magazine.matchCount', { n: g.items.length })}</span>
+                </p>
+                <ul className="mt-2">
+                  {g.items.map((n) => (
+                    <NewsRow key={n.id} n={n} now={now} />
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* ── Alle News: der Rest ohne Treffer ── */}
       <div
         className="mt-6 h-px w-full"
         style={{ background: 'linear-gradient(90deg, rgba(59,130,246,0.5), rgba(148,163,184,0.35), transparent 80%)' }}

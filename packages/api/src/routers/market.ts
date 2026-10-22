@@ -54,6 +54,7 @@ import {
 import { binanceStreamingBook, COMPARE_VENUES, fetchVenueQuotes, rankVenueQuotes, summarizeBook, type VenueQuote } from '@gladiator/exchange';
 import { protectedProcedure, router } from '../trpc.js';
 import { buildAssetAnalysis } from '../market/asset-analysis.js';
+import { assetNews } from '../market/asset-news.js';
 
 /**
  * Alle unterstützten Chart-Timeframes (Feature A) als zod-Enum — für chartData,
@@ -612,11 +613,7 @@ export const marketRouter = router({
       const exposure = await ctx.db.execute(
         sql`SELECT coalesce(sum(qty::float * entry_price::float), 0) AS notional FROM positions WHERE symbol = ${symbol}`,
       );
-      // News-Treffer: Basis-Ticker im Titel (echte RSS-Items)
-      const base = symbol.split('/')[0]!;
-      const news = await ctx.db.execute(
-        sql`SELECT title, url, published_at FROM news_items WHERE title ILIKE ${'%' + base + '%'} ORDER BY published_at DESC LIMIT 3`,
-      );
+      const news = await assetNews(ctx.db, symbol);
 
       return {
         symbol,
@@ -634,11 +631,7 @@ export const marketRouter = router({
         openSignals: (openSignals.rows[0] as { n: number }).n,
         matchingGates: (gates.rows as { reason: string }[]).map((g) => g.reason),
         exposureNotional: Number((exposure.rows[0] as { notional: number }).notional),
-        news: (news.rows as { title: string; url: string; published_at: string }[]).map((n) => ({
-          title: n.title,
-          url: n.url,
-          publishedAt: n.published_at,
-        })),
+        news,
       };
     }),
 

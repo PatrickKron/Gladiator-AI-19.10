@@ -1677,6 +1677,8 @@ export const fr: Catalog = {
     noFavorites: 'Aucun favori marqué — marquez des actifs avec ★ et les actualités correspondantes apparaîtront ici en premier.',
     noFavoriteNews: "Aucune actualité récente ne correspond à vos favoris ({{tickers}}) — les sources RSS n'offrent rien de pertinent pour le moment.",
     matchCount: '{{n}} résultats',
+    fromUniverse: "Depuis l’univers de scan",
+    fromUniverseHint: "Résultats pour les symboles avec de vraies bougies qui ne sont pas (encore) des favoris ★ — même rapprochement mot à mot sur le ticker.",
     summarizeBtn: 'Résumer (IA)',
     summarizing: "L'IA résume …",
     summarizeHint: "Résume les titres des favoris via l'IA — nécessite une ANTHROPIC_API_KEY (Paramètres → Clés API). Sans clé, un message d'erreur honnête s'affiche ici.",

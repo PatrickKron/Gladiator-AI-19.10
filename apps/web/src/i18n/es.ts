@@ -1677,6 +1677,8 @@ export const es: Catalog = {
     noFavorites: 'No hay favoritos marcados — marca activos con ★ y las noticias correspondientes aparecerán aquí primero.',
     noFavoriteNews: 'Ninguna noticia actual coincide con tus favoritos ({{tickers}}) — las fuentes RSS no ofrecen nada relevante ahora mismo.',
     matchCount: '{{n}} resultados',
+    fromUniverse: "Del universo de escaneo",
+    fromUniverseHint: "Coincidencias de símbolos con velas reales que (aún) no son favoritos ★ — mismo cotejo por palabras sobre el ticker.",
     summarizeBtn: 'Resumir (IA)',
     summarizing: 'La IA está resumiendo …',
     summarizeHint: 'Resume los titulares de los favoritos mediante IA — requiere una ANTHROPIC_API_KEY (Ajustes → Claves API). Sin clave aquí se muestra un mensaje de error honesto.',
