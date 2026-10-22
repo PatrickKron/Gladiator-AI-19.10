@@ -49,7 +49,7 @@ export const CATEGORY_KEYS: Record<string, string> = {
 };
 
 /** Höchstens so viele Indikatoren je Symbol (wie der Server). */
-export const MAX_INDICATORS_PER_SYMBOL = 12;
+export const MAX_INDICATORS_PER_SYMBOL = 50;
 
 const norm = (s: string) => s.toLowerCase().normalize('NFKD');
 

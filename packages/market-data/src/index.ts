@@ -1,4 +1,5 @@
 export { backfillOhlcv, candleUniverse, getOhlcv, type BackfillResult } from './ohlcv.js';
+export { filterSpotPairs, listBinanceSpotPairs, resetSpotPairCache, searchSpotPairs, type SpotPair } from './symbols.js';
 export {
   BARS_PER_YEAR,
   SUPPORTED_TIMEFRAMES,

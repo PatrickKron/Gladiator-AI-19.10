@@ -155,8 +155,12 @@ describe('echte Daten (Solana-RPC, GoPlus)', () => {
   }, 30_000);
 
   it('Halter-Konzentration echter Solana-Tokens (Im Trend, GeckoTerminal) über GoPlus Solana', async () => {
-    const tokens = (await fetchTokenDiscovery('solana', 'trending')).slice(0, 5);
-    expect(tokens.length).toBeGreaterThan(0);
+    // Trend-Token sind oft minutenalt — GoPlus kennt deren Halter noch nicht (CI-Befund: 5 × „keine Halter“).
+    // Deshalb acht Trend-Token UND ein etabliertes Token (BONK): die Halter-Abfrage muss auf echten Daten
+    // funktionieren, darf aber nicht davon abhängen, wie frisch die Trend-Liste gerade ist.
+    const trending = (await fetchTokenDiscovery('solana', 'trending')).slice(0, 8);
+    expect(trending.length).toBeGreaterThan(0);
+    const tokens = [...trending, { symbol: 'BONK', address: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263' }];
     const results: number[] = [];
     const problems: string[] = [];
     for (const t of tokens) {
@@ -174,7 +178,7 @@ describe('echte Daten (Solana-RPC, GoPlus)', () => {
       expect(pct).toBeGreaterThanOrEqual(0);
       expect(pct).toBeLessThanOrEqual(100);
     }
-  }, 60_000);
+  }, 90_000);
 
   it('USDC auf Base über GoPlus: kein Honeypot, Steuer 0', async () => {
     const r = await fetchTokenSafety('base', '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913');

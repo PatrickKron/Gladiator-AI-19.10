@@ -28,7 +28,7 @@ const { chartIndicators } = schema;
  */
 
 /** Höchstens so viele Indikatoren je Symbol (Lesbarkeit + Rechenzeit je Abruf). */
-export const MAX_INDICATORS_PER_SYMBOL = 12;
+export const MAX_INDICATORS_PER_SYMBOL = 50;
 
 const symbolSchema = z.string().trim().min(1).max(40);
 const timeframeEnum = z.enum(SUPPORTED_TIMEFRAMES);

@@ -152,6 +152,7 @@ export function Profil() {
           </Panel>
           <EffectsPanel />
           <ViewResetPanel />
+          <AboutPanel />
         </div>
       </section>
     </div>
@@ -230,6 +231,23 @@ function EffectsPanel() {
       <button type="button" className="btn mt-4" onClick={() => requestRainBurst('accent', 'BTC/USDT')} disabled={!prefs.eventRain}>
         {t('effects.preview')}
       </button>
+    </Panel>
+  );
+}
+
+/** Lizenz-Nennung (Patrick 2026-10-22: kein Logo im Chart — die Nennung der Chart-Bibliothek steht hier). */
+function AboutPanel() {
+  const { t } = useTranslation();
+  return (
+    <Panel label={t('profile.aboutTitle')} stagger={8}>
+      <p className="text-sm" style={{ color: 'var(--color-mut)' }}>{t('profile.aboutVersion')}</p>
+      <p className="mt-2 text-sm" style={{ color: 'var(--color-mut)' }}>
+        {t('profile.aboutCharts')}{' '}
+        <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer" className="underline">
+          TradingView Lightweight Charts™
+        </a>{' '}
+        (Apache 2.0) · {t('profile.aboutIndicators')}
+      </p>
     </Panel>
   );
 }

@@ -15,3 +15,4 @@ Regeln:
 - Steuer-Export `trading.exportTrades` (CSV, Builder in `src/export/trades-csv.ts`) und Protokoll `system.auditLog` (nur lesend, Keyset-Pagination).
 - Später (Phase 5/6): Pine-Webhook-Receiver (HMAC), WebSocket/SSE-Gateway, Fach-Router.
 - Markt-Screener: Router `screener.*`; Bedingungen/Auswertung/Vorlagen liegen in `@gladiator/indicators` (`src/screener/`), damit der Worker (Screen-Alarme) dieselbe Auswertung nutzt; Universum = `candleUniverse()` aus @gladiator/market-data (nur Symbole mit echten Kerzen).
+- `market.symbolSearch` / `market.ensureCandles`: Asset-Suche über alle Binance-USDT-Spot-Paare (live, 1 h gemerkt) und Backfill auf Abruf — unbekanntes Paar ist ein Fehler, nie eine leere Historie.
