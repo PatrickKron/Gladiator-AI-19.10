@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { EmptyState, PageHeader } from '../components/ui.js';
+import { openAssistant } from '../components/AssistantPanel.js';
 import { appLocale } from '../lib/locale.js';
 import { buildChartUrl, CHART_TFS, CHART_VENUES, type ChartTf, type ChartVenue } from '../lib/chart-url.js';
 import { cachedCatalog, loadCatalog } from '../lib/indicator-catalog.js';
@@ -557,10 +558,12 @@ export function Screener() {
           // Treffer als Karten (Welle C): Symbol, Kurs, Veränderung, je Bedingung ein Chip — Klick öffnet den Chart im selben Zeitrahmen
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {rows.map((r) => (
-              <a key={r.symbol} href={buildChartUrl(r.symbol, tf, venue)} className="glass glass-hover block p-4" title={t('screener.openChart')} style={r.matches ? undefined : { opacity: 0.7 }}>
+              <div key={r.symbol} className="glass glass-hover p-4" style={r.matches ? undefined : { opacity: 0.7 }}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="num truncate text-base font-semibold">{r.symbol}</p>
+                    <a href={buildChartUrl(r.symbol, tf, venue)} className="num block truncate text-base font-semibold hover:underline" title={t('screener.openChart')}>
+                      {r.symbol}
+                    </a>
                     <p className="num mt-0.5 text-sm" style={{ color: 'var(--color-mut)' }}>
                       {fmtNum(r.close)} <span className="text-xs">· {r.candles} {t('screener.colCandles')}</span>
                     </p>
@@ -587,7 +590,15 @@ export function Screener() {
                     );
                   })}
                 </div>
-              </a>
+                <div className="mt-3 flex items-center gap-3 text-xs">
+                  <a href={buildChartUrl(r.symbol, tf, venue)} className="underline decoration-dotted" style={{ color: 'var(--color-mut)' }}>
+                    {t('screener.openChart')}
+                  </a>
+                  <button type="button" className="underline decoration-dotted" style={{ color: 'var(--color-blue)' }} onClick={() => openAssistant(t('screener.chatPrompt', { symbol: r.symbol, tf }))}>
+                    {t('screener.discussChat')}
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         )}

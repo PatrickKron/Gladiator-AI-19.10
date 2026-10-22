@@ -6,7 +6,7 @@ import { envAnthropicProvider } from '@gladiator/agents';
 import { protectedProcedure, router } from '../trpc.js';
 import { assistantLlmGuard, runAssistantTurn } from '../assistant/service.js';
 import type { AssistantCard } from '../assistant/tools.js';
-import { promoteVersion } from './strategies.js';
+import { executeConfirm } from '../assistant/confirm.js';
 
 const { assistantConversations, assistantMessages } = schema;
 
@@ -104,10 +104,7 @@ export const assistantRouter = router({
       let status: 'done' | 'declined' | 'failed' = 'declined';
       if (input.accept) {
         try {
-          if (card.action === 'promote_version') {
-            const v = await promoteVersion(ctx.db, ctx.user.id, card.args.versionId, ctx.ip);
-            note = `Version ${v.version} läuft jetzt auf Paper.`;
-          }
+          note = await executeConfirm(ctx.db, ctx.user, card, ctx.ip);
           status = 'done';
         } catch (err) {
           status = 'failed';

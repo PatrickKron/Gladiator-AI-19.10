@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import type { Db } from '@gladiator/db';
 import { derivativesFresh, getMacroSnapshot } from '@gladiator/market-data';
 import { protectedProcedure, router } from '../trpc.js';
 
@@ -6,8 +7,9 @@ import { protectedProcedure, router } from '../trpc.js';
  * Agenten-Übersicht (Phase 5/6): Welche Agenten laufen, welche sind ehrlich
  * deaktiviert (und warum), plus echte Urteils-Statistik aus signal_reviews.
  */
-export const agentsRouter = router({
-  status: protectedProcedure.query(async ({ ctx }) => {
+export async function loadAgentsStatus(db: Db) {
+  {
+    const ctx = { db };
     const llmConfigured = Boolean(process.env.ANTHROPIC_API_KEY);
     const dailyBudgetUsd = Number(process.env.LLM_DAILY_BUDGET_USD ?? 5);
 
@@ -64,5 +66,10 @@ export const agentsRouter = router({
       },
       stats: stats.rows as { agent: string; vote: 'confirm' | 'reject' | 'caution'; n: number; avg_confidence: number }[],
     };
-  }),
+  }
+}
+
+/** Dieselbe Übersicht für Seite und Gladiator-Chat (eine Wahrheit). */
+export const agentsRouter = router({
+  status: protectedProcedure.query(({ ctx }) => loadAgentsStatus(ctx.db)),
 });

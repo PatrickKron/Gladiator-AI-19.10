@@ -15,7 +15,7 @@ const { tradingSettings, auditLog } = schema;
 
 // Grenzen aus @gladiator/core (eine Quelle mit den Profilen der Oberfläche)
 const b = SETTINGS_BOUNDS;
-const settingsInput = z.object({
+export const settingsInput = z.object({
   riskPctPerTrade: z.number().min(b.riskPctPerTrade.min).max(b.riskPctPerTrade.max),
   maxLeverage: z.number().min(b.maxLeverage.min).max(b.maxLeverage.max),
   maxOpenPositions: z.number().int().min(b.maxOpenPositions.min).max(b.maxOpenPositions.max),
@@ -32,83 +32,80 @@ async function ensureRow(ctx: { db: Db; user: { id: string } }) {
   return created!;
 }
 
+export type TradingSettingsDto = ReturnType<typeof toSettingsDto>;
+
+function toSettingsDto(row: typeof tradingSettings.$inferSelect) {
+  return {
+    riskPctPerTrade: Number(row.riskPctPerTrade),
+    maxLeverage: Number(row.maxLeverage),
+    maxOpenPositions: row.maxOpenPositions,
+    maxExposurePctPerAsset: Number(row.maxExposurePctPerAsset),
+    dailyLossLimitPct: Number(row.dailyLossLimitPct),
+    weeklyLossLimitPct: Number(row.weeklyLossLimitPct),
+    maxDrawdownPct: Number(row.maxDrawdownPct),
+    killSwitchActive: row.killSwitchActive,
+    mode: row.mode,
+    updatedAt: row.updatedAt,
+  };
+}
+
+/** Limits speichern (Seite UND Gladiator-Chat nach Bestätigung): validiert, auditiert — die Risk-Engine liest genau diese Zeile. */
+export async function applyTradingSettings(db: Db, userId: string, input: z.infer<typeof settingsInput>, ip: string | null) {
+  await ensureRow({ db, user: { id: userId } });
+  const [updated] = await db
+    .update(tradingSettings)
+    .set({
+      riskPctPerTrade: String(input.riskPctPerTrade),
+      maxLeverage: String(input.maxLeverage),
+      maxOpenPositions: input.maxOpenPositions,
+      maxExposurePctPerAsset: String(input.maxExposurePctPerAsset),
+      dailyLossLimitPct: String(input.dailyLossLimitPct),
+      weeklyLossLimitPct: String(input.weeklyLossLimitPct),
+      maxDrawdownPct: String(input.maxDrawdownPct),
+      updatedAt: new Date(),
+    })
+    .where(eq(tradingSettings.userId, userId))
+    .returning();
+  await db.insert(auditLog).values({ actor: 'user', userId, action: 'settings.update', entityType: 'trading_settings', entityId: updated!.id, details: input, ip });
+  return toSettingsDto(updated!);
+}
+
+/** Kill-Switch schalten (Seite UND Chat nach Bestätigung): auditiert + Benachrichtigung; Versand-Fehler blockieren den Schalter nie. */
+export async function applyKillSwitch(db: Db, user: { id: string; email: string }, active: boolean, ip: string | null) {
+  await ensureRow({ db, user });
+  const [updated] = await db.update(tradingSettings).set({ killSwitchActive: active, updatedAt: new Date() }).where(eq(tradingSettings.userId, user.id)).returning();
+  await db.insert(auditLog).values({
+    actor: 'user',
+    userId: user.id,
+    action: active ? 'risk.kill_switch.on' : 'risk.kill_switch.off',
+    entityType: 'trading_settings',
+    entityId: updated!.id,
+    details: { active },
+    ip,
+  });
+  const killHtml = formatKillSwitchAlert(active, user.email);
+  void notifySafe(db, {
+    userId: user.id,
+    kind: 'kill_switch',
+    severity: active ? 'critical' : 'warn',
+    title: active ? 'Kill-Switch AKTIV' : 'Kill-Switch aus',
+    body: telegramHtmlToText(killHtml),
+    link: '#/einstellungen',
+    telegramHtml: killHtml,
+  });
+  return { killSwitchActive: updated!.killSwitchActive };
+}
+
 export const settingsRouter = router({
-  get: protectedProcedure.query(async ({ ctx }) => {
-    const row = await ensureRow(ctx);
-    return {
-      riskPctPerTrade: Number(row.riskPctPerTrade),
-      maxLeverage: Number(row.maxLeverage),
-      maxOpenPositions: row.maxOpenPositions,
-      maxExposurePctPerAsset: Number(row.maxExposurePctPerAsset),
-      dailyLossLimitPct: Number(row.dailyLossLimitPct),
-      weeklyLossLimitPct: Number(row.weeklyLossLimitPct),
-      maxDrawdownPct: Number(row.maxDrawdownPct),
-      killSwitchActive: row.killSwitchActive,
-      mode: row.mode,
-      updatedAt: row.updatedAt,
-    };
-  }),
+  get: protectedProcedure.query(async ({ ctx }) => toSettingsDto(await ensureRow(ctx))),
 
   update: protectedProcedure.input(settingsInput).mutation(async ({ ctx, input }) => {
-    await ensureRow(ctx);
-    const [updated] = await ctx.db
-      .update(tradingSettings)
-      .set({
-        riskPctPerTrade: String(input.riskPctPerTrade),
-        maxLeverage: String(input.maxLeverage),
-        maxOpenPositions: input.maxOpenPositions,
-        maxExposurePctPerAsset: String(input.maxExposurePctPerAsset),
-        dailyLossLimitPct: String(input.dailyLossLimitPct),
-        weeklyLossLimitPct: String(input.weeklyLossLimitPct),
-        maxDrawdownPct: String(input.maxDrawdownPct),
-        updatedAt: new Date(),
-      })
-      .where(eq(tradingSettings.userId, ctx.user.id))
-      .returning();
-    await ctx.db.insert(auditLog).values({
-      actor: 'user',
-      userId: ctx.user.id,
-      action: 'settings.update',
-      entityType: 'trading_settings',
-      entityId: updated!.id,
-      details: input,
-      ip: ctx.ip,
-    });
+    await applyTradingSettings(ctx.db, ctx.user.id, input, ctx.ip);
     return { ok: true };
   }),
 
   /** Kill-Switch (SAFE): sofortiger Order-Stopp — jede Änderung auditiert. */
-  setKillSwitch: protectedProcedure
-    .input(z.object({ active: z.boolean() }))
-    .mutation(async ({ ctx, input }) => {
-      await ensureRow(ctx);
-      const [updated] = await ctx.db
-        .update(tradingSettings)
-        .set({ killSwitchActive: input.active, updatedAt: new Date() })
-        .where(eq(tradingSettings.userId, ctx.user.id))
-        .returning();
-      await ctx.db.insert(auditLog).values({
-        actor: 'user',
-        userId: ctx.user.id,
-        action: input.active ? 'risk.kill_switch.on' : 'risk.kill_switch.off',
-        entityType: 'trading_settings',
-        entityId: updated!.id,
-        details: { active: input.active },
-        ip: ctx.ip,
-      });
-      // Benachrichtigung (App + Push + optional Telegram) — Versand-Fehler blockieren den Schalter nie.
-      const killHtml = formatKillSwitchAlert(input.active, ctx.user.email);
-      void notifySafe(ctx.db, {
-        userId: ctx.user.id,
-        kind: 'kill_switch',
-        severity: input.active ? 'critical' : 'warn',
-        title: input.active ? 'Kill-Switch AKTIV' : 'Kill-Switch aus',
-        body: telegramHtmlToText(killHtml),
-        link: '#/einstellungen',
-        telegramHtml: killHtml,
-      });
-      return { killSwitchActive: updated!.killSwitchActive };
-    }),
+  setKillSwitch: protectedProcedure.input(z.object({ active: z.boolean() })).mutation(({ ctx, input }) => applyKillSwitch(ctx.db, ctx.user, input.active, ctx.ip)),
 });
 
 /** Trading-Einstellungen des Nutzers (legt die Standard-Zeile an, falls sie fehlt) — für Asset-Analyse und Chat. */
