@@ -43,6 +43,7 @@ export {
   type YahooOhlcvParse,
   type YahooIngestResult,
 } from './yahoo-chart.js';
+export { parseYahooSearch, resetYahooSearchCache, searchYahoo, type StockHit, type StockHitType } from './yahoo-search.js';
 export {
   getMacroSeries,
   getMacroSnapshot,

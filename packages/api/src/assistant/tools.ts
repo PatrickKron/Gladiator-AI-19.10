@@ -13,7 +13,8 @@ import { loadVersionValidity } from '../routers/strategies.js';
 import { buildAssetAnalysis } from '../market/asset-analysis.js';
 import { loadAgentsStatus } from '../routers/agents.js';
 import { ensureTradingSettings } from '../routers/settings.js';
-import { currentDemoBookSource, listDemoPositions } from '../routers/demo.js';
+import { currentDemoBookSource, demoOrderInput, listDemoPositions, previewDemoOrderFor, type DemoOrderArgs } from '../routers/demo.js';
+import { midPrice } from '@gladiator/exchange';
 import { demoAccountOverview } from '@gladiator/exchange';
 import { SETTINGS_BOUNDS, type TradingLimits } from '@gladiator/core/trading-settings';
 
@@ -44,7 +45,8 @@ export type AssistantCard =
 export type ConfirmRequest =
   | { action: 'promote_version'; args: { versionId: string } }
   | { action: 'update_settings'; args: Partial<TradingLimits> }
-  | { action: 'kill_switch'; args: { active: boolean } };
+  | { action: 'kill_switch'; args: { active: boolean } }
+  | { action: 'demo_order'; args: DemoOrderArgs };
 
 const LIMIT_LABELS: Record<keyof TradingLimits, string> = {
   riskPctPerTrade: 'Risiko je Trade %',
@@ -214,6 +216,28 @@ export const ASSISTANT_TOOLS: LlmTool[] = [
         symbol: { type: 'string' },
         limit: { type: 'integer', minimum: 1, maximum: 50 },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'demo_order',
+    description:
+      'Bittet den Nutzer um Bestätigung einer Order im ÜBUNGSKONTO (Demo, virtuelles Guthaben, echte Kurse): symbol (z. B. BTC/USDT), direction long/short, Menge als qty ODER notionalUsd (Positionswert in USDT), optional type limit + limitPrice, stopLoss, takeProfit, leverage (≤ Limit), venue. Rechnet vorher die echte Vorschau (Fill-Preis, Gebühr, Slippage, Margin, Liquidation) — bei Ablehnung durch die Engine kommt der Grund zurück. Führt NICHT selbst aus; niemals echtes Geld.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        symbol: { type: 'string' },
+        direction: { type: 'string', enum: ['long', 'short'] },
+        qty: { type: 'number', description: 'Menge in Basis-Einheiten (z. B. 0.01 BTC)' },
+        notionalUsd: { type: 'number', description: 'Alternativ: Positionswert in USDT (Menge wird aus dem echten Mittelkurs gerechnet)' },
+        type: { type: 'string', enum: ['market', 'limit'] },
+        limitPrice: { type: 'number' },
+        stopLoss: { type: 'number' },
+        takeProfit: { type: 'number' },
+        leverage: { type: 'number' },
+        venue: { type: 'string' },
+      },
+      required: ['symbol', 'direction'],
       additionalProperties: false,
     },
   },
@@ -458,6 +482,38 @@ export async function executeTool(ctx: ToolCtx, name: string, input: Record<stri
         reviews: reviews.filter((x) => x.signalId === r.id).map(({ signalId: _s, ...x }) => ({ ...x, confidence: Number(x.confidence) })),
       }));
       return { result: { signals: out }, cards: [{ kind: 'link', label: 'Signale', hash: '#/signale' }] };
+    }
+    case 'demo_order': {
+      const symbol = str(input.symbol, 'symbol').toUpperCase();
+      const venue = typeof input.venue === 'string' ? input.venue : undefined;
+      let qty = typeof input.qty === 'number' ? input.qty : undefined;
+      if (qty === undefined) {
+        if (typeof input.notionalUsd !== 'number' || input.notionalUsd <= 0) throw new Error('qty oder notionalUsd (> 0) fehlt.');
+        const mid = midPrice(await currentDemoBookSource().fetchBook(symbol, venue));
+        if (mid === null || mid <= 0) throw new Error(`Kein echter Kurs für ${symbol} — Menge nicht berechenbar.`);
+        qty = input.notionalUsd / mid;
+      }
+      const parsed = demoOrderInput.safeParse({
+        symbol,
+        direction: input.direction,
+        type: typeof input.type === 'string' ? input.type : 'market',
+        qty,
+        ...(typeof input.limitPrice === 'number' ? { limitPrice: input.limitPrice } : {}),
+        ...(typeof input.stopLoss === 'number' ? { stopLoss: input.stopLoss } : {}),
+        ...(typeof input.takeProfit === 'number' ? { takeProfit: input.takeProfit } : {}),
+        ...(typeof input.leverage === 'number' ? { leverage: input.leverage } : {}),
+        ...(venue ? { venue } : {}),
+      });
+      if (!parsed.success) throw new Error(`Order ungültig: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
+      const preview = await previewDemoOrderFor(ctx.db, ctx.userId, parsed.data);
+      if (!preview.ok) throw new Error(`Demo-Engine lehnt ab: ${preview.reason}`);
+      const args: DemoOrderArgs = { ...parsed.data, qty: preview.qty };
+      const fmt = (n: number | null) => (n === null ? '—' : n >= 100 ? n.toFixed(2) : n.toPrecision(4));
+      const label = `Demo-Order: ${args.direction.toUpperCase()} ${fmt(args.qty)} ${symbol} ${args.type === 'limit' ? `Limit ${fmt(args.limitPrice ?? null)}` : 'Markt'} ≈ ${fmt(preview.estFillPrice)} · Wert ${fmt(preview.estNotional)} USDT · Gebühr ${fmt(preview.estFee)} · Hebel ${preview.leverage}×${args.stopLoss ? ` · SL ${fmt(args.stopLoss)}` : ''}${args.takeProfit ? ` · TP ${fmt(args.takeProfit)}` : ''}`;
+      return {
+        result: { preview, order: args, needsConfirmation: true, note: 'Übungskonto. Der Nutzer muss die Karte bestätigen; erst dann wird die Order gesetzt.' },
+        cards: [{ kind: 'confirm', action: 'demo_order', args, label, status: 'pending' }],
+      };
     }
     case 'navigate': {
       const hash = str(input.hash, 'hash');

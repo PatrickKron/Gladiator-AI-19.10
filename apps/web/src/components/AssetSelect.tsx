@@ -9,7 +9,9 @@ import { isChartVenue, type ChartVenue } from '../lib/chart-url.js';
  * JEDES Binance-Spot-Paar gegen USDT (live von der Börse). Ein Paar ohne Kerzen wird beim
  * Auswählen nachgeladen (market.ensureCandles — derselbe Backfill wie der Scan), erst dann
  * wechselt das Asset; bei einem Paar mit Kerzen sofort, der Nachlauf läuft im Hintergrund.
- * Aktien/ETF/Forex (Twelve Data/Yahoo) als dritte Gruppe; ohne Key und ohne Kerzen
+ * Aktien/ETF/Forex als dritte Gruppe: schon geladene Symbole (Twelve Data/Yahoo) plus ab
+ * zwei Zeichen die Yahoo-Suche ohne Key (market.stockSearch) — Auswahl eines Treffers holt
+ * echte Kerzen (market.ensureStockCandles) und wechselt erst dann. Nicht erreichbar ⇒
  * ehrlich „nicht verbunden“. Auswahl in localStorage — Oracle/Aegis beziehen sich darauf.
  */
 
@@ -48,6 +50,7 @@ export function setSelectedVenue(venue: ChartVenue): void {
 
 type StockSymbols = Awaited<ReturnType<typeof trpc.market.stockSymbols.query>>;
 type SearchResult = Awaited<ReturnType<typeof trpc.market.symbolSearch.query>>;
+type StockSearch = Awaited<ReturnType<typeof trpc.market.stockSearch.query>>;
 
 const VENUE_LABEL: Record<ChartVenue, string> = { binance: 'Binance', twelvedata: 'Twelve Data', yahoo: 'Yahoo' };
 
@@ -73,6 +76,7 @@ export function AssetSelect({
   const [favorites, setFavorites] = useState<string[]>([]);
   const [stocks, setStocks] = useState<StockSymbols | 'error' | null>(null);
   const [search, setSearch] = useState<SearchResult | null>(null);
+  const [stockSearch, setStockSearch] = useState<StockSearch | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -105,7 +109,7 @@ export function AssetSelect({
     return () => document.removeEventListener('mousedown', onDown);
   }, [open]);
 
-  // Suche gegen alle Binance-Paare (leicht entprellt).
+  // Suche gegen alle Binance-Paare (leicht entprellt) — und ab zwei Zeichen bei Yahoo (Aktien/ETF/Forex, kein Key).
   useEffect(() => {
     if (!open) return;
     const id = setTimeout(() => {
@@ -113,12 +117,17 @@ export function AssetSelect({
         .query({ q, limit: 40 })
         .then(setSearch)
         .catch(() => setSearch({ connected: false, total: 0, results: [], error: 'offline' }));
-    }, 150);
+      if (q.trim().length >= 2) {
+        void trpc.market.stockSearch
+          .query({ q: q.trim(), limit: 8 })
+          .then(setStockSearch)
+          .catch(() => setStockSearch({ connected: false, results: [], error: 'offline' }));
+      } else setStockSearch(null);
+    }, 250);
     return () => clearTimeout(id);
   }, [q, open]);
 
   const rows = stocks !== null && stocks !== 'error' ? stocks.rows : [];
-  const configured = stocks !== null && stocks !== 'error' && stocks.configured.twelvedata;
   const favSet = new Set(favorites);
   const myMarkets = [...new Set([...favorites, ...universe])];
   const needle = q.trim().toUpperCase();
@@ -126,6 +135,8 @@ export function AssetSelect({
   const mySet = new Set(myMarkets);
   const binanceHits = (search?.results ?? []).filter((r) => !mySet.has(r.symbol));
   const stockVisible = needle ? rows.filter((r) => r.symbol.toUpperCase().includes(needle)) : rows;
+  const stockKnown = new Set(rows.map((r) => r.symbol.toUpperCase()));
+  const yahooHits = (stockSearch?.results ?? []).filter((r) => !stockKnown.has(r.symbol));
 
   const commit = (symbol: string, v: ChartVenue) => {
     if (persist) {
@@ -139,7 +150,7 @@ export function AssetSelect({
     setOpen(false);
     setQ('');
     setErr(null);
-    if (v !== 'binance' || hasCandles) {
+    if (hasCandles) {
       commit(symbol, v);
       // Hintergrund: Rückstand nachladen (inkrementell, nichts tun wenn frisch)
       if (v === 'binance') void trpc.market.ensureCandles.mutate({ symbol }).catch(() => undefined);
@@ -147,6 +158,13 @@ export function AssetSelect({
     }
     setBusy(symbol);
     try {
+      if (v === 'yahoo') {
+        // Aktien/ETF/Forex ohne Key: echte Yahoo-Kerzen holen, erst dann wechseln.
+        const r = await trpc.market.ensureStockCandles.mutate({ symbol });
+        setStocks((prev) => (prev && prev !== 'error' ? { ...prev, rows: [...prev.rows, { venue: 'yahoo', symbol, timeframes: Object.keys(r.candles), candles: Object.values(r.candles).reduce((a, b) => a + b, 0) }] } : prev));
+        commit(symbol, 'yahoo');
+        return;
+      }
       const r = await trpc.market.ensureCandles.mutate({ symbol });
       if (r.candles1h === 0) throw new Error(r.errors[0] ?? 'keine Kerzen');
       setUniverse((u) => (u.includes(symbol) ? u : [...u, symbol]));
@@ -175,19 +193,23 @@ export function AssetSelect({
 
   const current = `${value}${venue !== 'binance' ? ` · ${VENUE_LABEL[venue]}` : ''}`;
 
-  const Row = ({ symbol, v, hasCandles, fav }: { symbol: string; v: ChartVenue; hasCandles: boolean; fav?: boolean }) => (
+  const Row = ({ symbol, v, hasCandles, fav, name, kind }: { symbol: string; v: ChartVenue; hasCandles: boolean; fav?: boolean; name?: string; kind?: string }) => (
     <button
       type="button"
       onClick={() => void pick(symbol, v, hasCandles)}
       className="num flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-white/5"
       style={{ color: symbol === value && v === venue ? 'var(--color-cyan)' : 'var(--color-ink)' }}
     >
-      <span className="truncate">
+      <span className="min-w-0 truncate">
         {fav && <span style={{ color: 'var(--color-warn)' }}>★ </span>}
         {symbol}
-        {v !== 'binance' && <span style={{ color: 'var(--color-mut)' }}> · {VENUE_LABEL[v]}</span>}
+        {name && <span className="font-sans" style={{ color: 'var(--color-mut)' }}> · {name}</span>}
+        {!name && v !== 'binance' && <span style={{ color: 'var(--color-mut)' }}> · {VENUE_LABEL[v]}</span>}
       </span>
-      {!hasCandles && v === 'binance' && <span className="chip shrink-0 text-[10px]">{t('assetCtx.newBadge')}</span>}
+      <span className="flex shrink-0 items-center gap-1">
+        {kind && <span className="chip chip--mut text-[10px]">{t(`assetCtx.kind_${kind}`, { defaultValue: kind })}</span>}
+        {!hasCandles && <span className="chip shrink-0 text-[10px]">{t('assetCtx.newBadge')}</span>}
+      </span>
     </button>
   );
 
@@ -250,10 +272,18 @@ export function AssetSelect({
             {stockVisible.map((r) => (
               <Row key={`${r.venue}:${r.symbol}`} symbol={r.symbol} v={r.venue} hasCandles />
             ))}
-            {rows.length === 0 && (
+            {/* Yahoo-Treffer (ohne Key): Auswahl holt echte Kerzen und wechselt erst dann. */}
+            {yahooHits.map((r) => (
+              <Row key={`yh:${r.symbol}`} symbol={r.symbol} v="yahoo" hasCandles={r.hasCandles} name={r.name} kind={r.type} />
+            ))}
+            {stockSearch?.connected === false && <p className="px-2 py-1 text-xs" style={{ color: 'var(--color-warn)' }}>{t('assetCtx.yahooOffline')}</p>}
+            {needle.length < 2 && rows.length === 0 && (
               <p className="px-2 py-1 text-xs" style={{ color: 'var(--color-mut)' }}>
-                {stocks === null ? t('common.loading') : configured ? t('assetCtx.stocksEmpty') : t('assetCtx.stocksNone')}
+                {stocks === null ? t('common.loading') : t('assetCtx.stocksHint')}
               </p>
+            )}
+            {needle.length >= 2 && stockSearch?.connected && yahooHits.length === 0 && stockVisible.length === 0 && (
+              <p className="px-2 py-1 text-xs" style={{ color: 'var(--color-mut)' }}>{t('assetCtx.stocksNoResults', { q: needle })}</p>
             )}
           </div>
         </div>

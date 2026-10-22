@@ -64,7 +64,7 @@ export const EVM_MAX_TXS = 15;
  */
 export const EVM_LOG_RPCS: Record<Exclude<SwapChainId, 'solana'>, string[]> = {
   ethereum: ['https://eth.drpc.org', 'https://1rpc.io/eth', 'https://eth.llamarpc.com', 'https://ethereum-rpc.publicnode.com'],
-  base: ['https://mainnet.base.org', 'https://base.drpc.org', 'https://1rpc.io/base', 'https://base.llamarpc.com', 'https://base-rpc.publicnode.com'],
+  base: ['https://mainnet.base.org', 'https://base.drpc.org', 'https://1rpc.io/base', 'https://base.llamarpc.com', 'https://base-rpc.publicnode.com', 'https://base.meowrpc.com', 'https://base-mainnet.public.blastapi.io', 'https://base.blockpi.network/v1/rpc/public'],
   arbitrum: ['https://arb1.arbitrum.io/rpc', 'https://arbitrum.drpc.org', 'https://1rpc.io/arb', 'https://arbitrum.llamarpc.com', 'https://arbitrum-one-rpc.publicnode.com'],
   bsc: ['https://bsc.drpc.org', 'https://1rpc.io/bnb', 'https://binance.llamarpc.com', 'https://bsc-rpc.publicnode.com'],
 };

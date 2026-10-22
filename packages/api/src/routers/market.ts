@@ -32,6 +32,7 @@ import {
   removeFredWatch,
   suggestFredSeries,
   listBinanceSpotPairs,
+  searchYahoo,
   searchSpotPairs,
 } from '@gladiator/market-data';
 import { noTradeWindowFor } from '@gladiator/risk';
@@ -496,6 +497,52 @@ export const marketRouter = router({
       const withCandles = new Set((known.rows as { symbol: string }[]).map((r) => r.symbol));
       return { connected: true as const, total: pairs.length, results: hits.map((p) => ({ symbol: p.symbol, hasCandles: withCandles.has(p.symbol) })), error: null };
     }),
+
+  /**
+   * Aktien/ETF/Forex suchen — Yahoo-Suche ohne Key (Mängelliste Punkt 3, zweite Stufe):
+   * Treffer per Name oder Ticker, mit Hinweis, ob schon echte Kerzen in der DB liegen.
+   * Nicht erreichbar ⇒ connected:false, nie eine erfundene Liste.
+   */
+  stockSearch: protectedProcedure
+    .input(z.object({ q: z.string().max(40).default(''), limit: z.number().int().min(1).max(25).default(8) }))
+    .query(async ({ ctx, input }) => {
+      if (!input.q.trim()) return { connected: true as const, results: [] as { symbol: string; name: string; type: string; exchange: string; hasCandles: boolean }[], error: null };
+      let hits;
+      try {
+        hits = await searchYahoo(input.q, input.limit);
+      } catch (err) {
+        return { connected: false as const, results: [], error: String(err instanceof Error ? err.message : err).slice(0, 200) };
+      }
+      const known = await ctx.db.execute(sql`SELECT DISTINCT symbol FROM ohlcv WHERE venue IN (${YAHOO_VENUE}, ${TWELVEDATA_VENUE})`);
+      const withCandles = new Set((known.rows as { symbol: string }[]).map((r) => r.symbol.toUpperCase()));
+      return { connected: true as const, results: hits.map((h) => ({ ...h, hasCandles: withCandles.has(h.symbol) })), error: null };
+    }),
+
+  /**
+   * Aktien-/ETF-/Forex-Kerzen auf Abruf (Yahoo, kein Key): Tageskerzen 5 Jahre und
+   * Stundenkerzen 1 Jahr (Yahoo-Grenze für 60m: 730 Tage) — derselbe Ingest wie in den
+   * Einstellungen, idempotent. Ohne eine einzige Kerze ist es ein Fehler.
+   */
+  ensureStockCandles: protectedProcedure.input(z.object({ symbol: z.string().min(1).max(16) })).mutation(async ({ ctx, input }) => {
+    const symbol = input.symbol.toUpperCase();
+    const daily = await ingestYahooChart(ctx.db, { symbol, timeframe: '1d', range: '5y' });
+    const hourly = await ingestYahooChart(ctx.db, { symbol, timeframe: '1h', range: '1y' });
+    const errors = [daily, hourly].filter((r) => r.error).map((r) => `${r.timeframe}: ${r.error}`);
+    const n = await ctx.db.execute(sql`SELECT timeframe, count(*)::int AS n FROM ohlcv WHERE venue = ${YAHOO_VENUE} AND symbol = ${symbol} GROUP BY timeframe`);
+    const candles = Object.fromEntries((n.rows as { timeframe: string; n: number }[]).map((r) => [r.timeframe, r.n])) as Record<string, number>;
+    if (Object.keys(candles).length === 0) {
+      throw new TRPCError({ code: 'BAD_GATEWAY', message: `Yahoo liefert keine Kerzen für ${symbol} (${errors.join(' · ') || 'unbekannt'}).` });
+    }
+    await ctx.db.insert(schema.auditLog).values({
+      actor: 'user',
+      userId: ctx.user.id,
+      action: 'market.stock.ingest_yahoo',
+      entityType: 'ohlcv',
+      details: { venue: YAHOO_VENUE, symbol, inserted: daily.inserted + hourly.inserted, errors, via: 'asset-select' },
+      ip: ctx.ip,
+    });
+    return { symbol, venue: YAHOO_VENUE, inserted: daily.inserted + hourly.inserted, candles, errors };
+  }),
 
   /**
    * Kerzen auf Abruf: für ein Binance-Spot-Paar alle Zeitrahmen inkrementell nachladen
