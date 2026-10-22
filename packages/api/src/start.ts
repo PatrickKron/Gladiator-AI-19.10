@@ -2,6 +2,7 @@
  * Boot des API-Servers (+ Web-UI, wenn gebaut). Pflicht-Secrets werden VOR dem
  * Start geprüft — fehlt eines, bricht der Prozess ab (kein Fallback, Regel 2).
  */
+import dns from 'node:dns';
 import { sql } from 'drizzle-orm';
 import { createDb, requireEnv } from '@gladiator/db';
 import { registerDemoBookSource } from '@gladiator/exchange';
@@ -11,6 +12,12 @@ import { LivePriceFeed } from '@gladiator/market-data';
 import { startJobWorker } from '@gladiator/jobs';
 import { BinanceTestnetVenue, HyperliquidTestnetVenue, PaperVenue, captureBootEnv, loadSecretsIntoEnv } from '@gladiator/exchange';
 import { createApp } from './app.js';
+
+// Ausgehende Verbindungen zuerst über IPv4: KyberSwap (Cloudflare) deckelt die IPv6-Adresse des
+// Servers auf 1 Anfrage je 180 s, über IPv4 gilt das normale Kontingent (Server-CI 2026-10-22,
+// per curl -4/-6 belegt). Node nimmt sonst die AAAA-Antwort zuerst. Gilt für API und Worker
+// (beide starten hier); die Tests setzen dasselbe in scripts/vitest-setup.ts.
+dns.setDefaultResultOrder('ipv4first');
 
 requireEnv('DATABASE_URL');
 requireEnv('JWT_SECRET');

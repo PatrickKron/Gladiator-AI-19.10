@@ -3,6 +3,7 @@
  * echte Fehler (4xx) sofort gemeldet; nennt der Dienst ein Fenster jenseits unserer Wartegrenze,
  * scheitert der Aufruf sofort und ehrlich mit dem Fenster im Fehler (kein hängendes Ticket).
  */
+import dns from 'node:dns';
 import { describe, expect, it } from 'vitest';
 import { announcedWaitMs, backoffMs, DEFAULT_TRIES, fetchJson, HttpStatusError, MAX_WAIT_MS } from './http.js';
 
@@ -19,6 +20,12 @@ function sequence(responses: { status: number; body?: unknown; headers?: Record<
   };
   return { fetchFn, calls, pauses, sleep };
 }
+
+describe('Netzweg', () => {
+  it('Tests verbinden wie der Betrieb zuerst über IPv4 (scripts/vitest-setup.ts) — KyberSwap deckelt die IPv6-Adresse des Servers', () => {
+    expect(dns.getDefaultResultOrder()).toBe('ipv4first');
+  });
+});
 
 describe('Fenster und Backoff', () => {
   it('ohne Angabe: 1 s, 2 s, 4 s', () => {
