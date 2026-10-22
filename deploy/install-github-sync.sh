@@ -4,6 +4,13 @@
 #
 #   bash /opt/gladiator-v2/app/deploy/install-github-sync.sh [SERVER_REPO]
 #
+# Läuft auch, wenn der Server noch auf einem ALTEN Stand ohne diese Dateien ist
+# (dann direkt von GitHub laden, Repo ist öffentlich):
+#   curl -fsSL https://raw.githubusercontent.com/PatrickKron/Gladiator-AI-19.10/main/deploy/install-github-sync.sh | bash
+# Fehlt deploy/github-sync.sh im App-Verzeichnis, holt das Skript es von GitHub
+# und legt eine Kopie unter /usr/local/lib/gladiator/ ab; der Timer nimmt
+# immer die Repo-Fassung, sobald sie (nach dem ersten Deploy) vorhanden ist.
+#
 # SERVER_REPO = Pfad des Repos, auf das `git push server main` zielt. Ohne
 # Angabe sucht das Skript es selbst: das Repo, dessen post-receive-Hook
 # scripts/ci.sh aufruft. Bei 0 oder mehreren Treffern bricht es ab und
@@ -18,6 +25,8 @@ KEY=/root/.ssh/gladiator_github_deploy
 CONF=/etc/gladiator-github-sync.env
 HTTPS_URL=https://github.com/PatrickKron/Gladiator-AI-19.10.git
 SSH_URL=git@github.com:PatrickKron/Gladiator-AI-19.10.git
+RAW_SYNC_URL=https://raw.githubusercontent.com/PatrickKron/Gladiator-AI-19.10/main/deploy/github-sync.sh
+SYNC_LIB=/usr/local/lib/gladiator/github-sync.sh
 
 SERVER_REPO="${1:-}"
 if [ -z "$SERVER_REPO" ]; then
@@ -26,7 +35,7 @@ if [ -z "$SERVER_REPO" ]; then
   if [ "${#HOOKS[@]}" -ne 1 ]; then
     echo "FEHLER: Server-Repo nicht eindeutig gefunden (${#HOOKS[@]} Treffer):"
     printf '  %s\n' "${HOOKS[@]:-—}"
-    echo "Bitte Pfad angeben: bash $0 <SERVER_REPO>   (siehe 'git remote get-url server' unter Windows)"
+    echo "Bitte Pfad angeben: bash install-github-sync.sh <SERVER_REPO>   (siehe 'git remote get-url server' unter Windows)"
     exit 1
   fi
   SERVER_REPO=$(dirname "$(dirname "${HOOKS[0]}")")
@@ -36,7 +45,16 @@ fi
 git -C "$SERVER_REPO" rev-parse --git-dir > /dev/null \
   || { echo "FEHLER: $SERVER_REPO ist kein Git-Repo."; exit 1; }
 
-chmod +x "$APP/deploy/github-sync.sh"
+# Sync-Skript bereitstellen: aus dem App-Verzeichnis, sonst von GitHub (alter Server-Stand).
+mkdir -p "$(dirname "$SYNC_LIB")"
+if [ -f "$APP/deploy/github-sync.sh" ]; then
+  cp "$APP/deploy/github-sync.sh" "$SYNC_LIB"
+else
+  echo "Hinweis: $APP/deploy/github-sync.sh fehlt noch (alter Stand) — lade es von GitHub."
+  curl -fsSL "$RAW_SYNC_URL" -o "$SYNC_LIB"
+fi
+chmod +x "$SYNC_LIB"
+[ -f "$APP/deploy/github-sync.sh" ] && chmod +x "$APP/deploy/github-sync.sh"
 
 # Öffentlich lesbar? Dann HTTPS ohne Schlüssel, sonst read-only Deploy-Key.
 NEED_KEY=no
@@ -67,7 +85,8 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=$APP/deploy/github-sync.sh
+# Repo-Fassung bevorzugen (aktualisiert sich mit jedem Deploy), sonst die installierte Kopie.
+ExecStart=/bin/bash -c 'if [ -x "$APP/deploy/github-sync.sh" ]; then exec "$APP/deploy/github-sync.sh"; else exec "$SYNC_LIB"; fi'
 UNIT
 
 cat > /etc/systemd/system/gladiator-github-sync.timer <<UNIT
@@ -95,4 +114,5 @@ if [ "$NEED_KEY" = yes ]; then
   cat "$KEY.pub"
 fi
 echo
-echo "Test: systemctl start gladiator-github-sync && journalctl -u gladiator-github-sync -n 20 --no-pager"
+echo "Erster Lauf jetzt (statt in 2 min): systemctl start gladiator-github-sync"
+echo "Verfolgen: journalctl -u gladiator-github-sync -n 20 --no-pager   (CI im Hook dauert einige Minuten)"
