@@ -939,6 +939,7 @@ export const de = {
     tool_kill_switch: "Kill-Switch",
     tool_demo_account: "Übungskonto",
     tool_recent_signals: "Signale",
+    tool_demo_order: "Demo-Order",
   },
   analysis: {
     title: "Analyse · {{symbol}}",

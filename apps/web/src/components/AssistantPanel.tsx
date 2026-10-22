@@ -17,7 +17,7 @@ type Status = Awaited<ReturnType<typeof trpc.assistant.status.query>>;
 type Conversation = Awaited<ReturnType<typeof trpc.assistant.conversations.query>>[number];
 
 const CONV_KEY = 'gladiator.chatConversation';
-const TOOL_KEYS = ['app_overview', 'propose_strategy', 'run_backtest', 'save_version', 'lab_backtest', 'promote_version', 'run_screen', 'asset_analysis', 'agents_status', 'trading_settings', 'update_trading_settings', 'kill_switch', 'demo_account', 'recent_signals', 'navigate'] as const;
+const TOOL_KEYS = ['app_overview', 'propose_strategy', 'run_backtest', 'save_version', 'lab_backtest', 'promote_version', 'run_screen', 'asset_analysis', 'agents_status', 'trading_settings', 'update_trading_settings', 'kill_switch', 'demo_account', 'recent_signals', 'demo_order', 'navigate'] as const;
 
 /** Öffnet den Chat von überall (z. B. Leer-Zustand im Workshop). */
 export function openAssistant(prefill?: string): void {

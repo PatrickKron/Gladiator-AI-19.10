@@ -13,6 +13,8 @@ import { buildContext, createCallerFactory } from '../trpc.js';
 import { register } from '../auth/service.js';
 import { ASSISTANT_SYSTEM, historyToMessages, runAssistantTurn, toolResultText } from './service.js';
 import { ASSISTANT_TOOLS, parseLimitChanges } from './tools.js';
+import { setDemoBookSourceForTests } from '../routers/demo.js';
+import type { DemoBookSource, MarketRules, OrderBookSnapshot } from '@gladiator/exchange';
 
 describe('historyToMessages', () => {
   it('user → user, assistant mit Blöcken → Blöcke, tool → user-Turn mit tool_result, leere Werkzeug-Turns fallen weg', () => {
@@ -44,7 +46,7 @@ describe('toolResultText / Werkzeuge', () => {
       expect(t.inputSchema.type).toBe('object');
     }
     expect(names).toEqual(
-      expect.arrayContaining(['propose_strategy', 'run_backtest', 'save_version', 'promote_version', 'run_screen', 'navigate', 'app_overview', 'agents_status', 'trading_settings', 'update_trading_settings', 'kill_switch', 'demo_account', 'recent_signals']),
+      expect.arrayContaining(['propose_strategy', 'run_backtest', 'save_version', 'promote_version', 'run_screen', 'navigate', 'app_overview', 'agents_status', 'trading_settings', 'update_trading_settings', 'kill_switch', 'demo_account', 'recent_signals', 'demo_order']),
     );
   });
   it('Limit-Änderungen: nur bekannte Schlüssel, Zahlen innerhalb der Grenzen aus @gladiator/core', () => {
@@ -271,5 +273,51 @@ describe.skipIf(!hasDb)('Gladiator-Chat gegen die echte DB', () => {
     const out3 = await runAssistantTurn(db, userId, conv.id, 'Stopp nochmal', {}, scripted([{ id: 'k3', name: 'kill_switch', input: { active: true } }]));
     expect(out3.cards).toEqual([]);
     await caller.settings.setKillSwitch({ active: false });
+  });
+
+  it('Demo-Order: Vorschau aus dem echten Buch, Karte erst nach Bestätigung ausgeführt, Ablehnung der Engine ist ein Werkzeug-Fehler', async () => {
+    class FakeBookSource implements DemoBookSource {
+      async fetchBook(symbol: string): Promise<OrderBookSnapshot> {
+        return { symbol, ts: 0, bids: [{ price: 50_000, qty: 10 }], asks: [{ price: 50_100, qty: 10 }] };
+      }
+      async marketRules(): Promise<MarketRules> {
+        return { tickSize: 0.01, lotSize: 0.000001, minNotional: 5 };
+      }
+    }
+    setDemoBookSourceForTests(new FakeBookSource());
+    try {
+      const conv = await caller.assistant.create();
+      const events: string[] = [];
+      const out = await runAssistantTurn(
+        db,
+        userId,
+        conv.id,
+        'Kauf BTC für 500',
+        {},
+        scripted([
+          { id: 'o1', name: 'demo_order', input: { symbol: 'BTC/USDT', direction: 'long', notionalUsd: 500, stopLoss: 48_000 } },
+          { id: 'o2', name: 'demo_order', input: { symbol: 'BTC/USDT', direction: 'long', qty: 0.00000001 } },
+          { id: 'o3', name: 'demo_order', input: { symbol: 'BTC/USDT', direction: 'long', notionalUsd: 500, leverage: 10_000 } },
+        ]),
+        (e) => events.push(e.type === 'tool' ? `${e.name}:${e.status}` : e.type),
+      );
+      expect(events.filter((e) => e === 'demo_order:error').length).toBe(2);
+      expect(out.cards).toHaveLength(1);
+      const card = out.cards[0] as { kind: string; action: string; label: string; args: { qty: number; stopLoss?: number } };
+      expect(card).toMatchObject({ kind: 'confirm', action: 'demo_order' });
+      expect(card.label).toMatch(/LONG .* BTC\/USDT Markt ≈ 50100/);
+      expect(card.args.qty).toBeCloseTo(500 / 50_050, 4);
+      expect(card.args.stopLoss).toBe(48_000);
+      expect((await caller.demo.positions()).length).toBe(0);
+      const done = await caller.assistant.confirm({ messageId: out.messageId, cardIndex: 0, accept: true });
+      expect(done.status).toBe('done');
+      expect(done.note).toMatch(/Übungskonto/);
+      const pos = await caller.demo.positions();
+      expect(pos).toHaveLength(1);
+      expect(pos[0]).toMatchObject({ symbol: 'BTC/USDT', direction: 'long', stopLoss: 48_000 });
+      await caller.demo.reset();
+    } finally {
+      setDemoBookSourceForTests(null);
+    }
   });
 });

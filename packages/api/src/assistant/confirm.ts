@@ -1,6 +1,7 @@
 import type { Db } from '@gladiator/db';
 import { promoteVersion } from '../routers/strategies.js';
 import { applyKillSwitch, applyTradingSettings, ensureTradingSettings, settingsInput } from '../routers/settings.js';
+import { placeDemoOrderFor } from '../routers/demo.js';
 import type { ConfirmRequest } from './tools.js';
 
 /**
@@ -34,6 +35,11 @@ export async function executeConfirm(db: Db, user: { id: string; email: string }
     case 'kill_switch': {
       const out = await applyKillSwitch(db, user, req.args.active, ip);
       return out.killSwitchActive ? 'Kill-Switch ist AKTIV — keine Agenten-Orders mehr.' : 'Kill-Switch ist aus — Agenten-Orders wieder frei.';
+    }
+    case 'demo_order': {
+      const r = await placeDemoOrderFor(db, user.id, req.args);
+      const fill = r.avgFillPrice !== null ? ` zu ≈ ${r.avgFillPrice.toFixed(2)}` : '';
+      return `Demo-Order gesetzt (${r.status})${fill} — Übungskonto, kein echtes Geld.`;
     }
     default: {
       const never: never = req;

@@ -940,6 +940,7 @@ export const es: Catalog = {
     tool_kill_switch: "Kill switch",
     tool_demo_account: "Cuenta de práctica",
     tool_recent_signals: "Señales",
+    tool_demo_order: "Orden demo",
   },
   analysis: {
     title: "Análisis · {{symbol}}",

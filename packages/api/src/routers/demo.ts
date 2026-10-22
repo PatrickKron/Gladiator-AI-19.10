@@ -40,7 +40,7 @@ function books(): DemoBookSource {
   return bookSourceOverride ?? demoBookSource();
 }
 
-const orderInput = z.object({
+export const demoOrderInput = z.object({
   symbol: z.string().min(3).max(20),
   direction: z.enum(['long', 'short']),
   type: z.enum(['market', 'limit']),
@@ -55,7 +55,9 @@ const orderInput = z.object({
 });
 
 /** Symbol normalisieren + Hebel-Obergrenze aus den Trading-Einstellungen des Users anhängen. */
-async function normalized(ctx: { db: Parameters<typeof loadRiskSettings>[0]; user: { id: string } }, input: z.infer<typeof orderInput>) {
+export type DemoOrderArgs = z.infer<typeof demoOrderInput>;
+
+async function normalized(ctx: { db: Parameters<typeof loadRiskSettings>[0]; user: { id: string } }, input: DemoOrderArgs) {
   const settings = await loadRiskSettings(ctx.db, ctx.user.id);
   return { ...input, symbol: input.symbol.toUpperCase(), maxLeverage: settings.maxLeverage };
 }
@@ -103,22 +105,26 @@ export async function listDemoPositions(db: Db, source: DemoBookSource, userId: 
   });
 }
 
+/** Vorschau wie im Ticket (Seite UND Gladiator-Chat): Symbol normalisiert, Hebel-Obergrenze aus den Trading-Einstellungen. */
+export async function previewDemoOrderFor(db: Db, userId: string, input: DemoOrderArgs) {
+  return previewDemoOrder(db, books(), userId, await normalized({ db, user: { id: userId } }, input));
+}
+
+/** Order wie im Ticket (Seite UND Chat nach Bestätigung): dieselbe Engine, dieselben Grenzen; abgelehnt ⇒ Fehler `demo:<grund>`. */
+export async function placeDemoOrderFor(db: Db, userId: string, input: DemoOrderArgs) {
+  const r = await placeDemoOrder(db, books(), userId, await normalized({ db, user: { id: userId } }, input));
+  if (!r.placed) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `demo:${r.reason}` });
+  return r;
+}
+
 export const demoRouter = router({
   /** Konto-Übersicht: Balance/Equity/Verfügbar/uPnL — Marks aus echten Büchern. */
   account: protectedProcedure.query(({ ctx }) => demoAccountOverview(ctx.db, books(), ctx.user.id)),
 
   /** Kosten-Vorschau aus dem ECHTEN Orderbuch (Spread/Slippage/Fee sichtbar vor dem Klick). */
-  preview: protectedProcedure
-    .input(orderInput)
-    .mutation(async ({ ctx, input }) => previewDemoOrder(ctx.db, books(), ctx.user.id, await normalized(ctx, input))),
+  preview: protectedProcedure.input(demoOrderInput).mutation(({ ctx, input }) => previewDemoOrderFor(ctx.db, ctx.user.id, input)),
 
-  placeOrder: protectedProcedure.input(orderInput).mutation(async ({ ctx, input }) => {
-    const r = await placeDemoOrder(ctx.db, books(), ctx.user.id, await normalized(ctx, input));
-    if (!r.placed) {
-      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `demo:${r.reason}` });
-    }
-    return r;
-  }),
+  placeOrder: protectedProcedure.input(demoOrderInput).mutation(({ ctx, input }) => placeDemoOrderFor(ctx.db, ctx.user.id, input)),
 
   cancelOrder: protectedProcedure.input(z.object({ orderId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
     const ok = await cancelDemoOrder(ctx.db, ctx.user.id, input.orderId);
