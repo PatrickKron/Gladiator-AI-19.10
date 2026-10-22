@@ -133,6 +133,9 @@ export function Labor() {
   const [rsiLookbackBars, setRsiLookback] = useState(5);
   const [retestWindowBars, setRetestWindow] = useState(12);
   const [emaProximityPct, setEmaProximity] = useState(2);
+  // Experiment-Flags (Phase 1b): Sweep/Discount als Zusatz-Confluence — nur hier messbar, Standard aus
+  const [sweepConfluence, setSweepConfluence] = useState(false);
+  const [discountConfluence, setDiscountConfluence] = useState(false);
   const [riskPct, setRiskPct] = useState(1);
   // Trailing-Stop in % (leer = aus). DSL-Strategien mit eigenem trailingStop behalten ihren Wert.
   const [trailPctInput, setTrailPctInput] = useState('');
@@ -182,7 +185,7 @@ export function Labor() {
     void refreshLists().catch(() => {});
   }, []);
 
-  const paramOverrides = { rsiLookbackBars, retestWindowBars, emaProximityPct };
+  const paramOverrides = { rsiLookbackBars, retestWindowBars, emaProximityPct, sweepConfluence, discountConfluence };
 
   type RunConfig = {
     strategyId: string;
@@ -257,6 +260,8 @@ export function Labor() {
     setRsiLookback(nextParams.rsiLookbackBars);
     setRetestWindow(nextParams.retestWindowBars);
     setEmaProximity(nextParams.emaProximityPct);
+    setSweepConfluence(Boolean(nextParams.sweepConfluence));
+    setDiscountConfluence(Boolean(nextParams.discountConfluence));
     setRiskPct(nextRisk);
     setTrailPctInput(nextTrail === undefined ? '' : String(nextTrail));
     setVersionId(dsl ? '' : (r.versionId ?? ''));
@@ -564,6 +569,18 @@ export function Labor() {
             <span className="label">{t('labor.emaProximity')}</span>
             <input type="number" min={0.1} max={10} step={0.1} value={emaProximityPct} onChange={(e) => setEmaProximity(Number(e.target.value))} className="field num mt-1.5 w-full px-3 py-2" />
           </label>
+        </div>
+        {/* Experiment (Phase 1b): Sweep/Discount als Zusatz-Confluence — messen, nicht annehmen */}
+        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+          <label className="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" checked={sweepConfluence} onChange={(e) => setSweepConfluence(e.target.checked)} className="h-4 w-4" />
+            {t('labor.expSweep')}
+          </label>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" checked={discountConfluence} onChange={(e) => setDiscountConfluence(e.target.checked)} className="h-4 w-4" />
+            {t('labor.expDiscount')}
+          </label>
+          <span className="label w-full">{t('labor.expHint')}</span>
         </div>
 
         {error && <p className="mt-4 text-sm" style={{ color: 'var(--color-neg)' }}>{error}</p>}

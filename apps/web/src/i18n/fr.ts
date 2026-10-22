@@ -1196,6 +1196,9 @@ export const fr: Catalog = {
     title: 'Laboratoire de stratégies',
   },
   labor: {
+    expSweep: "Expérience : sweep comme confluence (+0,5)",
+    expDiscount: "Expérience : discount/premium comme confluence (+0,5)",
+    expHint: "Mesurable seulement ici, désactivé par défaut : lancer la même période sans puis avec le drapeau et comparer en net. Dans le scoring réel seulement après un avantage prouvé — enregistrer comme version, Patrick promeut.",
     noRunsCta: "Lancer un backtest",
     openRun: "Ouvrir",
     openRunHint: "Recalculer le run avec la même configuration sur les mêmes bougies de la BD — rien n’est inventé.",

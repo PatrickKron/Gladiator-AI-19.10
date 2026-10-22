@@ -22,6 +22,10 @@ export type ConfluenceFlags = {
   higherTf: 'aligned' | 'neutral' | 'opposed';
   /** Gegen-Liquidität nahe (z. B. Swing-Level dicht über Long-Entry). */
   counterConfluence: boolean;
+  /** Experiment (Labor-Flag, Standard aus): Liquiditäts-Sweep in Trendrichtung kurz vor dem Entry. */
+  liquiditySweep?: boolean;
+  /** Experiment (Labor-Flag, Standard aus): Entry in der günstigen Zone der Dealing Range (Long Discount / Short Premium). */
+  dealingRangeFavorable?: boolean;
 };
 
 /**
@@ -75,6 +79,15 @@ export function computeScore(f: ConfluenceFlags): { score: number; confluence: s
   if (f.counterConfluence) {
     score -= 1.0;
     confluence.push('Gegen-Liquidität nahe');
+  }
+  // Experiment-Flags (Phase 1b, „erst nach Messung im Backtest"): wirken nur, wenn das Labor sie setzt.
+  if (f.liquiditySweep) {
+    score += 0.5;
+    confluence.push('Sweep');
+  }
+  if (f.dealingRangeFavorable) {
+    score += 0.5;
+    confluence.push('Discount/Premium');
   }
 
   return { score: Math.min(10, Math.round(score * 10) / 10), confluence };

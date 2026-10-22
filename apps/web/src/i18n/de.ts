@@ -1195,6 +1195,9 @@ export const de = {
     title: 'Strategie-Labor',
   },
   labor: {
+    expSweep: "Experiment: Sweep als Confluence (+0,5)",
+    expDiscount: "Experiment: Discount/Premium als Confluence (+0,5)",
+    expHint: "Nur hier messbar, Standard aus: gleicher Zeitraum einmal ohne, einmal mit Flag rechnen und netto vergleichen. Ins Produktiv-Scoring erst nach belegtem Vorsprung — als Version speichern, Patrick promotet.",
     noRunsCta: "Backtest starten",
     openRun: "Öffnen",
     openRunHint: "Lauf mit derselben Konfiguration neu rechnen — auf denselben DB-Kerzen, nichts wird erfunden.",

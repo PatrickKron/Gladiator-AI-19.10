@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { evaluateSmcCoreAt, type SmcCoreParams } from './smc-core.js';
+import { dealingRangeAt, detectLiquidity } from './liquidity.js';
 import type { Candle } from './types.js';
 
 /**
@@ -121,4 +122,22 @@ describe('SMC Core (05_ §4 — Pine-Referenz, Retest ist PFLICHT)', () => {
     // aber ein Retest-Check @13 (vor Bestätigung) darf nichts liefern.
     expect(evaluateSmcCoreAt(longScenario(), 13, TEST_PARAMS, {})).toHaveLength(0);
   });
+  it('Experiment-Flags Sweep/Discount: Standard ohne Wirkung; aktiv nur dann Bonus, wenn der Markt es hergibt (look-ahead-frei)', () => {
+    const candles = longScenario();
+    const base = evaluateSmcCoreAt(candles, 17, TEST_PARAMS, { higherTfTrend: 'neutral' })[1]!;
+    expect(base.confluence).not.toContain('Sweep');
+    expect(base.confluence).not.toContain('Discount/Premium');
+    const flagged = evaluateSmcCoreAt(candles, 17, { ...TEST_PARAMS, sweepConfluence: true, discountConfluence: true }, { higherTfTrend: 'neutral' })[1]!;
+    // Erwartung unabhängig nachgerechnet — nur Kerzen bis zum Entry-Bar
+    const upTo = candles.slice(0, 18);
+    const liq = detectLiquidity(upTo, { leftBars: 2, rightBars: 2 });
+    const sweep = liq.sweeps.some((x) => x.side === 'sell-side' && x.index <= 17 && x.index >= 17 - 20);
+    const range = dealingRangeAt(upTo, liq.swings, 17);
+    const favorable = range !== null && range.zone === 'discount';
+    const bonus = (sweep ? 0.5 : 0) + (favorable ? 0.5 : 0);
+    expect(flagged.score).toBeCloseTo(Math.min(10, base.score + bonus), 9);
+    expect(flagged.confluence.includes('Sweep')).toBe(sweep);
+    expect(flagged.confluence.includes('Discount/Premium')).toBe(favorable);
+  });
+
 });
