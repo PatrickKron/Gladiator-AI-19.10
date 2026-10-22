@@ -276,11 +276,16 @@ describe('echte Daten (Base-RPC)', () => {
     expect(start.transfers).toEqual([]);
     let head = BigInt(start.cursor);
     expect(head).toBeGreaterThan(20_000_000n);
-    // die letzten 40 Blöcke (~80 s; manche Knoten erlauben höchstens 50): der Router gibt laufend USDC aus.
-    // Ein ruhiges 80-Sekunden-Fenster kommt vor (CI-Befund 2026-10-21: 0 Transfers) → bis zu vier
-    // weitere Versuche auf je frischen Blöcken statt eines größeren Fensters (Knoten-Limit bleibt gewahrt).
+    // Fenster von 40 Blöcken (~80 s; manche Knoten erlauben höchstens 50): der Router gibt laufend USDC aus.
+    // Ruhige Minuten kommen vor (CI-Befunde 2026-10-21/22: 0 Transfers in 80 s bzw. 160 s) → erst rückwärts
+    // das Fenster schrittweise auf 200 Blöcke (~7 min) weiten (Knoten, die weniger erlauben, reicht die
+    // Kandidatenliste weiter), dann bis zu vier Mal auf frische Blöcke warten. Die Behauptung bleibt hart.
     let page = await fetchTokenOutflows('base', USDC, UR, head - 40n);
     expect(BigInt(page.cursor)).toBeGreaterThanOrEqual(head);
+    for (let back = 2n; page.transfers.length === 0 && back <= 5n; back++) {
+      page = await fetchTokenOutflows('base', USDC, UR, head - 40n * back);
+      expect(BigInt(page.cursor)).toBeGreaterThanOrEqual(head);
+    }
     for (let attempt = 0; page.transfers.length === 0 && attempt < 4; attempt++) {
       await new Promise((r) => setTimeout(r, 20_000));
       head = BigInt((await fetchTokenOutflows('base', USDC, UR, null)).cursor);
