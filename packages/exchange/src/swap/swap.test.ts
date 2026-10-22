@@ -4,7 +4,7 @@
  * und öffentliche RPCs live ab (in der Cloud-Sandbox gesperrt, läuft in der CI).
  */
 import { describe, expect, it } from 'vitest';
-import { EVM_NATIVE, fromAtomic, isTokenAddress, SOL_MINT, SWAP_CHAINS, toAtomic } from './chains.js';
+import { fromAtomic, isTokenAddress, SOL_MINT, SWAP_CHAINS, toAtomic } from './chains.js';
 import { fetchSwapQuote, jupiterQuote, kyberQuote } from './quotes.js';
 import { fetchPairDepths, fetchRugPool, fetchTokenDecimals, fetchTokenInfo, isConstantProductPair, pickBestPair, pickRugPair } from './token-info.js';
 
@@ -156,17 +156,9 @@ describe('echte Daten (Jupiter, KyberSwap, DexScreener, RPC)', () => {
     expect(q.route.length).toBeGreaterThan(0);
   }, 30_000);
 
-  it('KyberSwap: 0,01 ETH → USDC auf Base liefert eine echte Route', async () => {
-    const q = await fetchSwapQuote({
-      chain: 'base',
-      inToken: { address: EVM_NATIVE, symbol: 'ETH', decimals: 18 },
-      outToken: { address: USDC_BASE, symbol: 'USDC', decimals: 6 },
-      inAtomic: 10n ** 16n,
-      slippageBps: 50,
-    });
-    expect(Number(q.outAmount)).toBeGreaterThan(1);
-    expect(q.priceImpactPct).toBeLessThan(5);
-  }, 45_000); // bis zu drei Pausen bei KyberSwap-Drosselung (http.ts)
+  // KyberSwap-Echtdaten (echte Route auf Base) stehen in live.test.ts: KyberSwap erlaubt der
+  // Server-Adresse nur 1 Anfrage je 180 s — dort teilen sich Angebot und Transaktionsbau eine
+  // einzige Anfrage-Kette, statt dass zwei Dateien gleichzeitig um das Fenster konkurrieren.
 
   it('Nachkommastellen von der Kette: USDC = 6 (Solana + Base)', async () => {
     expect(await fetchTokenDecimals('solana', USDC_SOL)).toBe(6);

@@ -12,6 +12,7 @@ import { EVM_NATIVE, SWAP_CHAINS, toAtomic } from './chains.js';
 import { base58Decode, generateWalletKey } from './keys.js';
 import { buildKyberSwap, checkLiveSwapStatus, EVM_UNSEEN_FAIL_MS, executeEvmSwap, FLASHBOTS_PROTECT_RPC, mevProtectRpc, SOLANA_UNSEEN_FAIL_MS, executeSolanaSwap, fetchOnchainBalances, jupiterExpect, jupiterSwapRequest, KYBER_ROUTERS, kyberExpect } from './live.js';
 import { fetchSwapQuote, JUPITER_API, KYBER_API, type SwapQuote } from './quotes.js';
+import { HttpStatusError } from './http.js';
 import { parseSolanaTx, signSolanaTx } from './solana-tx.js';
 import { assertJupiterSwapTx } from './solana-guard.js';
 import { assertKyberSwap } from './kyber-guard.js';
@@ -388,6 +389,31 @@ describe('echte Daten: Aggregatoren bauen für eine leere Wallet (nichts wird ge
   }
   const USDC_TOKEN = { address: USDC_SOL, symbol: 'USDC', decimals: 6 };
 
+  /**
+   * KyberSwap deckelt Datacenter-Adressen hart (Server-CI 2026-10-22: 1 Anfrage je 180 s, Cloudflare,
+   * Antwort 429 „Forbidden“ mit X-RateLimit-Reset-After). Echte Daten bleiben Pflicht — wir warten
+   * das vom Dienst genannte Fenster ab (höchstens zweimal) statt zu überspringen. Der Betrieb selbst
+   * wartet nie so lange (http.ts scheitert sofort ehrlich mit dem Fenster im Fehler).
+   */
+  async function awaitKyberWindow<T>(fn: () => Promise<T>, maxWaits = 2): Promise<T> {
+    for (let waits = 0; ; waits++) {
+      try {
+        return await fn();
+      } catch (e) {
+        const windowMs = e instanceof HttpStatusError && e.status === 429 ? e.retryAfterMs : null;
+        if (windowMs === null || waits >= maxWaits) throw e;
+        await new Promise((r) => setTimeout(r, Math.min(windowMs, 200_000) + 1_000));
+      }
+    }
+  }
+  const KYBER_WAIT_TIMEOUT = 2 * 200_000 + 60_000;
+  // EIN echtes Angebot für beide KyberSwap-Tests (Angebot + Bau = zwei Anfragen statt drei)
+  let kyberQuotePromise: Promise<SwapQuote> | null = null;
+  const realKyberQuote = () =>
+    (kyberQuotePromise ??= awaitKyberWindow(() =>
+      fetchSwapQuote({ chain: 'base', inToken: { address: EVM_NATIVE, symbol: 'ETH', decimals: 18 }, outToken: { address: USDC_BASE, symbol: 'USDC', decimals: 6 }, inAtomic: 10n ** 16n, slippageBps: 100 }),
+    ));
+
   it('Jupiter: echte v0-Transaktion, eigene Wallet ist alleiniger Gebührenzahler → signierbar; Wächter akzeptiert Kauf', async () => {
     const { k, quote, swapTransaction } = await realJupiter(SWAP_CHAINS.solana.native, USDC_TOKEN, toAtomic('0.01', 9));
     const parsed = parseSolanaTx(Buffer.from(swapTransaction, 'base64'));
@@ -402,17 +428,24 @@ describe('echte Daten: Aggregatoren bauen für eine leere Wallet (nichts wird ge
     expect(() => assertJupiterSwapTx(Uint8Array.from(Buffer.from(swapTransaction, 'base64')), k.address, jupiterExpect(quote))).not.toThrow();
   }, 30_000);
 
+  it('KyberSwap: 0,01 ETH → USDC auf Base liefert eine echte Route (Angebot aus dem Live-Pfad)', async () => {
+    const q = await realKyberQuote();
+    expect(Number(q.outAmount)).toBeGreaterThan(1);
+    expect(q.priceImpactPct).toBeLessThan(5);
+    expect(q.route.length).toBeGreaterThan(0);
+  }, KYBER_WAIT_TIMEOUT);
+
   it('KyberSwap: echte Route auf Base geht an den bekannten Router; Wächter akzeptiert die echte Calldata', async () => {
     const k = generateWalletKey('evm');
-    const quote = await fetchSwapQuote({ chain: 'base', inToken: { address: EVM_NATIVE, symbol: 'ETH', decimals: 18 }, outToken: { address: USDC_BASE, symbol: 'USDC', decimals: 6 }, inAtomic: 10n ** 15n, slippageBps: 100 });
+    const quote = await realKyberQuote();
     // genau der Bau-Schritt des Live-Pfads (inkl. Neubau bei bewegtem Kurs)
-    const built = await buildKyberSwap(quote, k.address);
+    const built = await awaitKyberWindow(() => buildKyberSwap(quote, k.address));
     expect(KYBER_ROUTERS.has(built.router)).toBe(true);
     // unsere Adresse steckt als Empfänger in den Aufrufdaten
     expect(built.data.toLowerCase()).toContain(k.address.slice(2).toLowerCase());
     // der Wächter dekodiert ECHTE KyberSwap-Calldata und akzeptiert sie (ABI passt zur Realität)
     expect(() => assertKyberSwap(built.data, built.value, kyberExpect(quote, k.address))).not.toThrow();
-  }, 60_000); // zwei KyberSwap-Aufrufe, je bis zu drei Pausen bei Drosselung (http.ts)
+  }, KYBER_WAIT_TIMEOUT);
 
   it('Flashbots Protect (MEV-Schutz) ist erreichbar und gehört zu Ethereum', async () => {
     const res = await fetch(FLASHBOTS_PROTECT_RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }) });
