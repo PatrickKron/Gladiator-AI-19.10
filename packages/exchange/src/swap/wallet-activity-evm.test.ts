@@ -233,10 +233,29 @@ describe('lückenlos nachholen', () => {
   });
 });
 
+/**
+ * Echte Daten: öffentliche Knoten drosseln (HTTP 408/429/5xx) und erholen sich binnen Sekunden —
+ * das ist kein Befund über unseren Code (CI 2026-10-22: alle fünf Base-Knoten gleichzeitig gedrosselt).
+ * Bis zu drei Anläufe mit Pause; ein Fehler ohne Drossel-Status wirft sofort.
+ */
+async function retryWhenThrottled<T>(fn: () => Promise<T>, tries = 3, pauseMs = 20_000): Promise<T> {
+  let last: unknown;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      last = e;
+      if (!(e instanceof Error) || !/HTTP (408|429|5\d\d)/.test(e.message) || i === tries - 1) throw e;
+      await new Promise((r) => setTimeout(r, pauseMs));
+    }
+  }
+  throw last;
+}
+
 describe('echte Daten (Base-RPC)', () => {
   it('liest echte Transfer-Logs einer aktiven Adresse; Cursor = aktuelle Blocknummer, erkannte Swaps vollständig', async () => {
     // Uniswap Universal Router auf Base: garantiert laufend Token-Transfers
-    const r = await fetchEvmWalletSwaps('base', '0x6fF5693b99212Da76ad316178A184AB56D299b43', { maxBlocks: 20, maxTxs: 4 });
+    const r = await retryWhenThrottled(() => fetchEvmWalletSwaps('base', '0x6fF5693b99212Da76ad316178A184AB56D299b43', { maxBlocks: 20, maxTxs: 4 }));
     expect(r.newestSignature).toMatch(/^\d+$/);
     expect(Number(r.newestSignature)).toBeGreaterThan(20_000_000);
     for (const s of r.swaps) {
@@ -245,9 +264,9 @@ describe('echte Daten (Base-RPC)', () => {
       expect(s.tokenDecimals).toBeGreaterThanOrEqual(0);
     }
     // Cursor = aktueller Block → nächster Abruf liest nichts doppelt
-    const again = await fetchEvmWalletSwaps('base', '0x6fF5693b99212Da76ad316178A184AB56D299b43', { cursor: r.newestSignature, maxBlocks: 20, maxTxs: 4 });
+    const again = await retryWhenThrottled(() => fetchEvmWalletSwaps('base', '0x6fF5693b99212Da76ad316178A184AB56D299b43', { cursor: r.newestSignature, maxBlocks: 20, maxTxs: 4 }));
     expect(again.swaps.every((s) => !r.swaps.some((x) => x.signature === s.signature))).toBe(true);
-  }, 90_000);
+  }, 150_000);
 
   it('Uniswap-v4-PoolManager auf Base meldet laufend Swap-Ereignisse mit genau unserer Signatur (Adresse + Topic stimmen)', async () => {
     const pm = UNISWAP_V4_POOL_MANAGER.base;
