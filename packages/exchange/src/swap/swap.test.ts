@@ -166,7 +166,7 @@ describe('echte Daten (Jupiter, KyberSwap, DexScreener, RPC)', () => {
     });
     expect(Number(q.outAmount)).toBeGreaterThan(1);
     expect(q.priceImpactPct).toBeLessThan(5);
-  }, 30_000);
+  }, 45_000); // bis zu drei Pausen bei KyberSwap-Drosselung (http.ts)
 
   it('Nachkommastellen von der Kette: USDC = 6 (Solana + Base)', async () => {
     expect(await fetchTokenDecimals('solana', USDC_SOL)).toBe(6);

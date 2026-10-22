@@ -1,4 +1,5 @@
 import { fromAtomic, SWAP_CHAINS, type SwapChainId, type SwapToken } from './chains.js';
+import { fetchJson, type Fetch } from './http.js';
 
 /**
  * Swap-Angebote von öffentlichen Aggregatoren (keine Schlüssel nötig):
@@ -34,13 +35,9 @@ export type SwapQuote = {
   raw: unknown;
 };
 
-type Fetch = typeof fetch;
-
+/** Angebot holen = lesend → bei Drosselung (429) / kurzer Störung mit Pause wiederholen (http.ts). */
 async function getJson(url: string, fetchFn: Fetch, init?: RequestInit): Promise<unknown> {
-  const res = await fetchFn(url, { ...init, signal: AbortSignal.timeout(10_000) });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
-  return JSON.parse(text) as unknown;
+  return fetchJson(url, fetchFn, init, { timeoutMs: 10_000 });
 }
 
 function minOut(out: bigint, slippageBps: number): bigint {

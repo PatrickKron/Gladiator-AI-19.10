@@ -3,6 +3,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { arbitrum, base, bsc, mainnet } from 'viem/chains';
 import { isNativeToken, rpcUrl, SWAP_CHAINS, type SwapChainId } from './chains.js';
 import { JUPITER_API, KYBER_API, type SwapQuote } from './quotes.js';
+import { fetchJson, type Fetch } from './http.js';
 import { assertKyberSwap, decodeKyberDesc } from './kyber-guard.js';
 import { assertJupiterSwapTx } from './solana-guard.js';
 import { signSolanaTx } from './solana-tx.js';
@@ -16,8 +17,6 @@ import { signSolanaTx } from './solana-tx.js';
  * Aufrufer: nur `swaps.execute` NACH Swap-Gate, Live-Freigabe der Wallet und
  * Bestätigung des Nutzers.
  */
-
-type Fetch = typeof fetch;
 
 /** Offizieller KyberSwap MetaAggregationRouterV2 (gleiche Adresse auf allen unterstützten EVM-Ketten). */
 export const KYBER_ROUTERS = new Set(['0x6131b5fae19ea4f9d964eac0408e4408b66337b5']);
@@ -72,16 +71,18 @@ export function jupiterExpect(q: SwapQuote) {
   return { inMint: q.inToken.address, outMint: q.outToken.address, inAmount: BigInt(q.inAtomic), quotedOutAmount: BigInt(q.outAtomic), slippageBps: q.slippageBps };
 }
 
-async function postJson(url: string, body: unknown, fetchFn: Fetch, timeoutMs = 15_000): Promise<unknown> {
-  const res = await fetchFn(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
-  return JSON.parse(text) as unknown;
+/**
+ * POST mit JSON. `retry: true` NUR für Aufrufe, die nichts bewegen (Transaktion BAUEN bei
+ * Jupiter/KyberSwap): dort wird Drosselung (429) / kurze Störung mit Pause wiederholt (http.ts).
+ * RPC-Aufrufe (sendTransaction!) bleiben bei genau einem Anlauf — nie doppelt senden.
+ */
+async function postJson(url: string, body: unknown, fetchFn: Fetch, opts: { timeoutMs?: number; retry?: boolean; headers?: Record<string, string> } = {}): Promise<unknown> {
+  return fetchJson(
+    url,
+    fetchFn,
+    { method: 'POST', headers: { 'content-type': 'application/json', ...opts.headers }, body: JSON.stringify(body) },
+    { timeoutMs: opts.timeoutMs ?? 15_000, tries: opts.retry ? undefined : 1 },
+  );
 }
 
 async function rpc(chain: SwapChainId, method: string, params: unknown[], fetchFn: Fetch): Promise<unknown> {
@@ -99,7 +100,7 @@ export async function executeSolanaSwap(
   opts: { pollMs?: number; timeoutMs?: number } & LiveSwapOpts = {},
 ): Promise<LiveSwapResult> {
   assertJupiterQuote(p.quote);
-  const built = (await postJson(`${JUPITER_API}/swap`, jupiterSwapRequest(p.quote, p.address), fetchFn)) as { swapTransaction?: string; lastValidBlockHeight?: number };
+  const built = (await postJson(`${JUPITER_API}/swap`, jupiterSwapRequest(p.quote, p.address), fetchFn, { retry: true })) as { swapTransaction?: string; lastValidBlockHeight?: number };
   if (!built.swapTransaction) throw new Error('Jupiter: keine Transaktion erhalten.');
   // Inhalt prüfen: genau der bestätigte Jupiter-Swap für uns, nie Überweisungen/Freigaben an andere
   assertJupiterSwapTx(Uint8Array.from(Buffer.from(built.swapTransaction, 'base64')), p.address, jupiterExpect(p.quote));
@@ -194,6 +195,8 @@ export async function buildKyberSwap(
       `${KYBER_API}/${slug}/api/v1/route/build`,
       { routeSummary: raw.routeSummary, sender: address, recipient: address, slippageTolerance: slippageBps, source: 'gladiator' },
       fetchFn,
+      // Bauen bewegt nichts → bei 429 wiederholen; x-client-id wie beim Angebot (eigenes Kontingent bei KyberSwap)
+      { retry: true, headers: { 'x-client-id': 'gladiator' } },
     )) as { code?: number; message?: string; data?: { data?: string; routerAddress?: string; amountOut?: string; transactionValue?: string } };
     const d = res.data;
     if (res.code !== 0 || !d?.data || !d.routerAddress) throw new Error(`KyberSwap: Route nicht baubar (${res.message ?? 'leere Antwort'}).`);

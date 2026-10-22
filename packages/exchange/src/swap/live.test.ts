@@ -412,7 +412,7 @@ describe('echte Daten: Aggregatoren bauen für eine leere Wallet (nichts wird ge
     expect(built.data.toLowerCase()).toContain(k.address.slice(2).toLowerCase());
     // der Wächter dekodiert ECHTE KyberSwap-Calldata und akzeptiert sie (ABI passt zur Realität)
     expect(() => assertKyberSwap(built.data, built.value, kyberExpect(quote, k.address))).not.toThrow();
-  }, 30_000);
+  }, 60_000); // zwei KyberSwap-Aufrufe, je bis zu drei Pausen bei Drosselung (http.ts)
 
   it('Flashbots Protect (MEV-Schutz) ist erreichbar und gehört zu Ethereum', async () => {
     const res = await fetch(FLASHBOTS_PROTECT_RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }) });
