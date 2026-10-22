@@ -45,8 +45,8 @@ Patrick hat die aktuelle Oberfläche gesehen und ist enttäuscht: „nicht ansat
 8. [x] **Kalender** — PR #81: „Aktuell“ (Ist-Wert) neben Prognose/Zuvor mit Einheit, „Impact unbekannt“ ehrlich statt „Niedrig“ raten, Zeitzonen-Hinweis im Kopf. Uhrzeit groß, Countdown, Impact-Pille, No-Trade-Fenster gab es bereits. Offen: Patricks Blick auf echte Feed-Daten (lokal nur Beispielzeilen), Design-Feinschliff nach seinem Urteil.
 9. [x] **Agenten erklären** — PR #83: Panel „So funktioniert der Schwarm“ oben auf der Agenten-Seite: drei Schritte (Signal entsteht → Prüf-Agenten stimmen ab → du entscheidest / freigegebene Strategie handelt auf Paper), je Agent ein Satz in Alltagssprache + Status (aktiv/aus mit Grund), Hinweis für neue Nutzer (nichts einzustellen).
 10. [ ] **Strategien** nach Patricks Vorstellung: im Chat entwerfen (Punkt 4), Katalog klarer.
-11. [ ] **Demo nicht nur Krypto**: Aktien/ETF/Forex-Demo auf Schlusskursen der Kursquelle.
-12. [ ] **Schnell am Markt agieren**: Handeln in einem Klick aus Chart und Signal, ohne Seitenwechsel.
+11. [x] **Demo nicht nur Krypto** — PR #84: Aktien/ETF/Forex im Demo-Ticket; Ausführung zum letzten echten Schlusskurs aus der Kerzen-DB (`CandleCloseBookSource`, registriert für `yahoo`/`twelvedata` über `registerDemoBookSource`; ehrlich als „Schlusskurs-Ausführung“ beschriftet, kein Orderbuch, kein Börsenvergleich; keine Kerzen ⇒ Fehler). Gilt auch für Mark-Preise offener Demo-Positionen (Worker, Vermögen). Voraussetzung bleibt die Kursquelle (Twelve-Data-Key oder Yahoo-Kerzen).
+12. [x] **Schnell am Markt agieren** — PR #84: „Traden“-Knopf im Chart-Kopf nimmt das Symbol ins Demo-Ticket mit (ein Klick); Signalkarten hatten „Ticket öffnen“ bereits. Offen: Schnell-Ticket direkt im Chart (ohne Seitenwechsel) — nach Patricks Blick auf den jetzigen Weg.
 
 ## 0b · Repo-Masterliste (Patrick, 2026-10-21) — Stand, Entscheidungen, Reihenfolge
 

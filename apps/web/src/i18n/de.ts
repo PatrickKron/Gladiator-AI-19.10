@@ -731,6 +731,7 @@ export const de = {
     "hint_risk-off": "Risikoscheu: Volatilität hoch, Liquidität dünn — kleiner handeln, Stops enger, Gates beachten.",
   },
   chart: {
+    trade: "Traden",
     tools: "Werkzeuge",
     view: "Ansicht",
     viewHint: "Was der Chart zeigt — die Wahl bleibt im Browser.",
@@ -2278,6 +2279,7 @@ export const de = {
     oneUser: 'Ein User-Typ mit vollem Zugriff — keine Rollen, keine Tiers (Scope-Entscheidung 2026-07-02).',
   },
   demo: {
+    stockVenueNote: "Schlusskurs-Ausführung ({{venue}}): Für Aktien, ETF und Forex gibt es hier kein Orderbuch — die Demo führt zum letzten echten Schlusskurs aus, Gebühren gelten, Spread und Slippage sind null. Kein Börsenvergleich.",
     noHistoryCta: "Ersten Paper-Trade machen",
     previewCosts: "Gebühr + Slippage",
     advanced: "Erweitert",

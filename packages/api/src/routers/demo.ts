@@ -51,7 +51,7 @@ const orderInput = z.object({
   /** Hebel (Isolated Margin); Obergrenze kommt aus den Trading-Einstellungen. */
   leverage: z.number().min(1).max(125).optional(),
   /** Börse, gegen deren echtes Orderbuch ausgeführt wird (Vision-Punkt 2), Standard Binance. */
-  venue: z.enum(COMPARE_VENUES).optional(),
+  venue: z.enum([...COMPARE_VENUES, 'yahoo', 'twelvedata']).optional(),
 });
 
 /** Symbol normalisieren + Hebel-Obergrenze aus den Trading-Einstellungen des Users anhängen. */

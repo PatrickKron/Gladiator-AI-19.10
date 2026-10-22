@@ -732,6 +732,7 @@ export const es: Catalog = {
     "hint_risk-off": "Risk-off: volatilidad alta, liquidez escasa — opera más pequeño, stops más cerrados, atención a los gates.",
   },
   chart: {
+    trade: "Operar",
     tools: "Herramientas",
     view: "Vista",
     viewHint: "Qué muestra el gráfico — la elección se guarda en el navegador.",
@@ -2279,6 +2280,7 @@ export const es: Catalog = {
     oneUser: 'Un solo tipo de usuario con acceso completo — sin roles, sin tiers (decisión de alcance 2026-07-02).',
   },
   demo: {
+    stockVenueNote: "Ejecución al cierre ({{venue}}): acciones, ETF y forex no tienen libro de órdenes aquí — la demo ejecuta al último cierre real, aplican comisiones, spread y slippage son cero. Sin comparación de exchanges.",
     noHistoryCta: "Haz tu primera operación paper",
     previewCosts: "Comisión + slippage",
     advanced: "Avanzado",

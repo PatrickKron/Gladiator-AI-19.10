@@ -732,6 +732,7 @@ export const en: Catalog = {
     "hint_risk-off": "Risk-off: volatility high, liquidity thin — trade smaller, tighter stops, mind the gates.",
   },
   chart: {
+    trade: "Trade",
     tools: "Tools",
     view: "View",
     viewHint: "What the chart shows — your choice stays in the browser.",
@@ -2279,6 +2280,7 @@ export const en: Catalog = {
     oneUser: 'One user type with full access — no roles, no tiers (scope decision 2026-07-02).',
   },
   demo: {
+    stockVenueNote: "Close-price execution ({{venue}}): stocks, ETFs and forex have no order book here — the demo fills at the last real close, fees apply, spread and slippage are zero. No exchange comparison.",
     noHistoryCta: "Make your first paper trade",
     previewCosts: "Fee + slippage",
     advanced: "Advanced",

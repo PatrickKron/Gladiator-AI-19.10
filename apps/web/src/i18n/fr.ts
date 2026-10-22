@@ -732,6 +732,7 @@ export const fr: Catalog = {
     "hint_risk-off": "Risk-off : volatilité élevée, liquidité mince — trader plus petit, stops plus serrés, respecter les gates.",
   },
   chart: {
+    trade: "Trader",
     tools: "Outils",
     view: "Affichage",
     viewHint: "Ce que montre le graphique — le choix reste dans le navigateur.",
@@ -2279,6 +2280,7 @@ export const fr: Catalog = {
     oneUser: 'Un seul type d\'utilisateur avec accès complet — pas de rôles, pas de tiers (décision de périmètre 2026-07-02).',
   },
   demo: {
+    stockVenueNote: "Exécution au cours de clôture ({{venue}}) : actions, ETF et forex n’ont pas de carnet ici — la démo exécute à la dernière clôture réelle, les frais s’appliquent, spread et slippage sont nuls. Pas de comparaison d’exchanges.",
     noHistoryCta: "Faire ton premier trade paper",
     previewCosts: "Frais + slippage",
     advanced: "Avancé",
