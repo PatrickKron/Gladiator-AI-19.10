@@ -19,6 +19,7 @@ import { SetupProgress } from '../components/SetupProgress.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 import { appLocale } from '../lib/locale.js';
 import { TodayList } from '../components/TodayList.js';
+import { PlexusHero } from '../components/PlexusHero.js';
 import { WealthCurve } from '../components/WealthCurve.js';
 import { rangeChange, rangeFilter, wealthCurve } from '../lib/wealth.js';
 import { getSelectedAsset } from '../components/AssetSelect.js';
@@ -718,6 +719,10 @@ export function Dashboard() {
 
   return (
     <div className="relative">
+      {/* Hero-Konstellation (v2) hinter Begrüßung + Vermögen — pulst auf echte Ticks */}
+      <div className="pointer-events-none absolute inset-x-0 -top-8 h-[380px] overflow-hidden" aria-hidden="true">
+        <PlexusHero density={22} className="opacity-60" />
+      </div>
       <header className="reveal relative mb-8" style={{ '--stagger': 0 } as React.CSSProperties}>
         <h1 className="text-2xl font-semibold tracking-tight">
           {greeting}
@@ -814,7 +819,7 @@ export function Dashboard() {
       )}
 
       {/* Alles Weitere aufklappbar (Prinzip 3): KI-Status, Briefings, Konto, System, Datenquellen, historische Daten */}
-      <details className="mt-8 group">
+      <details className="mt-8 group" open>
         <summary className="glass flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm">
           <span>
             <span className="font-medium">{t('dashboard.details')}</span>

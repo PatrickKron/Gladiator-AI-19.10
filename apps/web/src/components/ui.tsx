@@ -2,7 +2,7 @@ import { useCallback, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { appLocale } from '../lib/locale.js';
 
-/** Gemeinsame UI-Bausteine (Design-System v3 „Ruhe & Klarheit“) — Loading/Empty/Error/NotConnected sind Pflicht-States (09_ §1). */
+/** Gemeinsame UI-Bausteine (Design-System v2 „Blue Matrix“, seit 2026-10-23 wieder aktiv) — Loading/Empty/Error/NotConnected sind Pflicht-States (09_ §1). */
 
 export function PageHeader({ title, subtitle, right }: { title: string; subtitle?: string; right?: ReactNode }) {
   return (

@@ -49,8 +49,8 @@ describe('Kontrast der Design-Tokens (WCAG AA)', () => {
     const chipRed = over(token('neg'), 0.8, '#ffffff'); // color-mix(neg 80%, white)
     expect(css).toContain('.chip--neg { color: color-mix(in srgb, var(--color-neg) 80%, white)');
     expect(contrastRatio(chipRed, over(token('neg'), 0.1, bg2)), 'chip neg').toBeGreaterThanOrEqual(AA_TEXT);
-    // Das reine Token-Rot allein würde auf der Tönung knapp scheitern — der Grund für die Aufhellung.
-    expect(contrastRatio(token('neg'), over(token('neg'), 0.1, bg2))).toBeLessThan(AA_TEXT);
+    // v2-Rot (#ff5c6c) besteht schon pur; die Aufhellung bleibt als Reserve für hellere Tönungen.
+    expect(contrastRatio(token('neg'), over(token('neg'), 0.1, bg2))).toBeGreaterThanOrEqual(AA_TEXT);
   });
 
   it('UI-Flächen: Linien und Akzent-Flächen ≥ 3:1 gegenüber der Grundfläche', () => {

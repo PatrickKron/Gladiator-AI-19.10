@@ -376,7 +376,7 @@ export const de = {
   },
   nav: {
     more: "Mehr",
-    calm: "Ruhe & Klarheit",
+    calm: "Blue Matrix",
     wealth: 'Vermögen',
     trade: 'Traden',
     areaWealth: 'Vermögen',
@@ -2284,7 +2284,7 @@ export const de = {
     viewSimpleHint: "Einfach: Profi-Seiten stehen in der Segmentleiste hinter „Mehr“, der Chart zeigt eine kurze Werkzeugzeile. Profi: alles sichtbar.",
     resetTitle: "Ansicht zurücksetzen",
     aboutTitle: "Über",
-    aboutVersion: "Gladiator v2 · Oberfläche v3 „Ruhe & Klarheit“ · ein Backend, eine Signal-Engine, nichts erfunden.",
+    aboutVersion: "Gladiator v2 · Oberfläche „Blue Matrix“ mit allen Funktionen aus v3 · ein Backend, eine Signal-Engine, nichts erfunden.",
     aboutCharts: "Charts:",
     aboutIndicators: "Indikator-Bibliothek: lightweight-charts-indicators (MIT).",
     viewTitle: "Ansicht",

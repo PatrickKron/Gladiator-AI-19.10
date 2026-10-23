@@ -1,3 +1,4 @@
+import { PlexusHero } from '../components/PlexusHero.js';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { login } from '../api.js';
@@ -61,6 +62,9 @@ export function Login() {
 
   return (
     <div className="relative z-10 flex min-h-screen items-center justify-center p-6">
+      <div className="pointer-events-none fixed inset-0" aria-hidden="true">
+        <PlexusHero density={30} className="opacity-70" />
+      </div>
       <div className="relative w-full max-w-sm">
         <div className="reveal mb-10 text-center" style={{ '--stagger': 0 } as React.CSSProperties}>
           <h1 className="wordmark text-3xl font-bold">

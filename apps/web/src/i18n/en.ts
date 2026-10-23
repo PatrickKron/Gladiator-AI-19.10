@@ -377,7 +377,7 @@ export const en: Catalog = {
   },
   nav: {
     more: "More",
-    calm: "Calm & clear",
+    calm: "Blue Matrix",
     wealth: 'Wealth',
     trade: 'Trade',
     areaWealth: 'Wealth',
@@ -2285,7 +2285,7 @@ export const en: Catalog = {
     viewSimpleHint: "Simple: pro pages sit behind “More” in the segment bar and the chart shows a short toolbar. Pro: everything visible.",
     resetTitle: "Reset view",
     aboutTitle: "About",
-    aboutVersion: "Gladiator v2 · interface v3 “Calm & Clarity” · one backend, one signal engine, nothing invented.",
+    aboutVersion: "Gladiator v2 · “Blue Matrix” interface with every v3 feature · one backend, one signal engine, nothing invented.",
     aboutCharts: "Charts:",
     aboutIndicators: "Indicator library: lightweight-charts-indicators (MIT).",
     viewTitle: "View",

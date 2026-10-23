@@ -116,7 +116,8 @@ export function App() {
 
   return (
     <>
-      {/* Daten-Regen als Special-Effekt: Login, Ereignis-Impuls, Bildschirmschoner, Matrix-Modus (lib/effects.ts) */}
+      {/* Hintergrund (v2-Optik): zwei Lichtwelten + Daten-Regen aus echten Ticks (lib/effects.ts, Dauer-Regen Standard an) */}
+      <div className="ambient" aria-hidden="true" />
       <RainLayer authenticated={auth === 'authenticated'} />
 
       {auth === 'restoring' ? (

@@ -6,8 +6,8 @@ describe('Special-Effekte: Vorlieben und Regen-Regeln', () => {
     expect(parseEffectPrefs(null)).toEqual(DEFAULT_EFFECTS);
     expect(parseEffectPrefs('kein json')).toEqual(DEFAULT_EFFECTS);
     expect(parseEffectPrefs('[1,2]')).toEqual(DEFAULT_EFFECTS);
-    expect(parseEffectPrefs('{"ambientRain":true,"screensaver":"ja"}')).toEqual({ ...DEFAULT_EFFECTS, ambientRain: true });
-    expect(DEFAULT_EFFECTS.ambientRain).toBe(false); // der Dauer-Regen ist eine bewusste Wahl
+    expect(parseEffectPrefs('{"ambientRain":false,"screensaver":"ja"}')).toEqual({ ...DEFAULT_EFFECTS, ambientRain: false });
+    expect(DEFAULT_EFFECTS.ambientRain).toBe(true); // v2-Optik: der Dauer-Regen läuft standardmäßig (abschaltbar)
   });
 
   it('nur Ereignisse mit Handlungsbezug lösen einen Impuls aus', () => {
@@ -21,7 +21,7 @@ describe('Special-Effekte: Vorlieben und Regen-Regeln', () => {
   });
 
   it('Reihenfolge: Bildschirmschoner > Login > Impuls > Matrix-Modus > aus', () => {
-    const prefs = { ...DEFAULT_EFFECTS };
+    const prefs = { ...DEFAULT_EFFECTS, ambientRain: false };
     expect(rainIntensity({ prefs, authenticated: true, idle: false, burst: null, now: 0 }).intensity).toBe(0);
     expect(rainIntensity({ prefs, authenticated: false, idle: false, burst: null, now: 0 }).intensity).toBe(0.25);
     expect(rainIntensity({ prefs: { ...prefs, loginRain: false }, authenticated: false, idle: false, burst: null, now: 0 }).intensity).toBe(0);
@@ -31,7 +31,7 @@ describe('Special-Effekte: Vorlieben und Regen-Regeln', () => {
   });
 
   it('Impuls: steigt an, klingt ab, endet; ohne eventRain kein Impuls', () => {
-    const prefs = { ...DEFAULT_EFFECTS };
+    const prefs = { ...DEFAULT_EFFECTS, ambientRain: false };
     const burst = { tone: 'accent' as const, symbol: 'BTC/USDT', until: BURST_MS };
     const early = rainIntensity({ prefs, authenticated: true, idle: false, burst, now: BURST_MS * 0.1 });
     const peak = rainIntensity({ prefs, authenticated: true, idle: false, burst, now: BURST_MS * 0.2 });
