@@ -11,8 +11,9 @@
  *  3. Bildschirmschoner — nach einigen Minuten ohne Eingabe übernimmt der
  *     Regen den Bildschirm (Uhrzeit, Favoriten-Kurse); jede Eingabe holt die
  *     Oberfläche zurück. Standard an.
- *  4. Matrix-Modus — der alte Dauer-Regen hinter dem Inhalt, bewusst als
- *     Wahl (Profil → Effekte oder Tastenkürzel „g m"). Standard aus.
+ *  4. Matrix-Modus — der Dauer-Regen hinter dem Inhalt wie in v2. Standard AN
+ *     (Patrick 2026-10-23: zurück zur v2-Optik); abschaltbar unter Profil → Effekte
+ *     oder Tastenkürzel „g m".
  *
  * Reine Logik (Vorlieben, Impuls-Bus) ist hier; das Zeichnen macht
  * components/MatrixRain.tsx, die Entscheidung components/RainLayer.tsx.
@@ -25,7 +26,7 @@ export type EffectPrefs = {
   ambientRain: boolean;
 };
 
-export const DEFAULT_EFFECTS: EffectPrefs = { loginRain: true, eventRain: true, screensaver: true, ambientRain: false };
+export const DEFAULT_EFFECTS: EffectPrefs = { loginRain: true, eventRain: true, screensaver: true, ambientRain: true };
 
 export const EFFECTS_KEY = 'gladiator.effects';
 const EVENT_PREFS = 'gladiator:effects';

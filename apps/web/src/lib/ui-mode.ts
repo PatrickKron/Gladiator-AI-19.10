@@ -1,6 +1,7 @@
 /**
  * UI-Modus: 'einfach' | 'profi' — Progressive Disclosure, verlustfrei &
- * sofort reversibel (Binance-Lite/Pro-Muster). Default: einfach; Wahl bleibt.
+ * sofort reversibel (Binance-Lite/Pro-Muster). Default: profi (Patrick 2026-10-23: keine Funktion
+ * darf versteckt wirken — alles sichtbar wie in v2); Einfach ist eine bewusste Wahl, sie bleibt gemerkt.
  * Die klassische Navigation wurde mit dem Umbau 2026-07-10 GELÖSCHT
  * (Patrick-Freigabe: eine Navigation, eine Wahrheit).
  * Reine UI-Präferenz im localStorage — es hängt KEINE Sicherheit daran.
@@ -13,9 +14,9 @@ const EVENT = 'gladiator:ui-mode';
 
 export function getUiMode(): UiMode {
   try {
-    return window.localStorage.getItem(MODE_KEY) === 'profi' ? 'profi' : 'einfach';
+    return window.localStorage.getItem(MODE_KEY) === 'einfach' ? 'einfach' : 'profi';
   } catch {
-    return 'einfach';
+    return 'profi';
   }
 }
 

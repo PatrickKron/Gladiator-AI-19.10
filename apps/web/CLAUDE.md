@@ -1,21 +1,25 @@
-# apps/web — Design-System v3 „Ruhe & Klarheit" (Freigabe Patrick, 2026-10-21)
+# apps/web — Design-System v2 „Blue Matrix Premium" (wieder aktiv, Patrick 2026-10-23)
 
-Verbindliche Optik: ruhig, dunkel, viel Raum, große Zahlen, EIN Akzent (Elektro-Blau) —
-Starlink-Ruhe und Bitpanda-Einfachheit. Das komplette System (Tokens, Typografie, Flächen,
-Navigation, Regen-Effekt, Wellenplan) steht in **/DESIGN_SYSTEM.md**. Vorgänger v2 „Blue Matrix"
-ist ersetzt.
+Patrick (2026-10-23): „Version 2 war näher an der Optik … ich möchte aber alle Funktionen von
+Version 3 mitnehmen." Verbindliche Optik ist wieder **v2 Blue Matrix**: Nachtblau, zwei Lichtwelten
+(Blau/Cyan + Violett/Magenta), Glas-Karten mit Neon-Kante, Neon-CTA (Blau→Violett), Wortmarke mit
+Glow, Plexus-Lichtnetz (`components/PlexusHero.tsx`) auf Start und Login, Daten-Regen als
+Dauer-Hintergrund (Standard an, abschaltbar), Zahlen in Mono, gesperrte Versal-Labels, Brotkrumen.
+Alle v3-Bausteine (fünf Bereiche, Tableiste, Chips, Chat, Werkzeugzeile, „Dein Start“, Schnell-Ticket …)
+bleiben und tragen diese Optik. Standard-Modus ist **Profi** (alles sichtbar); „Einfach“ ist eine Wahl.
+Weitere Angleichung an Patricks Vorgaben „peu à peu“ — nie eine Funktion entfernen.
 
 Signatur-Effekt: `components/MatrixRain.tsx` — Daten-Regen aus ECHTEN SSE-Ticks (nie Zufallswerte),
-gesteuert von `components/RainLayer.tsx` + `lib/effects.ts`: nur Login, Ereignis-Impuls,
-Bildschirmschoner und (Wahl) Matrix-Modus. Nie dauerhaft hinter Text ohne diese Wahl.
+gesteuert von `components/RainLayer.tsx` + `lib/effects.ts`: Dauer-Regen (Standard an, wie v2),
+Login, Ereignis-Impuls, Bildschirmschoner; abschaltbar unter Profil → Effekte bzw. „g m“.
 Der SSE-Preisstream ist bewusst öffentlich (nur öffentliche Binance-Marktdaten); alle
 nutzerbezogenen Endpunkte bleiben geschützt.
 
 Regeln:
 - Nur echte Daten oder ehrliche „nicht verbunden"-Zustände — auch „nur fürs Design" keine Fakes.
 - Eine Zahl, eine Hauptaktion je Bildschirm; Komplexes hinter „Erweitert", nie entfernen.
-- Vier Farben; Grün/Rot nur für Geld und Richtung. Keine Verläufe, kein Glow, kein Glas.
-- Zahlen `.num` (Inter, Tabellenziffern), Mono `.mono` nur für Adressen/Protokoll/Code.
+- v2-Farben (Nachtblau, Blau/Cyan, Violett/Magenta); Grün/Rot für Geld und Richtung. Glas, Neon-Kanten und Glow sind gewollt.
+- Zahlen `.num` (JetBrains Mono, Tabellenziffern), `.mono` für Adressen/Protokoll/Code.
 - Zahlen-/Datumsformat IMMER über `appLocale()` (lib/locale.ts), nie Browser-Locale, nie fest „de-DE".
 - Eigene CSS-Klassen in `@layer components` (Utilities wie `hidden`/`lg:hidden` müssen gewinnen).
 - Navigation nur über die Registry `lib/navigation.ts` (fünf Bereiche, Seiten, Tabs); Links bleiben.

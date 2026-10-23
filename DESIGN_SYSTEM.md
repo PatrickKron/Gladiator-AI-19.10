@@ -1,3 +1,11 @@
+> **Stand 2026-10-23 — Rückkehr zur v2-Optik (Patrick):** „Version 2 war näher an der Optik und an den
+> Funktionen … ich möchte aber alle Funktionen von Version 3 mitnehmen. Dann ziehen wir peu à peu nach."
+> Aktiv ist wieder **v2 „Blue Matrix Premium“** (Tokens/Effekte in `apps/web/src/styles.css`: Nachtblau,
+> Glas + Neon-Kante, zwei Lichtwelten, Neon-CTA, Wortmarke mit Glow, Plexus-Netz, Daten-Regen als
+> Dauer-Hintergrund, Mono-Zahlen, Versal-Labels, Brotkrumen). Die Abschnitte unten beschreiben v3 und
+> gelten nur noch für die **Struktur** (fünf Bereiche, Tableiste, eine Hauptaktion, „Erweitert“, Chips,
+> Leer-Zustände) — nicht mehr für Farben, Flächen und Effekte. Standard-Modus ist Profi.
+
 # Gladiator v2 — Design-System v3 „Ruhe & Klarheit"
 
 > Verbindlich für alle Seiten. Freigabe Patrick (2026-10-21): „die Sachen gleich direkt umsetzen",

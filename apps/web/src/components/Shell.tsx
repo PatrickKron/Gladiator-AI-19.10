@@ -9,7 +9,7 @@ import { isDemoMode, onDemoModeChange } from '../lib/demo-mode.js';
 import { getUiMode, onUiModeChange, setUiMode, type UiMode } from '../lib/ui-mode.js';
 import { currentSessionEnd, nextSessionStart, sessionAt, type MarketSession } from '../lib/market-session.js';
 import { CommandPalette } from './CommandPalette.js';
-import { AREAS, pageForHash, subnavPages, type AreaId } from '../lib/navigation.js';
+import { AREAS, pageForHash, subnavPages, tabForHash, type AreaId } from '../lib/navigation.js';
 import { GOTO_KEYS, MATRIX_KEY, resolveHotkey } from '../lib/hotkeys.js';
 import { getEffectPrefs, setEffectPrefs } from '../lib/effects.js';
 import { isTypingTarget } from '../lib/watchlist.js';
@@ -30,6 +30,33 @@ const ico = (d: string, cls = 'h-[17px] w-[17px]') => (
     <path d={d} />
   </svg>
 );
+
+
+/** Brotkrumen (v2): Bereich › Seite › Tab — immer sichtbar, wo man gerade ist. */
+function Breadcrumb({ route }: { route: string }) {
+  const { t } = useTranslation();
+  const page = pageForHash(route);
+  if (!page || page.id === 'today') return null;
+  const area = AREAS.find((a) => a.id === page.area);
+  const tab = tabForHash(page, route);
+  return (
+    <nav aria-label="Breadcrumb" className="mb-3 flex flex-wrap items-center gap-1.5 text-xs" style={{ color: 'var(--color-mut)' }}>
+      <a href="#/" className="hover:underline">{t('ia.page_today')}</a>
+      <span aria-hidden="true">›</span>
+      {area && <span>{t(area.labelKey)}</span>}
+      {area && <span aria-hidden="true">›</span>}
+      <a href={page.hash} className="hover:underline" style={{ color: tab ? undefined : 'var(--color-ink)' }}>
+        {t(page.labelKey)}
+      </a>
+      {tab && (
+        <>
+          <span aria-hidden="true">›</span>
+          <span style={{ color: 'var(--color-ink)' }}>{t(tab.labelKey)}</span>
+        </>
+      )}
+    </nav>
+  );
+}
 
 function FeedBadge() {
   const { t } = useTranslation();
@@ -226,7 +253,7 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
         </nav>
         <div className="mt-auto flex flex-col gap-3 px-3">
           <span className="chip chip--acc w-fit">{t('common.paper')}</span>
-          <p className="label">v3 · {t('nav.calm')}</p>
+          <p className="label">v2 · {t('nav.calm')}</p>
         </div>
       </aside>
 
@@ -315,7 +342,10 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
           </div>
         )}
 
-        <main className="mx-auto max-w-6xl px-4 pt-5 pb-6 md:px-6">{children}</main>
+        <main className="mx-auto max-w-6xl px-4 pt-5 pb-6 md:px-6">
+          <Breadcrumb route={activeHash} />
+          {children}
+        </main>
         {/* Disclaimer (10_ §7 Abnahme): auf jeder Seite sichtbar */}
         <footer className="mx-auto max-w-6xl px-4 pb-8 text-center text-[11px] leading-relaxed md:px-6" style={{ color: 'var(--color-mut)' }}>
           {t('common.disclaimer')}
