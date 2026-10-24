@@ -791,8 +791,7 @@ export function Dashboard() {
         </section>
       )}
 
-      {/* Signal-Karten (Ticket direkt aus der Karte) — nur wenn es offene gibt; den Leer-Zustand sagt „Heute wichtig“ */}
-      {signalRows !== null && signalRows.length > 0 && (
+      {/* Signal-Karten (Ticket direkt aus der Karte) — wie v2 immer sichtbar, ohne Signal mit ehrlichem Leer-Zustand */}
       <section className="reveal mt-8" style={{ '--stagger': 4 } as React.CSSProperties}>
         <div className="mb-4 flex items-baseline justify-between">
           <h2 className="label">{t('dashboard.signalsTitle')}</h2>
@@ -816,7 +815,6 @@ export function Dashboard() {
           </div>
         )}
       </section>
-      )}
 
       {/* Alles Weitere aufklappbar (Prinzip 3): KI-Status, Briefings, Konto, System, Datenquellen, historische Daten */}
       <details className="mt-8 group" open>
