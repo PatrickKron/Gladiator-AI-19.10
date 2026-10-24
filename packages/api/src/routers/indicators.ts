@@ -171,8 +171,9 @@ export const indicatorsRouter = router({
     return rows.map(toDto);
   }),
 
+  /** `style` optional gleich beim Anlegen (z. B. eigene Linienfarbe je EMA/SMA) — gleiche strenge Form wie bei update. */
   add: protectedProcedure
-    .input(z.object({ symbol: symbolSchema, indicatorId: z.string().max(64), inputs: inputsSchema }))
+    .input(z.object({ symbol: symbolSchema, indicatorId: z.string().max(64), inputs: inputsSchema, style: styleSchema.nullable().optional() }))
     .mutation(async ({ ctx, input }) => {
       const entry = requireEntry(input.indicatorId);
       const [{ n } = { n: 0 }] = await ctx.db
@@ -184,7 +185,7 @@ export const indicatorsRouter = router({
       }
       const [row] = await ctx.db
         .insert(chartIndicators)
-        .values({ userId: ctx.user.id, symbol: input.symbol, indicatorId: entry.id, inputs: sanitizeInputs(entry, input.inputs), position: n })
+        .values({ userId: ctx.user.id, symbol: input.symbol, indicatorId: entry.id, inputs: sanitizeInputs(entry, input.inputs), style: input.style ?? null, position: n })
         .returning();
       return toDto(row!);
     }),

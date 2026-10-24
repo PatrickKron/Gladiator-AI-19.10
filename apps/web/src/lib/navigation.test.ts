@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AREAS, NAV_PAGES, NAV_PAGES as PAGES, findPage, navEntries, pageForHash, resolveRedirect, searchNav, sidebarGroups, subnavPages, type NavEntry } from './navigation.js';
+import { AREAS, NAV_PAGES, NAV_PAGES as PAGES, findPage, navEntries, pageForHash, resolveRedirect, searchNav, sidebarGroups, subnavPages, tabForHash, type NavEntry } from './navigation.js';
 import { de } from '../i18n/de.js';
 
 /** Übersetzer-Stub: schlägt Keys im DE-Katalog nach (wie i18next). */
@@ -58,8 +58,6 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
       ['#/rl-agenten', '#/intelligenz?tab=rl'],
       ['#/performance', '#/intelligenz?tab=performance'],
       ['#/intelligenz?tab=intel', '#/marktlage?tab=entscheidung'],
-      ['#/charts?symbol=ETH%2FUSDT&tab=makro', '#/marktlage?tab=makro'],
-      ['#/charts?tab=risiko', '#/marktlage?tab=risiko'],
       // Welle 3: alte Konto-Seiten → #/traden, Unter-Tab bleibt erhalten
       ['#/strategie-workshop', '#/strategien?tab=workshop'],
       ['#/demo', '#/traden?tab=demo'],
@@ -72,6 +70,9 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
 
     it('normale Links werden nicht umgeleitet', () => {
       expect(resolveRedirect('#/charts?symbol=BTC%2FUSDT&tab=kontext')).toBeNull();
+      // Makro/Risiko sind wieder Tabs der Chart-Seite (wie v2) — keine Umleitung mehr in die Marktlage
+      expect(resolveRedirect('#/charts?tab=makro')).toBeNull();
+      expect(resolveRedirect('#/charts?symbol=ETH%2FUSDT&tab=risiko')).toBeNull();
       expect(resolveRedirect('#/intelligenz?tab=rl')).toBeNull();
       expect(resolveRedirect('#/')).toBeNull();
     });
@@ -174,6 +175,18 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
         expect([...r.shown, ...r.more].map((p) => p.hash).sort()).toEqual([...all].sort());
       }
     });
+  });
+
+  it('Chart-Seite: Tabs Chart · Analyse · Makro · Risiko (wie v2); Marktlage behält Makro und Risiko', () => {
+    const chart = pageForHash('#/charts')!;
+    expect(chart.tabs?.map((x) => x.id)).toEqual(['chart', 'kontext', 'makro', 'risiko']);
+    expect(tabForHash(chart, '#/charts?symbol=ETH%2FUSDT&tab=makro')?.labelKey).toBe('asset.tab_makro');
+    expect(tabForHash(chart, '#/charts?tab=risiko')?.labelKey).toBe('asset.tab_risiko');
+    expect(pageForHash('#/marktlage')?.tabs?.map((x) => x.id)).toEqual(['makro', 'risiko', 'entscheidung', 'daten']);
+    // Suche findet beide Orte
+    const hashes = searchNav(navEntries(t), 'makro', 20).map((e) => e.hash);
+    expect(hashes).toContain('#/charts?tab=makro');
+    expect(hashes).toContain('#/marktlage?tab=makro');
   });
 
   it('Welle E: alte Werkstatt-Links landen als Tab unter Agenten', () => {

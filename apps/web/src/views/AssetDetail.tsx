@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Panel } from '../components/ui.js';
+import { Panel, TabBar } from '../components/ui.js';
 import { AssetSelect, getSelectedAsset, getSelectedVenue, setSelectedAsset, setSelectedVenue } from '../components/AssetSelect.js';
 import { AssetAnalysis } from '../components/AssetAnalysis.js';
 import { openAssistant } from '../components/AssistantPanel.js';
@@ -9,6 +9,8 @@ import { AssetChart } from '../components/AssetChart.js';
 import { OrderBookPanel } from '../components/OrderBookPanel.js';
 import { AssetContextBody, useAssetContext } from '../components/AssetContextPanel.js';
 import { MlInsights } from '../components/MlInsights.js';
+import { MacroPanels } from '../components/MacroPanels.js';
+import { RiskPanels } from '../components/RiskPanels.js';
 import { FavStarSymbol } from '../components/FavStar.js';
 import { ASSET_TABS, buildAssetUrl, parseChartHash, type AssetTab, type ChartVenue } from '../lib/chart-url.js';
 import { parseTab } from '../lib/tab-hash.js';
@@ -26,10 +28,11 @@ function bookDockOpen(): boolean {
 }
 
 /**
- * Asset-Detailseite (P2.9): Chart + Kontext eines Assets. Makro und Risiko
- * zeigen globale Daten und liegen deshalb in der Marktlage (#/marktlage);
- * alte Links mit tab=makro/risiko leitet lib/navigation.ts dorthin um.
- * Deep-Link: `#/charts?symbol=ETH/USDT&tf=4h&tab=kontext`. Asset-Wahl teilt localStorage mit
+ * Asset-Detailseite (P2.9): Tabs wie in v2 — Chart · Analyse · Makro · Risiko
+ * (Patrick 2026-10-24: „v2 war näher dran"). Makro und Risiko rendern DIESELBEN
+ * Komponenten wie die Marktlage (MacroPanels/RiskPanels) — keine zweite
+ * Umsetzung; die Marktlage behält ihre Tabs.
+ * Deep-Link: `#/charts?symbol=ETH/USDT&tf=4h&tab=makro`. Asset-Wahl teilt localStorage mit
  * den (umgeleiteten) Alt-Routen; aktiver Tab + Symbol liegen im URL-Hash.
  */
 export function AssetDetail() {
@@ -168,6 +171,14 @@ export function AssetDetail() {
         </div>
       </div>
 
+      {/* Tab-Leiste wie v2: Chart · Analyse · Makro · Risiko (scrollt auf schmalen Bildschirmen waagrecht) */}
+      <TabBar
+        label={t('ia.page_chart')}
+        active={tab}
+        onChange={changeTab}
+        tabs={ASSET_TABS.map((id) => ({ id, label: t(`asset.tab_${id}`) }))}
+      />
+
       {tab === 'chart' && (
         // Markt-Bühne (UI-Welle 4): Watchlist links, Chart mittig, Orderbuch als ein-/ausblendbares Dock
         <div className="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
@@ -216,6 +227,8 @@ export function AssetDetail() {
           <MlInsights symbol={asset} />
         </Panel>
       )}
+      {tab === 'makro' && <MacroPanels />}
+      {tab === 'risiko' && <RiskPanels />}
     </div>
   );
 }

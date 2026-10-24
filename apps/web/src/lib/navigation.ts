@@ -68,6 +68,9 @@ export const PAGES = [
     tabs: [
       { id: 'chart', labelKey: 'asset.tab_chart', keywords: ['kerzen', 'indikatoren', 'orderbuch', 'order book', 'tiefe', 'zeichnen', 'trendlinie', 'fibonacci'] },
       { id: 'kontext', labelKey: 'asset.tab_kontext', keywords: ['rsi', 'atr', 'funding', 'struktur', 'regime'] },
+      // Wie v2 (Patrick 2026-10-24): Makro und Risiko auch direkt am Chart — dieselben Komponenten wie die Marktlage.
+      { id: 'makro', labelKey: 'asset.tab_makro', keywords: ['makro am chart', 'macro'] },
+      { id: 'risiko', labelKey: 'asset.tab_risiko', keywords: ['risiko am chart', 'risk'] },
     ],
   },
   {
@@ -346,9 +349,7 @@ const REDIRECTS: { from: string; tab: string | null; to: string; keepQuery?: boo
   { from: '#/performance', tab: null, to: '#/intelligenz?tab=performance' },
   // Entscheidungslogik ist Marktlage (Makro/CPI/COT), kein KI-Modell.
   { from: '#/intelligenz', tab: 'intel', to: '#/marktlage?tab=entscheidung' },
-  // Makro/Risiko waren Asset-Tabs, zeigen aber globale Daten → Marktlage.
-  { from: '#/charts', tab: 'makro', to: '#/marktlage?tab=makro' },
-  { from: '#/charts', tab: 'risiko', to: '#/marktlage?tab=risiko' },
+  // #/charts?tab=makro|risiko wird NICHT mehr umgeleitet: Makro/Risiko sind wieder Tabs der Chart-Seite (wie v2).
 ];
 
 export function resolveRedirect(hash: string): string | null {
