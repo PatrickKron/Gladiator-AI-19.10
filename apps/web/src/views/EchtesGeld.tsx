@@ -88,6 +88,15 @@ export function EchtesGeld() {
             </li>
           ))}
         </ul>
+        {/* Direkt dorthin, wo es geschaltet wird (v2: Kill-Switch und Live-Freigabe lagen auf der Trading-Seite) */}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <a href="#/traden?tab=positionen" className="btn px-3 py-1.5 text-xs">
+            {t('realMoney.toKillSwitch')}
+          </a>
+          <a href="#/traden?tab=risiko" className="btn px-3 py-1.5 text-xs">
+            {t('realMoney.toApproval')}
+          </a>
+        </div>
       </section>
     </div>
   );

@@ -1,13 +1,14 @@
 /**
  * Konto-Schalter der Seite „Traden“ (Welle 3). Die Konten sind Tabs im Hash:
  * `demo` und `wallet` wählen das Konto direkt, die übrigen Tabs gehören zum
- * Agenten-Konto. Ohne Tab gilt das zuletzt benutzte Konto (sonst Demo).
- * Rein & getestet.
+ * Agenten-Konto. Ohne Tab gilt das zuletzt benutzte Konto, sonst — wie in v2 — das
+ * Agenten-Konto (Paper) mit Kill-Switch, Positionen und Schutz-Orders. Demo ist eine
+ * bewusste Wahl (Patrick 2026-10-24: v3 wirkte „wie eine Demo“). Rein & getestet.
  */
 
 export type TradeAccount = 'demo' | 'agent' | 'wallet';
 
-export const TRADE_ACCOUNTS: TradeAccount[] = ['demo', 'agent', 'wallet'];
+export const TRADE_ACCOUNTS: TradeAccount[] = ['agent', 'demo', 'wallet'];
 
 /** Tabs des Agenten-Kontos (Trading-Ansicht). */
 export const AGENT_TABS = ['positionen', 'historie', 'risiko', 'alerts', 'performance'] as const;
@@ -17,7 +18,7 @@ export function accountForHash(hash: string, remembered: TradeAccount | null): T
   const tab = q < 0 ? null : new URLSearchParams(hash.slice(q + 1)).get('tab');
   if (tab === 'demo' || tab === 'wallet') return tab;
   if (tab && (AGENT_TABS as readonly string[]).includes(tab)) return 'agent';
-  return remembered ?? 'demo';
+  return remembered ?? 'agent';
 }
 
 /** Hash beim Umschalten: Demo/Wallet als Tab, Agenten-Konto startet bei den Positionen. */
@@ -25,7 +26,12 @@ export function hashForAccount(account: TradeAccount): string {
   return `#/traden?tab=${account === 'agent' ? 'positionen' : account}`;
 }
 
-const KEY = 'gladiator.tradeAccount';
+/**
+ * Neuer Schlüssel (vorher `gladiator.tradeAccount`): v3 hat beim bloßen Öffnen „Demo“ gemerkt,
+ * ohne dass jemand es gewählt hat — dieser Merker soll nicht weiter gelten.
+ */
+export const TRADE_ACCOUNT_KEY = 'gladiator.tradeAccount.v2';
+const KEY = TRADE_ACCOUNT_KEY;
 
 export function rememberedAccount(): TradeAccount | null {
   try {

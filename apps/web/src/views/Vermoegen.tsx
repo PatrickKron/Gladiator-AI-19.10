@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { fmt } from '../components/EquityChart.js';
 import { WealthCurve } from '../components/WealthCurve.js';
-import { allocation, rangeChange, rangeFilter, WEALTH_RANGES, wealthCurve, type WealthRange } from '../lib/wealth.js';
+import { allocation, rangeChange, rangeFilter, rangeStats, WEALTH_RANGES, wealthCurve, type WealthRange } from '../lib/wealth.js';
 import { appLocale } from '../lib/locale.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 
@@ -66,6 +66,7 @@ export function Vermoegen() {
   const curve = useMemo(() => wealthCurve(history), [history]);
   const points = useMemo(() => rangeFilter(curve.points, range, Date.now()), [curve, range]);
   const change = rangeChange(points);
+  const stats = rangeStats(points);
 
   const walletsUsd = data ? data.practice.wallets.reduce((s, w) => s + (w.totalUsd ?? 0), 0) : 0;
   const parts = allocation([
@@ -109,6 +110,44 @@ export function Vermoegen() {
         </div>
         <div className="mt-3">
           {points.length >= 2 ? <WealthCurve points={points} height={160} /> : <p className="label py-6">{t('wealth.historyEmpty')}</p>}
+          {stats && (
+            <p className="num mt-1 text-xs" style={{ color: 'var(--color-mut)' }}>
+              {t('wealth.rangeStats', {
+                min: money(stats.min, curve.unit),
+                max: money(stats.max, curve.unit),
+                from: new Date(stats.from).toLocaleDateString(locale),
+                to: new Date(stats.to).toLocaleDateString(locale),
+              })}
+            </p>
+          )}
+        </div>
+      </section>
+
+      {/* Übungsgeld und echtes Geld als eigene Summen (wie v2) */}
+      <section className="grid gap-4 md:grid-cols-2 reveal" style={{ '--stagger': 1 } as React.CSSProperties}>
+        <div className="glass p-5">
+          <div className="flex items-center justify-between">
+            <p className="font-medium">{t('wealth.practiceTitle')}</p>
+            <span className="chip chip--acc">{t('wealth.practiceBadge')}</span>
+          </div>
+          <p className="num mt-3 text-2xl font-semibold">{loading ? '…' : practiceEur !== null ? money(practiceEur, '€') : money(data?.practice.totalUsd ?? null, '$')}</p>
+          <a href="#/traden?tab=positionen" className="mt-3 inline-block text-sm underline decoration-dotted" style={{ color: 'var(--color-cyan)' }}>
+            {t('wealth.toPractice')}
+          </a>
+        </div>
+        <div className="glass p-5">
+          <div className="flex items-center justify-between">
+            <p className="font-medium">{t('wealth.realTitle')}</p>
+            <span className="chip chip--pos">{t('wealth.realBadge')}</span>
+          </div>
+          <p className="num mt-3 text-2xl font-semibold">
+            {loading ? '…' : !data?.real.connected ? money(0, '€') : data.real.totalEur !== null ? money(data.real.totalEur, '€') : money(data.real.totalUsd, '$')}
+          </p>
+          {!loading && !data?.real.connected && (
+            <a href="#/einstellungen?tab=boersen" className="btn mt-3 inline-block px-3 py-1.5 text-xs">
+              {t('wealth.connectCta')}
+            </a>
+          )}
         </div>
       </section>
 
@@ -176,8 +215,11 @@ export function Vermoegen() {
                 <span className="block text-sm font-medium">{t('wealth.part_real')} <span className="chip chip--pos ml-1">{t('wealth.realBadge')}</span></span>
                 <span className="block text-xs" style={{ color: 'var(--color-mut)' }}>{t('wealth.noExchange')}</span>
               </span>
-              <a href="#/echtes-geld" className="btn-primary px-3 py-1.5 text-xs">
+              <a href="#/einstellungen?tab=boersen" className="btn-primary px-3 py-1.5 text-xs" title={t('wealth.connectHint')}>
                 {t('wealth.connectCta')}
+              </a>
+              <a href="#/echtes-geld" className="text-xs underline decoration-dotted" style={{ color: 'var(--color-mut)' }}>
+                {t('wealth.realMoneyInfo')}
               </a>
             </div>
           ) : (
@@ -201,10 +243,17 @@ export function Vermoegen() {
                       {acc.error ? (
                         <span className="block text-xs" style={{ color: 'var(--color-neg)' }}>{acc.error}</span>
                       ) : (
-                        <span className="num block truncate text-xs" style={{ color: 'var(--color-mut)' }}>
-                          {acc.balances.length === 0
-                            ? t('wealth.emptyBalances')
-                            : acc.balances.slice(0, 6).map((b) => `${fmt(b.total, 6)} ${b.currency}${b.valuedUsd === null ? ' ⚠' : ''}`).join(' · ')}
+                        <span className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs" style={{ color: 'var(--color-mut)' }}>
+                          {acc.balances.length === 0 ? (
+                            <span>{t('wealth.emptyBalances')}</span>
+                          ) : (
+                            acc.balances.map((b) => (
+                              <span key={b.currency} className="num">
+                                {fmt(b.total, 6)} {b.currency}
+                                {b.valuedUsd === null && <span title={t('wealth.unvalued')}> ⚠</span>}
+                              </span>
+                            ))
+                          )}
                         </span>
                       )}
                     </span>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AREAS, NAV_PAGES, NAV_PAGES as PAGES, findPage, navEntries, pageForHash, resolveRedirect, searchNav, subnavPages, type NavEntry } from './navigation.js';
+import { AREAS, NAV_PAGES, NAV_PAGES as PAGES, findPage, navEntries, pageForHash, resolveRedirect, searchNav, sidebarGroups, subnavPages, type NavEntry } from './navigation.js';
 import { de } from '../i18n/de.js';
 
 /** Übersetzer-Stub: schlägt Keys im DE-Katalog nach (wie i18next). */
@@ -119,6 +119,35 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
     it('leere Suche zeigt die Seiten in Sidebar-Reihenfolge', () => {
       const res = searchNav(entries, '', 5);
       expect(res.map((e) => e.hash)).toEqual(PAGES.slice(0, 5).map((p) => p.hash));
+    });
+  });
+
+  describe('Seitenleiste wie v2: jede Seite direkt, gruppiert nach Bereich', () => {
+    it('Profi: jede Registry-Seite steht genau einmal in der Seitenleiste, in Registry-Reihenfolge', () => {
+      const groups = sidebarGroups('profi', '#/');
+      expect(groups.map((g) => g.area.id)).toEqual(AREAS.map((a) => a.id));
+      const listed = groups.flatMap((g) => g.pages.map((p) => p.hash));
+      expect(listed).toEqual(AREAS.flatMap((a) => NAV_PAGES.filter((p) => p.area === a.id).map((p) => p.hash)));
+      expect(new Set(listed).size).toBe(NAV_PAGES.length);
+      expect(groups.every((g) => g.hidden === 0)).toBe(true);
+    });
+
+    it('Seiten bleiben in ihrem Bereich (eine Wahrheit mit der Registry)', () => {
+      for (const g of sidebarGroups('profi', '#/')) expect(g.pages.every((p) => p.area === g.area.id)).toBe(true);
+    });
+
+    it('Einfach: Profi-Seiten fehlen in der Leiste, werden aber gezählt (Hinweis „n weitere“) — die aktive bleibt sichtbar', () => {
+      const agents = sidebarGroups('einfach', '#/strategien').find((g) => g.area.id === 'agents')!;
+      expect(agents.pages.map((p) => p.id)).toEqual(['agents', 'strategies']);
+      expect(agents.hidden).toBe(2);
+      const onLab = sidebarGroups('einfach', '#/labor').find((g) => g.area.id === 'agents')!;
+      expect(onLab.pages.map((p) => p.id)).toEqual(['agents', 'strategies', 'lab']);
+      expect(onLab.hidden).toBe(1);
+    });
+
+    it('Einfach verliert nichts: sichtbar + gezählt = alle Seiten', () => {
+      const groups = sidebarGroups('einfach', '#/');
+      expect(groups.reduce((n, g) => n + g.pages.length + g.hidden, 0)).toBe(NAV_PAGES.length);
     });
   });
 

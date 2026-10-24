@@ -291,6 +291,19 @@ export function subnavPages(area: AreaId, mode: 'einfach' | 'profi', activeHash:
   };
 }
 
+/**
+ * Seitenleiste (Desktop) wie in v2: jeder Bereich als Gruppe mit ALLEN seinen Seiten als
+ * Direktlink — jede Seite mit einem Klick (Patrick 2026-10-24: v2 war näher an dem, was er will).
+ * Im Einfach-Modus fehlen die Profi-Seiten (außer der aktiven); `hidden` zählt sie für den
+ * Hinweis „n weitere im Profi-Modus“, damit nichts unbemerkt verschwindet.
+ */
+export function sidebarGroups(mode: 'einfach' | 'profi', activeHash: string): { area: NavArea; pages: NavPage[]; hidden: number }[] {
+  return AREAS.map((area) => {
+    const { shown, more } = subnavPages(area.id, mode, activeHash);
+    return { area, pages: shown, hidden: more.length };
+  });
+}
+
 export type PageHash = (typeof PAGES)[number]['hash'];
 export type PageId = (typeof PAGES)[number]['id'];
 

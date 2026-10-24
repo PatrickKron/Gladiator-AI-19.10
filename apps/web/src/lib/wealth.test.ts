@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allocation, rangeChange, rangeFilter, wealthCurve } from './wealth.js';
+import { allocation, rangeChange, rangeFilter, rangeStats, wealthCurve } from './wealth.js';
 
 describe('Vermögen: Aufteilung und Verlauf', () => {
   it('allocation: Anteile nur aus bewertbaren, positiven Teilen', () => {
@@ -37,5 +37,16 @@ describe('Vermögen: Aufteilung und Verlauf', () => {
     expect(rangeChange(pts)).toEqual({ abs: -40, pct: (-40 / 140) * 100 });
     expect(rangeChange([pts[0]!])).toBeNull();
     expect(rangeChange([{ equity: 0 }, { equity: 5 }])).toBeNull();
+  });
+
+  it('rangeStats: Min/Max und Zeitraum des sichtbaren Verlaufs (v2 zeigte sie unter dem Chart)', () => {
+    const pts = [
+      { ts: '2026-10-01T00:00:00.000Z', equity: 120 },
+      { ts: '2026-10-05T00:00:00.000Z', equity: 95.5 },
+      { ts: '2026-10-09T00:00:00.000Z', equity: 140 },
+    ];
+    expect(rangeStats(pts)).toEqual({ min: 95.5, max: 140, from: '2026-10-01T00:00:00.000Z', to: '2026-10-09T00:00:00.000Z' });
+    expect(rangeStats([pts[0]!])).toBeNull();
+    expect(rangeStats([])).toBeNull();
   });
 });

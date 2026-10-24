@@ -9,7 +9,7 @@ import { isDemoMode, onDemoModeChange } from '../lib/demo-mode.js';
 import { getUiMode, onUiModeChange, setUiMode, type UiMode } from '../lib/ui-mode.js';
 import { currentSessionEnd, nextSessionStart, sessionAt, type MarketSession } from '../lib/market-session.js';
 import { CommandPalette } from './CommandPalette.js';
-import { AREAS, pageForHash, subnavPages, tabForHash, type AreaId } from '../lib/navigation.js';
+import { AREAS, pageForHash, sidebarGroups, subnavPages, tabForHash, type AreaId } from '../lib/navigation.js';
 import { GOTO_KEYS, MATRIX_KEY, resolveHotkey } from '../lib/hotkeys.js';
 import { getEffectPrefs, setEffectPrefs } from '../lib/effects.js';
 import { isTypingTarget } from '../lib/watchlist.js';
@@ -229,6 +229,8 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
   const activeArea: AreaId = activePage?.area ?? 'today';
   // Einfach-Modus (Welle F): Profi-Seiten des Bereichs stehen hinter „Mehr" — nichts fehlt, kein Link ändert sich.
   const { shown: areaPages, more: morePages } = useMemo(() => subnavPages(activeArea, uiMode, activeHash), [activeArea, uiMode, activeHash]);
+  // Seitenleiste wie v2: jede Seite direkt (Patrick 2026-10-24), gruppiert nach den fünf Bereichen.
+  const sideGroups = useMemo(() => sidebarGroups(uiMode, activeHash), [uiMode, activeHash]);
 
   const areaLinks = (variant: 'side' | 'tab') =>
     AREAS.map((area) => {
@@ -243,13 +245,28 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
 
   return (
     <div className="relative z-10 flex min-h-screen">
-      {/* Seitenleiste (Desktop): fünf Bereiche */}
-      <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col gap-6 overflow-y-auto border-r px-3 py-5 lg:flex" style={{ borderColor: 'var(--color-line)', background: 'var(--color-bg)' }}>
+      {/* Seitenleiste (Desktop) wie v2: Bereiche als Gruppen, jede Seite ein Klick */}
+      <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col gap-5 overflow-y-auto border-r px-3 py-5 lg:flex" style={{ borderColor: 'var(--color-line)', background: 'var(--color-bg)' }}>
         <a href="#/" className="wordmark px-3 text-sm">
           GLADIATOR
         </a>
-        <nav className="areanav flex flex-col gap-0.5" aria-label={t('nav.modeLabel')}>
-          {areaLinks('side')}
+        <nav className="areanav flex flex-col gap-4" aria-label={t('nav.sidebarLabel')}>
+          {sideGroups.map(({ area, pages, hidden }) => (
+            <div key={area.id} className="flex flex-col gap-0.5">
+              <p className="label px-3 pb-1">{t(area.labelKey)}</p>
+              {pages.map((p) => (
+                <a key={p.hash} href={p.hash} aria-current={activeHash === p.hash ? 'page' : undefined} title={t(p.descKey)}>
+                  {ico(p.icon, 'h-[16px] w-[16px]')}
+                  <span>{t(p.labelKey)}</span>
+                </a>
+              ))}
+              {hidden > 0 && (
+                <button type="button" onClick={() => setUiMode('profi')} className="px-3 py-1 text-left text-[11px] transition-colors hover:text-[color:var(--color-ink)]" style={{ color: 'var(--color-mut)' }} title={t('nav.modeProHint')}>
+                  ▸ {t('nav.proHint', { n: hidden })}
+                </button>
+              )}
+            </div>
+          ))}
         </nav>
         <div className="mt-auto flex flex-col gap-3 px-3">
           <span className="chip chip--acc w-fit">{t('common.paper')}</span>
@@ -315,9 +332,9 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
           </div>
         </header>
 
-        {/* Seiten des Bereichs als Segmente */}
+        {/* Seiten des Bereichs als Segmente — nur ohne Seitenleiste (Handy/Tablet); am Desktop steht jede Seite links */}
         {areaPages.length + morePages.length > 1 && (
-          <div className="mx-auto max-w-6xl px-4 pt-3 md:px-6">
+          <div className="mx-auto max-w-6xl px-4 pt-3 md:px-6 lg:hidden">
             <nav className="subnav" aria-label={t(AREAS.find((a) => a.id === activeArea)!.labelKey)}>
               {areaPages.map((p) => (
                 <a key={p.hash} href={p.hash} aria-current={activeHash === p.hash ? 'page' : undefined} title={t(p.descKey)}>
