@@ -17,12 +17,15 @@ import { IndicatorRenderer, type PlotOverride } from 'lightweight-charts-indicat
 import type { Bar as PineBar, IndicatorResult } from 'oakscriptjs';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
-import { paneLayout, type PaneSpec } from '../lib/chart-panes.js';
+import { chartHeight, inMainPane, paneLayout, paneStretchFactors, TIME_AXIS_HEIGHT, type PaneLayout, type PaneSpec } from '../lib/chart-panes.js';
+import { BUILTIN_KEYS, CHIP_KEYS, loadToggles, saveToggles, SMC_ALL_KEYS, SMC_KEYS, type ToggleKey, type Toggles } from '../lib/chart-toggles.js';
+import { isMaIndicator, maStyle, pickMaColor, usedPlotColors } from '../lib/ma-colors.js';
+import { importV2IndicatorsOnce, type ImportResult } from '../lib/v2-indicators.js';
 import { loadTf, pickTf, saveTf } from '../lib/chart-tf.js';
 import { CHART_TFS, type ChartTf, type ChartVenue } from '../lib/chart-url.js';
 import { loadStrategySlugs, saveStrategySlugs } from '../lib/chart-strategy-markers.js';
 import { cachedCatalog, loadCatalog } from '../lib/indicator-catalog.js';
-import { CATEGORY_KEYS, firstPlotTime, instanceLabel, legendColor, visiblePlotIds, type InstanceStyle, type MenuEntry } from '../lib/indicator-menu.js';
+import { CATEGORY_KEYS, firstPlotTime, instanceLabel, legendColor, MAX_INDICATORS_PER_SYMBOL, visiblePlotIds, type InstanceStyle, type MenuEntry } from '../lib/indicator-menu.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 import { IndicatorMenu, type PineStrategy } from './IndicatorMenu.js';
 import { IndicatorSettings } from './IndicatorSettings.js';
@@ -62,45 +65,7 @@ const C = {
   faint: 'rgba(139,148,184,0.35)',
 };
 
-type ToggleKey = 'ema' | 'bollinger' | 'volume' | 'structure' | 'zones' | 'liquidity' | 'pd' | 'signals' | 'rsi' | 'macd' | 'atr';
-const DEFAULT_TOGGLES: Record<ToggleKey, boolean> = {
-  ema: true,
-  bollinger: false,
-  volume: true,
-  structure: false,
-  zones: false,
-  liquidity: false,
-  pd: false,
-  signals: true,
-  rsi: false,
-  macd: false,
-  atr: false,
-};
-const TOGGLES_KEY = 'gladiator.chartToggles';
-const SMC_KEYS: ToggleKey[] = ['structure', 'zones', 'liquidity'];
-const BUILTIN_KEYS: ToggleKey[] = ['ema', 'bollinger', 'volume', 'rsi', 'macd', 'atr'];
-const SMC_ALL_KEYS: ToggleKey[] = ['structure', 'zones', 'liquidity', 'pd', 'signals'];
-
-/** Ansicht (welche Serien der Chart zeigt) ist eine Browser-Vorliebe — Unbekanntes → Standard. */
-function loadToggles(): Record<ToggleKey, boolean> {
-  try {
-    const raw = localStorage.getItem(TOGGLES_KEY);
-    if (!raw) return DEFAULT_TOGGLES;
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const out = { ...DEFAULT_TOGGLES };
-    for (const k of Object.keys(DEFAULT_TOGGLES) as ToggleKey[]) if (typeof parsed[k] === 'boolean') out[k] = parsed[k] as boolean;
-    return out;
-  } catch {
-    return DEFAULT_TOGGLES;
-  }
-}
-function saveToggles(t: Record<ToggleKey, boolean>): void {
-  try {
-    localStorage.setItem(TOGGLES_KEY, JSON.stringify(t));
-  } catch {
-    // nur Komfort
-  }
-}
+// Ansicht (welche eingebauten Serien der Chart zeigt): Standard wie v2, gespeicherte Wahl gewinnt — lib/chart-toggles.ts.
 
 /** Kleines Popover unter einem Werkzeug-Knopf (Ansicht, Zeichnen): Klick außerhalb oder Esc schließt. */
 function ToolPopover({ label, active, open, onToggle, onClose, children }: { label: string; active?: boolean; open: boolean; onToggle: () => void; onClose: () => void; children: React.ReactNode }) {
@@ -159,7 +124,8 @@ const SIGNAL_STATUS_LABEL: Record<SignalMarker['status'], string> = {
 
 const fmtPx = (n: number) => n.toLocaleString(appLocale(), { maximumFractionDigits: n >= 1000 ? 1 : 4 });
 
-const MAIN_HEIGHT = 340;
+/** Standard-Höhe des Kursfensters (Zellen); die Chart-Seite übergibt `mainHeight` (460) — gerechnet wird IMMER mit dem Prop. */
+const DEFAULT_MAIN_HEIGHT = 340;
 const PANE_HEIGHT = 120;
 
 const baseChartOptions = (timeframe: Timeframe, height: number) => ({
@@ -174,8 +140,16 @@ const baseChartOptions = (timeframe: Timeframe, height: number) => ({
     // Uhrzeit nur bei Intraday-TFs; Tages-/Wochen-/Monatskerzen zeigen nur das Datum.
     timeVisible: !['1d', '1w', '1M'].includes(timeframe),
     rightOffset: 4,
+    // feste Zeitachsen-Höhe → Fensterhöhen und Beschriftungen pixelgenau (lib/chart-panes.ts)
+    minimumHeight: TIME_AXIS_HEIGHT,
   },
 });
+
+/** Fensterhöhen über Stretch-Faktoren = Soll-Pixelhöhen (Kursfenster = mainHeight, nicht fest 340). */
+function applyPaneHeights(chart: IChartApi, layout: PaneLayout): void {
+  const apis = chart.panes();
+  paneStretchFactors(layout).forEach((f, i) => apis[i]?.setStretchFactor(f));
+}
 
 /** Gespeicherte Instanz eines Bibliotheks-Indikators (DB-Zeile, Browser-Form). */
 type IndicatorInstance = { id: string; indicatorId: string; inputs: Record<string, unknown>; style: InstanceStyle; position: number };
@@ -208,7 +182,7 @@ export function AssetChart({
   rememberTf = true,
   onTimeframeChange,
   venue = 'binance',
-  mainHeight = MAIN_HEIGHT,
+  mainHeight = DEFAULT_MAIN_HEIGHT,
   syncGroup,
 }: {
   symbol: string;
@@ -265,7 +239,7 @@ export function AssetChart({
     };
   }, [symbol, venue]);
   const shownTfs = CHART_TFS.filter((f) => availableTfs.includes(f) || f === tf);
-  const [toggles, setTogglesState] = useState<Record<ToggleKey, boolean>>(loadToggles);
+  const [toggles, setTogglesState] = useState<Toggles>(loadToggles);
   const setToggle = (key: ToggleKey, on: boolean) =>
     setTogglesState((prev) => {
       const next = { ...prev, [key]: on };
@@ -582,16 +556,43 @@ export function AssetChart({
     };
   }, []);
 
+  // Einmalige Übernahme der eigenen Indikatoren aus Version 2 (localStorage → DB), je Symbol.
+  const [v2Note, setV2Note] = useState<ImportResult | null>(null);
+  const runV2Import = async (forSymbol: string, existing: IndicatorInstance[]) => {
+    let storage: Storage;
+    try {
+      storage = localStorage;
+    } catch {
+      return; // ohne localStorage gibt es auch keine v2-Daten
+    }
+    const res = await importV2IndicatorsOnce(forSymbol, {
+      storage,
+      existing,
+      add: (item) => trpc.indicators.add.mutate({ symbol: forSymbol, ...item }),
+    });
+    if (!res || symbolRef.current !== forSymbol) return;
+    if (res.strategySlugs) setStrategySlugs(res.strategySlugs);
+    if (res.added > 0) {
+      const fresh = await trpc.indicators.list.query({ symbol: forSymbol });
+      if (symbolRef.current === forSymbol) setInstances(fresh.map(toInstance));
+    }
+    if (res.added > 0 || res.overLimit > 0 || res.failed || res.markersAdded > 0) setV2Note(res);
+  };
+
   useEffect(() => {
     let cancelled = false;
     setInstances([]);
     setComputed(new Map());
     setIndErr(null);
     setSettingsFor(null);
+    setV2Note(null);
     void trpc.indicators.list
       .query({ symbol })
       .then((rows) => {
-        if (!cancelled) setInstances(rows.map(toInstance));
+        if (cancelled) return;
+        const list = rows.map(toInstance);
+        setInstances(list);
+        return runV2Import(symbol, list);
       })
       .catch((e: unknown) => {
         if (!cancelled) setIndErr(e instanceof Error ? e.message : String(e));
@@ -615,10 +616,28 @@ export function AssetChart({
 
   const addIndicator = async (entry: MenuEntry) => {
     const forSymbol = symbol;
-    const row = await trpc.indicators.add.mutate({ symbol: forSymbol, indicatorId: entry.id });
+    // EMA/SMA: je Instanz eine eigene, auf dem Symbol noch freie Farbe (sonst alle in derselben Standardfarbe).
+    const style = isMaIndicator(entry.id) ? maStyle(pickMaColor(usedPlotColors(instances))) : undefined;
+    const row = await trpc.indicators.add.mutate({ symbol: forSymbol, indicatorId: entry.id, ...(style ? { style } : {}) });
     if (symbolRef.current !== forSymbol) return;
     setIndErr(null);
     setInstances((prev) => [...prev, toInstance(row)]);
+  };
+  /** „Alle Indikatoren entfernen" (wie der v2-Knopf „Zurücksetzen") — mit Rückfrage, nur dieses Symbol. */
+  const clearIndicators = () => {
+    if (instances.length === 0) return;
+    if (!window.confirm(t('chart.ind.clearConfirm', { count: instances.length, symbol }))) return;
+    const forSymbol = symbol;
+    void trpc.indicators.clear
+      .mutate({ symbol: forSymbol })
+      .then(() => {
+        if (symbolRef.current !== forSymbol) return;
+        setIndErr(null);
+        setSettingsFor(null);
+        setInstances([]);
+        setComputed(new Map());
+      })
+      .catch(indFail);
   };
   const updateInstance = async (id: string, patch: { inputs?: Record<string, unknown>; style?: InstanceStyle }) => {
     const row = await trpc.indicators.update.mutate({ id, ...patch });
@@ -896,9 +915,7 @@ export function AssetChart({
       renderers.delete(id);
     }
     // Fensterhöhen erneut setzen — vom Renderer neu angelegte Fenster hätten sonst Standardhöhe.
-    const paneApis = api.chart.panes();
-    paneApis[0]?.setStretchFactor(MAIN_HEIGHT);
-    for (const p of panes.panes) paneApis[p.index]?.setStretchFactor(p.height);
+    applyPaneHeights(api.chart, panes);
   };
 
   // Charts (neu)bauen bei Daten- oder Toggle-Änderung
@@ -908,7 +925,7 @@ export function AssetChart({
 
     // ── Hauptchart: Kerzen ──
     const priceEl = priceRef.current;
-    const price = createChart(priceEl, { width: priceEl.clientWidth, ...baseChartOptions(tf, panes.total) });
+    const price = createChart(priceEl, { width: priceEl.clientWidth, ...baseChartOptions(tf, chartHeight(panes)) });
     const candle = price.addSeries(CandlestickSeries, {
       upColor: C.green,
       downColor: C.red,
@@ -1005,7 +1022,7 @@ export function AssetChart({
     const onPointerDown = (e: PointerEvent) => {
       if (toolRef.current !== 'move') return;
       const px = localPt(e);
-      if (px.y > MAIN_HEIGHT) return; // Unterfenster: kein Zeichnungs-Griff
+      if (!inMainPane(px.y, panes)) return; // Unterfenster: kein Zeichnungs-Griff
       const id = pickDrawing(drawPrim.shapes(), px, 6);
       const d = id ? drawingsRef.current.find((x) => x.id === id) : undefined;
       const logical = price.timeScale().coordinateToLogical(px.x);
@@ -1306,9 +1323,7 @@ export function AssetChart({
     // Fenster der Bibliotheks-Indikatoren vorab anlegen (leer, bis das Ergebnis
     // vom Server da ist) — so stimmen Pane-Indizes und Beschriftungen immer.
     for (const p of panes.panes) if (p.key.startsWith('ind:') && price.panes().length <= p.index) price.addPane(true);
-    const paneApis = price.panes();
-    paneApis[0]?.setStretchFactor(MAIN_HEIGHT);
-    for (const p of panes.panes) paneApis[p.index]?.setStretchFactor(p.height);
+    applyPaneHeights(price, panes);
 
     // Bibliotheks-Indikatoren zeichnen (Ergebnisse vom Server, Live-Kerze mitgeführt)
     barsRef.current = toPineBars(data, liveBarRef.current);
@@ -1371,8 +1386,15 @@ export function AssetChart({
     zones: 'OB/FVG',
     liquidity: t('chart.liquidity'),
     pd: t('chart.pd'),
-    signals: 'Signale',
+    signals: t('chart.signals'),
   };
+  // Ein-Klick-Chips (wie v2): kurze Beschriftung, die volle steht im Tooltip und im Popover „Ansicht ▾".
+  const chipLabel: Record<ToggleKey, string> = { ...viewLabel, rsi: 'RSI', macd: 'MACD', atr: 'ATR' };
+  const chip = (key: ToggleKey) => (
+    <button key={key} type="button" className="tbtn px-2 py-0.5 text-[11px]" aria-pressed={toggles[key]} onClick={() => setToggle(key, !toggles[key])} title={viewLabel[key]}>
+      {chipLabel[key]}
+    </button>
+  );
   const toolRow = (key: Exclude<DrawingTool, 'none'>, label: string) => (
     <button
       key={key}
@@ -1453,7 +1475,7 @@ export function AssetChart({
 
   return (
     <div>
-      {/* EINE Werkzeugzeile (Welle C): Zeitrahmen · Ansicht ▾ · Smart Money · Bibliothek · Zeichnen ▾ · Replay */}
+      {/* EINE Werkzeugzeile (Welle C): Zeitrahmen · Ein-Klick-Chips (wie v2) · Ansicht ▾ · Smart Money · Bibliothek · Zeichnen ▾ · Replay */}
       <div className="toolbar mb-2" role="toolbar" aria-label={t('chart.view')}>
         <div className="flex gap-0.5 rounded-lg p-0.5" style={{ background: 'var(--color-bg3)' }}>
           {shownTfs.map((f) => (
@@ -1468,6 +1490,12 @@ export function AssetChart({
             </button>
           ))}
         </div>
+        <span className="mx-1 hidden h-4 w-px sm:block" style={{ background: 'var(--color-line)' }} aria-hidden="true" />
+        {/* v2-Bedienung: die neun Schalter direkt in der Leiste, ein Klick je Serie (bricht auf schmalen Bildschirmen um) */}
+        <div className="flex min-w-0 max-w-full flex-wrap gap-1" role="group" aria-label={t('chart.quickToggles')}>
+          {CHIP_KEYS.map(chip)}
+        </div>
+        <span className="mx-1 hidden h-4 w-px sm:block" style={{ background: 'var(--color-line)' }} aria-hidden="true" />
         <ToolPopover label={t('chart.view')} open={viewOpen} onToggle={() => setViewOpen((o) => !o)} onClose={() => setViewOpen(false)}>
           <p className="label px-1.5 pb-1">{t('chart.builtin')}</p>
           {BUILTIN_KEYS.map((k) => viewRow(k, viewLabel[k]))}
@@ -1638,7 +1666,7 @@ export function AssetChart({
       )}
 
       {state === 'loading' && (
-        <div className="flex h-[340px] items-center justify-center text-sm" style={{ color: 'var(--color-mut)' }}>
+        <div className="flex items-center justify-center text-sm" style={{ color: 'var(--color-mut)', height: mainHeight }}>
           {t('common.loading')}
         </div>
       )}
@@ -1706,7 +1734,25 @@ export function AssetChart({
                 {t('chart.ind.error', { msg: indErr })}
               </span>
             ) : null}
+            {instances.length > 0 ? (
+              <button type="button" onClick={clearIndicators} className="tbtn ml-auto px-2 py-0.5 text-[11px]" style={{ color: 'var(--color-neg)' }} title={t('chart.ind.clearConfirm', { count: instances.length, symbol })}>
+                ✕ {t('chart.ind.clearAll')}
+              </button>
+            ) : null}
           </div>
+        )}
+        {v2Note && (
+          <p className="label mt-1 flex flex-wrap items-center gap-x-2 px-2" role="status" style={{ color: v2Note.failed ? 'var(--color-warn)' : 'var(--color-cyan)' }}>
+            <span>
+              {t('chart.ind.v2Imported', { n: v2Note.added })}
+              {v2Note.markersAdded > 0 ? ` · ${t('chart.ind.v2Markers', { n: v2Note.markersAdded })}` : ''}
+            </span>
+            {v2Note.overLimit > 0 ? <span>{t('chart.ind.v2OverLimit', { n: v2Note.overLimit, max: MAX_INDICATORS_PER_SYMBOL })}</span> : null}
+            {v2Note.failed ? <span>{t('chart.ind.v2Failed', { msg: v2Note.failed })}</span> : null}
+            <button type="button" onClick={() => setV2Note(null)} className="underline-offset-2 hover:underline" style={{ color: 'var(--color-mut)' }}>
+              {t('chart.ind.dismiss')}
+            </button>
+          </p>
         )}
         {instances.some((i) => computed.get(i.id)?.error) && (
           <p className="label mt-1 px-2" style={{ color: 'var(--color-warn)' }}>

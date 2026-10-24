@@ -24,8 +24,11 @@ export function isChartVenue(v: string | null | undefined): v is ChartVenue {
   return v != null && (CHART_VENUES as readonly string[]).includes(v);
 }
 
-/** Tabs der Asset-Detailseite (Makro/Risiko liegen in der Marktlage). */
-export const ASSET_TABS = ['chart', 'kontext'] as const;
+/**
+ * Tabs der Chart-Seite — wie v2: Chart · Analyse · Makro · Risiko (Patrick 2026-10-24).
+ * Makro/Risiko zeigen dieselben Komponenten wie die Marktlage (MacroPanels/RiskPanels).
+ */
+export const ASSET_TABS = ['chart', 'kontext', 'makro', 'risiko'] as const;
 export type AssetTab = (typeof ASSET_TABS)[number];
 
 /** Baut das Chart-Hash-Ziel; Symbol wird URL-enkodiert (Slash → %2F). */

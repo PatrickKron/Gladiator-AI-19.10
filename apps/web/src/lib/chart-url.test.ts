@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildAssetUrl, buildChartUrl, isChartTf, parseChartHash } from './chart-url.js';
+import { ASSET_TABS, buildAssetUrl, buildChartUrl, isChartTf, parseChartHash } from './chart-url.js';
+import { parseTab } from './tab-hash.js';
 
 describe('buildChartUrl', () => {
   it('enkodiert den Slash im Symbol und hängt tf an', () => {
@@ -35,6 +36,22 @@ describe('buildAssetUrl', () => {
   });
   it('kombiniert tf und tab', () => {
     expect(buildAssetUrl('BTC/USDT', 'risiko', '4h')).toBe('#/charts?symbol=BTC%2FUSDT&tf=4h&tab=risiko');
+  });
+});
+
+describe('Tabs der Chart-Seite (wie v2: Chart · Analyse · Makro · Risiko)', () => {
+  it('Makro und Risiko sind wieder Tabs der Chart-Seite', () => {
+    expect(ASSET_TABS).toEqual(['chart', 'kontext', 'makro', 'risiko']);
+  });
+  it('#/charts?tab=makro|risiko öffnet den Tab; Unbekanntes → Chart', () => {
+    expect(parseTab('#/charts?tab=makro', ASSET_TABS, 'chart')).toBe('makro');
+    expect(parseTab('#/charts?symbol=ETH%2FUSDT&tab=risiko', ASSET_TABS, 'chart')).toBe('risiko');
+    expect(parseTab('#/charts?tab=entscheidung', ASSET_TABS, 'chart')).toBe('chart');
+  });
+  it('Roundtrip: buildAssetUrl → Tab und Symbol bleiben erhalten', () => {
+    const url = buildAssetUrl('SOL/USDT', 'makro', '4h');
+    expect(parseTab(url, ASSET_TABS, 'chart')).toBe('makro');
+    expect(parseChartHash(url)).toEqual({ symbol: 'SOL/USDT', tf: '4h', venue: null });
   });
 });
 
