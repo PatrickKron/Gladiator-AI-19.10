@@ -525,8 +525,8 @@ export function OrderTicket({ onPlaced, symbol: fixedSymbol, venue: fixedVenue, 
           )}
         </div>
 
-        {/* Erweitert: alles bleibt, nur aufgeklappt */}
-        <details className="group mt-3">
+        {/* Erweitert: wie in v2 standardmäßig offen (Ordertyp, Limit, SL/TP, Kostenaufschlüsselung sofort sichtbar) — zuklappbar */}
+        <details className="group mt-3" open>
           <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl px-4 py-2.5 text-sm" style={{ background: 'var(--color-bg3)' }}>
             <span>
               {t('demo.advanced')}

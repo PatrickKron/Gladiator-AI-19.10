@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AREAS, NAV_PAGES, NAV_PAGES as PAGES, findPage, navEntries, pageForHash, resolveRedirect, searchNav, subnavPages, type NavEntry } from './navigation.js';
+import { AREAS, NAV_PAGES, NAV_PAGES as PAGES, findPage, navEntries, pageForHash, resolveRedirect, searchNav, sidebarGroups, subnavPages, tabForHash, type NavEntry } from './navigation.js';
 import { de } from '../i18n/de.js';
 
 /** Übersetzer-Stub: schlägt Keys im DE-Katalog nach (wie i18next). */
@@ -58,8 +58,6 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
       ['#/rl-agenten', '#/intelligenz?tab=rl'],
       ['#/performance', '#/intelligenz?tab=performance'],
       ['#/intelligenz?tab=intel', '#/marktlage?tab=entscheidung'],
-      ['#/charts?symbol=ETH%2FUSDT&tab=makro', '#/marktlage?tab=makro'],
-      ['#/charts?tab=risiko', '#/marktlage?tab=risiko'],
       // Welle 3: alte Konto-Seiten → #/traden, Unter-Tab bleibt erhalten
       ['#/strategie-workshop', '#/strategien?tab=workshop'],
       ['#/demo', '#/traden?tab=demo'],
@@ -72,6 +70,9 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
 
     it('normale Links werden nicht umgeleitet', () => {
       expect(resolveRedirect('#/charts?symbol=BTC%2FUSDT&tab=kontext')).toBeNull();
+      // Makro/Risiko sind wieder Tabs der Chart-Seite (wie v2) — keine Umleitung mehr in die Marktlage
+      expect(resolveRedirect('#/charts?tab=makro')).toBeNull();
+      expect(resolveRedirect('#/charts?symbol=ETH%2FUSDT&tab=risiko')).toBeNull();
       expect(resolveRedirect('#/intelligenz?tab=rl')).toBeNull();
       expect(resolveRedirect('#/')).toBeNull();
     });
@@ -122,6 +123,35 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
     });
   });
 
+  describe('Seitenleiste wie v2: jede Seite direkt, gruppiert nach Bereich', () => {
+    it('Profi: jede Registry-Seite steht genau einmal in der Seitenleiste, in Registry-Reihenfolge', () => {
+      const groups = sidebarGroups('profi', '#/');
+      expect(groups.map((g) => g.area.id)).toEqual(AREAS.map((a) => a.id));
+      const listed = groups.flatMap((g) => g.pages.map((p) => p.hash));
+      expect(listed).toEqual(AREAS.flatMap((a) => NAV_PAGES.filter((p) => p.area === a.id).map((p) => p.hash)));
+      expect(new Set(listed).size).toBe(NAV_PAGES.length);
+      expect(groups.every((g) => g.hidden === 0)).toBe(true);
+    });
+
+    it('Seiten bleiben in ihrem Bereich (eine Wahrheit mit der Registry)', () => {
+      for (const g of sidebarGroups('profi', '#/')) expect(g.pages.every((p) => p.area === g.area.id)).toBe(true);
+    });
+
+    it('Einfach: Profi-Seiten fehlen in der Leiste, werden aber gezählt (Hinweis „n weitere“) — die aktive bleibt sichtbar', () => {
+      const agents = sidebarGroups('einfach', '#/strategien').find((g) => g.area.id === 'agents')!;
+      expect(agents.pages.map((p) => p.id)).toEqual(['agents', 'strategies']);
+      expect(agents.hidden).toBe(2);
+      const onLab = sidebarGroups('einfach', '#/labor').find((g) => g.area.id === 'agents')!;
+      expect(onLab.pages.map((p) => p.id)).toEqual(['agents', 'strategies', 'lab']);
+      expect(onLab.hidden).toBe(1);
+    });
+
+    it('Einfach verliert nichts: sichtbar + gezählt = alle Seiten', () => {
+      const groups = sidebarGroups('einfach', '#/');
+      expect(groups.reduce((n, g) => n + g.pages.length + g.hidden, 0)).toBe(NAV_PAGES.length);
+    });
+  });
+
   describe('Welle F: Segmentleiste im Einfach-Modus', () => {
     it('Profi zeigt alle Seiten des Bereichs, nichts hinter „Mehr"', () => {
       const r = subnavPages('agents', 'profi', '#/strategien');
@@ -145,6 +175,18 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
         expect([...r.shown, ...r.more].map((p) => p.hash).sort()).toEqual([...all].sort());
       }
     });
+  });
+
+  it('Chart-Seite: Tabs Chart · Analyse · Makro · Risiko (wie v2); Marktlage behält Makro und Risiko', () => {
+    const chart = pageForHash('#/charts')!;
+    expect(chart.tabs?.map((x) => x.id)).toEqual(['chart', 'kontext', 'makro', 'risiko']);
+    expect(tabForHash(chart, '#/charts?symbol=ETH%2FUSDT&tab=makro')?.labelKey).toBe('asset.tab_makro');
+    expect(tabForHash(chart, '#/charts?tab=risiko')?.labelKey).toBe('asset.tab_risiko');
+    expect(pageForHash('#/marktlage')?.tabs?.map((x) => x.id)).toEqual(['makro', 'risiko', 'entscheidung', 'daten']);
+    // Suche findet beide Orte
+    const hashes = searchNav(navEntries(t), 'makro', 20).map((e) => e.hash);
+    expect(hashes).toContain('#/charts?tab=makro');
+    expect(hashes).toContain('#/marktlage?tab=makro');
   });
 
   it('Welle E: alte Werkstatt-Links landen als Tab unter Agenten', () => {

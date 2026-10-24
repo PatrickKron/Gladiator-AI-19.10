@@ -44,6 +44,7 @@ export function resolveHotkey(key: string, pendingSince: number | null, now: num
 export const VIEW_PREFERENCE_KEYS = [
   'gladiator.uiMode',
   'gladiator.tradeAccount',
+  'gladiator.tradeAccount.v2',
   'gladiator.chartBookDock',
   'gladiator.selectedAsset',
   'gladiator.demoMode',

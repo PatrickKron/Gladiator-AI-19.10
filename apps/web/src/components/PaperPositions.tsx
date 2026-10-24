@@ -202,6 +202,10 @@ export function PaperPositions({ positions, onChanged }: { positions: PaperPosit
                   <span className="label mr-1.5">{t('trading.uPnl')}</span>
                   {fmt(p.unrealizedPnl)} $
                 </span>
+                <span>
+                  <span className="label mr-1.5">{t('position.opened')}</span>
+                  {new Date(p.openedAt).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' })}
+                </span>
               </div>
             </div>
 

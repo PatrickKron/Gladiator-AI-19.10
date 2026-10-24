@@ -54,3 +54,15 @@ export function rangeChange(points: { equity: number }[]): { abs: number; pct: n
   if (!(first > 0)) return null;
   return { abs: last - first, pct: ((last - first) / first) * 100 };
 }
+
+/** Min/Max und Zeitraum eines sichtbaren Verlaufs (Punkte chronologisch) — unter dem Chart wie in v2; < 2 Punkte ⇒ null. */
+export function rangeStats(points: { ts: string; equity: number }[]): { min: number; max: number; from: string; to: string } | null {
+  if (points.length < 2) return null;
+  let min = Infinity;
+  let max = -Infinity;
+  for (const p of points) {
+    if (p.equity < min) min = p.equity;
+    if (p.equity > max) max = p.equity;
+  }
+  return { min, max, from: points[0]!.ts, to: points[points.length - 1]!.ts };
+}

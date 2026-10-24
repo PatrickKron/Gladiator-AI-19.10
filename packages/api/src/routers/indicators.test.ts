@@ -158,4 +158,14 @@ describe.skipIf(!hasDb)('indicators-Router: Katalog, Rechnung, CRUD, Scoping', (
     expect(await a.indicators.clear({ symbol: SYMBOL })).toEqual({ deleted: MAX_INDICATORS_PER_SYMBOL - 1 });
     expect(await a.indicators.list({ symbol: SYMBOL })).toEqual([]);
   });
+
+  it('add mit Stil: eigene Linienfarbe gleich beim Anlegen (mehrere EMAs unterscheidbar)', async () => {
+    const ema = await a.indicators.add({ symbol: SYMBOL, indicatorId: 'ema', inputs: { length: 21 }, style: { plots: { plot0: { color: '#e14ecf' } } } });
+    expect(ema.style?.plots?.plot0?.color).toBe('#e14ecf');
+    const plain = await a.indicators.add({ symbol: SYMBOL, indicatorId: 'ema', inputs: { length: 50 } });
+    expect(plain.style).toBeNull();
+    // gleicher strenger Stil wie bei update: fremde Felder → BAD_REQUEST
+    await expect(a.indicators.add({ symbol: SYMBOL, indicatorId: 'ema', style: { fremd: 1 } as never })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    expect(await a.indicators.clear({ symbol: SYMBOL })).toEqual({ deleted: 2 });
+  });
 });

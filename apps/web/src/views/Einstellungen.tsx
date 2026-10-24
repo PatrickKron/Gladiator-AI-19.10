@@ -276,12 +276,12 @@ function StockDataPanel() {
   return (
     <Panel label="Aktien / ETF / Forex · Twelve Data" stagger={4} className="mt-5">
       <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
-        Echte Kerzen für Aktien, ETFs und Forex — alle verfügbaren Auflösungen. Voraussetzung: TWELVE_DATA_API_KEY oben eintragen
-        (800 Calls/Tag gratis auf twelvedata.com). Ein Timeframe je Aufruf, ~7,5 s Abstand (8 Calls/min-Limit).
+        Echte Kerzen für Aktien, ETFs und Forex — alle verfügbaren Auflösungen. Voraussetzung: TWELVE_DATA_API_KEY im Tab{' '}
+        <a href="#/einstellungen?tab=keys" className="underline">API-Keys</a> eintragen (800 Calls/Tag gratis auf twelvedata.com). Ein Timeframe je Aufruf, ~7,5 s Abstand (8 Calls/min-Limit).
       </p>
       {status && !status.configured && (
         <p className="mt-3 text-xs" style={{ color: 'var(--color-warn)' }}>
-          Noch kein Key gesetzt — trage TWELVE_DATA_API_KEY oben ein, dann hier laden.
+          Noch kein Key gesetzt — trage TWELVE_DATA_API_KEY im Tab <a href="#/einstellungen?tab=keys" className="underline">API-Keys</a> ein, dann hier laden.
         </p>
       )}
 
