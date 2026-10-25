@@ -19,6 +19,8 @@ export type AssetQuote = {
   changePct: number | null;
   /** ISO-Währungscode der Quelle (EUR/JPY/… bei Auslandsbörsen); USX = US-Cent. */
   currency: string | null;
+  /** 24h-Handelsvolumen in Quote-Währung (USDT) — nur Binance liefert es; sonst null (nie geschätzt). */
+  quoteVolume24h: number | null;
   source: 'binance' | 'tradingview' | 'cboe';
   ts: string;
 };
@@ -52,7 +54,7 @@ export function quoteSourceFor(asset: QuoteAsset): QuoteSource {
 
 // ── Parser (pure, getestet) ──────────────────────────────────────────────
 
-export type RawQuote = { price: number; changePct: number | null; currency: string | null };
+export type RawQuote = { price: number; changePct: number | null; currency: string | null; quoteVolume?: number };
 
 /** Parst die Scanner-Antwort (columns: name,close,change,currency,description). */
 export function parseTvScanResponse(json: unknown): Map<string, RawQuote> {
@@ -74,15 +76,19 @@ export function parseTvScanResponse(json: unknown): Map<string, RawQuote> {
   return out;
 }
 
-/** Parst /api/v3/ticker/24hr-Batch (Array aus {symbol,lastPrice,priceChangePercent}). */
+/** Parst /api/v3/ticker/24hr-Batch (Array aus {symbol,lastPrice,priceChangePercent,quoteVolume}). */
 export function parseBinanceTickers(json: unknown): Map<string, RawQuote> {
   const out = new Map<string, RawQuote>();
   if (!Array.isArray(json)) return out;
-  for (const row of json as { symbol?: string; lastPrice?: string; priceChangePercent?: string }[]) {
+  for (const row of json as { symbol?: string; lastPrice?: string; priceChangePercent?: string; quoteVolume?: string }[]) {
     const price = Number(row.lastPrice);
     if (typeof row.symbol !== 'string' || !Number.isFinite(price) || price <= 0) continue;
     const change = Number(row.priceChangePercent);
-    out.set(row.symbol, { price, changePct: Number.isFinite(change) ? change : null, currency: 'USDT' });
+    const q: RawQuote = { price, changePct: Number.isFinite(change) ? change : null, currency: 'USDT' };
+    // 24h-Volumen in USDT (Heatmap-Kachelgröße) — nur wenn die Börse eine gültige Zahl liefert
+    const vol = row.quoteVolume === undefined ? Number.NaN : Number(row.quoteVolume);
+    if (Number.isFinite(vol) && vol >= 0) q.quoteVolume = vol;
+    out.set(row.symbol, q);
   }
   return out;
 }
@@ -228,7 +234,9 @@ export async function getAssetQuotes(assetList: QuoteAsset[]): Promise<Record<st
     for (const [symbol, tickers] of group) {
       const q = quotes.get(symbol);
       if (!q) continue;
-      for (const ticker of tickers) out[ticker] = { ticker, price: q.price, changePct: q.changePct, currency: q.currency, source, ts };
+      for (const ticker of tickers) {
+        out[ticker] = { ticker, price: q.price, changePct: q.changePct, currency: q.currency, quoteVolume24h: source === 'binance' ? (q.quoteVolume ?? null) : null, source, ts };
+      }
     }
   };
 
@@ -250,7 +258,7 @@ export async function getAssetQuotes(assetList: QuoteAsset[]): Promise<Record<st
       const fallback = await fetchTvQuotes(missingCrypto.map((a) => `CRYPTO:${a.ticker.toUpperCase()}USD`));
       for (const a of missingCrypto) {
         const q = fallback.get(`CRYPTO:${a.ticker.toUpperCase()}USD`);
-        if (q) out[a.ticker] = { ticker: a.ticker, price: q.price, changePct: q.changePct, currency: q.currency, source: 'tradingview', ts };
+        if (q) out[a.ticker] = { ticker: a.ticker, price: q.price, changePct: q.changePct, currency: q.currency, quoteVolume24h: null, source: 'tradingview', ts };
       }
     } catch {
       // Fallback-Quelle tot → ehrlich null lassen

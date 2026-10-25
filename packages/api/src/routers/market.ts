@@ -56,6 +56,7 @@ import { protectedProcedure, router } from '../trpc.js';
 import { buildAssetAnalysis } from '../market/asset-analysis.js';
 import { assetNews } from '../market/asset-news.js';
 import { assetVerdicts } from '../market/asset-verdict.js';
+import { CORRELATION_DAYS, CORRELATION_VENUES, MAX_CORRELATION_SYMBOLS, loadCorrelation, loadHeatmapUniverse } from '../market/correlation.js';
 
 /**
  * Alle unterstützten Chart-Timeframes (Feature A) als zod-Enum — für chartData,
@@ -478,6 +479,25 @@ export const marketRouter = router({
 
   /** Aktuelles Scan-Universum (Basis + Stern-Favoriten) — für Selektoren. */
   scanUniverse: protectedProcedure.query(({ ctx }) => scanUniverse(ctx.db)),
+
+  /**
+   * Heatmap: welche Symbole haben echte Tageskerzen (Binance/Yahoo/Twelve Data) — Auswahl der
+   * Korrelations-Matrix und Chart-Sprung der Performance-Kacheln. Vorauswahl: Favoriten, dann Scan.
+   */
+  heatmapUniverse: protectedProcedure.query(({ ctx }) => loadHeatmapUniverse(ctx.db, ctx.user.id)),
+
+  /**
+   * Korrelation der Tagesrenditen (Heatmap › Korrelation): 1d-Kerzen aus der DB, je Paar nur
+   * gemeinsame Tage, Log-Renditen, Pearson. Unter MIN_COMMON_RETURNS gemeinsamen Renditen null.
+   */
+  correlation: protectedProcedure
+    .input(
+      z.object({
+        symbols: z.array(z.object({ symbol: z.string().min(1).max(40), venue: z.enum(CORRELATION_VENUES) })).min(2).max(MAX_CORRELATION_SYMBOLS),
+        days: z.union([z.literal(CORRELATION_DAYS[0]), z.literal(CORRELATION_DAYS[1]), z.literal(CORRELATION_DAYS[2])]),
+      }),
+    )
+    .query(({ ctx, input }) => loadCorrelation(ctx.db, { symbols: input.symbols.map((s) => ({ symbol: s.symbol.toUpperCase(), venue: s.venue })), days: input.days })),
 
   /** Oracle · Shadow · Sentinel für ein Asset auf einen Klick (Mängelliste Punkt 6) — nur echte, synchronisierte Daten. */
   assetAnalysis: protectedProcedure.input(z.object({ symbol: z.string().min(3).max(40) })).query(({ ctx, input }) => buildAssetAnalysis(ctx.db, ctx.user.id, input.symbol)),

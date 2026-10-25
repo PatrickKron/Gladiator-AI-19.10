@@ -118,6 +118,20 @@ export const PAGES = [
     keywords: ['pakete', 'packages', 'assets', 'aktien', 'stocks', 'etf', 'krypto', 'suche'],
   },
   {
+    // Patrick 2026-10-25: „Heatmaps und so weiter sollen benutzbar sein — die Übersicht." Nur echte Kurse/Kerzen.
+    id: 'heatmap',
+    hash: '#/heatmap',
+    area: 'market',
+    labelKey: 'ia.page_heatmap',
+    descKey: 'ia.desc_heatmap',
+    icon: 'M3 3h10v10H3zM15 3h6v6h-6zM15 11h6v10h-6zM3 15h10v6H3z',
+    keywords: ['heatmap', 'heat map', 'performance', 'korrelation', 'correlation', 'übersicht', 'overview', 'treemap', 'kacheln', 'tiles', 'gewinner', 'verlierer', 'winners', 'losers', 'tagesänderung'],
+    tabs: [
+      { id: 'performance', labelKey: 'ia.tab_heatmapPerformance', keywords: ['performance', 'tagesänderung', 'daily change', '24h', 'gewinner', 'verlierer', 'treemap', 'kacheln'] },
+      { id: 'korrelation', labelKey: 'ia.tab_heatmapKorrelation', keywords: ['korrelation', 'correlation', 'matrix', 'gleichlauf', 'diversifikation', 'diversification', 'pearson'] },
+    ],
+  },
+  {
     id: 'calendar',
     hash: '#/kalender',
     area: 'market',

@@ -346,6 +346,7 @@ export function Pakete() {
       <PageHeader
         title={t('discover.title')}
         subtitle={t('discover.subtitle', { packages: pkgs?.length ?? '…', assets: totalAssets || '…' })}
+        right={<a href="#/heatmap" className="btn shrink-0 px-3.5 py-1.5 text-sm">{t('ia.page_heatmap')} →</a>}
       />
       {error && <ErrorBox message={error} />}
       <p className="mb-5 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>

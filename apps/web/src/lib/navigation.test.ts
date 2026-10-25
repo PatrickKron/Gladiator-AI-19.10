@@ -189,6 +189,22 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
     expect(hashes).toContain('#/marktlage?tab=makro');
   });
 
+  it('Heatmap (Patrick 2026-10-25): Markt-Seite mit Performance + Korrelation, auch im Einfach-Modus sichtbar, per Suche auffindbar', () => {
+    const page = pageForHash('#/heatmap?tab=korrelation')!;
+    expect(page.id).toBe('heatmap');
+    expect(page.area).toBe('market');
+    expect(page.advanced).toBeUndefined();
+    expect(page.tabs?.map((x) => x.id)).toEqual(['performance', 'korrelation']);
+    expect(tabForHash(page, '#/heatmap?tab=korrelation')?.labelKey).toBe('ia.tab_heatmapKorrelation');
+    expect(subnavPages('market', 'einfach', '#/').shown.map((p) => p.id)).toContain('heatmap');
+    const entries = navEntries(t);
+    expect(searchNav(entries, 'heatmap')[0]?.hash).toBe('#/heatmap');
+    expect(searchNav(entries, 'korrelation')[0]?.hash).toBe('#/heatmap?tab=korrelation');
+    // englischer Suchbegriff in deutscher Oberfläche: Seite und Tab ganz oben
+    expect(searchNav(entries, 'correlation', 2).map((e) => e.hash)).toEqual(['#/heatmap', '#/heatmap?tab=korrelation']);
+    expect(searchNav(entries, 'overview', 20).map((e) => e.hash)).toContain('#/heatmap');
+  });
+
   it('Welle E: alte Werkstatt-Links landen als Tab unter Agenten', () => {
     expect(resolveRedirect('#/werkstatt')).toBe('#/agenten?tab=werkstatt');
     expect(pageForHash('#/werkstatt')).toBeNull();

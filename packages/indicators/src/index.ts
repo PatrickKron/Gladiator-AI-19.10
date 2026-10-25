@@ -31,3 +31,16 @@ export {
 } from './screener/conditions.js';
 export { evaluateScreen, ScreenEvaluator, type ScreenResult, type EvalContext } from './screener/evaluate.js';
 export { SCREEN_PRESETS } from './screener/presets.js';
+// Heatmap › Korrelation: Tagesrenditen paarweise vollständig ausrichten, Pearson (rein, getestet).
+export {
+  alignPairwise,
+  correlationMatrix,
+  dailyCloses,
+  logReturns,
+  pairCorrelation,
+  pairReturns,
+  pearson,
+  utcDateKey,
+  type CorrelationOptions,
+  type DailyCloses,
+} from './correlation.js';

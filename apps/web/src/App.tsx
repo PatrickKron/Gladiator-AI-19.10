@@ -54,6 +54,7 @@ const Funktionen = lazyView(() => import('./views/Funktionen.js'), 'Funktionen')
 const Protokoll = lazyView(() => import('./views/Protokoll.js'), 'Protokoll');
 const Traden = lazyView(() => import('./views/Traden.js'), 'Traden');
 const Screener = lazyView(() => import('./views/Screener.js'), 'Screener');
+const Heatmap = lazyView(() => import('./views/Heatmap.js'), 'Heatmap');
 
 type AuthState = 'restoring' | 'anonymous' | 'authenticated';
 
@@ -71,6 +72,7 @@ const ROUTES = {
   '#/signals': Signals,
   '#/marktlage': Marktlage,
   '#/pakete': Pakete,
+  '#/heatmap': Heatmap,
   '#/kalender': Kalender,
   '#/magazine': Magazine,
   '#/traden': Traden,
