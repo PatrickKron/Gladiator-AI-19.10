@@ -1,8 +1,6 @@
 import type { Db } from '@gladiator/db';
-import { schema } from '@gladiator/db';
 import { sanitizeCandles, type RawOhlcv } from './candles.js';
-
-const { ohlcv } = schema;
+import { candleRows, upsertCandles } from './candle-store.js';
 
 /**
  * Twelve Data (https://twelvedata.com) — echter Aktien-/ETF-/Forex-/Krypto-Feed.
@@ -138,7 +136,7 @@ export type TwelveDataIngestResult = {
 };
 
 /**
- * Ingest EINER Auflösung in die OHLCV-Hypertable (idempotent, onConflictDoNothing).
+ * Ingest EINER Auflösung in die OHLCV-Hypertable (idempotent, Upsert — neuester Stand gewinnt).
  * Datenqualität wird geprüft (sanitizeCandles); verworfene Kerzen werden gemeldet.
  */
 export async function ingestTwelveData(
@@ -158,25 +156,8 @@ export async function ingestTwelveData(
     log(`VERWORFEN ${opts.symbol} ${opts.timeframe} @${r.candle.ts.toISOString()}: ${r.errors.join(', ')}`);
   }
 
-  let inserted = 0;
-  if (valid.length > 0) {
-    const rows = valid.map((c) => ({
-      venue: TWELVEDATA_VENUE,
-      symbol: opts.symbol,
-      timeframe: opts.timeframe,
-      ts: c.ts,
-      open: String(c.open),
-      high: String(c.high),
-      low: String(c.low),
-      close: String(c.close),
-      volume: String(c.volume),
-    }));
-    for (let i = 0; i < rows.length; i += 500) {
-      const chunk = rows.slice(i, i + 500);
-      const res = await db.insert(ohlcv).values(chunk).onConflictDoNothing();
-      inserted += res.rowCount ?? 0;
-    }
-  }
+  // Upsert (candle-store.ts): die offene letzte Kerze bekommt beim nächsten Abruf ihren endgültigen Stand
+  const inserted = valid.length > 0 ? await upsertCandles(db, candleRows(TWELVEDATA_VENUE, opts.symbol, opts.timeframe, valid)) : 0;
 
   return {
     venue: TWELVEDATA_VENUE,

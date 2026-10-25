@@ -82,6 +82,8 @@ export const priceAlerts = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     symbol: text('symbol').notNull(),
+    /** Kerzen-/Preisquelle ('binance' | 'yahoo' | 'twelvedata'); null = Altbestand → Binance-Markpreis. */
+    venue: text('venue'),
     condition: text('condition').notNull(), // 'above' | 'below'
     price: numeric('price').notNull(),
     note: text('note'),

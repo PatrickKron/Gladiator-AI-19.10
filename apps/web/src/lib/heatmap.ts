@@ -203,7 +203,7 @@ export type HeatQuote = {
   changePct: number | null;
   currency: string | null;
   quoteVolume24h?: number | null;
-  source: 'binance' | 'tradingview' | 'cboe';
+  source: 'binance' | 'tradingview' | 'cboe' | 'candles';
   ts: string;
 };
 export type HeatLive = { price: number; changePct: number | null; ts: string };

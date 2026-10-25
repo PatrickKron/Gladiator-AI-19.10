@@ -7,6 +7,7 @@ import {
   serial,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { users } from './auth.js';
@@ -31,7 +32,12 @@ export const packages = pgTable('packages', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-/** Handelbare Instrumente innerhalb der Pakete. */
+/**
+ * Handelbare Instrumente innerhalb der Pakete. Seit dem Asset-Register (2026-10-25) auch
+ * vom Nutzer hinzugefügte Märkte (Paket `user-markets`): `candle_venue` + `data_symbol`
+ * sagen, woher die echten Kerzen kommen — gesetzt, sobald ein Asset im Register läuft
+ * (product.addAsset bzw. Kerzen auf Abruf). Seed-Assets ohne beides bleiben, wie sie sind.
+ */
 export const assets = pgTable(
   'assets',
   {
@@ -49,9 +55,17 @@ export const assets = pgTable(
     quoteCurrency: text('quote_currency'),
     totalSignals: integer('total_signals').notNull().default(0),
     isActive: boolean('is_active').notNull().default(true),
+    /** Kerzenquelle: 'binance' | 'yahoo' | 'twelvedata' (null = nicht im Register). */
+    candleVenue: text('candle_venue'),
+    /** Exaktes Kerzen-Symbol der Quelle, z. B. 'BTC/USDT', 'EURUSD=X', '^GSPC', 'GC=F'. */
+    dataSymbol: text('data_symbol'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('assets_package_idx').on(t.packageId)],
+  (t) => [
+    index('assets_package_idx').on(t.packageId),
+    // Eine Quelle + ein Symbol = genau eine Register-Zeile (NULLs kollidieren in Postgres nicht → Seed bleibt frei).
+    uniqueIndex('assets_candle_source_uidx').on(t.candleVenue, t.dataSymbol),
+  ],
 );
 
 /** Paket-Abos je User. */

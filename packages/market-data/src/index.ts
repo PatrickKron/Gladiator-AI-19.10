@@ -1,4 +1,6 @@
-export { backfillOhlcv, candleUniverse, getOhlcv, type BackfillResult } from './ohlcv.js';
+export { backfillOhlcv, candleUniverse, getOhlcv, latestCandleTs, latestFreshClose, LATEST_CLOSE_TIMEFRAMES, type BackfillResult } from './ohlcv.js';
+export { candleRows, upsertCandles, type OhlcvRow } from './candle-store.js';
+export { FRESH_INTERVALS, freshCutoff, freshnessLimitMs, isCandleFresh, pickLatestClose, type CloseCandidate, type LatestClose } from './freshness.js';
 export { filterSpotPairs, listBinanceSpotPairs, resetSpotPairCache, searchSpotPairs, type SpotPair } from './symbols.js';
 export {
   BARS_PER_YEAR,
@@ -8,7 +10,7 @@ export {
   orderTimeframes,
   type SupportedTimeframe,
 } from './timeframes.js';
-export { LivePriceFeed, type Ticker, type FeedStatus } from './live-prices.js';
+export { FEED_SYMBOL_CAP, LivePriceFeed, feedPairsFrom, type Ticker, type FeedStatus } from './live-prices.js';
 export { parseCandle, validateCandle, sanitizeCandles, type Candle, type RawOhlcv } from './candles.js';
 export { computeGrs, deriveGrsFromSeries, grsHistory, type Grs, type GrsInputs, type MacroPoint } from './grs.js';
 export {
@@ -39,7 +41,10 @@ export {
   fetchYahooOhlcv,
   parseYahooOhlcv,
   yahooIntervalFor,
+  yahooRefreshRange,
+  YAHOO_LOAD_PLAN,
   YAHOO_VENUE,
+  type YahooChartMeta,
   type YahooOhlcvParse,
   type YahooIngestResult,
 } from './yahoo-chart.js';

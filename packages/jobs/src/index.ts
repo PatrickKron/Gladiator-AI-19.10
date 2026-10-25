@@ -7,8 +7,32 @@ export { notify, notifySafe, pushConfig, pushPayload, telegramHtmlToText, type N
 export { buildBriefing, latestBriefing, renderBriefing, runNightPipeline, type BriefingData, type NightPipelineResult } from './briefing.js';
 export { enqueueRlEpisodeRun, workerHeartbeatAgeSec, workerHeartbeatAgeSecAsync } from './worker.js';
 export { explainForUser, deterministicExplanation, buildExplanationMessages, sanitizeExplanation, type ExplanationFacts } from './explanation.js';
-export { buildUniverse, ensureCandles, normalizeTradingPair, scanUniverse, BASE_SYMBOLS } from './universe.js';
-export { alertTriggered, checkPriceAlerts } from './alerts.js';
+export { buildUniverse, ensureCandles, normalizeTradingPair, scanUniverse, BASE_SYMBOLS, MAX_UNIVERSE } from './universe.js';
+export { alertSource, alertTriggered, checkPriceAlerts, type PriceAlertDeps } from './alerts.js';
+export {
+  AssetRegisterError,
+  CANDLE_VENUES,
+  USER_MARKETS_PACKAGE,
+  assetIdFor,
+  assetTypeFor,
+  displayTicker,
+  ensureUserMarketsPackage,
+  isCandleVenue,
+  loadYahooCandles,
+  normalizeRegisterSymbol,
+  orderRegistered,
+  registerAsset,
+  registeredAssets,
+  upsertRegisteredAsset,
+  type AssetRegisterErrorCode,
+  type CandleVenue,
+  type RegisterDeps,
+  type RegisterInput,
+  type RegisterResult,
+  type RegisteredAsset,
+  type RegisteredAssetView,
+} from './asset-register.js';
+export { CANDLE_REFRESH_MAX, CANDLE_REFRESH_PAUSE_MS, refreshRegisteredCandles, type CandleRefreshDeps, type CandleRefreshResult } from './candle-refresh.js';
 export { formatScreenAlert, newMatches, runScreenAlerts, SCREEN_ALERT_LIMIT, type ScreenAlertResult } from './screen-alerts.js';
 export { expireStaleSignals, isSignalExpired, signalExpiryCutoff, ttlHoursFor, SIGNAL_TTL_HOURS, DEFAULT_TTL_HOURS } from './signal-expiry.js';
 export {

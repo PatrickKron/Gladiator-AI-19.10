@@ -3,6 +3,8 @@ import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { withBinancePublic } from './binance-public.js';
 import { sanitizeCandles, type RawOhlcv } from './candles.js';
+import { freshCutoff, pickLatestClose, type LatestClose } from './freshness.js';
+import { candleRows, upsertCandles } from './candle-store.js';
 
 const { ohlcv } = schema;
 
@@ -17,7 +19,8 @@ export type BackfillResult = {
 
 /**
  * Historische OHLCV von einer echten Börse (ccxt, REST, paginiert) in die
- * Timescale-Hypertable laden. Idempotent (onConflictDoNothing auf PK).
+ * Timescale-Hypertable laden. Idempotent (Upsert auf PK: neuester Stand gewinnt,
+ * unveränderte Kerzen bleiben unberührt; `inserted` = neu oder geändert).
  * enableRateLimit ist Pflicht (06_ §7a). Bei Binance-Standortsperre (HTTP 451)
  * über den offiziellen Marktdaten-Spiegel (binance-public.ts) — gleiche Kerzen.
  */
@@ -58,23 +61,8 @@ async function runBackfill(
     }
 
     if (valid.length > 0) {
-      const rows = valid.map((c) => ({
-        venue,
-        symbol: opts.symbol,
-        timeframe: opts.timeframe,
-        ts: c.ts,
-        open: String(c.open),
-        high: String(c.high),
-        low: String(c.low),
-        close: String(c.close),
-        volume: String(c.volume),
-      }));
-      // Batches, damit Parameterlimits nicht reißen
-      for (let i = 0; i < rows.length; i += 500) {
-        const chunk = rows.slice(i, i + 500);
-        const res = await db.insert(ohlcv).values(chunk).onConflictDoNothing();
-        inserted += res.rowCount ?? 0;
-      }
+      // Upsert: die zuletzt noch offene Kerze bekommt beim nächsten Lauf ihren endgültigen Stand (candle-store.ts)
+      inserted += await upsertCandles(db, candleRows(venue, opts.symbol, opts.timeframe, valid));
     }
 
     const last = batch[batch.length - 1]![0];
@@ -140,19 +128,53 @@ export async function getOhlcv(
 /**
  * Universum für Screener und Screen-Alarme: Symbole mit mindestens `minCandles`
  * echten Kerzen im Zeitrahmen (ehrlich: nur was in der DB liegt), alphabetisch, begrenzt.
+ * Seit dem Asset-Register nur FRISCHE Reihen (neueste Kerze jünger als die Frische-Grenze,
+ * freshness.ts) — Screener und Screen-Alarme handeln nie auf eingeschlafenen Kerzen.
  */
 export async function candleUniverse(
   db: Db,
-  opts: { timeframe: string; venue?: string; minCandles: number; limit: number },
-): Promise<{ symbol: string; candles: number }[]> {
+  opts: { timeframe: string; venue?: string; minCandles: number; limit: number; now?: Date },
+): Promise<{ symbol: string; candles: number; lastTs: string }[]> {
+  const venue = opts.venue ?? 'binance';
+  const cutoff = freshCutoff(opts.timeframe, venue, opts.now ?? new Date());
   const res = await db.execute(sql`
-    SELECT symbol, count(*)::int AS candles
+    SELECT symbol, count(*)::int AS candles, max(ts) AS last_ts
     FROM ohlcv
-    WHERE venue = ${opts.venue ?? 'binance'} AND timeframe = ${opts.timeframe}
+    WHERE venue = ${venue} AND timeframe = ${opts.timeframe}
     GROUP BY symbol
-    HAVING count(*) >= ${opts.minCandles}
+    HAVING count(*) >= ${opts.minCandles} AND max(ts) >= ${cutoff.toISOString()}::timestamptz
     ORDER BY symbol
     LIMIT ${opts.limit}
   `);
-  return res.rows as { symbol: string; candles: number }[];
+  return (res.rows as { symbol: string; candles: number; last_ts: string | Date }[]).map((r) => ({
+    symbol: r.symbol,
+    candles: r.candles,
+    lastTs: new Date(r.last_ts).toISOString(),
+  }));
+}
+
+/** Zeitstempel der neuesten Kerze (venue + Symbol + Zeitrahmen) oder null. */
+export async function latestCandleTs(db: Db, opts: { venue: string; symbol: string; timeframe: string }): Promise<Date | null> {
+  const res = await db.execute(
+    sql`SELECT max(ts) AS ts FROM ohlcv WHERE venue = ${opts.venue} AND symbol = ${opts.symbol} AND timeframe = ${opts.timeframe}`,
+  );
+  const ts = (res.rows[0] as { ts: string | Date | null } | undefined)?.ts;
+  return ts ? new Date(ts) : null;
+}
+
+/** Zeitrahmen, deren neueste Kerze den letzten Kurs eines Kerzen-Assets trägt (klein → groß). */
+export const LATEST_CLOSE_TIMEFRAMES = ['5m', '15m', '1h', '1d'] as const;
+
+/**
+ * Letzter echter Kurs eines Kerzen-Assets (Yahoo/Twelve Data — dort gibt es keinen Ticker):
+ * Schlusskurs der neuesten FRISCHEN Kerze über 5m/15m/1h/1d. Veraltet oder leer ⇒ ok:false
+ * mit Grund — Preis-Alarme und Kurs-Kacheln lösen nie auf altem Kurs aus.
+ */
+export async function latestFreshClose(db: Db, opts: { venue: string; symbol: string; now?: Date }): Promise<LatestClose> {
+  const candidates = [];
+  for (const timeframe of LATEST_CLOSE_TIMEFRAMES) {
+    const [c] = await getOhlcv(db, { venue: opts.venue, symbol: opts.symbol, timeframe, limit: 1 });
+    if (c) candidates.push({ timeframe, ts: c.ts, close: c.close });
+  }
+  return pickLatestClose(candidates, opts.venue, opts.now ?? new Date());
 }

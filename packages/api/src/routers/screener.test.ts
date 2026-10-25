@@ -25,9 +25,13 @@ const EMAIL_A = `screener-a-${RUN}@test.invalid`;
 const EMAIL_B = `screener-b-${RUN}@test.invalid`;
 const SYMBOL = `SCR${process.pid}/USDT`;
 const THIN = `SCRTHIN${process.pid}/USDT`;
+const STALE = `SCRSTALE${process.pid}/USDT`;
 const { users, ohlcv, screens } = schema;
-const T0 = 1_760_000_000;
 const H = 3600;
+// Frische Kerzen (Asset-Register 2026-10-25): die neueste liegt eine Stunde zurück — das Universum nimmt nur frische Reihen.
+const T0 = Math.floor(Date.now() / 1000 / H) * H - 300 * H;
+// Eingeschlafene Reihe: 300 Kerzen, die vor über einem Jahr enden.
+const T_OLD = 1_700_000_000;
 
 describe.skipIf(!hasDb)('screener-Router: Universum, Lauf, gespeicherte Screens', () => {
   let db: Db;
@@ -50,13 +54,17 @@ describe.skipIf(!hasDb)('screener-Router: Universum, Lauf, gespeicherte Screens'
     }
     // zu dünnes Symbol (10 Kerzen) → gehört nicht ins Universum
     for (let i = 0; i < 10; i++) {
-      rows.push({ venue: 'binance', symbol: THIN, timeframe: '1h', ts: new Date((T0 + i * H) * 1000), open: '1', high: '1.1', low: '0.9', close: '1', volume: '1' });
+      rows.push({ venue: 'binance', symbol: THIN, timeframe: '1h', ts: new Date((T0 + 290 * H + i * H) * 1000), open: '1', high: '1.1', low: '0.9', close: '1', volume: '1' });
+    }
+    // genug Kerzen, aber veraltet → gehört nicht ins Universum, explizit gefragt = ehrlicher Fehler
+    for (let i = 0; i < 300; i++) {
+      rows.push({ venue: 'binance', symbol: STALE, timeframe: '1h', ts: new Date((T_OLD + i * H) * 1000), open: '5', high: '5.1', low: '4.9', close: '5', volume: '1' });
     }
     await db.insert(ohlcv).values(rows).onConflictDoNothing();
   });
 
   afterAll(async () => {
-    await db.delete(ohlcv).where(and(inArray(ohlcv.symbol, [SYMBOL, THIN]), eq(ohlcv.venue, 'binance')));
+    await db.delete(ohlcv).where(and(inArray(ohlcv.symbol, [SYMBOL, THIN, STALE]), eq(ohlcv.venue, 'binance')));
     await db.execute(sql`DELETE FROM audit_log WHERE user_id IN (SELECT id FROM users WHERE email IN (${EMAIL_A}, ${EMAIL_B}))`);
     await db.delete(users).where(inArray(users.email, [EMAIL_A, EMAIL_B]));
     await pool.end();
@@ -70,6 +78,15 @@ describe.skipIf(!hasDb)('screener-Router: Universum, Lauf, gespeicherte Screens'
     const uni = await a.screener.universe({ timeframe: '1h' });
     expect(uni.find((u) => u.symbol === SYMBOL)?.candles).toBe(300);
     expect(uni.find((u) => u.symbol === THIN)).toBeUndefined();
+    expect(uni.find((u) => u.symbol === STALE)).toBeUndefined(); // veraltet → nie im Universum
+  });
+
+  it('explizit gefragtes, veraltetes Symbol → Fehler je Zeile statt Treffer auf alten Kerzen', async () => {
+    const r = await a.screener.run({ timeframe: '1h', symbols: [STALE, SYMBOL], conditions: [{ kind: 'compare', left: { kind: 'price' }, op: '>', right: { kind: 'number', value: 0 } }] });
+    const stale = r.rows.find((x) => x.symbol === STALE)!;
+    expect(stale.error).toMatch(/veraltet/);
+    expect(stale.matches).toBeUndefined();
+    expect(r.rows.find((x) => x.symbol === SYMBOL)!.matches).toBe(true);
   });
 
   it('Lauf: Treffer bei erfüllter Bedingung, kein Treffer sonst, Fehler je Symbol ohne Abbruch', async () => {
