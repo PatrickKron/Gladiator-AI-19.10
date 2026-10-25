@@ -9,8 +9,14 @@ import { backfillOhlcv, TIMEFRAME_MS } from '@gladiator/market-data';
  */
 
 export const BASE_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
-/** Patricks Mängelliste 2026-10-22: 12 war viel zu eng — 40 Symbole im Scan (Basis + Favoriten); Charts kennen daneben jedes Binance-Paar. */
-const MAX_UNIVERSE = 40;
+/**
+ * Cap des Signal-Scans: 40 Symbole (Patricks Mängelliste 2026-10-22: 12 war viel zu eng).
+ * Reihenfolge = Priorität (Asset-Register 2026-10-25): Basis-Symbole, dann Favoriten nach dem
+ * JÜNGSTEN Stern — wer über 40 Favoriten hat, verliert die ältesten aus dem Scan, nie die
+ * neuesten (früher alphabetisch abgeschnitten). Charts, Kerzen-Refresh und Alarme kennen
+ * daneben jedes registrierte Asset (asset-register.ts).
+ */
+export const MAX_UNIVERSE = 40;
 const QUOTES = ['USDT', 'USDC'];
 
 /** "BTCUSDT"/"btc/usdt" → "BTC/USDT"; Nicht-Krypto (AAPL) → ehrlich null. */
@@ -25,7 +31,7 @@ export function normalizeTradingPair(raw: string | null | undefined): string | n
   return null;
 }
 
-/** Pur: Basis + normalisierte Favoriten-Paare, dedupliziert, Cap. */
+/** Pur: Basis + normalisierte Favoriten-Paare (Eingabe in Prioritäts-Reihenfolge), dedupliziert, Cap. */
 export function buildUniverse(favoritePairs: (string | null | undefined)[]): string[] {
   const out = [...BASE_SYMBOLS];
   for (const raw of favoritePairs) {
@@ -36,14 +42,19 @@ export function buildUniverse(favoritePairs: (string | null | undefined)[]): str
   return out;
 }
 
-/** Universum aus der DB: Basis + Krypto-Favoriten aller User (ein User-Typ). */
+/**
+ * Universum aus der DB: Basis + Krypto-Favoriten aller User (ein User-Typ), jüngster Stern zuerst.
+ * Nur Binance-Paare (Assets mit anderer Kerzenquelle bleiben draußen — der Signal-Scan ist
+ * Krypto; venue-bewusster Scan ist ein eigener Schritt).
+ */
 export async function scanUniverse(db: Db): Promise<string[]> {
   const rows = await db.execute(sql`
-    SELECT DISTINCT a.trading_pair AS pair
+    SELECT a.trading_pair AS pair, max(f.created_at) AS fav_at
     FROM asset_favorites f
     JOIN assets a ON a.id = f.asset_id
-    WHERE a.trading_pair IS NOT NULL
-    ORDER BY pair
+    WHERE a.trading_pair IS NOT NULL AND (a.candle_venue IS NULL OR a.candle_venue = 'binance')
+    GROUP BY a.trading_pair
+    ORDER BY fav_at DESC, pair
   `);
   return buildUniverse((rows.rows as { pair: string | null }[]).map((r) => r.pair));
 }
@@ -77,8 +88,9 @@ export async function ensureCandles(db: Db, symbol: string): Promise<{ symbol: s
   const errors: string[] = [];
   for (const plan of BACKFILL_PLAN) {
     try {
+      // Nur Binance-Kerzen zählen — ein gleichnamiges Symbol einer anderen Quelle darf den Rückstand nie verdecken.
       const last = await db.execute(
-        sql`SELECT max(ts) AS ts FROM ohlcv WHERE symbol = ${symbol} AND timeframe = ${plan.timeframe}`,
+        sql`SELECT max(ts) AS ts FROM ohlcv WHERE venue = 'binance' AND symbol = ${symbol} AND timeframe = ${plan.timeframe}`,
       );
       const lastTs = (last.rows[0] as { ts: string | null }).ts;
       const since = lastTs ? new Date(lastTs) : new Date(Date.now() - plan.sinceDays * 86_400_000);

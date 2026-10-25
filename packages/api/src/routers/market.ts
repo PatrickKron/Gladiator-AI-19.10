@@ -16,6 +16,7 @@ import {
   getAssetQuotes,
   getEurUsdRate,
   getOhlcv,
+  latestFreshClose,
   ingestTwelveData,
   twelveDataConfigured,
   twelveDataIntervalFor,
@@ -41,7 +42,7 @@ import {
 import { assetProfile } from '@gladiator/core';
 import { noTradeWindowFor } from '@gladiator/risk';
 import { hindsightOutcome, type HindsightSignal } from '@gladiator/backtest';
-import { ensureCandles, scanUniverse } from '@gladiator/jobs';
+import { registeredAssets, scanUniverse } from '@gladiator/jobs';
 import { CostGuard, envAnthropicProvider, guardedComplete } from '@gladiator/agents';
 import {
   atr,
@@ -61,6 +62,7 @@ import { buildAssetAnalysis } from '../market/asset-analysis.js';
 import { assetNews } from '../market/asset-news.js';
 import { assetVerdicts } from '../market/asset-verdict.js';
 import { CORRELATION_DAYS, CORRELATION_VENUES, MAX_CORRELATION_SYMBOLS, loadCorrelation, loadHeatmapUniverse } from '../market/correlation.js';
+import { registerOrThrow } from '../market/register.js';
 
 /**
  * Alle unterstützten Chart-Timeframes (Feature A) als zod-Enum — für chartData,
@@ -112,7 +114,8 @@ type AffectedAsset = { symbol: string; level: 1 | 2 | 3; kind: 'crypto' | 'stock
 /**
  * Konkrete, ECHT im System vorhandene Assets, die ein Event voraussichtlich
  * bewegt — Schnitt aus Impact-Profil und dem tatsächlichen Gladiator-Universum
- * (Krypto = Scan-Universum, Aktien/ETF/Forex = geladene Twelve-Data-Symbole).
+ * (Krypto = Scan-Universum, Aktien/ETF/Forex = geladene Twelve-Data-Symbole und
+ * registrierte Yahoo-Assets aus dem Asset-Register).
  * Nichts erfunden: sind keine Aktien geladen, erscheinen auch keine.
  */
 function resolveAffectedAssets(
@@ -294,7 +297,9 @@ export const marketRouter = router({
       const stockRows = await ctx.db.execute(
         sql`SELECT DISTINCT symbol FROM ohlcv WHERE venue = ${TWELVEDATA_VENUE} ORDER BY symbol`,
       );
-      const stockTickers = (stockRows.rows as { symbol: string }[]).map((r) => r.symbol.toUpperCase());
+      // Asset-Register: registrierte Yahoo-Assets (Aktien/ETF/Index/Forex/Futures) zählen mit.
+      const yahooRegistered = (await registeredAssets(ctx.db)).filter((a) => a.venue === YAHOO_VENUE).map((a) => a.symbol.toUpperCase());
+      const stockTickers = [...new Set([...(stockRows.rows as { symbol: string }[]).map((r) => r.symbol.toUpperCase()), ...yahooRegistered])];
 
       return {
         events: events.map((e) => {
@@ -461,6 +466,8 @@ export const marketRouter = router({
   /**
    * Live-Quotes für Katalog-Assets ALLER Klassen (Krypto → Binance,
    * Aktien/ETF/Index/Future/Rohstoff → TradingView-Scanner, VVIX/GVZ → CBOE).
+   * Register-Assets ohne Live-Quelle (Yahoo/Twelve Data) bekommen den Schluss ihrer
+   * neuesten FRISCHEN Kerze (source 'candles', Kerzen-Refresh alle 15 min).
    * Ehrlich: Assets ohne funktionierende Quelle kommen als null zurück.
    */
   assetQuotes: protectedProcedure
@@ -472,10 +479,16 @@ export const marketRouter = router({
     .query(async ({ ctx, input }) => {
       const { assets } = schema;
       const rows = await ctx.db
-        .select({ ticker: assets.ticker, assetType: assets.assetType, tradingPair: assets.tradingPair })
+        .select({ ticker: assets.ticker, assetType: assets.assetType, tradingPair: assets.tradingPair, candleVenue: assets.candleVenue, dataSymbol: assets.dataSymbol, quoteCurrency: assets.quoteCurrency })
         .from(assets)
         .where(input.packageId !== undefined ? eq(assets.packageId, input.packageId) : inArray(assets.id, input.assetIds!));
-      return getAssetQuotes(rows);
+      const quotes = await getAssetQuotes(rows);
+      for (const r of rows) {
+        if (quotes[r.ticker] || !r.dataSymbol || (r.candleVenue !== YAHOO_VENUE && r.candleVenue !== TWELVEDATA_VENUE)) continue;
+        const close = await latestFreshClose(ctx.db, { venue: r.candleVenue, symbol: r.dataSymbol });
+        if (close.ok) quotes[r.ticker] = { ticker: r.ticker, price: close.price, changePct: null, currency: r.quoteCurrency, quoteVolume24h: null, source: 'candles', ts: close.ts.toISOString() };
+      }
+      return quotes;
     }),
 
   /**
@@ -585,50 +598,40 @@ export const marketRouter = router({
     }),
 
   /**
-   * Aktien-/ETF-/Forex-Kerzen auf Abruf (Yahoo, kein Key): Tageskerzen 5 Jahre und
-   * Stundenkerzen 1 Jahr (Yahoo-Grenze für 60m: 730 Tage) — derselbe Ingest wie in den
-   * Einstellungen, idempotent. Ohne eine einzige Kerze ist es ein Fehler.
+   * Aktien-/ETF-/Forex-Kerzen auf Abruf (Yahoo, kein Key): Tageskerzen 5 Jahre,
+   * Stundenkerzen 1 Jahr (Yahoo-Grenze für 60m: 730 Tage) und 15-min-Kerzen 60 Tage —
+   * derselbe Ingest wie in den Einstellungen, idempotent. Ohne eine einzige Kerze ist es ein Fehler.
    */
-  ensureStockCandles: protectedProcedure.input(z.object({ symbol: z.string().min(1).max(16) })).mutation(async ({ ctx, input }) => {
-    const symbol = input.symbol.toUpperCase();
-    const daily = await ingestYahooChart(ctx.db, { symbol, timeframe: '1d', range: '5y' });
-    const hourly = await ingestYahooChart(ctx.db, { symbol, timeframe: '1h', range: '1y' });
-    const errors = [daily, hourly].filter((r) => r.error).map((r) => `${r.timeframe}: ${r.error}`);
-    const n = await ctx.db.execute(sql`SELECT timeframe, count(*)::int AS n FROM ohlcv WHERE venue = ${YAHOO_VENUE} AND symbol = ${symbol} GROUP BY timeframe`);
-    const candles = Object.fromEntries((n.rows as { timeframe: string; n: number }[]).map((r) => [r.timeframe, r.n])) as Record<string, number>;
-    if (Object.keys(candles).length === 0) {
-      throw new TRPCError({ code: 'BAD_GATEWAY', message: `Yahoo liefert keine Kerzen für ${symbol} (${errors.join(' · ') || 'unbekannt'}).` });
-    }
+  ensureStockCandles: protectedProcedure.input(z.object({ symbol: z.string().trim().min(1).max(24) })).mutation(async ({ ctx, input }) => {
+    // Derselbe Register-Dienst wie product.addAsset (ohne Stern): Yahoo prüfen, 1d/5y · 1h/1y · 15m/60d
+    // laden, Register-Zeile sicherstellen — ab dann läuft das Asset im Kerzen-Refresh mit.
+    const r = await registerOrThrow(ctx.db, { venue: 'yahoo', symbol: input.symbol, userId: ctx.user.id, favorite: false, ip: ctx.ip, via: 'asset-select' });
     await ctx.db.insert(schema.auditLog).values({
       actor: 'user',
       userId: ctx.user.id,
       action: 'market.stock.ingest_yahoo',
       entityType: 'ohlcv',
-      details: { venue: YAHOO_VENUE, symbol, inserted: daily.inserted + hourly.inserted, errors, via: 'asset-select' },
+      details: { venue: YAHOO_VENUE, symbol: r.asset.symbol, inserted: r.inserted, errors: r.errors, via: 'asset-select' },
       ip: ctx.ip,
     });
-    return { symbol, venue: YAHOO_VENUE, inserted: daily.inserted + hourly.inserted, candles, errors };
+    return { symbol: r.asset.symbol, venue: YAHOO_VENUE, inserted: r.inserted, candles: r.candles, errors: r.errors };
   }),
 
   /**
    * Kerzen auf Abruf: für ein Binance-Spot-Paar alle Zeitrahmen inkrementell nachladen
    * (derselbe Backfill wie der Scan für Favoriten). Nur echte Paare — ein unbekanntes
-   * Symbol ist ein Fehler, keine leere Historie.
+   * Symbol ist ein Fehler, keine leere Historie. Registriert das Paar (ohne Stern) im
+   * Asset-Register, damit Kerzen-Refresh und Live-Feed es kennen.
    */
-  ensureCandles: protectedProcedure.input(z.object({ symbol: z.string().min(3).max(24) })).mutation(async ({ ctx, input }) => {
-    const symbol = input.symbol.toUpperCase();
-    let pairs;
+  ensureCandles: protectedProcedure.input(z.object({ symbol: z.string().trim().min(1).max(24) })).mutation(async ({ ctx, input }) => {
     try {
-      pairs = await listBinanceSpotPairs();
+      const r = await registerOrThrow(ctx.db, { venue: 'binance', symbol: input.symbol, userId: ctx.user.id, favorite: false, ip: ctx.ip, via: 'asset-select' });
+      return { symbol: r.asset.symbol, inserted: r.inserted, errors: r.errors, candles1h: r.candles['1h'] ?? 0 };
     } catch (err) {
-      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `Binance nicht erreichbar — ${String(err instanceof Error ? err.message : err).slice(0, 160)}` });
+      // Paar echt, aber (noch) keine Kerze: bisherige Antwortform — der Client meldet „keine Kerzen“.
+      if (err instanceof TRPCError && err.code === 'BAD_GATEWAY') return { symbol: input.symbol.toUpperCase(), inserted: 0, errors: [err.message], candles1h: 0 };
+      throw err;
     }
-    if (!pairs.some((p) => p.symbol === symbol)) {
-      throw new TRPCError({ code: 'BAD_REQUEST', message: `${symbol} ist kein Binance-Spot-Paar gegen USDT.` });
-    }
-    const res = await ensureCandles(ctx.db, symbol);
-    const n = await ctx.db.execute(sql`SELECT count(*)::int AS n FROM ohlcv WHERE venue = 'binance' AND symbol = ${symbol} AND timeframe = '1h'`);
-    return { symbol, inserted: res.inserted, errors: res.errors, candles1h: (n.rows[0] as { n: number }).n };
   }),
 
   /**
@@ -733,7 +736,7 @@ export const marketRouter = router({
   rangedCandles: protectedProcedure
     .input(
       z.object({
-        symbol: z.string().min(3),
+        symbol: z.string().min(1),
         timeframe: z.string().min(2).max(4),
         from: z.string().datetime(),
         to: z.string().datetime(),
@@ -1022,7 +1025,7 @@ export const marketRouter = router({
     .input(
       z.object({
         symbol: z.string().min(1).max(12),
-        timeframe: z.enum(['1h', '1d', '1wk', '1M']).default('1d'),
+        timeframe: z.enum(['1h', '1d', '1w', '1M']).default('1d'),
         range: z.enum(['1mo', '3mo', '6mo', '1y', '2y', '5y', '10y', 'max']).default('2y'),
       }),
     )

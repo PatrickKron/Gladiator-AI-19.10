@@ -21,7 +21,8 @@ export type AssetQuote = {
   currency: string | null;
   /** 24h-Handelsvolumen in Quote-Währung (USDT) — nur Binance liefert es; sonst null (nie geschätzt). */
   quoteVolume24h: number | null;
-  source: 'binance' | 'tradingview' | 'cboe';
+  /** 'candles' = letzter Schluss der eigenen, FRISCHEN Kerzen (Register-Assets ohne Live-Quote, Yahoo/Twelve Data). */
+  source: 'binance' | 'tradingview' | 'cboe' | 'candles';
   ts: string;
 };
 

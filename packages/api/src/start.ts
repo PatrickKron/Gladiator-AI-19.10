@@ -8,7 +8,7 @@ import { createDb, requireEnv } from '@gladiator/db';
 import { registerDemoBookSource } from '@gladiator/exchange';
 import { TWELVEDATA_VENUE, YAHOO_VENUE } from '@gladiator/market-data';
 import { CandleCloseBookSource } from './demo/candle-book-source.js';
-import { LivePriceFeed } from '@gladiator/market-data';
+import { LivePriceFeed, feedPairsFrom } from '@gladiator/market-data';
 import { startJobWorker } from '@gladiator/jobs';
 import { BinanceTestnetVenue, HyperliquidTestnetVenue, PaperVenue, captureBootEnv, loadSecretsIntoEnv } from '@gladiator/exchange';
 import { createApp } from './app.js';
@@ -58,24 +58,36 @@ if (loadedSecrets.length > 0) console.log(`[secrets] ${loadedSecrets.length} Key
 // damit Watchlist/Pakete für jedes Krypto-Asset echte Live-Ticks zeigen.
 // Fallback auf die Kern-3, falls der Katalog (noch) leer ist.
 const FALLBACK_FEED = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
-async function feedSymbolsFromCatalog(): Promise<string[]> {
+/** Asset-Register: neu hinzugefügte Binance-Paare streamen ohne Neustart — die Liste zieht alle 5 min nach. */
+const FEED_REFRESH_MS = 5 * 60_000;
+async function feedSymbolsFromCatalog(): Promise<string[] | null> {
   try {
     const rows = await db.execute(
-      // Nur Krypto mit Binance-Handelspaar; DISTINCT, weil Assets in mehreren Paketen vorkommen.
-      sql`SELECT DISTINCT trading_pair FROM assets WHERE asset_type = 'CRYPTO' AND trading_pair IS NOT NULL AND is_active = true`,
+      // Nur Krypto mit Binance-Handelspaar (Katalog + Register, Basis zuerst, dann jüngste Zeilen);
+      // Kerzenquelle Yahoo/Twelve Data bleibt draußen. Mehrfach-Pakete dedupliziert feedPairsFrom.
+      sql`SELECT trading_pair FROM assets
+          WHERE asset_type = 'CRYPTO' AND trading_pair IS NOT NULL AND is_active = true
+            AND (candle_venue IS NULL OR candle_venue = 'binance')
+          ORDER BY (upper(replace(trading_pair, '/', '')) IN ('BTCUSDT', 'ETHUSDT', 'SOLUSDT')) DESC, created_at DESC`,
     );
-    const pairs = (rows.rows as { trading_pair: string }[])
-      .map((r) => String(r.trading_pair).toUpperCase().trim())
-      .map((p) => (p.includes('/') ? p : p.endsWith('USDT') ? `${p.slice(0, -4)}/USDT` : null))
-      .filter((p): p is string => p !== null);
-    return pairs.length > 0 ? pairs : FALLBACK_FEED;
+    return feedPairsFrom((rows.rows as { trading_pair: string }[]).map((r) => r.trading_pair), FALLBACK_FEED);
   } catch {
-    return FALLBACK_FEED;
+    return null; // DB-Schluckauf: beim Start Fallback, beim Nachziehen bleibt die bisherige Liste
   }
 }
-const prices = role === 'worker' ? null : new LivePriceFeed(await feedSymbolsFromCatalog());
+const prices = role === 'worker' ? null : new LivePriceFeed((await feedSymbolsFromCatalog()) ?? FALLBACK_FEED);
 if (prices) console.log(`[feed] Live-Preis-Feed für ${prices.symbols.length} Symbole gestartet`);
 prices?.start();
+const feedRefresh = prices
+  ? setInterval(() => {
+      void feedSymbolsFromCatalog().then((next) => {
+        if (!next) return;
+        const { added, removed } = prices.setSymbols(next);
+        if (added.length || removed.length) console.log(`[feed] Symbole nachgezogen: +${added.join(',') || '—'} −${removed.join(',') || '—'}`);
+      });
+    }, FEED_REFRESH_MS)
+  : null;
+feedRefresh?.unref();
 
 /**
  * Venue-Wahl (06_ §7): Testnet-Venues NUR wenn Patrick die Zugänge hinterlegt
@@ -125,6 +137,7 @@ if (role === 'worker') {
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
+    if (feedRefresh) clearInterval(feedRefresh);
     void Promise.allSettled([prices?.stop(), jobs?.stop()]).finally(() => process.exit(0));
   });
 }

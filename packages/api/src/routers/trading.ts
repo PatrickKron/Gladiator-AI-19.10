@@ -12,6 +12,7 @@ import {
   updateProtection,
 } from '@gladiator/exchange';
 import { evaluateRisk } from '@gladiator/risk';
+import { CANDLE_VENUES } from '@gladiator/jobs';
 import { protectedProcedure, router } from '../trpc.js';
 import { buildTradesCsv } from '../export/trades-csv.js';
 
@@ -412,7 +413,9 @@ export const tradingRouter = router({
   createAlert: protectedProcedure
     .input(
       z.object({
-        symbol: z.string().min(3).max(20),
+        symbol: z.string().trim().min(1).max(32),
+        /** Preisquelle (Asset-Register): binance = Markpreis, yahoo/twelvedata = frischer Kerzen-Schluss. Ohne = Binance. */
+        venue: z.enum(CANDLE_VENUES).optional(),
         condition: z.enum(['above', 'below']),
         price: z.number().positive(),
         note: z.string().max(300).optional(),
@@ -424,6 +427,7 @@ export const tradingRouter = router({
         .values({
           userId: ctx.user.id,
           symbol: input.symbol.toUpperCase(),
+          venue: input.venue ?? 'binance',
           condition: input.condition,
           price: String(input.price),
           note: input.note ?? null,

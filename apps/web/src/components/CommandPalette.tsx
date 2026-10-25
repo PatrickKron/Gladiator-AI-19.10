@@ -71,7 +71,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     }
     const a = entry.asset;
     if (!a.hasChart || !a.symbol) return;
-    window.location.hash = buildChartUrl(a.symbol, loadTf(a.symbol) ?? '1h');
+    window.location.hash = buildChartUrl(a.symbol, loadTf(a.symbol) ?? '1h', a.venue);
     onClose();
   };
 
@@ -153,7 +153,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                     onClick={() => openEntry(entry)}
                   >
                     {entry.asset.symbol ? (
-                      <FavStarSymbol symbol={entry.asset.symbol} initialFavorite={entry.asset.isFavorite} />
+                      <FavStarSymbol symbol={entry.asset.symbol} venue={entry.asset.venue} initialFavorite={entry.asset.isFavorite} />
                     ) : (
                       <span className="w-5 shrink-0" />
                     )}

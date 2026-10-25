@@ -5,14 +5,15 @@ import { isChartVenue, type ChartVenue } from '../lib/chart-url.js';
 
 /**
  * Asset-Selektor. Seit Patricks Mängelliste (2026-10-22, Punkt 3) ein Suchfeld statt
- * einer Handvoll Optionen: „Meine Märkte“ (Scan-Universum + ★ Favoriten) zuerst, darunter
- * JEDES Binance-Spot-Paar gegen USDT (live von der Börse). Ein Paar ohne Kerzen wird beim
+ * einer Handvoll Optionen: „Meine Märkte“ (★ Favoriten ALLER Quellen + Scan-Universum) zuerst,
+ * darunter JEDES Binance-Spot-Paar gegen USDT (live von der Börse). Ein Paar ohne Kerzen wird beim
  * Auswählen nachgeladen (market.ensureCandles — derselbe Backfill wie der Scan), erst dann
  * wechselt das Asset; bei einem Paar mit Kerzen sofort, der Nachlauf läuft im Hintergrund.
  * Aktien/ETF/Forex als dritte Gruppe: schon geladene Symbole (Twelve Data/Yahoo) plus ab
  * zwei Zeichen die Yahoo-Suche ohne Key (market.stockSearch) — Auswahl eines Treffers holt
- * echte Kerzen (market.ensureStockCandles) und wechselt erst dann. Nicht erreichbar ⇒
- * ehrlich „nicht verbunden“. Auswahl in localStorage — Oracle/Aegis beziehen sich darauf.
+ * echte Kerzen (market.ensureStockCandles) und wechselt erst dann. Beide Wege tragen das Asset
+ * ins Asset-Register ein (Kerzen-Refresh, Alarme, News laufen dann im Backend mit). Nicht
+ * erreichbar ⇒ ehrlich „nicht verbunden“. Auswahl in localStorage — Oracle/Aegis beziehen sich darauf.
  */
 
 const STORAGE_KEY = 'gladiator.selectedAsset';
@@ -52,7 +53,11 @@ type StockSymbols = Awaited<ReturnType<typeof trpc.market.stockSymbols.query>>;
 type SearchResult = Awaited<ReturnType<typeof trpc.market.symbolSearch.query>>;
 type StockSearch = Awaited<ReturnType<typeof trpc.market.stockSearch.query>>;
 
-const VENUE_LABEL: Record<ChartVenue, string> = { binance: 'Binance', twelvedata: 'Twelve Data', yahoo: 'Yahoo' };
+type Favorite = Awaited<ReturnType<typeof trpc.product.favoriteSymbols.query>>[number];
+type MyMarket = { symbol: string; venue: ChartVenue; fav: boolean; name?: string };
+
+/** Quellen-Namen (Eigennamen, nicht übersetzt) — auch für Alarm-Liste u. a. */
+export const VENUE_LABEL: Record<ChartVenue, string> = { binance: 'Binance', twelvedata: 'Twelve Data', yahoo: 'Yahoo' };
 
 export function AssetSelect({
   value,
@@ -72,8 +77,9 @@ export function AssetSelect({
   const [open, setOpen] = useState(false);
   const [alignRight, setAlignRight] = useState(false);
   const [q, setQ] = useState('');
-  const [universe, setUniverse] = useState<string[]>([value]);
-  const [favorites, setFavorites] = useState<string[]>([]);
+  // Scan-Universum = Binance-Paare; ein gewähltes Aktien-/Forex-Symbol gehört nicht hinein (sonst stünde es als Binance-Zeile da).
+  const [universe, setUniverse] = useState<string[]>(venue === 'binance' ? [value] : []);
+  const [favorites, setFavorites] = useState<Favorite[]>([]);
   const [stocks, setStocks] = useState<StockSymbols | 'error' | null>(null);
   const [search, setSearch] = useState<SearchResult | null>(null);
   const [stockSearch, setStockSearch] = useState<StockSearch | null>(null);
@@ -85,8 +91,8 @@ export function AssetSelect({
   useEffect(() => {
     void trpc.market.scanUniverse
       .query()
-      .then((u) => setUniverse(u.includes(value) ? u : [...u, value]))
-      .catch(() => setUniverse([value]));
+      .then((u) => setUniverse(u.includes(value) || venue !== 'binance' ? u : [...u, value]))
+      .catch(() => setUniverse(venue === 'binance' ? [value] : []));
     void trpc.product.favoriteSymbols
       .query()
       .then(setFavorites)
@@ -128,15 +134,27 @@ export function AssetSelect({
   }, [q, open]);
 
   const rows = stocks !== null && stocks !== 'error' ? stocks.rows : [];
-  const favSet = new Set(favorites);
-  const myMarkets = [...new Set([...favorites, ...universe])];
+  // „Meine Märkte“: Favoriten jeder Quelle (mit ihrer Quelle, nie hart „binance“) + Scan-Universum.
+  // Katalog-Favoriten ohne Kerzenquelle (venue null) sind nicht chartbar und bleiben hier draußen.
+  const myMarkets: MyMarket[] = [];
+  const myKeys = new Set<string>();
+  const addMy = (m: MyMarket) => {
+    const key = `${m.venue}:${m.symbol}`;
+    if (myKeys.has(key)) return;
+    myKeys.add(key);
+    myMarkets.push(m);
+  };
+  for (const f of favorites) {
+    if (isChartVenue(f.venue)) addMy({ symbol: f.symbol, venue: f.venue, fav: true, name: f.venue === 'binance' ? undefined : f.name });
+  }
+  for (const s of universe) addMy({ symbol: s, venue: 'binance', fav: false });
   const needle = q.trim().toUpperCase();
-  const myVisible = needle ? myMarkets.filter((s) => s.includes(needle)) : myMarkets;
-  const mySet = new Set(myMarkets);
-  const binanceHits = (search?.results ?? []).filter((r) => !mySet.has(r.symbol));
-  const stockVisible = needle ? rows.filter((r) => r.symbol.toUpperCase().includes(needle)) : rows;
+  const myVisible = needle ? myMarkets.filter((m) => m.symbol.includes(needle) || (m.name ?? '').toUpperCase().includes(needle)) : myMarkets;
+  const binanceHits = (search?.results ?? []).filter((r) => !myKeys.has(`binance:${r.symbol}`));
+  const stockRows = rows.filter((r) => !myKeys.has(`${r.venue}:${r.symbol.toUpperCase()}`));
+  const stockVisible = needle ? stockRows.filter((r) => r.symbol.toUpperCase().includes(needle)) : stockRows;
   const stockKnown = new Set(rows.map((r) => r.symbol.toUpperCase()));
-  const yahooHits = (stockSearch?.results ?? []).filter((r) => !stockKnown.has(r.symbol));
+  const yahooHits = (stockSearch?.results ?? []).filter((r) => !stockKnown.has(r.symbol) && !myKeys.has(`yahoo:${r.symbol}`));
 
   const commit = (symbol: string, v: ChartVenue) => {
     if (persist) {
@@ -186,8 +204,9 @@ export function AssetSelect({
     if (e.key === 'Escape') setOpen(false);
     if (e.key === 'Enter') {
       e.preventDefault();
-      const first = myVisible[0] ?? binanceHits[0]?.symbol;
-      if (first) void pick(first, 'binance', myVisible[0] !== undefined || !!binanceHits[0]?.hasCandles);
+      const mine = myVisible[0];
+      if (mine) void pick(mine.symbol, mine.venue, true);
+      else if (binanceHits[0]) void pick(binanceHits[0].symbol, 'binance', binanceHits[0].hasCandles);
     }
   };
 
@@ -252,8 +271,8 @@ export function AssetSelect({
             {myVisible.length > 0 && (
               <>
                 <p className="label px-2 py-1">{t('assetCtx.myMarkets')}</p>
-                {myVisible.map((s) => (
-                  <Row key={`my:${s}`} symbol={s} v="binance" hasCandles fav={favSet.has(s)} />
+                {myVisible.map((m) => (
+                  <Row key={`my:${m.venue}:${m.symbol}`} symbol={m.symbol} v={m.venue} hasCandles fav={m.fav} name={m.name} />
                 ))}
               </>
             )}
