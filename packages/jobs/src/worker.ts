@@ -12,6 +12,7 @@ import { runDslScan } from './dsl-scan.js';
 import { runSignalLifecycle } from './signal-lifecycle.js';
 import { reviewNewSignals } from './review.js';
 import { checkPriceAlerts } from './alerts.js';
+import { refreshRegisteredCandles } from './candle-refresh.js';
 import { runScreenAlerts } from './screen-alerts.js';
 import { runSubAgents } from './sub-agent-runner.js';
 import { computeAllFeatures, autoLabelSignals, retrainModel } from './ml-pipeline.js';
@@ -25,7 +26,8 @@ import { runStrategyOptimization } from './optimization.js';
  * BullMQ-Worker (04_ §2: robuste Jobs statt loser Loops — der v1-Fehler).
  * signal-scan 5 min · position-monitor 1 min (eigene Queue) · macro-sync 30 min ·
  * calendar-sync 60 min · news-sync 15 min · derivatives-sync 30 min ·
- * signal-lifecycle 1 min (05_ §9: Auto-Kill, Reentry, Leverage-Upgrade).
+ * signal-lifecycle 1 min (05_ §9: Auto-Kill, Reentry, Leverage-Upgrade) ·
+ * candle-refresh 15 min (Asset-Register: neueste Kerzen je registriertem Asset und Quelle).
  * strategy-optimize So 03:00 UTC (nur Vorschläge, Mensch promotet).
  */
 
@@ -38,6 +40,7 @@ export const QUEUE_NAME = 'gladiator-jobs';
 export const FAST_QUEUE_NAME = 'gladiator-monitor';
 const SCAN_JOB = 'signal-scan';
 const SCREEN_ALERT_JOB = 'screen-alerts';
+export const CANDLE_REFRESH_JOB = 'candle-refresh';
 export const MONITOR_JOB = 'position-monitor';
 const MACRO_JOB = 'macro-sync';
 const CALENDAR_JOB = 'calendar-sync';
@@ -128,6 +131,7 @@ async function pingDeadMansSwitch(): Promise<void> {
 export const SCHEDULES: [string, number][] = [
   [SCAN_JOB, 5 * 60_000],
   [SCREEN_ALERT_JOB, 5 * 60_000],          // Screen-Alarme: gespeicherte Screens mit Alarm auf echten Kerzen, nur NEUE Treffer
+  [CANDLE_REFRESH_JOB, 15 * 60_000],       // Asset-Register: Kerzen aller registrierten Assets (Binance/Yahoo/Twelve Data) nachladen
   [MACRO_JOB, 30 * 60_000],
   [CALENDAR_JOB, 60 * 60_000],
   [NEWS_JOB, 15 * 60_000],
@@ -239,6 +243,16 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
             console.log(`[screen-alerts] Screens=${res.screens} gemeldet=${res.notified} Fehler=${res.errors.length}`);
             for (const e of res.errors) console.warn('[screen-alerts]', e);
           }
+          return res;
+        }
+        case CANDLE_REFRESH_JOB: {
+          const res = await refreshRegisteredCandles(db);
+          console.log(
+            `[candle-refresh] Assets=${res.assets} binance=${res.refreshed.binance} yahoo=${res.refreshed.yahoo} ` +
+              `twelvedata=${res.refreshed.twelvedata} neu=${res.inserted} übersprungen=${res.skipped.length} Fehler=${res.errors.length}`,
+          );
+          for (const s of res.skipped) console.log('[candle-refresh]', s);
+          for (const e of res.errors) console.warn('[candle-refresh]', e);
           return res;
         }
         case NIGHT_JOB: {
@@ -441,6 +455,7 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
       }
       const alerts = await checkPriceAlerts(db, venue);
       if (alerts.triggered > 0) console.log(`[price-alerts] ausgelöst=${alerts.triggered}`);
+      for (const s of alerts.skipped) console.warn('[price-alerts] übersprungen:', s);
       for (const e of alerts.errors) console.warn('[price-alerts]', e);
       // Demo-Modus (Session 5): ruhende Limit-Orders + SL/TP gegen echte
       // Orderbücher — fehlerisoliert, darf Monitor/Heartbeat nie blockieren.
@@ -497,6 +512,7 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
   await queue.add(CALENDAR_JOB, {});
   await queue.add(NEWS_JOB, {});
   await queue.add(DERIVATIVES_JOB, {});
+  await queue.add(CANDLE_REFRESH_JOB, {});
 
   return {
     stop: async () => {

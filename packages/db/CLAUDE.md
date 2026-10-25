@@ -9,3 +9,4 @@ Regeln:
 - Schema-Änderungen NUR über `npm run generate` (drizzle-kit) → neue Migration; nie bestehende Migrationen editieren.
 - Seed lädt NUR echte v1-Daten (users/packages/assets/magazine) aus `seed/data/` (gitignored, liegt auf dem Server). Keine erfundenen Daten.
 - `audit_log` ist append-only: App-Code darf nie UPDATE/DELETE darauf ausführen.
+- Asset-Register (0043): `assets.candle_venue` ('binance' | 'yahoo' | 'twelvedata') + `assets.data_symbol` (exaktes Kerzen-Symbol), Unique-Index auf beide; vom Nutzer hinzugefügte Märkte liegen im Paket `user-markets` („Eigene Märkte“, @gladiator/jobs). `price_alerts.venue` (null = Altbestand → Binance). Wochenkerzen heißen überall `1w` (Datenfix '1wk' → '1w' in 0043).

@@ -41,7 +41,7 @@ function books(): DemoBookSource {
 }
 
 export const demoOrderInput = z.object({
-  symbol: z.string().min(3).max(20),
+  symbol: z.string().min(1).max(24),
   direction: z.enum(['long', 'short']),
   type: z.enum(['market', 'limit']),
   qty: z.number().positive(),

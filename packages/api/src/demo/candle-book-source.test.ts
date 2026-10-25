@@ -8,6 +8,7 @@ import { CandleCloseBookSource } from './candle-book-source.js';
 const hasDb = Boolean(process.env.DATABASE_URL);
 if (!hasDb) console.warn('[candle-book-source.test] DATABASE_URL nicht gesetzt — übersprungen (Server-CI maßgeblich).');
 const SYM = `DEMOSTK${process.pid}`;
+const OLD = `DEMOOLD${process.pid}`;
 
 describe.skipIf(!hasDb)('CandleCloseBookSource', () => {
   let db: Db;
@@ -16,10 +17,11 @@ describe.skipIf(!hasDb)('CandleCloseBookSource', () => {
     ({ db, pool } = createDb());
     await db.execute(sql`INSERT INTO ohlcv (venue, symbol, timeframe, ts, open, high, low, close, volume) VALUES
       ('yahoo', ${SYM}, '1d', now() - interval '2 days', 100, 101, 99, 100.5, 1000),
-      ('yahoo', ${SYM}, '1h', now() - interval '3 hours', 100.5, 102, 100, 101.75, 50)`);
+      ('yahoo', ${SYM}, '1h', now() - interval '3 hours', 100.5, 102, 100, 101.75, 50),
+      ('yahoo', ${OLD}, '1h', now() - interval '30 days', 10, 11, 9, 10.5, 50)`);
   });
   afterAll(async () => {
-    await db.execute(sql`DELETE FROM ohlcv WHERE symbol = ${SYM}`);
+    await db.execute(sql`DELETE FROM ohlcv WHERE symbol IN (${SYM}, ${OLD})`);
     await pool.end();
   });
 
@@ -34,5 +36,9 @@ describe.skipIf(!hasDb)('CandleCloseBookSource', () => {
 
   it('ohne Kerzen ein ehrlicher Fehler statt eines erfundenen Kurses', async () => {
     await expect(new CandleCloseBookSource(db, 'twelvedata').fetchBook(SYM)).rejects.toThrow(/Keine echten Kerzen/);
+  });
+
+  it('nur veraltete Kerzen (Refresh steht) → ehrlicher Fehler statt Ausführung zum alten Kurs', async () => {
+    await expect(new CandleCloseBookSource(db, 'yahoo').fetchBook(OLD)).rejects.toThrow(/veraltet/);
   });
 });

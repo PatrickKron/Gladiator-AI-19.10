@@ -5,6 +5,8 @@ import type { Db } from '@gladiator/db';
  * News zu EINEM Asset (Mängelliste 7): echte RSS-Items, deren Titel den Basis-Ticker ODER
  * den Asset-Namen (assets-Tabelle, BTC ↔ „Bitcoin“) als GANZES Wort enthält — „ETH“ trifft
  * nicht „somETHing“. Neueste zuerst, höchstens `limit`. Ohne Treffer leer, nie geraten.
+ * Asset-Register (2026-10-25): Yahoo-Symbole (SAP.DE, EURUSD=X, ^GSPC, GC=F) zählen ohne
+ * ihre Zusätze, der Name kommt bevorzugt aus der Register-Zeile mit genau diesem Symbol.
  */
 export type AssetNewsItem = { source: string; title: string; url: string; publishedAt: string };
 
@@ -31,10 +33,25 @@ export function nameRegex(name: string): string | null {
   return `\\m${words.map(escapeRe).join('[^[:alnum:]]+')}\\M`;
 }
 
+/**
+ * Ticker für den Schlagzeilen-Abgleich: Basis eines Paars (BTC/USDT → BTC) bzw. Yahoo-Symbol ohne
+ * Index-Präfix (^), Währungs-/Future-Zusatz (=X, =F) und Börsen-Suffix (.DE, .L) — Schlagzeilen
+ * schreiben „SAP“, nie „SAP.DE“. Rein; der Abgleich bleibt ganzwortig.
+ */
+export function newsTicker(symbol: string): string {
+  const s = symbol.trim().toUpperCase();
+  const base = s.includes('/') ? s.split('/')[0]! : s;
+  return base.replace(/^\^/, '').replace(/=[XF]$/, '').replace(/\.[A-Z]{1,4}$/, '');
+}
+
 export async function assetNews(db: Db, symbol: string, limit = 6): Promise<AssetNewsItem[]> {
   const sym = symbol.toUpperCase();
-  const base = sym.split('/')[0]!;
-  const named = await db.execute(sql`SELECT name FROM assets WHERE upper(ticker) = ${base} OR upper(trading_pair) = ${sym} LIMIT 1`);
+  const base = newsTicker(sym);
+  // Register-Zeile mit genau diesem Kerzen-Symbol zuerst, dann Katalog per Ticker/Paar.
+  const named = await db.execute(
+    sql`SELECT name FROM assets WHERE upper(data_symbol) = ${sym} OR upper(ticker) = ${base} OR upper(ticker) = ${sym} OR upper(trading_pair) = ${sym}
+        ORDER BY (upper(data_symbol) = ${sym}) DESC NULLS LAST, id LIMIT 1`,
+  );
   const assetName = (named.rows[0] as { name: string } | undefined)?.name ?? null;
   const nameRe = assetName ? nameRegex(assetName) : null;
   const byName = nameRe && nameRe !== wordBoundaryRegex(base.toLowerCase()) ? sql`OR title ~* ${nameRe}` : sql``;

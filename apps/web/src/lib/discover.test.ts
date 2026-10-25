@@ -18,6 +18,14 @@ describe('assetClassKey (Klassen-Badge)', () => {
     expect(assetClassKey('Commodity')).toBe('discover.class_commodity');
   });
 
+  it('Klassen des Asset-Registers (Yahoo: Währungspaar, Fonds) haben eigene Keys und Farben', () => {
+    expect(assetClassKey('FOREX')).toBe('discover.class_forex');
+    expect(assetClassKey('fund')).toBe('discover.class_fund');
+    expect(classFilterKey('FOREX')).toBe('discover.filter_forex');
+    expect(classStyle('FOREX').color).not.toBe('var(--color-mut)');
+    expect(classStyle('FUND').color).not.toBe('var(--color-mut)');
+  });
+
   it('unbekannte Typen → null (View zeigt ehrlich den Rohwert)', () => {
     expect(assetClassKey('BOND')).toBeNull();
     expect(assetClassKey('')).toBeNull();
@@ -60,6 +68,10 @@ describe('categoryKey (Paket-Kategorien)', () => {
     for (const cat of real) {
       expect(categoryKey(cat), `Kategorie ${cat} braucht einen i18n-Key`).toBe(`discover.cat_${cat.toLowerCase()}`);
     }
+  });
+
+  it('Paket „Eigene Märkte“ (Asset-Register, Kategorie USER_MARKETS) hat ein übersetztes Label', () => {
+    expect(categoryKey('USER_MARKETS')).toBe('discover.cat_user_markets');
   });
 
   it('unbekannte Kategorie → null (kein geratenes Label)', () => {

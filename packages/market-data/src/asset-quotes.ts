@@ -19,7 +19,8 @@ export type AssetQuote = {
   changePct: number | null;
   /** ISO-Währungscode der Quelle (EUR/JPY/… bei Auslandsbörsen); USX = US-Cent. */
   currency: string | null;
-  source: 'binance' | 'tradingview' | 'cboe';
+  /** 'candles' = letzter Schluss der eigenen, FRISCHEN Kerzen (Register-Assets ohne Live-Quote, Yahoo/Twelve Data). */
+  source: 'binance' | 'tradingview' | 'cboe' | 'candles';
   ts: string;
 };
 

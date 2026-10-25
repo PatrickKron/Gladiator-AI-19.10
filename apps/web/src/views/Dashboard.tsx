@@ -248,7 +248,8 @@ function BriefingPanel() {
 
 const SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
 
-type FavQuote = { price: number; changePct: number | null; currency: string | null } | null;
+/** source 'candles' = letzter Schluss der eigenen, frischen Kerzen (Register-Assets von Yahoo/Twelve Data). */
+type FavQuote = { price: number; changePct: number | null; currency: string | null; source?: string } | null;
 type QuoteFav = { assetId: number; ticker: string; name: string };
 
 /** Kurs mit Quell-Währung (Auslandsbörsen liefern EUR/JPY/HKD/…); null = ohne Suffix (Renditen/Indizes). */
@@ -429,7 +430,7 @@ function QuoteFavCard({ fav, quote, stagger, onRemoved }: { fav: QuoteFav; quote
           >
             {quote.changePct == null ? '—' : `${quote.changePct >= 0 ? '▲' : '▼'} ${Math.abs(quote.changePct).toFixed(2)} %`}
           </p>
-          <p className="label mt-3">{t('dashboard.quoteSource')}</p>
+          <p className="label mt-3">{quote.source === 'candles' ? t('dashboard.quoteSourceCandles') : t('dashboard.quoteSource')}</p>
         </>
       )}
       {/* Ehrlich deaktiviert: Demo-Fills laufen gegen ECHTE Binance-Orderbücher — die gibt

@@ -3,7 +3,7 @@ import { and, asc, count, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema, type Db } from '@gladiator/db';
 import { conditionsSchema, evaluateScreen, MAX_UNIVERSE, MIN_CANDLES, pineTimeframe, SCREEN_CANDLES, SCREEN_PRESETS, tickerIdOf, type ScreenResult } from '@gladiator/indicators';
-import { candleUniverse, getOhlcv, SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
+import { candleUniverse, getOhlcv, isCandleFresh, SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
 import { protectedProcedure, router } from '../trpc.js';
 
 const { screens } = schema;
@@ -24,7 +24,7 @@ export type ScreenRow = { symbol: string; candles: number; error: string | null 
 
 type UniverseRow = { symbol: string; candles: number };
 
-/** Symbole mit genug echten Kerzen im Zeitrahmen (ehrlich: nur was in der DB liegt) — dieselbe Abfrage wie der Screen-Alarm im Worker. */
+/** Symbole mit genug echten, FRISCHEN Kerzen im Zeitrahmen (ehrlich: nur was in der DB liegt) — dieselbe Abfrage wie der Screen-Alarm im Worker. */
 export function universeFor(db: Db, timeframe: string, venue: string): Promise<UniverseRow[]> {
   return candleUniverse(db, { timeframe, venue, minCandles: MIN_CANDLES, limit: MAX_UNIVERSE });
 }
@@ -46,6 +46,12 @@ export async function runScreen(db: Db, input: RunScreenInput) {
     const candles = await getOhlcv(db, { symbol, timeframe: input.timeframe, limit: SCREEN_CANDLES, venue });
     if (candles.length === 0) {
       rows.push({ symbol, candles: 0, error: 'Keine Kerzen in der DB.' });
+      continue;
+    }
+    // Explizit gefragte Symbole können eingeschlafen sein — nie auf alten Kerzen „treffen“ (freshness.ts).
+    const last = candles[candles.length - 1]!;
+    if (!isCandleFresh(last.ts, input.timeframe, venue)) {
+      rows.push({ symbol, candles: candles.length, error: `Kerzen veraltet — letzte Kerze ${last.ts.toISOString()}.` });
       continue;
     }
     try {

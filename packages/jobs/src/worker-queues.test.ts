@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FAST_QUEUE_NAME, FAST_SCHEDULES, MONITOR_JOB, QUEUE_NAME, SCHEDULES } from './worker.js';
+import { CANDLE_REFRESH_JOB, FAST_QUEUE_NAME, FAST_SCHEDULES, MONITOR_JOB, QUEUE_NAME, SCHEDULES } from './worker.js';
 
 /**
  * Positions-Monitor (SL/TP, Trailing, Notfall) darf nie hinter CPU-schweren
@@ -14,6 +14,10 @@ describe('Job-Queues', () => {
 
   it('Monitor tickt jede Minute', () => {
     expect(FAST_SCHEDULES.find(([n]) => n === MONITOR_JOB)?.[1]).toBe(60_000);
+  });
+
+  it('Kerzen-Refresh des Asset-Registers läuft alle 15 min in der Haupt-Queue', () => {
+    expect(SCHEDULES.find(([n]) => n === CANDLE_REFRESH_JOB)?.[1]).toBe(15 * 60_000);
   });
 
   it('kein Job ist doppelt eingeplant', () => {

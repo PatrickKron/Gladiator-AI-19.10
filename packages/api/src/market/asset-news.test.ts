@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
 import { createDb, schema, type Db } from '@gladiator/db';
 import type pg from 'pg';
-import { assetNews, nameRegex, wordBoundaryRegex } from './asset-news.js';
+import { assetNews, nameRegex, newsTicker, wordBoundaryRegex } from './asset-news.js';
 
 describe('nameRegex', () => {
   it('lässt Füllwörter weg, hält Mehrwort-Namen zusammen, nichts Signifikantes → null', () => {
@@ -14,6 +14,21 @@ describe('nameRegex', () => {
     expect(nameRegex('Bitcoin Cash')).toBe('\\mbitcoin[^[:alnum:]]+cash\\M');
     expect(nameRegex('Coca-Cola Company')).toBe('\\mcoca[^[:alnum:]]+cola\\M');
     expect(nameRegex('The Token')).toBeNull();
+  });
+});
+
+describe('newsTicker', () => {
+  it.each([
+    ['BTC/USDT', 'BTC'],
+    ['SAP.DE', 'SAP'],
+    ['VOD.L', 'VOD'],
+    ['EURUSD=X', 'EURUSD'],
+    ['GC=F', 'GC'],
+    ['^GSPC', 'GSPC'],
+    ['brk-b', 'BRK-B'],
+    ['AAPL', 'AAPL'],
+  ])('%s → %s (Yahoo-Zusätze weg, Rest bleibt für den Ganzwort-Abgleich)', (symbol, expected) => {
+    expect(newsTicker(symbol)).toBe(expected);
   });
 });
 
@@ -32,7 +47,8 @@ describe.skipIf(!hasDb)('assetNews gegen die echte DB', () => {
   let db: Db;
   let pool: pg.Pool;
   const RUN = `${process.pid}-${Date.now()}`;
-  const urls = [`https://t.invalid/${RUN}/1`, `https://t.invalid/${RUN}/2`, `https://t.invalid/${RUN}/3`, `https://t.invalid/${RUN}/4`];
+  const urls = [`https://t.invalid/${RUN}/1`, `https://t.invalid/${RUN}/2`, `https://t.invalid/${RUN}/3`, `https://t.invalid/${RUN}/4`, `https://t.invalid/${RUN}/5`, `https://t.invalid/${RUN}/6`];
+  const YTICK = `YNW${RUN.slice(-4)}`;
   let packageRowId: number;
 
   beforeAll(async () => {
@@ -40,12 +56,16 @@ describe.skipIf(!hasDb)('assetNews gegen die echte DB', () => {
     const [pkg] = await db.insert(schema.packages).values({ packageId: `pkg-news-${RUN}`, name: 'News-Test', category: 'crypto' }).returning();
     packageRowId = pkg!.id;
     await db.insert(schema.assets).values({ assetId: `asset-news-${RUN}`, packageId: packageRowId, ticker: `NWS${RUN.slice(-4)}`, name: 'Newscoin Token', assetType: 'crypto', tradingPair: `NWS${RUN.slice(-4)}/USDT` });
+    // Register-Asset von Yahoo (Börsen-Suffix): Name aus dem Register, Ticker ohne .DE
+    await db.insert(schema.assets).values({ assetId: `asset-news-y-${RUN}`, packageId: packageRowId, ticker: `${YTICK}.DE`, name: 'Yahoonews Werke AG', assetType: 'STOCK', candleVenue: 'yahoo', dataSymbol: `${YTICK}.DE` });
     const now = Date.now();
     await db.insert(schema.newsItems).values([
       { source: 'test', title: `Newscoin rallies after upgrade (${RUN})`, url: urls[0]!, publishedAt: new Date(now - 1_000) },
       { source: 'test', title: `NWS${RUN.slice(-4)} listed on exchange (${RUN})`, url: urls[1]!, publishedAt: new Date(now - 2_000) },
       { source: 'test', title: `somethingNWS${RUN.slice(-4)}else is unrelated (${RUN})`, url: urls[2]!, publishedAt: new Date(now - 3_000) },
       { source: 'test', title: `Another coin, nothing to do with it (${RUN})`, url: urls[3]!, publishedAt: new Date(now - 4_000) },
+      { source: 'test', title: `${YTICK} raises guidance (${RUN})`, url: urls[4]!, publishedAt: new Date(now - 5_000) },
+      { source: 'test', title: `Yahoonews Werke beat estimates (${RUN})`, url: urls[5]!, publishedAt: new Date(now - 6_000) },
     ]);
   });
   afterAll(async () => {
@@ -63,5 +83,10 @@ describe.skipIf(!hasDb)('assetNews gegen die echte DB', () => {
     expect(typeof hits[0]!.publishedAt).toBe('string');
     // Symbol ohne Asset-Zeile: nur der Ticker zählt
     expect((await assetNews(db, `${ticker}X/USDT`)).length).toBe(0);
+  });
+
+  it('Yahoo-Symbol mit Suffix: Ticker ohne .DE als ganzes Wort UND Register-Name treffen', async () => {
+    const hits = await assetNews(db, `${YTICK}.DE`);
+    expect(hits.map((h) => h.url)).toEqual([urls[4], urls[5]]);
   });
 });

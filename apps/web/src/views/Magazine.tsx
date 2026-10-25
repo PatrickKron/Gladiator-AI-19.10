@@ -10,7 +10,8 @@ import { appLocale } from '../lib/locale.js';
 
 type Article = Awaited<ReturnType<typeof trpc.product.articles.query>>[number];
 type NewsItem = Awaited<ReturnType<typeof trpc.market.news.query>>[number];
-type Favorite = Awaited<ReturnType<typeof trpc.product.favorites.query>>[number];
+/** Favoriten ALLER Quellen (Asset-Register): Krypto, Aktien, ETF, Forex … mit Name und News-Ticker (ohne .DE/=X/^). */
+type Favorite = Awaited<ReturnType<typeof trpc.product.favoriteSymbols.query>>[number];
 
 /**
  * Eine News-Zeile (Patricks Mängelliste 2026-10-22, Punkt 7): relative UND absolute Zeit,
@@ -82,7 +83,7 @@ function NewsPanel() {
   useEffect(() => {
     // 60 Items: mehr echtes Material für den Favoriten-Abgleich und die Tagesgruppen.: mehr echtes Material für den Favoriten-Abgleich.
     void trpc.market.news.query({ limit: 60 }).then(setNews).catch(() => setNews([]));
-    void trpc.product.favorites.query().then(setFavorites).catch(() => setFavorites([]));
+    void trpc.product.favoriteSymbols.query().then(setFavorites).catch(() => setFavorites([]));
     // Namen aus der Asset-Tabelle (BTC ↔ „Bitcoin“), wo vorhanden — sonst nur der Ticker.
     void Promise.all([trpc.market.scanUniverse.query(), trpc.product.allAssets.query().catch(() => [])])
       .then(([u, all]) => {
@@ -95,14 +96,15 @@ function NewsPanel() {
 
   const grouped = useMemo(
     () => {
-      const favs = (favorites ?? []).map((f) => ({ ticker: f.ticker, name: f.name }));
+      // SAP.DE und SAP treffen dieselben Schlagzeilen — je News-Ticker eine Gruppe
+      const favs = [...new Map((favorites ?? []).map((f) => [f.newsTicker.toUpperCase(), { ticker: f.newsTicker, name: f.name }])).values()];
       const favSet = new Set(favs.map((f) => f.ticker.toUpperCase()));
       const uni = universe.filter((u) => !favSet.has(u.ticker));
       return groupNewsByFavorites(news ?? [], [...favs, ...uni]);
     },
     [news, favorites, universe],
   );
-  const favTickers = useMemo(() => new Set((favorites ?? []).map((f) => f.ticker.toUpperCase())), [favorites]);
+  const favTickers = useMemo(() => new Set((favorites ?? []).map((f) => f.newsTicker.toUpperCase())), [favorites]);
   const favGroups = grouped.groups.filter((g) => favTickers.has(g.ticker.toUpperCase()));
   const uniGroups = grouped.groups.filter((g) => !favTickers.has(g.ticker.toUpperCase()));
   const loading = news === null || favorites === null;
@@ -176,7 +178,7 @@ function NewsPanel() {
       ) : favGroups.length === 0 ? (
         <Empty
           text={t('magazine.noFavoriteNews', {
-            tickers: [...new Set(favorites.map((f) => f.ticker))].join(', '),
+            tickers: [...new Set(favorites.map((f) => f.newsTicker))].join(', '),
           })}
         />
       ) : (

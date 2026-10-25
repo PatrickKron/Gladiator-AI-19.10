@@ -5,7 +5,8 @@ import { Empty, ErrorBox, Loading, PageHeader, Panel, StatusDot } from '../compo
 import { SizingCalc } from '../components/SizingCalc.js';
 import { Sparkline } from '../components/Sparkline.js';
 import { buildTabHash, parseTab } from '../lib/tab-hash.js';
-import { buildChartUrl } from '../lib/chart-url.js';
+import { buildChartUrl, isChartVenue, type ChartVenue } from '../lib/chart-url.js';
+import { AssetSelect, VENUE_LABEL, getSelectedAsset, getSelectedVenue } from '../components/AssetSelect.js';
 import { isDemoMode, setDemoMode } from '../lib/demo-mode.js';
 import { DemoTrading } from './DemoTrading.js';
 import { PaperPositions } from '../components/PaperPositions.js';
@@ -114,11 +115,16 @@ function TradeExport() {
   );
 }
 
-/** Preis-Alerts (Patrick-Luecke 7): minutengenauer Monitor, Trigger -> Telegram. */
+/**
+ * Preis-Alerts (Patrick-Luecke 7): minutengenauer Monitor, Trigger -> Telegram.
+ * Asset-Register (2026-10-25): Symbol + Quelle kommen aus dem Asset-Feld (jede Quelle) —
+ * Yahoo/Twelve Data prüft der Monitor gegen den frischen Kerzen-Schluss.
+ */
 function AlertsPanel() {
   const { t } = useTranslation();
   const [alerts, setAlerts] = useState<Alert[] | null>(null);
-  const [symbol, setSymbol] = useState('BTC/USDT');
+  const [symbol, setSymbol] = useState(() => getSelectedAsset());
+  const [venue, setVenue] = useState<ChartVenue>(() => getSelectedVenue());
   const [condition, setCondition] = useState<'above' | 'below'>('above');
   const [price, setPrice] = useState('');
   const [note, setNote] = useState('');
@@ -144,6 +150,7 @@ function AlertsPanel() {
     try {
       await trpc.trading.createAlert.mutate({
         symbol: symbol.trim(),
+        venue,
         condition,
         price: Number(price.replace(',', '.')),
         note: note.trim() || undefined,
@@ -163,10 +170,18 @@ function AlertsPanel() {
   return (
     <Panel label={t('trading.alertsTitle')} stagger={8} className="mt-5">
       <div className="mt-4 flex flex-wrap items-end gap-2">
-        <label className="flex flex-col gap-1">
-          <span className="label">{t('trading.alertSymbol')}</span>
-          <input value={symbol} onChange={(e) => setSymbol(e.target.value)} className="field num w-32 px-2.5 py-1.5 text-sm" />
-        </label>
+        <div className="flex min-w-0 max-w-full flex-col gap-1">
+          <AssetSelect
+            value={symbol}
+            venue={venue}
+            persist={false}
+            label={t('trading.alertSymbol')}
+            onChange={(s, v) => {
+              setSymbol(s);
+              setVenue(v);
+            }}
+          />
+        </div>
         <label className="flex flex-col gap-1">
           <span className="label">{t('trading.alertCondition')}</span>
           <select value={condition} onChange={(e) => setCondition(e.target.value as 'above' | 'below')} className="field cursor-pointer px-2.5 py-1.5 text-sm">
@@ -184,7 +199,7 @@ function AlertsPanel() {
         </label>
         <button
           onClick={() => void create()}
-          disabled={busy || Number(price.replace(',', '.')) <= 0 || symbol.trim().length < 3}
+          disabled={busy || Number(price.replace(',', '.')) <= 0 || symbol.trim().length < 1}
           className="btn-primary px-4 py-1.5 text-sm disabled:opacity-50"
         >
           {t('trading.alertCreate')}
@@ -193,6 +208,11 @@ function AlertsPanel() {
       {error && (
         <p className="mt-2 text-xs" style={{ color: 'var(--color-neg)' }}>
           {error}
+        </p>
+      )}
+      {venue !== 'binance' && (
+        <p className="mt-2 text-xs" style={{ color: 'var(--color-mut)' }}>
+          {t('trading.alertCandleHint')}
         </p>
       )}
       {alerts === null ? (
@@ -208,7 +228,9 @@ function AlertsPanel() {
               style={{ borderColor: a.active ? 'rgba(96,165,250,0.3)' : 'var(--color-line)', opacity: a.active ? 1 : 0.65 }}
             >
               <span className="num">
-                {a.symbol} {a.condition === 'above' ? '\u2265' : '\u2264'} {fmtP(a.price)}
+                {a.symbol}
+                {isChartVenue(a.venue) && a.venue !== 'binance' ? <span style={{ color: 'var(--color-mut)' }}> · {VENUE_LABEL[a.venue]}</span> : null}{' '}
+                {a.condition === 'above' ? '\u2265' : '\u2264'} {fmtP(a.price)}
                 {a.note ? <span style={{ color: 'var(--color-mut)' }}> · {a.note}</span> : null}
               </span>
               <span className="flex items-center gap-3">

@@ -22,7 +22,14 @@ export function Watchlist({ value, onSelect }: { value: string; onSelect: (symbo
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([trpc.market.scanUniverse.query().catch(() => [] as string[]), trpc.product.favoriteSymbols.query().catch(() => [] as string[])]).then(
+    void Promise.all([
+      trpc.market.scanUniverse.query().catch(() => [] as string[]),
+      // Live-Kurse gibt es nur für Binance-Paare — Aktien-/Forex-Favoriten stehen im Asset-Feld („Meine Märkte“).
+      trpc.product.favoriteSymbols
+        .query()
+        .then((f) => f.filter((x) => x.venue === 'binance').map((x) => x.symbol))
+        .catch(() => [] as string[]),
+    ]).then(
       ([universe, favs]) => {
         if (cancelled) return;
         setFavorites(new Set(favs));

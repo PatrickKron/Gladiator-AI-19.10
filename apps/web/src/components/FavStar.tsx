@@ -2,12 +2,15 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { feedSymbol } from '../lib/pairs.js';
+import { isChartVenue, type ChartVenue } from '../lib/chart-url.js';
 
 /**
  * Stern-Favoriten (P0.3) — zwei Varianten, ein Verhalten:
  * - `FavStar`      : asset-ID-basiert (Pakete-Liste, wo die assetId vorliegt).
  * - `FavStarSymbol`: symbol-basiert (Charts/Aegis/Oracle/Signale, wo nur das
- *   Handelspaar bekannt ist) — nutzt product.toggleFavoriteBySymbol.
+ *   Symbol bekannt ist) — nutzt product.toggleFavoriteBySymbol. Seit dem
+ *   Asset-Register für JEDE Quelle: mit `venue` (yahoo/twelvedata) auch Aktien,
+ *   ETF, Forex; ohne venue entscheidet das Register.
  * Favoriten steuern Scan-Universum, Signal-Priorität und Dashboard (bestehendes
  * Backend, keine Fake-Daten).
  */
@@ -50,11 +53,14 @@ export function FavStar({
 
 export function FavStarSymbol({
   symbol,
+  venue,
   initialFavorite,
   onToggled,
   className = '',
 }: {
   symbol: string;
+  /** Kerzenquelle des Symbols (Chart-Venue); ohne = Krypto-Paar bzw. Register entscheidet. */
+  venue?: ChartVenue | string | null;
   /** Wenn bekannt (z. B. aus signal.isFavorite): spart die Zustands-Abfrage. */
   initialFavorite?: boolean;
   onToggled?: (fav: boolean) => void;
@@ -64,6 +70,8 @@ export function FavStarSymbol({
   const [fav, setFav] = useState<boolean | null>(initialFavorite ?? null);
   const [busy, setBusy] = useState(false);
   const [noAsset, setNoAsset] = useState(false);
+
+  const source = isChartVenue(venue) ? venue : undefined;
 
   useEffect(() => {
     if (initialFavorite !== undefined) {
@@ -75,8 +83,9 @@ export function FavStarSymbol({
       .query()
       .then((syms) => {
         if (cancelled) return;
-        const norm = feedSymbol(symbol);
-        setFav(norm ? syms.includes(norm) : false);
+        // Krypto-Paare normalisiert ("BTCUSDT" → "BTC/USDT"), alle anderen Quellen exakt
+        const norm = source && source !== 'binance' ? symbol.toUpperCase() : (feedSymbol(symbol) ?? symbol.toUpperCase());
+        setFav(syms.some((s) => s.symbol === norm && (source ? s.venue === source : true)));
       })
       .catch(() => {
         if (!cancelled) setFav(false);
@@ -84,7 +93,7 @@ export function FavStarSymbol({
     return () => {
       cancelled = true;
     };
-  }, [symbol, initialFavorite]);
+  }, [symbol, source, initialFavorite]);
 
   const isFav = fav === true;
   return (
@@ -96,7 +105,7 @@ export function FavStarSymbol({
         e.preventDefault();
         setBusy(true);
         trpc.product.toggleFavoriteBySymbol
-          .mutate({ symbol })
+          .mutate({ symbol, ...(source ? { venue: source } : {}) })
           .then((res) => {
             if (res.ok) {
               setFav(res.favorite);

@@ -41,8 +41,9 @@ describe.skipIf(!process.env.DATABASE_URL)('runScreenAlerts (echte DB)', () => {
   // Eigene Kerzenquelle je Lauf: das Universum eines Screens ist venue × Zeitrahmen — mit 'binance' würden
   // parallel laufende Test-Dateien (eigene 1h-Kerzen) als „neue Treffer“ hineinspielen (CI-Flake).
   const VENUE = `sca-${process.pid}`;
-  const T0 = 1_760_000_000;
   const H = 3600;
+  // Frische Kerzen (neueste vor einer Stunde) — das Alarm-Universum nimmt nur frische Reihen (freshness.ts).
+  const T0 = Math.floor(Date.now() / 1000 / H) * H - 300 * H;
   const quiet = { notify: { pushConfigured: false, sendTelegram: async () => false } };
   const rising = [{ kind: 'compare', left: { kind: 'price' }, op: '>', right: { kind: 'number', value: 0 } }];
   const impossible = [{ kind: 'compare', left: { kind: 'price' }, op: '<', right: { kind: 'number', value: 0 } }];

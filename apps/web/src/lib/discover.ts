@@ -8,8 +8,11 @@ import { appLocale } from './locale.js';
  * und die View (Pakete.tsx) bleibt reine Darstellung.
  */
 
-/** Asset-Klassen, wie sie ECHT in der DB stehen (221 Assets, live verifiziert 2026-07-09). */
-export const ASSET_CLASSES = ['CRYPTO', 'STOCK', 'ETF', 'INDEX', 'FUTURE', 'COMMODITY'] as const;
+/**
+ * Asset-Klassen, wie sie ECHT in der DB stehen (221 Assets, live verifiziert 2026-07-09) —
+ * plus FOREX/FUND aus dem Asset-Register (Yahoo-quoteType CURRENCY/MUTUALFUND, 2026-10-25).
+ */
+export const ASSET_CLASSES = ['CRYPTO', 'STOCK', 'ETF', 'INDEX', 'FUTURE', 'COMMODITY', 'FOREX', 'FUND'] as const;
 export type AssetClass = (typeof ASSET_CLASSES)[number];
 export type ClassFilter = 'all' | AssetClass;
 
@@ -41,6 +44,8 @@ const CLASS_STYLE: Record<string, BadgeStyle> = {
   INDEX: { color: 'var(--color-blue)', borderColor: 'rgba(59,130,246,0.55)', background: 'rgba(59,130,246,0.10)' },
   FUTURE: { color: 'var(--color-magenta)', borderColor: 'rgba(245,158,11,0.45)', background: 'rgba(245,158,11,0.08)' },
   COMMODITY: { color: 'var(--color-pos)', borderColor: 'rgba(34,197,94,0.45)', background: 'rgba(34,197,94,0.08)' },
+  FOREX: { color: 'var(--color-cyan)', borderColor: 'rgba(148,163,184,0.5)', background: 'rgba(148,163,184,0.10)' },
+  FUND: { color: 'var(--color-warn)', borderColor: 'rgba(148,163,184,0.5)', background: 'rgba(148,163,184,0.10)' },
 };
 
 export function classStyle(assetType: string): BadgeStyle {
@@ -71,6 +76,8 @@ const CATEGORY_KEYS: Record<string, string> = {
   SENTIMENT_HEDGE: 'discover.cat_sentiment_hedge',
   LUXURY_NICHES: 'discover.cat_luxury_niches',
   FUTURE_FRONTIERS: 'discover.cat_future_frontiers',
+  // Paket „Eigene Märkte“ (Asset-Register, @gladiator/jobs USER_MARKETS_PACKAGE)
+  USER_MARKETS: 'discover.cat_user_markets',
 };
 
 export function categoryKey(category: string): string | null {
