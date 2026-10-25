@@ -19,8 +19,8 @@ export function verdictGate(a: AssetAnalysis): { makro: string | null; shadow: s
   };
 }
 
-export async function assetVerdicts(db: Db, userId: string, symbol: string, provider: LlmProvider, guard: CostGuard | null): Promise<{ symbol: string; asOf: string; agents: AgentOutcome[]; costUsd: number }> {
-  const a = await buildAssetAnalysis(db, userId, symbol);
+export async function assetVerdicts(db: Db, userId: string, symbol: string, provider: LlmProvider, guard: CostGuard | null, venue = 'binance'): Promise<{ symbol: string; asOf: string; agents: AgentOutcome[]; costUsd: number }> {
+  const a = await buildAssetAnalysis(db, userId, symbol, venue);
   const news = await assetNews(db, a.symbol, 6);
   const gate = verdictGate(a);
   const facts = {

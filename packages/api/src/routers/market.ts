@@ -32,9 +32,13 @@ import {
   removeFredWatch,
   suggestFredSeries,
   listBinanceSpotPairs,
+  listBinancePerps,
+  perpSymbolFor,
+  selectDerivativePerps,
   searchYahoo,
   searchSpotPairs,
 } from '@gladiator/market-data';
+import { assetProfile } from '@gladiator/core';
 import { noTradeWindowFor } from '@gladiator/risk';
 import { hindsightOutcome, type HindsightSignal } from '@gladiator/backtest';
 import { ensureCandles, scanUniverse } from '@gladiator/jobs';
@@ -474,8 +478,31 @@ export const marketRouter = router({
       return getAssetQuotes(rows);
     }),
 
-  /** Funding/OI-Snapshot (Binance-Futures, Basis des Shadow-Agenten). */
-  derivatives: protectedProcedure.query(({ ctx }) => getDerivativesSnapshot(ctx.db)),
+  /**
+   * Funding/OI-Snapshot (Binance-Futures, Basis des Shadow-Agenten). Ohne Eingabe: Basis-Perps
+   * (Marktlage). Mit `symbols` (Chart-Seite): genau diese Paare, je mit `perp` (gibt es einen
+   * gleichnamigen USDⓈ-M-Perp? null = Börse nicht erreichbar) und `inSync` (wird er synchronisiert?).
+   */
+  derivatives: protectedProcedure
+    .input(z.object({ symbols: z.array(z.string().min(1).max(40)).min(1).max(20).optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      if (!input?.symbols) {
+        return (await getDerivativesSnapshot(ctx.db)).map((d) => ({ ...d, perp: true as boolean | null, inSync: true }));
+      }
+      const symbols = [...new Set(input.symbols.map((s) => s.trim().toUpperCase()))];
+      let listed: Set<string> | null = null;
+      try {
+        listed = await listBinancePerps();
+      } catch {
+        listed = null;
+      }
+      const synced = new Set(selectDerivativePerps(await scanUniverse(ctx.db), listed));
+      const snap = await getDerivativesSnapshot(ctx.db, symbols);
+      return snap.map((d) => {
+        const perp = perpSymbolFor(d.symbol);
+        return { ...d, perp: perp === null ? false : listed === null ? null : listed.has(perp), inSync: perp !== null && synced.has(perp) };
+      });
+    }),
 
   /** Aktuelles Scan-Universum (Basis + Stern-Favoriten) — für Selektoren. */
   scanUniverse: protectedProcedure.query(({ ctx }) => scanUniverse(ctx.db)),
@@ -500,19 +527,21 @@ export const marketRouter = router({
     .query(({ ctx, input }) => loadCorrelation(ctx.db, { symbols: input.symbols.map((s) => ({ symbol: s.symbol.toUpperCase(), venue: s.venue })), days: input.days })),
 
   /** Oracle · Shadow · Sentinel für ein Asset auf einen Klick (Mängelliste Punkt 6) — nur echte, synchronisierte Daten. */
-  assetAnalysis: protectedProcedure.input(z.object({ symbol: z.string().min(3).max(40) })).query(({ ctx, input }) => buildAssetAnalysis(ctx.db, ctx.user.id, input.symbol)),
+  assetAnalysis: protectedProcedure
+    .input(z.object({ symbol: z.string().min(1).max(40), venue: z.string().min(2).max(32).default('binance') }))
+    .query(({ ctx, input }) => buildAssetAnalysis(ctx.db, ctx.user.id, input.symbol, input.venue)),
 
   /**
    * KI-Urteil je Asset (Mängelliste 6, zweite Stufe): Makro- und Shadow-Agent bewerten die echten
    * Fakten der Analyse; ohne Schlüssel ehrlich PRECONDITION_FAILED, ohne Datenquelle je Agent
    * „nicht verbunden“. Jede Antwort trägt die echten Kosten.
    */
-  assetVerdict: protectedProcedure.input(z.object({ symbol: z.string().min(3).max(40) })).mutation(async ({ ctx, input }) => {
+  assetVerdict: protectedProcedure.input(z.object({ symbol: z.string().min(1).max(40), venue: z.string().min(2).max(32).default('binance') })).mutation(async ({ ctx, input }) => {
     const provider = envAnthropicProvider();
     if (!provider.configured) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Kein ANTHROPIC_API_KEY hinterlegt — das KI-Urteil braucht ihn. In Einstellungen → API-Schlüssel eintragen; die drei Karten der Analyse funktionieren auch ohne.' });
     }
-    return assetVerdicts(ctx.db, ctx.user.id, input.symbol, provider, verdictLlmGuard);
+    return assetVerdicts(ctx.db, ctx.user.id, input.symbol, provider, verdictLlmGuard, input.venue);
   }),
 
   /**
@@ -607,12 +636,14 @@ export const marketRouter = router({
    * für GENAU dieses Asset — Basis für Oracle/Aegis/Favoriten-Briefing.
    */
   assetContext: protectedProcedure
-    .input(z.object({ symbol: z.string().min(3) }))
+    .input(z.object({ symbol: z.string().min(1).max(40), venue: z.string().min(2).max(32).default('binance') }))
     .query(async ({ ctx, input }) => {
-      const symbol = input.symbol.toUpperCase();
-      const candles1h = await getOhlcv(ctx.db, { symbol, timeframe: '1h', limit: 400 });
+      const symbol = input.symbol.trim().toUpperCase();
+      const venue = input.venue;
+      // Kerzen der GEWÄHLTEN Quelle (Binance, Yahoo, Twelve Data) — nicht still Binance.
+      const candles1h = await getOhlcv(ctx.db, { symbol, timeframe: '1h', limit: 400, venue });
       if (candles1h.length < 30) {
-        return { symbol, available: false as const, candles: candles1h.length };
+        return { symbol, venue, available: false as const, candles: candles1h.length };
       }
       const closes = candles1h.map((c) => c.close);
       const last = closes[closes.length - 1]!;
@@ -635,8 +666,8 @@ export const marketRouter = router({
       const dayLow = todays.length > 0 ? Math.min(...todays.map((c) => c.low)) : null;
       const intradayRangePct = dayHigh !== null && dayLow !== null && dayLow > 0 ? ((dayHigh - dayLow) / dayLow) * 100 : null;
 
-      // Derivate für dieses Symbol (echt; null wenn kein Perp-Feed)
-      const deriv = (await getDerivativesSnapshot(ctx.db, [symbol]))[0] ?? null;
+      // Derivate für dieses Symbol (echt; null ohne Perp-Feed — nur Binance-Paare haben einen)
+      const deriv = venue === 'binance' ? ((await getDerivativesSnapshot(ctx.db, [symbol]))[0] ?? null) : null;
 
       // Offene Signale + passende aktive Gates für dieses Symbol
       const openSignals = await ctx.db.execute(
@@ -645,17 +676,23 @@ export const marketRouter = router({
       const gates = await ctx.db.execute(
         sql`SELECT reason FROM risk_gates WHERE is_active = true AND (symbol IS NULL OR symbol = ${symbol}) LIMIT 10`,
       );
-      // Exposure aus offenen Positionen (alle User — ein User-Typ)
+      // Exposure aus offenen Positionen (Agent: alle User — ein User-Typ) + eigene Demo-Positionen
       const exposure = await ctx.db.execute(
         sql`SELECT coalesce(sum(qty::float * entry_price::float), 0) AS notional FROM positions WHERE symbol = ${symbol}`,
+      );
+      const demoExposure = await ctx.db.execute(
+        sql`SELECT coalesce(sum(qty::float * entry_price::float), 0) AS notional FROM demo_positions WHERE symbol = ${symbol} AND user_id = ${ctx.user.id}`,
       );
       const news = await assetNews(ctx.db, symbol);
 
       return {
         symbol,
+        venue,
         available: true as const,
         candles: candles1h.length,
         price: last,
+        /** Kurswährung (ISO) aus dem Asset-Profil; null = unbekannt (z. B. London in Pence) → kein Zeichen. */
+        quoteCurrency: assetProfile(symbol, venue)?.quoteCurrency ?? null,
         change24hPct: ago24h > 0 ? (last / ago24h - 1) * 100 : null,
         emaRegime: ema200 != null ? ((last >= ema200 ? 'above' : 'below') as 'above' | 'below') : null,
         marketPhase: lastEvent ? ((lastEvent.direction === 'bullish' ? 'bull' : 'bear') as 'bull' | 'bear') : null,
@@ -663,10 +700,11 @@ export const marketRouter = router({
         rsi14: rsi14 ?? null,
         atrPct: atr14 != null && last > 0 ? (atr14 / last) * 100 : null,
         intradayRangePct,
-        funding: deriv ? { rate: deriv.fundingRate, oiChangePct24h: deriv.oiChangePct24h } : null,
+        funding: deriv && deriv.fundingTs ? { rate: deriv.fundingRate, oiChangePct24h: deriv.oiChangePct24h } : null,
         openSignals: (openSignals.rows[0] as { n: number }).n,
         matchingGates: (gates.rows as { reason: string }[]).map((g) => g.reason),
         exposureNotional: Number((exposure.rows[0] as { notional: number }).notional),
+        demoExposureNotional: Number((demoExposure.rows[0] as { notional: number }).notional),
         news,
       };
     }),

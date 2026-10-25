@@ -17,6 +17,7 @@ import { parseTab } from '../lib/tab-hash.js';
 import { Watchlist } from '../components/Watchlist.js';
 import { CHART_LAYOUTS, layoutGridClass, loadChartLayout, normalizeCells, saveChartLayout, type ChartCell, type ChartLayout } from '../lib/chart-layout.js';
 import { appLocale } from '../lib/locale.js';
+import { priceUnit } from '../lib/asset-tabs.js';
 
 const DOCK_KEY = 'gladiator.chartBookDock';
 function bookDockOpen(): boolean {
@@ -31,7 +32,8 @@ function bookDockOpen(): boolean {
  * Asset-Detailseite (P2.9): Tabs wie in v2 — Chart · Analyse · Makro · Risiko
  * (Patrick 2026-10-24: „v2 war näher dran"). Makro und Risiko rendern DIESELBEN
  * Komponenten wie die Marktlage (MacroPanels/RiskPanels) — keine zweite
- * Umsetzung; die Marktlage behält ihre Tabs.
+ * Umsetzung; die Marktlage behält ihre Tabs. Hier bekommen sie `symbol` + `venue`
+ * und zeigen nur, was zum gewählten Asset gehört (Patrick 2026-10-25).
  * Deep-Link: `#/charts?symbol=ETH/USDT&tf=4h&tab=makro`. Asset-Wahl teilt localStorage mit
  * den (umgeleiteten) Alt-Routen; aktiver Tab + Symbol liegen im URL-Hash.
  */
@@ -49,7 +51,8 @@ export function AssetDetail() {
   // Kerzenquelle (Repo-Masterliste, Phase 5): Krypto (Binance) oder Aktien/ETF/Forex (Twelve Data, Yahoo).
   const [venue, setVenue] = useState<ChartVenue>(() => (linked.symbol ? (linked.venue ?? 'binance') : getSelectedVenue()));
   const [tab, setTab] = useState<AssetTab>(() => parseTab(window.location.hash, ASSET_TABS, 'chart') as AssetTab);
-  const ctx = useAssetContext(asset);
+  // Kontext aus den Kerzen der GEWÄHLTEN Quelle (Aktien/Forex über Yahoo/Twelve Data, nicht still Binance).
+  const ctx = useAssetContext(asset, 60_000, venue);
 
   const changeAsset = useCallback(
     (sym: string, v: ChartVenue = 'binance') => {
@@ -123,6 +126,8 @@ export function AssetDetail() {
 
   const price = ctx && ctx.available ? ctx.price : null;
   const change = ctx && ctx.available ? ctx.change24hPct : null;
+  // Kurswährung aus dem Asset-Profil (SAP.DE → €); unbekannt (London in Pence) → kein Zeichen statt falschem „$".
+  const unit = ctx && ctx.available ? priceUnit(ctx.quoteCurrency) : '';
 
   return (
     <div>
@@ -134,7 +139,8 @@ export function AssetDetail() {
         </div>
         {price != null && (
           <span className="num flex items-center gap-2 text-sm font-semibold">
-            {price.toLocaleString(appLocale(), { maximumFractionDigits: price >= 1000 ? 0 : 4 })} $
+            {price.toLocaleString(appLocale(), { maximumFractionDigits: price >= 1000 ? 0 : 4 })}
+            {unit ? ` ${unit}` : ''}
             {change != null && <span className={`chip ${change >= 0 ? 'chip--pos' : 'chip--neg'}`}>{change >= 0 ? '▲' : '▼'} {Math.abs(change).toFixed(2)} %</span>}
           </span>
         )}
@@ -219,7 +225,7 @@ export function AssetDetail() {
         </div>
       )}
       {tab === 'kontext' && (
-        <AssetAnalysis symbol={asset} ctx={ctx} />
+        <AssetAnalysis symbol={asset} venue={venue} ctx={ctx} />
       )}
       {tab === 'kontext' && (
         <Panel label={t('assetCtx.title', { symbol: asset })} stagger={1}>
@@ -227,8 +233,9 @@ export function AssetDetail() {
           <MlInsights symbol={asset} />
         </Panel>
       )}
-      {tab === 'makro' && <MacroPanels />}
-      {tab === 'risiko' && <RiskPanels />}
+      {/* Patrick 2026-10-25: Makro/Risiko zeigen hier NUR, was zum gewählten Asset passt (Marktlage bleibt global). */}
+      {tab === 'makro' && <MacroPanels symbol={asset} venue={venue} />}
+      {tab === 'risiko' && <RiskPanels symbol={asset} venue={venue} />}
     </div>
   );
 }

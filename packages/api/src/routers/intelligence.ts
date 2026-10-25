@@ -5,6 +5,7 @@ import {
   fetchOnchainSnapshot,
   type OnchainSnapshot,
   getBuffettSnapshot,
+  getCotHistory,
   getCotSnapshot,
   getCpiSnapshot,
   syncBuffett,
@@ -45,6 +46,11 @@ export const intelligenceRouter = router({
   cotSnapshot: protectedProcedure
     .input(z.object({ symbol: z.string().optional() }).optional())
     .query(({ ctx, input }) => getCotSnapshot(ctx.db, input?.symbol)),
+
+  /** Wochenverlauf (Netto/OI) des COT-Markts eines Symbols — null, wenn es für das Asset keinen gibt. */
+  cotHistory: protectedProcedure
+    .input(z.object({ symbol: z.string().min(1).max(40), weeks: z.number().int().min(4).max(260).default(60) }))
+    .query(({ ctx, input }) => getCotHistory(ctx.db, input.symbol, input.weeks)),
 
   /** Warren-Buffett-Bewertungsstatus (PDF §7). */
   buffettStatus: protectedProcedure.query(({ ctx }) => getBuffettSnapshot(ctx.db)),

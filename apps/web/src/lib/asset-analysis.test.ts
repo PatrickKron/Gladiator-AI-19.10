@@ -33,6 +33,12 @@ describe('sentinelVerdict', () => {
     expect(sentinelVerdict({ ...base, openPositions: 2 })).toMatchObject({ tone: 'pos', key: 'analysis.v.clearWithPosition' });
     expect(sentinelVerdict(base)).toMatchObject({ tone: 'pos', key: 'analysis.v.clear' });
   });
+  it('Engine-Sperre durch einen Termin, der dieses Asset nicht betrifft: trotzdem gesperrt, aber ehrlich als global benannt', () => {
+    expect(sentinelVerdict({ ...base, noTradeActive: true, noTradeReason: 'BOJ (JPY)', noTradeScope: 'global' })).toMatchObject({ tone: 'neg', key: 'analysis.v.noTradeGlobal', params: { reason: 'BOJ (JPY)' } });
+    expect(sentinelVerdict({ ...base, noTradeActive: true, noTradeReason: 'CPI', noTradeScope: 'asset' }).key).toBe('analysis.v.noTrade');
+    // nie „frei", solange die Engine sperrt — auch wenn ein Asset-Termin erst später kommt
+    expect(sentinelVerdict({ ...base, noTradeActive: true, noTradeReason: 'BOJ', noTradeScope: 'global', nextHighMinutes: 300 }).tone).toBe('neg');
+  });
   it('minutesUntil', () => {
     const now = new Date('2026-10-22T10:00:00Z');
     expect(minutesUntil('2026-10-22T11:30:00Z', now)).toBe(90);

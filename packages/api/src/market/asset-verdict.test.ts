@@ -16,12 +16,15 @@ import { assetVerdicts, verdictGate } from './asset-verdict.js';
 
 const base: AssetAnalysis = {
   symbol: 'X/USDT',
+  venue: 'binance',
   asOf: new Date().toISOString(),
+  profile: { assetClass: 'crypto', base: 'X', currencies: ['USD'], quoteCurrency: 'USD' },
   macro: { connected: false, grs: null, vix: null, dxy: null, us10y: null, asOf: null },
-  cot: { applicable: false, connected: false, market: null, status: null, netRatio: null, percentile: null, weekChange: null, reportDate: null },
-  derivatives: { connected: false, fundingRate: null, openInterest: null, oiChangePct24h: null, asOf: null },
-  noTrade: { calendarConnected: false, active: false, reason: null, nextHigh: null },
-  risk: { killSwitchActive: false, mode: 'paper', riskPctPerTrade: 1, maxLeverage: 3, maxExposurePctPerAsset: 25, dailyLossLimitPct: 3, exposureNotional: 0, openPositions: 0 },
+  cot: { applicable: false, connected: false, market: null, inverse: false, status: null, netRatio: null, percentile: null, weekChange: null, reportDate: null },
+  derivatives: { applicable: true, connected: false, fundingRate: null, openInterest: null, oiChangePct24h: null, asOf: null },
+  noTrade: { calendarConnected: false, active: false, reason: null, scope: 'none', filter: 'asset', currencies: ['USD'], nextHigh: null, upcoming: [] },
+  volatility: { atrPct: null, intradayMovePct: null, safe003: { btcMovePct: null, ethMovePct: null, btcMaxPct: 10, ethMaxPct: 15, assetMaxPct: null } },
+  risk: { killSwitchActive: false, mode: 'paper', riskPctPerTrade: 1, maxLeverage: 3, maxExposurePctPerAsset: 25, dailyLossLimitPct: 3, exposureNotional: 0, openPositions: 0, agent: { positions: 0, notional: 0 }, demo: { positions: 0, notional: 0 } },
   llmConfigured: false,
 };
 

@@ -161,7 +161,15 @@ export const ASSISTANT_TOOLS: LlmTool[] = [
     name: 'asset_analysis',
     description:
       'Oracle (Makro & Regime: GRS, VIX/DXY/US10Y), Shadow (Positionierung: Funding, Open Interest, COT) und Sentinel (No-Trade-Fenster, Kill-Switch, Limits, Exposure) für ein Symbol — nur echte, synchronisierte Daten; connected:false heißt „nicht verbunden“, dann nichts dazu behaupten.',
-    inputSchema: { type: 'object', properties: { symbol: { type: 'string', description: 'z. B. BTC/USDT' } }, required: ['symbol'], additionalProperties: false },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        symbol: { type: 'string', description: 'z. B. BTC/USDT, AAPL, EURUSD=X' },
+        venue: { type: 'string', enum: ['binance', 'yahoo', 'twelvedata'], description: 'Kerzenquelle: binance (Krypto, Standard), yahoo (Aktien/ETF/Forex/Futures), twelvedata' },
+      },
+      required: ['symbol'],
+      additionalProperties: false,
+    },
   },
   {
     name: 'agents_status',
@@ -387,8 +395,10 @@ export async function executeTool(ctx: ToolCtx, name: string, input: Record<stri
     }
     case 'asset_analysis': {
       const symbol = str(input.symbol, 'symbol').toUpperCase();
-      const a = await buildAssetAnalysis(ctx.db, ctx.userId, symbol);
-      return { result: a, cards: [{ kind: 'link', label: `Analyse ${symbol}`, hash: `#/charts?symbol=${encodeURIComponent(symbol)}&tab=kontext` }] };
+      const venue = input.venue === 'yahoo' || input.venue === 'twelvedata' ? input.venue : 'binance';
+      const a = await buildAssetAnalysis(ctx.db, ctx.userId, symbol, venue);
+      const venueParam = venue === 'binance' ? '' : `&venue=${venue}`;
+      return { result: a, cards: [{ kind: 'link', label: `Analyse ${symbol}`, hash: `#/charts?symbol=${encodeURIComponent(symbol)}${venueParam}&tab=kontext` }] };
     }
     case 'agents_status': {
       const status = await loadAgentsStatus(ctx.db);
