@@ -57,6 +57,8 @@ export type SentinelInput = {
   killSwitchActive: boolean;
   noTradeActive: boolean;
   noTradeReason: string | null;
+  /** Betrifft der Termin des (globalen) Engine-Fensters dieses Asset? `global` = Sperre trotzdem aktiv. */
+  noTradeScope?: 'none' | 'asset' | 'global';
   nextHighMinutes: number | null;
   atrPct: number | null;
   exposureNotional: number;
@@ -65,7 +67,7 @@ export type SentinelInput = {
 
 export function sentinelVerdict(i: SentinelInput): Verdict {
   if (i.killSwitchActive) return { tone: 'neg', key: 'analysis.v.killSwitch' };
-  if (i.noTradeActive) return { tone: 'neg', key: 'analysis.v.noTrade', params: { reason: i.noTradeReason ?? '' } };
+  if (i.noTradeActive) return { tone: 'neg', key: i.noTradeScope === 'global' ? 'analysis.v.noTradeGlobal' : 'analysis.v.noTrade', params: { reason: i.noTradeReason ?? '' } };
   if (i.nextHighMinutes !== null && i.nextHighMinutes <= 120) return { tone: 'warn', key: 'analysis.v.highSoon', params: { min: Math.max(1, Math.round(i.nextHighMinutes)) } };
   if (i.atrPct !== null && i.atrPct >= 5) return { tone: 'warn', key: 'analysis.v.volatile', params: { atr: i.atrPct.toFixed(1) } };
   if (i.openPositions > 0) return { tone: 'pos', key: 'analysis.v.clearWithPosition', params: { n: i.openPositions } };

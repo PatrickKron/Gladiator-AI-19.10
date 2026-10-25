@@ -5,6 +5,7 @@ import { appLocale } from '../lib/locale.js';
 import { minutesUntil, oracleVerdict, sentinelVerdict, shadowVerdict, type Tone, type Verdict } from '../lib/asset-analysis.js';
 import type { AssetContext } from './AssetContextPanel.js';
 import { openAssistant } from './AssistantPanel.js';
+import { priceUnit } from '../lib/asset-tabs.js';
 
 /**
  * Oracle · Shadow · Sentinel für ein Asset auf einen Klick (Patricks Mängelliste 2026-10-22,
@@ -17,7 +18,8 @@ type VerdictResult = Awaited<ReturnType<typeof trpc.market.assetVerdict.mutate>>
 
 const TONE: Record<Tone, string> = { pos: 'var(--color-pos)', neg: 'var(--color-neg)', warn: 'var(--color-warn)', mut: 'var(--color-mut)' };
 
-export function AssetAnalysis({ symbol, ctx }: { symbol: string; ctx: AssetContext | null }) {
+/** `venue` = Kerzenquelle des Charts; ohne Angabe Binance (Krypto). */
+export function AssetAnalysis({ symbol, venue = 'binance', ctx }: { symbol: string; venue?: string; ctx: AssetContext | null }) {
   const { t } = useTranslation();
   const [a, setA] = useState<Analysis | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -34,7 +36,7 @@ export function AssetAnalysis({ symbol, ctx }: { symbol: string; ctx: AssetConte
     setAi(null);
     setAiErr(null);
     void trpc.market.assetAnalysis
-      .query({ symbol })
+      .query({ symbol, venue })
       .then((r) => {
         if (!cancelled) setA(r);
       })
@@ -46,7 +48,7 @@ export function AssetAnalysis({ symbol, ctx }: { symbol: string; ctx: AssetConte
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [symbol]);
+  }, [symbol, venue]);
 
   const c = ctx && ctx.available ? ctx : null;
   const fmtTime = (iso: string | null) => (iso ? new Date(iso).toLocaleString(appLocale(), { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
@@ -58,16 +60,19 @@ export function AssetAnalysis({ symbol, ctx }: { symbol: string; ctx: AssetConte
     ? shadowVerdict({ derivativesConnected: a.derivatives.connected, fundingRate: a.derivatives.fundingRate, oiChangePct24h: a.derivatives.oiChangePct24h, cotConnected: a.cot.connected, cotStatus: a.cot.status, cotNetRatio: a.cot.netRatio })
     : null;
   const nextMin = a ? minutesUntil(a.noTrade.nextHigh?.scheduledAt ?? null, now) : null;
+  const atrPct = a?.volatility.atrPct ?? c?.atrPct ?? null;
   const sentinel: Verdict | null = a
-    ? sentinelVerdict({ killSwitchActive: a.risk.killSwitchActive, noTradeActive: a.noTrade.active, noTradeReason: a.noTrade.reason, nextHighMinutes: nextMin, atrPct: c?.atrPct ?? null, exposureNotional: a.risk.exposureNotional, openPositions: a.risk.openPositions })
+    ? sentinelVerdict({ killSwitchActive: a.risk.killSwitchActive, noTradeActive: a.noTrade.active, noTradeReason: a.noTrade.reason, noTradeScope: a.noTrade.scope, nextHighMinutes: nextMin, atrPct, exposureNotional: a.risk.exposureNotional, openPositions: a.risk.openPositions })
     : null;
+  const unit = priceUnit(a?.profile?.quoteCurrency ?? null);
+  const money = (v: number) => `${num(v, 0)}${unit ? ` ${unit}` : ''}`;
 
   const deepen = () => openAssistant(t('analysis.deepenPrompt', { symbol }));
   const askAi = async () => {
     setAiBusy(true);
     setAiErr(null);
     try {
-      setAi(await trpc.market.assetVerdict.mutate({ symbol }));
+      setAi(await trpc.market.assetVerdict.mutate({ symbol, venue }));
     } catch (e) {
       setAiErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -123,12 +128,12 @@ export function AssetAnalysis({ symbol, ctx }: { symbol: string; ctx: AssetConte
           sub={t('analysis.shadowSub')}
           verdict={shadow}
           t={t}
-          footer={a ? [a.derivatives.connected ? t('analysis.derivAsOf', { when: fmtTime(a.derivatives.asOf) }) : t('analysis.derivNone'), a.cot.applicable ? (a.cot.connected ? t('analysis.cotAsOf', { when: fmtTime(a.cot.reportDate) }) : t('analysis.cotNone')) : t('analysis.cotNa')].join(' · ') : null}
+          footer={a ? [!a.derivatives.applicable ? t('analysis.derivNa') : a.derivatives.connected ? t('analysis.derivAsOf', { when: fmtTime(a.derivatives.asOf) }) : t('analysis.derivNone'), a.cot.applicable ? (a.cot.connected ? t('analysis.cotAsOf', { when: fmtTime(a.cot.reportDate) }) : t('analysis.cotNone')) : t('analysis.cotNa')].join(' · ') : null}
         >
           <Row label={t('analysis.funding')} value={a?.derivatives.fundingRate == null ? '—' : pct(a.derivatives.fundingRate * 100, 4)} tone={a?.derivatives.fundingRate == null ? undefined : a.derivatives.fundingRate >= 0 ? 'pos' : 'neg'} />
           <Row label={t('analysis.oi')} value={a?.derivatives.openInterest == null ? '—' : num(a.derivatives.openInterest, 0)} />
           <Row label={t('analysis.oi24')} value={pct(a?.derivatives.oiChangePct24h, 1)} />
-          <Row label={t('analysis.cotMarket')} value={a?.cot.market ?? '—'} />
+          <Row label={t('analysis.cotMarket')} value={a?.cot.market ? `${t(`intel.cotMarket_${a.cot.market}`)}${a.cot.inverse ? ` · ${t('analysis.cotInverse')}` : ''}` : '—'} />
           <Row label={t('analysis.cotStatus')} value={a?.cot.status ? t(`analysis.cot_${a.cot.status}`) : '—'} tone={a?.cot.status === 'crowded_long' || a?.cot.status === 'crowded_short' || a?.cot.status === 'contrarian_alert' ? 'warn' : undefined} />
           <Row label={t('analysis.cotNet')} value={a?.cot.netRatio == null ? '—' : `${num(a.cot.netRatio, 3)} · P${a.cot.percentile == null ? '—' : Math.round(a.cot.percentile * 100)}`} />
           <Row label={t('analysis.cotWeek')} value={a?.cot.weekChange == null ? '—' : `${a.cot.weekChange >= 0 ? '+' : ''}${num(a.cot.weekChange, 3)}`} />
@@ -136,10 +141,21 @@ export function AssetAnalysis({ symbol, ctx }: { symbol: string; ctx: AssetConte
         </Card>
         <Card name={t('analysis.sentinel')} sub={t('analysis.sentinelSub')} verdict={sentinel} t={t} footer={a ? (a.noTrade.calendarConnected ? t('analysis.calendarOk') : t('analysis.calendarNone')) : null}>
           <Row label={t('analysis.killSwitch')} value={a ? (a.risk.killSwitchActive ? t('analysis.on') : t('analysis.off')) : '—'} tone={a?.risk.killSwitchActive ? 'neg' : 'pos'} />
-          <Row label={t('analysis.noTrade')} value={a ? (a.noTrade.active ? (a.noTrade.reason ?? t('analysis.on')) : t('analysis.noTradeNone')) : '—'} tone={a?.noTrade.active ? 'neg' : undefined} />
-          <Row label={t('analysis.nextHigh')} value={a?.noTrade.nextHigh ? `${a.noTrade.nextHigh.title} · ${fmtTime(a.noTrade.nextHigh.scheduledAt)}` : '—'} />
-          <Row label={t('analysis.atr')} value={pct(c?.atrPct, 2)} tone={(c?.atrPct ?? 0) >= 5 ? 'warn' : undefined} />
-          <Row label={t('analysis.exposure')} value={a ? `${num(a.risk.exposureNotional, 0)} $ · ${t('analysis.positions', { n: a.risk.openPositions })}` : '—'} />
+          {/* Engine-Sperre ist GLOBAL: steht immer da, bei fremdem Termin ausdrücklich als „global“. */}
+          <Row
+            label={t('analysis.noTrade')}
+            value={a ? (a.noTrade.active ? (a.noTrade.scope === 'global' ? t('analysis.noTradeGlobal', { reason: a.noTrade.reason ?? '' }) : (a.noTrade.reason ?? t('analysis.on'))) : t('analysis.noTradeNone')) : '—'}
+            tone={a?.noTrade.active ? 'neg' : undefined}
+          />
+          <Row
+            label={a?.noTrade.filter === 'asset' && a.noTrade.currencies?.length ? t('analysis.nextHighFor', { currencies: a.noTrade.currencies.join('/') }) : t('analysis.nextHigh')}
+            value={a?.noTrade.nextHigh ? `${a.noTrade.nextHigh.title} · ${fmtTime(a.noTrade.nextHigh.scheduledAt)}` : '—'}
+          />
+          <Row label={t('analysis.atr')} value={pct(atrPct, 2)} tone={(atrPct ?? 0) >= 5 ? 'warn' : undefined} />
+          <Row
+            label={t('analysis.exposure')}
+            value={a ? `${t('analysis.exposureSplit', { agent: money(a.risk.agent.notional), demo: money(a.risk.demo.notional) })} · ${t('analysis.positions', { n: a.risk.openPositions })}` : '—'}
+          />
           <Row label={t('analysis.limits')} value={a ? t('analysis.limitsValue', { risk: num(a.risk.riskPctPerTrade, 1), lev: num(a.risk.maxLeverage, 0), exp: num(a.risk.maxExposurePctPerAsset, 0), day: num(a.risk.dailyLossLimitPct, 1) }) : '—'} />
           <Row label={t('analysis.mode')} value={a?.risk.mode ?? '—'} />
         </Card>
