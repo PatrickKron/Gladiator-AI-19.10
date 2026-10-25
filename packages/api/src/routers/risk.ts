@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
+import { gatesForSymbol } from '@gladiator/risk';
 import { protectedProcedure, router } from '../trpc.js';
 
 const { riskGates, auditLog } = schema;
@@ -12,9 +13,13 @@ const { riskGates, auditLog } = schema;
  * nichts erfunden und nichts gelockert.
  */
 export const riskRouter = router({
-  gates: protectedProcedure.query(async ({ ctx }) => {
-    return ctx.db.select().from(riskGates).orderBy(desc(riskGates.createdAt)).limit(100);
-  }),
+  /** Alle Gates — oder mit `symbol` nur die, die für dieses Asset greifen (ohne Symbol oder genau dieses). */
+  gates: protectedProcedure
+    .input(z.object({ symbol: z.string().min(1).max(40).optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const rows = await ctx.db.select().from(riskGates).orderBy(desc(riskGates.createdAt)).limit(100);
+      return gatesForSymbol(rows, input?.symbol);
+    }),
 
   toggleGate: protectedProcedure
     .input(z.object({ id: z.string().uuid(), active: z.boolean() }))

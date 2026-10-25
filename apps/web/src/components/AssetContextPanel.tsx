@@ -5,6 +5,7 @@ import { trpc } from '../api.js';
 import { Loading } from './ui.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 import { appLocale } from '../lib/locale.js';
+import { priceUnit } from '../lib/asset-tabs.js';
 
 /**
  * Asset-Kontext (Patrick-Lücke 2/6): echte, asset-spezifische Kennzahlen aus
@@ -13,19 +14,20 @@ import { appLocale } from '../lib/locale.js';
 
 export type AssetContext = Awaited<ReturnType<typeof trpc.market.assetContext.query>>;
 
-export function useAssetContext(symbol: string, refreshMs = 60_000) {
+/** `venue` = Kerzenquelle des Charts (Binance, Yahoo, Twelve Data) — sonst stünden Aktien/Forex ohne Kontext da. */
+export function useAssetContext(symbol: string, refreshMs = 60_000, venue = 'binance') {
   const [ctx, setCtx] = useState<AssetContext | null>(null);
   useEffect(() => {
     let cancelled = false;
     setCtx(null);
     const load = () =>
       trpc.market.assetContext
-        .query({ symbol })
+        .query({ symbol, venue })
         .then((c) => {
           if (!cancelled) setCtx(c);
         })
         .catch(() => {
-          if (!cancelled) setCtx({ symbol, available: false, candles: 0 } as AssetContext);
+          if (!cancelled) setCtx({ symbol, venue, available: false, candles: 0 } as AssetContext);
         });
     void load();
     const timer = setVisibleInterval(() => void load(), refreshMs);
@@ -33,7 +35,7 @@ export function useAssetContext(symbol: string, refreshMs = 60_000) {
       cancelled = true;
       clearVisibleInterval(timer);
     };
-  }, [symbol, refreshMs]);
+  }, [symbol, refreshMs, venue]);
   return ctx;
 }
 
@@ -63,10 +65,12 @@ export function AssetContextBody({ ctx, compact = false }: { ctx: AssetContext |
   }
   const pos = 'var(--color-pos)';
   const neg = 'var(--color-neg)';
+  const unit = priceUnit(ctx.quoteCurrency);
+  const money = (n: number, d = 2) => `${fmt(n, d)}${unit ? ` ${unit}` : ''}`;
   return (
     <>
       <ul className="mt-3 space-y-1 text-sm">
-        <Row label={t('assetCtx.price')} value={`${fmt(ctx.price, ctx.price >= 1000 ? 0 : 4)} $`} />
+        <Row label={t('assetCtx.price')} value={money(ctx.price, ctx.price >= 1000 ? 0 : 4)} />
         <Row
           label={t('assetCtx.change24h')}
           value={ctx.change24hPct == null ? '—' : `${ctx.change24hPct >= 0 ? '+' : ''}${ctx.change24hPct.toFixed(2)} %`}
@@ -95,7 +99,7 @@ export function AssetContextBody({ ctx, compact = false }: { ctx: AssetContext |
           />
         )}
         <Row label={t('assetCtx.openSignals')} value={String(ctx.openSignals)} color={ctx.openSignals > 0 ? 'var(--color-cyan)' : undefined} />
-        {!compact && <Row label={t('assetCtx.exposure')} value={`${fmt(ctx.exposureNotional)} $`} />}
+        {!compact && <Row label={t('assetCtx.exposure')} value={t('assetCtx.exposureSplit', { agent: money(ctx.exposureNotional), demo: money(ctx.demoExposureNotional) })} />}
       </ul>
       {!compact && ctx.matchingGates.length > 0 && (
         <div className="mt-3">

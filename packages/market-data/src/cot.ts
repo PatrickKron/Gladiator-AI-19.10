@@ -23,31 +23,68 @@ export type CotMarket = {
   code: string;
   /** Kurzlabel (stabil, für UI/i18n-Chips). */
   label: string;
-  /** App-Symbole, denen dieser COT-Report Rückenwind/Warnung gibt. */
+  /**
+   * Erwarteter CFTC-Marktname (`market_and_exchange_names`). Der Sync übernimmt NUR Zeilen,
+   * deren Name passt — ein falscher Code liefert so nie still fremde Daten.
+   */
+  cftcName: RegExp;
+  /** App-Symbole, die genau diesen Markt notieren (exakt, Groß/Klein egal — KEIN Präfix-Abgleich). */
   appSymbols: string[];
+  /**
+   * Symbole, die den Markt spiegelbildlich notieren (USD/JPY ↔ CME-Yen-Kontrakt in USD je JPY):
+   * ihre Positionierung wird gespiegelt ausgegeben (Netto-Long Yen = Netto-Short USD/JPY).
+   */
+  inverseSymbols?: string[];
 };
 
 /**
- * Kuratierte Märkte, die für Gladiator-Assets relevant sind (PDF §6: Futures,
- * Rohstoffe, Edelmetalle, Währungen, Indizes + CME-BTC). Codes = CFTC.
+ * Kuratierte Märkte (PDF §6: Futures, Rohstoffe, Edelmetalle, Währungen, Indizes + CME-Krypto).
+ * Codes = CFTC Legacy Futures-Only; jeder Code ist in cot.test.ts gegen die echte Quelle geprüft
+ * (Marktname muss passen), der Sync prüft denselben Namen bei jedem Lauf.
+ *
+ * Alias-Regeln (Patrick 2026-10-25: „COT nur für das jeweilige Asset"):
+ * - Nur EINDEUTIGE Schreibweisen: Yahoo (`GC=F`, `EURUSD=X`, `^GSPC`), TradingView (`GC1!`,
+ *   `XAUUSD`, `SPX`), Twelve Data (`XAU/USD`), Krypto-Paare (`BTC/USDT`, `BTC-USD`, `BTCUSD`).
+ * - Bewusst NICHT: nackte Kontrakt-Wurzeln, die zugleich US-Aktien-Ticker sind
+ *   (GOLD = Barrick, CL = Colgate, ES = Eversource, WTI = W&T Offshore, SI, GC, NQ, HG).
+ * - ETFs, die 1:1 den Basiswert abbilden (GLD/IAU, SLV, USO, UNG, CPER, PPLT, SPY/IVV/VOO, QQQ,
+ *   IBIT/FBTC/GBTC, ETHA, FXE/FXY/FXB/FXF/FXA/FXC) zeigen die COT des BASISWERTS — die UI sagt
+ *   das dazu. Gehebelte/inverse ETFs (SPXL, SQQQ …) bewusst nicht.
+ * - Grayscale-Mini-Trusts notieren an der NYSE als `BTC`/`ETH` und bilden ebenfalls den Basiswert ab.
  */
 export const COT_MARKETS: CotMarket[] = [
-  { code: '088691', label: 'GOLD', appSymbols: ['XAU/USD', 'GOLD', 'GC'] },
-  { code: '084691', label: 'SILVER', appSymbols: ['XAG/USD', 'SILVER', 'SI'] },
-  { code: '067651', label: 'CRUDE_OIL_WTI', appSymbols: ['WTI', 'CL', 'OIL'] },
-  { code: '133741', label: 'BITCOIN_CME', appSymbols: ['BTC/USDT', 'BTC/USD', 'BTC'] },
-  { code: '13874A', label: 'SP500_EMINI', appSymbols: ['SPX', 'ES', 'SP500'] },
-  { code: '099741', label: 'EURO_FX', appSymbols: ['EUR/USD', '6E'] },
+  { code: '088691', label: 'GOLD', cftcName: /GOLD/, appSymbols: ['GC=F', 'MGC=F', 'GC1!', 'XAUUSD', 'XAU/USD', 'GLD', 'IAU'] },
+  { code: '084691', label: 'SILVER', cftcName: /SILVER/, appSymbols: ['SI=F', 'SIL=F', 'SI1!', 'XAGUSD', 'XAG/USD', 'SLV'] },
+  { code: '067651', label: 'CRUDE_OIL_WTI', cftcName: /CRUDE OIL|WTI/, appSymbols: ['CL=F', 'MCL=F', 'CL1!', 'USOIL', 'WTIUSD', 'XTIUSD', 'USO'] },
+  { code: '133741', label: 'BITCOIN_CME', cftcName: /BITCOIN/, appSymbols: ['BTC/USDT', 'BTC/USDC', 'BTC/USD', 'BTC-USD', 'BTCUSD', 'BTCUSDT', 'BTC=F', 'BTC1!', 'BTC', 'IBIT', 'FBTC', 'GBTC'] },
+  { code: '146021', label: 'ETHER_CME', cftcName: /ETHER/, appSymbols: ['ETH/USDT', 'ETH/USDC', 'ETH/USD', 'ETH-USD', 'ETHUSD', 'ETHUSDT', 'ETH=F', 'ETH1!', 'ETH', 'ETHA'] },
+  { code: '13874A', label: 'SP500_EMINI', cftcName: /S&P 500|S&P500/, appSymbols: ['ES=F', 'ES1!', '^GSPC', '^SPX', 'SPX', 'SP500', 'SPX500', 'US500', 'SPY', 'IVV', 'VOO'] },
+  { code: '209742', label: 'NASDAQ100_EMINI', cftcName: /NASDAQ/, appSymbols: ['NQ=F', 'NQ1!', '^NDX', 'NDX', 'NAS100', 'US100', 'QQQ'] },
+  { code: '099741', label: 'EURO_FX', cftcName: /EURO FX/, appSymbols: ['EURUSD=X', 'EUR/USD', 'EURUSD', '6E=F', '6E1!', 'FXE'] },
+  { code: '097741', label: 'JAPANESE_YEN', cftcName: /YEN/, appSymbols: ['6J=F', '6J1!', 'FXY', 'JPYUSD=X', 'JPY/USD'], inverseSymbols: ['USDJPY=X', 'JPY=X', 'USD/JPY', 'USDJPY'] },
+  { code: '096742', label: 'BRITISH_POUND', cftcName: /POUND|STERLING/, appSymbols: ['GBPUSD=X', 'GBP/USD', 'GBPUSD', '6B=F', '6B1!', 'FXB'] },
+  { code: '092741', label: 'SWISS_FRANC', cftcName: /SWISS FRANC/, appSymbols: ['6S=F', '6S1!', 'FXF', 'CHFUSD=X', 'CHF/USD'], inverseSymbols: ['USDCHF=X', 'CHF=X', 'USD/CHF', 'USDCHF'] },
+  { code: '232741', label: 'AUSTRALIAN_DOLLAR', cftcName: /AUSTRALIAN DOLLAR/, appSymbols: ['AUDUSD=X', 'AUD/USD', 'AUDUSD', '6A=F', '6A1!', 'FXA'] },
+  { code: '090741', label: 'CANADIAN_DOLLAR', cftcName: /CANADIAN DOLLAR/, appSymbols: ['6C=F', '6C1!', 'FXC', 'CADUSD=X', 'CAD/USD'], inverseSymbols: ['USDCAD=X', 'CAD=X', 'USD/CAD', 'USDCAD'] },
+  { code: '085692', label: 'COPPER', cftcName: /COPPER/, appSymbols: ['HG=F', 'HG1!', 'XCUUSD', 'COPPER', 'CPER'] },
+  { code: '023651', label: 'NATURAL_GAS', cftcName: /NAT(URAL)? GAS/, appSymbols: ['NG=F', 'NG1!', 'XNGUSD', 'NATGAS', 'UNG'] },
+  { code: '076651', label: 'PLATINUM', cftcName: /PLATINUM/, appSymbols: ['PL=F', 'PL1!', 'XPTUSD', 'XPT/USD', 'PPLT'] },
 ];
 
-/** App-Symbol → COT-Markt (oder null, wenn kein passender Report existiert). */
+const COT_ALIAS = new Map<string, { market: CotMarket; inverse: boolean }>();
+for (const m of COT_MARKETS) {
+  for (const s of m.appSymbols) COT_ALIAS.set(s.toUpperCase(), { market: m, inverse: false });
+  for (const s of m.inverseSymbols ?? []) COT_ALIAS.set(s.toUpperCase(), { market: m, inverse: true });
+}
+
+/** App-Symbol → COT-Markt (oder null, wenn kein passender Report existiert). Nur exakte Aliase. */
 export function cotMarketForSymbol(symbol: string): CotMarket | null {
-  const up = symbol.toUpperCase();
-  return (
-    COT_MARKETS.find((m) => m.appSymbols.some((s) => s.toUpperCase() === up)) ??
-    COT_MARKETS.find((m) => m.appSymbols.some((s) => up.startsWith(s.toUpperCase()))) ??
-    null
-  );
+  return COT_ALIAS.get(symbol.trim().toUpperCase())?.market ?? null;
+}
+
+/** Notiert das Symbol den Markt spiegelbildlich (USD/JPY zum Yen-Kontrakt)? */
+export function cotIsInverse(symbol: string): boolean {
+  return COT_ALIAS.get(symbol.trim().toUpperCase())?.inverse ?? false;
 }
 
 export type CotRow = {
@@ -146,6 +183,34 @@ export function deriveCotPositioning(history: CotRow[], opts = { extremePct: 0.8
 }
 
 /**
+ * Report-Zeilen aus Sicht eines spiegelbildlich notierten Symbols (USD/JPY statt Yen-Kontrakt):
+ * Long und Short tauschen — Netto-Long der Fremdwährung = Netto-Short des Paars. Die
+ * Positionierung wird danach ganz normal abgeleitet (exakt, auch bei Gleichständen im Perzentil).
+ */
+export function invertCotRows(rows: CotRow[]): CotRow[] {
+  return rows.map((r) => ({ ...r, noncommLong: r.noncommShort, noncommShort: r.noncommLong, commLong: r.commShort, commShort: r.commLong }));
+}
+
+/** Sync-Schutz: nur Zeilen mit dem Code UND dem erwarteten Marktnamen; der Rest wird gemeldet. */
+export function verifyCotRows(market: CotMarket, rows: CotRow[]): { rows: CotRow[]; rejected: string[] } {
+  const ok: CotRow[] = [];
+  const rejected: string[] = [];
+  for (const r of rows) {
+    if (r.marketCode === market.code && market.cftcName.test(r.marketName)) ok.push(r);
+    else rejected.push(`${r.marketCode}: ${r.marketName}`);
+  }
+  return { rows: ok, rejected };
+}
+
+/** Wochenverlauf netRatio (aufsteigend); OI ≤ 0 fällt raus (kein Teilen durch null). */
+export function cotHistoryPoints(rows: CotRow[]): { reportDate: string; netRatio: number }[] {
+  return rows
+    .filter((r) => r.openInterest > 0)
+    .sort((a, b) => a.reportDate.getTime() - b.reportDate.getTime())
+    .map((r) => ({ reportDate: r.reportDate.toISOString(), netRatio: (r.noncommLong - r.noncommShort) / r.openInterest }));
+}
+
+/**
  * COT-Score-Komponente (0..1) für das Signalobjekt (PDF §11), richtungsabhängig.
  * Überlaufene Positionierung in Trade-Richtung → Abschlag (Kontraindikator).
  */
@@ -180,7 +245,13 @@ export async function syncCot(db: Db, markets: CotMarket[] = COT_MARKETS): Promi
         result.errors.push(`${m.label}: HTTP ${res.status}`);
         continue;
       }
-      const rows = parseCotRows(await res.json());
+      const parsed = parseCotRows(await res.json());
+      const { rows, rejected } = verifyCotRows(m, parsed);
+      if (rejected.length > 0) {
+        // Falscher Code oder umbenannter Markt: laut melden, nichts Fremdes speichern.
+        result.errors.push(`${m.label}: ${rejected.length} Zeile(n) mit unerwartetem Marktnamen verworfen (${rejected[0]})`);
+      }
+      if (parsed.length > 0 && rows.length === 0) continue;
       for (const r of rows) {
         const inserted = await db
           .insert(cotReports)
@@ -208,37 +279,72 @@ export async function syncCot(db: Db, markets: CotMarket[] = COT_MARKETS): Promi
   return result;
 }
 
-export type CotSnapshotEntry = { market: CotMarket; positioning: CotPositioning; reportDate: string | null; weeks: number };
+/** Markt ohne interne Prüf-Felder (geht über tRPC an die UI). */
+export type CotMarketInfo = { code: string; label: string; appSymbols: string[] };
 
-/** Liest die Positionierung je Markt (oder gezielt für ein App-Symbol). */
-export async function getCotSnapshot(db: Db, symbol?: string): Promise<CotSnapshotEntry[]> {
-  const markets = symbol ? [cotMarketForSymbol(symbol)].filter((m): m is CotMarket => m !== null) : COT_MARKETS;
-  if (markets.length === 0) return [];
+export type CotSnapshotEntry = {
+  market: CotMarketInfo;
+  positioning: CotPositioning;
+  reportDate: string | null;
+  weeks: number;
+  /** true: Positionierung aus Sicht des (spiegelbildlich notierten) Symbols, z. B. USD/JPY. */
+  inverse: boolean;
+};
+
+const marketInfo = (m: CotMarket): CotMarketInfo => ({ code: m.code, label: m.label, appSymbols: m.appSymbols });
+
+async function readCotRows(db: Db, markets: CotMarket[], perMarket: number): Promise<Map<string, CotRow[]>> {
   const codes = markets.map((m) => m.code);
   const rows = await db
     .select()
     .from(cotReports)
     .where(and(eq(cotReports.source, 'cftc'), inArray(cotReports.marketCode, codes)))
     .orderBy(desc(cotReports.reportDate))
-    .limit(60 * markets.length);
+    .limit(perMarket * markets.length);
+  const out = new Map<string, CotRow[]>();
+  for (const r of rows) {
+    const list = out.get(r.marketCode) ?? [];
+    list.push({
+      marketCode: r.marketCode,
+      marketName: r.marketName,
+      reportDate: r.reportDate,
+      openInterest: Number(r.openInterest),
+      noncommLong: Number(r.noncommLong),
+      noncommShort: Number(r.noncommShort),
+      commLong: Number(r.commLong),
+      commShort: Number(r.commShort),
+    });
+    out.set(r.marketCode, list);
+  }
+  return out;
+}
+
+/**
+ * Liest die Positionierung je Markt (oder gezielt für ein App-Symbol). Mit Symbol: nur dessen
+ * Markt (exakter Alias), bei spiegelbildlicher Notierung gespiegelt (`inverse: true`).
+ */
+export async function getCotSnapshot(db: Db, symbol?: string): Promise<CotSnapshotEntry[]> {
+  const markets = symbol ? [cotMarketForSymbol(symbol)].filter((m): m is CotMarket => m !== null) : COT_MARKETS;
+  if (markets.length === 0) return [];
+  const inverse = symbol ? cotIsInverse(symbol) : false;
+  const byCode = await readCotRows(db, markets, 60);
 
   const out: CotSnapshotEntry[] = [];
   for (const m of markets) {
-    const hist: CotRow[] = rows
-      .filter((r) => r.marketCode === m.code)
-      .map((r) => ({
-        marketCode: r.marketCode,
-        marketName: r.marketName,
-        reportDate: r.reportDate,
-        openInterest: Number(r.openInterest),
-        noncommLong: Number(r.noncommLong),
-        noncommShort: Number(r.noncommShort),
-        commLong: Number(r.commLong),
-        commShort: Number(r.commShort),
-      }));
-    const positioning = deriveCotPositioning(hist);
-    const latest = hist.slice().sort((a, b) => b.reportDate.getTime() - a.reportDate.getTime())[0] ?? null;
-    out.push({ market: m, positioning, reportDate: latest ? latest.reportDate.toISOString() : null, weeks: hist.length });
+    const hist = byCode.get(m.code) ?? [];
+    const positioning = deriveCotPositioning(inverse ? invertCotRows(hist) : hist);
+    const latest = hist[0] ?? null;
+    out.push({ market: marketInfo(m), positioning, reportDate: latest ? latest.reportDate.toISOString() : null, weeks: hist.length, inverse });
   }
   return out;
+}
+
+/** Wochenverlauf (netRatio) des COT-Markts eines Symbols — null, wenn es keinen gibt. */
+export async function getCotHistory(db: Db, symbol: string, weeks = 60): Promise<{ market: CotMarketInfo; inverse: boolean; points: { reportDate: string; netRatio: number }[] } | null> {
+  const m = cotMarketForSymbol(symbol);
+  if (!m) return null;
+  const inverse = cotIsInverse(symbol);
+  const byCode = await readCotRows(db, [m], Math.max(1, Math.min(weeks, 260)));
+  const rows = byCode.get(m.code) ?? [];
+  return { market: marketInfo(m), inverse, points: cotHistoryPoints(inverse ? invertCotRows(rows) : rows) };
 }

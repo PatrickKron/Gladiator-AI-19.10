@@ -82,6 +82,17 @@ describe('parseBinanceTickers', () => {
     expect(m.get('PEPEUSDT')!.price).toBeCloseTo(0.00001234);
   });
 
+  it('übernimmt das echte 24h-Quote-Volumen (USDT) als Gewicht für die Heatmap — fehlt/kaputt → kein Feld', () => {
+    const m = parseBinanceTickers([
+      { symbol: 'BTCUSDT', lastPrice: '61880.58', priceChangePercent: '-1.2', quoteVolume: '1834567890.12' },
+      { symbol: 'ETHUSDT', lastPrice: '2400.1', priceChangePercent: '0.4', quoteVolume: 'abc' },
+      { symbol: 'SOLUSDT', lastPrice: '150', priceChangePercent: '0.4', quoteVolume: '-5' },
+    ]);
+    expect(m.get('BTCUSDT')).toEqual({ price: 61880.58, changePct: -1.2, currency: 'USDT', quoteVolume: 1834567890.12 });
+    expect(m.get('ETHUSDT')).not.toHaveProperty('quoteVolume');
+    expect(m.get('SOLUSDT')).not.toHaveProperty('quoteVolume');
+  });
+
   it('verwirft Preis 0 / kaputte Einträge / Nicht-Arrays', () => {
     expect(parseBinanceTickers([{ symbol: 'XUSDT', lastPrice: '0' }]).size).toBe(0);
     expect(parseBinanceTickers({ code: -1100 }).size).toBe(0);

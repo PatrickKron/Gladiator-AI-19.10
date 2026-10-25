@@ -8,6 +8,7 @@ import { resolvePendingSwaps } from './swap-pending.js';
 import { fredConfigured, syncDerivatives, syncFredWatch, syncEconomicCalendar, syncFredSeries, syncMacroSeries, syncNews } from '@gladiator/market-data';
 import { runNightPipeline } from './briefing.js';
 import { runSignalScan } from './signal-scan.js';
+import { scanUniverse } from './universe.js';
 import { runDslScan } from './dsl-scan.js';
 import { runSignalLifecycle } from './signal-lifecycle.js';
 import { reviewNewSignals } from './review.js';
@@ -287,8 +288,9 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           return res;
         }
         case DERIVATIVES_JOB: {
-          const res = await syncDerivatives(db);
-          console.log(`[derivatives-sync] funding=${res.funding} oi=${res.openInterest} Fehler=${res.errors.length}`);
+          // Basis-Perps + Scan-Universum (Krypto-Favoriten) ∩ echte Binance-USDⓈ-M-Perps.
+          const res = await syncDerivatives(db, await scanUniverse(db));
+          console.log(`[derivatives-sync] perps=${res.perps} funding=${res.funding} oi=${res.openInterest} Fehler=${res.errors.length}`);
           for (const e of res.errors) console.warn('[derivatives-sync]', e);
           return res;
         }
