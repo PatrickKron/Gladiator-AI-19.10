@@ -11,6 +11,7 @@ import {
   PAPER_START_EQUITY,
   updateProtection,
   venueForPosition,
+  candleCloseSourceOf,
 } from '@gladiator/exchange';
 import { evaluateRisk } from '@gladiator/risk';
 import { CANDLE_VENUES } from '@gladiator/jobs';
@@ -97,6 +98,8 @@ export const tradingRouter = router({
       out.push({
         id: p.id,
         symbol: p.symbol,
+        /** Kursquelle der Position (A3): Schlusskurs-Positionen `paper-close:<quelle>`, sonst Binance. */
+        candleVenue: candleCloseSourceOf(p.venue) ?? 'binance',
         direction: p.direction,
         qty,
         openQty,

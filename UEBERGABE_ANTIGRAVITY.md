@@ -78,7 +78,7 @@ Hinzugefügte Aktien/ETF/Forex/Rohstoffe erscheinen in Chart, Screener, Heatmap,
 - Bestätigen eines Nicht-Krypto-Signals im Agenten-Konto (Paper): Ausführung zum letzten echten Schlusskurs, ehrlich als „Schlusskurs-Ausführung“ beschriftet (Vorbild `packages/api/src/demo/candle-book-source.ts`), **Risk-Engine bleibt hartes Gate**.
 - `packages/api/src/routers/signals.ts` (~111): Favoritenfilter erkennt nur Krypto-Paare → `favoriteSymbols` mit venue nutzen.
 
-**A3 · Pipelines und Links**
+**A3 · Pipelines und Links** — Teil 1 erledigt (ML-Beschriftung + Chart-Links je Quelle), Rest siehe OFFENER_PLAN 0e
 - `ml-pipeline.ts`, `self-improve-pipeline.ts`, `rl-pipeline.ts`, `sub-agent-runner.ts` (`assetClassFor` immer `crypto`), `backtest/src/hindsight.ts`, `backtest/src/lab.ts`, `api/src/webhook/pine.ts`: Kerzen mit venue.
 - Telegram-/Benachrichtigungs- und Signal-Links bauen Chart-URLs ohne `venue` → `buildChartUrl` mit venue.
 

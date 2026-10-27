@@ -23,6 +23,8 @@ export type SignalRow = {
   id: string;
   createdAt: string;
   symbol: string;
+  /** Kursquelle (binance | yahoo | twelvedata) — Chart-Link und Ausführungsart (A2/A3). */
+  venue?: string;
   timeframe: string;
   direction: 'long' | 'short';
   setupType: 'scalp' | 'swing' | 'position';
@@ -776,7 +778,7 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
           <span className={`chip ${long ? 'chip--pos' : 'chip--neg'}`}>{long ? 'Long' : 'Short'}</span>
           <span className="flex items-center gap-1 font-medium">
             <FavStarSymbol symbol={signal.symbol} initialFavorite={signal.isFavorite} />
-            <a href={buildChartUrl(signal.symbol, signal.timeframe)} className="hover:underline" title={t('chart.title')}>
+            <a href={buildChartUrl(signal.symbol, signal.timeframe, signal.venue)} className="hover:underline" title={t('chart.title')}>
               {signal.symbol.replace('/USDT', '')}
             </a>
           </span>
