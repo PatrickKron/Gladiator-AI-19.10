@@ -5,7 +5,7 @@ import { schema, type Db } from '@gladiator/db';
 import { getOhlcv } from '@gladiator/market-data';
 import { parseSubAgentSpec, subAgentSpecSchema, type SubAgentSpec } from '@gladiator/strategy-engine';
 import { backtestSubAgent } from '@gladiator/backtest';
-import { PAPER_START_EQUITY } from '@gladiator/exchange';
+import { PAPER_START_EQUITY, venueForPosition } from '@gladiator/exchange';
 import { SUB_AGENT_TEMPLATES } from './sub-agent-templates.js';
 import { protectedProcedure, router } from '../trpc.js';
 
@@ -316,7 +316,9 @@ export const subAgentsRouter = router({
     for (const p of rows) {
       let mark: number | null = null;
       try {
-        mark = ctx.venue ? await ctx.venue.markPrice(p.symbol) : null;
+        // Schlusskurs-Positionen (Yahoo/Twelve Data, A2) gegen ihren frischen Kerzenschluss.
+        const posVenue = ctx.venue ? venueForPosition(ctx.venue, p.venue) : null;
+        mark = posVenue ? await posVenue.markPrice(p.symbol) : null;
       } catch {
         mark = null;
       }

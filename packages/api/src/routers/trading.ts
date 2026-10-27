@@ -10,6 +10,7 @@ import {
   loadRiskSettings,
   PAPER_START_EQUITY,
   updateProtection,
+  venueForPosition,
 } from '@gladiator/exchange';
 import { evaluateRisk } from '@gladiator/risk';
 import { CANDLE_VENUES } from '@gladiator/jobs';
@@ -78,7 +79,9 @@ export const tradingRouter = router({
     for (const p of rows) {
       let mark: number | null = null;
       try {
-        mark = ctx.venue ? await ctx.venue.markPrice(p.symbol) : null;
+        // Schlusskurs-Positionen (Yahoo/Twelve Data, A2) gegen ihren frischen Kerzenschluss.
+        const posVenue = ctx.venue ? venueForPosition(ctx.venue, p.venue) : null;
+        mark = posVenue ? await posVenue.markPrice(p.symbol) : null;
       } catch {
         mark = null; // ehrlich: Preis gerade nicht verfügbar
       }

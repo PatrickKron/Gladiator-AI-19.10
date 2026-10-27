@@ -24,7 +24,8 @@ import {
   type DslExecutionPlan,
 } from '@gladiator/strategy-engine';
 import { recordPaperStudyTrade } from './study-record.js';
-import { signalExecutionBlock } from './signal-venue.js';
+import { candleTimeframeFor, signalExecutionBlock } from './signal-venue.js';
+import { CandleCloseVenue, venueForPosition, venueForSource } from './candle-close-venue.js';
 
 const { signals, strategies, strategyVersions, orders, positions, executedTrades, tradingSettings, riskGates, auditLog, economicEvents, macroSeries, ohlcv, marketRegimes } = schema;
 
@@ -193,7 +194,15 @@ function dedupeByTs<T extends { ts: Date }>(rows: T[]): T[] {
 export async function loadOrderRiskInputs(
   db: Db,
   venue: TradingVenue,
-  p: { userId: string; symbol: string; timeframe: string; direction: 'long' | 'short'; now?: Date },
+  p: {
+    userId: string;
+    symbol: string;
+    timeframe: string;
+    /** Gespeicherte Kerzen-TF für SAFE-005, falls die Quelle die Signal-TF nicht speichert (Yahoo 4h → 1h). */
+    candleTimeframe?: string;
+    direction: 'long' | 'short';
+    now?: Date;
+  },
 ): Promise<RiskContext> {
   const now = p.now ?? new Date();
 
@@ -212,11 +221,12 @@ export async function loadOrderRiskInputs(
   }
 
   // SAFE-005: Kerzen-Frische + Z-Score aus den echten Kerzen des Signal-Timeframes
-  const tfMs = timeframeToMs(p.timeframe);
+  const candleTf = p.candleTimeframe ?? p.timeframe;
+  const tfMs = timeframeToMs(candleTf);
   const candleRows = await db
     .select({ ts: ohlcv.ts, close: ohlcv.close })
     .from(ohlcv)
-    .where(and(eq(ohlcv.symbol, p.symbol), eq(ohlcv.timeframe, p.timeframe), lte(ohlcv.ts, now)))
+    .where(and(eq(ohlcv.symbol, p.symbol), eq(ohlcv.timeframe, candleTf), lte(ohlcv.ts, now)))
     .orderBy(desc(ohlcv.ts))
     .limit(60);
   const candles = dedupeByTs(candleRows).slice(0, 51).reverse();
@@ -351,7 +361,7 @@ export type ExecutionResult = {
 
 export async function executeConfirmedSignal(
   db: Db,
-  venue: TradingVenue,
+  baseVenue: TradingVenue,
   opts: {
     signalId: string;
     userId: string;
@@ -392,8 +402,12 @@ export async function executeConfirmedSignal(
   const [signal] = await db.select().from(signals).where(eq(signals.id, opts.signalId)).limit(1);
   if (!signal) throw new Error('Signal nicht gefunden.');
   if (signal.status !== 'confirmed') throw new Error(`Signal ist ${signal.status}, nicht confirmed.`);
-  const venueBlock = signalExecutionBlock(signal.venue);
+  const venueBlock = signalExecutionBlock(signal.venue, baseVenue.kind);
   if (venueBlock) throw new Error(venueBlock);
+  // A2: Yahoo/Twelve Data laufen im Paper-Modus als Schlusskurs-Ausführung (eigene Venue-Kennung
+  // für Orders/Positionen); Binance unverändert über den aktiven Venue.
+  const venue = venueForSource(baseVenue, signal.venue);
+  const closeExecution = venue instanceof CandleCloseVenue;
 
   const settings = await loadRiskSettings(db, opts.userId);
   if (opts.riskPctOverride !== undefined && opts.riskPctOverride > 0) {
@@ -408,6 +422,7 @@ export async function executeConfirmedSignal(
     userId: opts.userId,
     symbol: signal.symbol,
     timeframe: signal.timeframe,
+    candleTimeframe: candleTimeframeFor(signal.venue, signal.timeframe),
     direction: signal.direction,
     now: state.now,
   });
@@ -522,12 +537,18 @@ export async function executeConfirmedSignal(
     price: String(entryRes.fillPrice),
     status: 'filled',
     mode: 'paper',
-    // SAFE-006: echte Slippage = Fill vs. Live-Mark direkt vor der Order (Basis der Historie)
+    // SAFE-006: echte Slippage = Fill vs. Live-Mark direkt vor der Order (Basis der Historie);
+    // Schlusskurs-Ausführung (A2) bleibt im Datensatz als solche beschriftet.
     raw:
-      typeof orderRiskInputs.markPrice === 'number'
+      typeof orderRiskInputs.markPrice === 'number' || closeExecution
         ? {
-            expectedPrice: orderRiskInputs.markPrice,
-            slippagePct: (Math.abs(entryRes.fillPrice - orderRiskInputs.markPrice) / orderRiskInputs.markPrice) * 100,
+            ...(closeExecution ? { execution: 'candle_close', source: signal.venue } : {}),
+            ...(typeof orderRiskInputs.markPrice === 'number'
+              ? {
+                  expectedPrice: orderRiskInputs.markPrice,
+                  slippagePct: (Math.abs(entryRes.fillPrice - orderRiskInputs.markPrice) / orderRiskInputs.markPrice) * 100,
+                }
+              : {}),
           }
         : null,
   });
@@ -658,7 +679,9 @@ export async function executeConfirmedSignal(
     positionId: position!.id,
     entryFill: entryRes.fillPrice,
     qty: verdict.sizing.qty,
-    detail: `Paper-Order ausgeführt @ ${entryRes.fillPrice} (${venue.id}).`,
+    detail: closeExecution
+      ? `Paper-Schlusskurs-Ausführung @ ${entryRes.fillPrice} (letzter echter Kerzenschluss, ${signal.venue}).`
+      : `Paper-Order ausgeführt @ ${entryRes.fillPrice} (${venue.id}).`,
   };
 }
 
@@ -669,12 +692,23 @@ export async function executeConfirmedSignal(
  * schaltet es ab: breakEvenAfterTp1 = false), schreibt bei Voll-Schluss
  * executed_trades NETTO (Fees/Funding wie im Backtest-Kostenmodell).
  */
-export async function monitorOpenPositions(db: Db, venue: TradingVenue): Promise<{ checked: number; fills: number }> {
+export async function monitorOpenPositions(
+  db: Db,
+  baseVenue: TradingVenue,
+  /** Nur Tests: Wirkungsbereich auf eigene User begrenzen (Server-CI testet gegen die echte DB). */
+  opts: { userIds?: string[] } = {},
+): Promise<{ checked: number; fills: number }> {
   const { planFills } = await import('./lifecycle.js');
-  const open = await db.select().from(positions).where(eq(positions.mode, 'paper'));
+  const open = await db
+    .select()
+    .from(positions)
+    .where(and(eq(positions.mode, 'paper'), opts.userIds ? inArray(positions.userId, opts.userIds) : undefined));
   let fills = 0;
 
   for (const pos of open) {
+    // Schlusskurs-Positionen (Yahoo/Twelve Data, A2) gegen ihren Kerzenschluss, sonst der aktive Venue.
+    const venue = venueForPosition(baseVenue, pos.venue);
+    if (!venue) continue; // Schlusskurs-Position, aber Venue ohne Weiche (Tests) → nicht bewerten
     // Fehler-Isolation: eine defekte Position (z. B. Preis nicht verfügbar)
     // darf die Überwachung der anderen NIE verhindern (06_ §7b).
     let price: number;
@@ -915,12 +949,13 @@ async function closePaperPosition(
  */
 export async function closePositionNow(
   db: Db,
-  venue: TradingVenue,
+  baseVenue: TradingVenue,
   positionId: string,
   reason: 'agent' | 'manual' = 'agent',
 ): Promise<{ closed: boolean; exitPrice?: number }> {
   const [pos] = await db.select().from(positions).where(eq(positions.id, positionId)).limit(1);
   if (!pos) return { closed: false };
+  const venue = venueForPosition(baseVenue, pos.venue) ?? baseVenue;
   let price: number;
   try {
     price = await venue.markPrice(pos.symbol); // ECHTER Live-Preis
@@ -1061,7 +1096,7 @@ export type ManualCloseResult = {
  */
 export async function closePositionManually(
   db: Db,
-  venue: TradingVenue,
+  baseVenue: TradingVenue,
   userId: string,
   positionId: string,
   ip: string | null = null,
@@ -1074,6 +1109,7 @@ export async function closePositionManually(
     .limit(1);
   if (!pos) return { closed: false, reason: 'not_found' };
   if (opts.qty !== undefined && !(opts.qty > 0)) return { closed: false, reason: 'invalid_qty' };
+  const venue = venueForPosition(baseVenue, pos.venue) ?? baseVenue;
 
   const own = await db.select().from(orders).where(positionOrders(pos));
   const exited = own.filter((o) => o.reduceOnly && o.status === 'filled').reduce((n, o) => n + Number(o.qty), 0);
@@ -1197,7 +1233,7 @@ export type ProtectionResult = {
  */
 export async function updateProtection(
   db: Db,
-  venue: TradingVenue,
+  baseVenue: TradingVenue,
   userId: string,
   positionId: string,
   input: ProtectionUpdate,
@@ -1209,6 +1245,7 @@ export async function updateProtection(
     .where(and(eq(positions.id, positionId), eq(positions.userId, userId)))
     .limit(1);
   if (!pos) return { ok: false, reason: 'not_found' };
+  const venue = venueForPosition(baseVenue, pos.venue) ?? baseVenue;
 
   let mark: number;
   try {

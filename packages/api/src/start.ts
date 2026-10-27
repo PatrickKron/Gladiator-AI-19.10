@@ -10,7 +10,7 @@ import { TWELVEDATA_VENUE, YAHOO_VENUE } from '@gladiator/market-data';
 import { CandleCloseBookSource } from './demo/candle-book-source.js';
 import { LivePriceFeed, feedPairsFrom } from '@gladiator/market-data';
 import { startJobWorker } from '@gladiator/jobs';
-import { BinanceTestnetVenue, HyperliquidTestnetVenue, PaperVenue, captureBootEnv, loadSecretsIntoEnv } from '@gladiator/exchange';
+import { BinanceTestnetVenue, HyperliquidTestnetVenue, PaperVenue, captureBootEnv, loadSecretsIntoEnv, withCandleClose } from '@gladiator/exchange';
 import { createApp } from './app.js';
 
 // Ausgehende Verbindungen zuerst über IPv4: KyberSwap (Cloudflare) deckelt die IPv6-Adresse des
@@ -101,7 +101,7 @@ const hyperliquid = new HyperliquidTestnetVenue(
   process.env.HYPERLIQUID_TESTNET_AGENT_KEY,
 );
 const wanted = process.env.TRADING_VENUE;
-const venue =
+const baseVenue =
   wanted === 'hyperliquid-testnet' && hyperliquid.configured
     ? hyperliquid
     : wanted === 'binance-testnet' && binance.configured
@@ -111,7 +111,9 @@ const venue =
         : hyperliquid.configured
           ? hyperliquid
           : new PaperVenue();
-console.log(`Trading-Venue: ${venue.id} (${venue.kind})`);
+// A2: Signale aus Yahoo/Twelve Data laufen als Paper-Schlusskurs-Ausführung (eigene Venue-Kennung).
+const venue = withCandleClose(db, baseVenue);
+console.log(`Trading-Venue: ${venue.id} (${venue.kind}) + Schlusskurs-Paper für Yahoo/Twelve Data`);
 
 // Worker-Rolle: Jobs starten (inkl. Reconciliation). Web-Rolle: überspringen —
 // der getrennte gladiator-worker-Dienst übernimmt das.

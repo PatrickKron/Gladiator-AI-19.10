@@ -137,6 +137,7 @@ export const it: Catalog = {
     maxRisk: 'Perdita max. fino alla protezione',
     executeNow: 'Esegui ora',
     gateRecheck: 'Nota: verificato sulla proposta della strategia — il tuo ticket modificato viene ricontrollato in esecuzione.',
+    closeExecution: 'Esecuzione al prezzo di chiusura (paper): eseguito all’ultima chiusura reale della candela di {{source}} — nessuna borsa, nessun book.',
     experienceTitle: 'Proposta dall’esperienza ({{n}} trade)',
     experienceDetail: 'Leva {{lev}}× · rischio {{risk}} % per trade · schema TP {{schema}}',
     experienceApply: 'Applica',

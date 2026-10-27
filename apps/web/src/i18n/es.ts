@@ -137,6 +137,7 @@ export const es: Catalog = {
     maxRisk: 'Pérdida máx. hasta la protección',
     executeNow: 'Ejecutar ahora',
     gateRecheck: 'Nota: comprobado con la propuesta de la estrategia — tu ticket ajustado se vuelve a comprobar al ejecutar.',
+    closeExecution: 'Ejecución al cierre (paper): se llena al último cierre real de vela de {{source}} — sin bolsa, sin libro de órdenes.',
     experienceTitle: 'Sugerencia por experiencia ({{n}} operaciones)',
     experienceDetail: 'Apalancamiento {{lev}}× · riesgo {{risk}} % por operación · esquema TP {{schema}}',
     experienceApply: 'Aplicar',

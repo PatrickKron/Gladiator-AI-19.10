@@ -25,7 +25,16 @@ export {
   PAPER_START_EQUITY,
   type ExecutionResult,
 } from './executor.js';
-export { signalExecutionBlock } from './signal-venue.js';
+export {
+  CANDLE_CLOSE_SOURCES,
+  CANDLE_CLOSE_VENUE_PREFIX,
+  candleCloseSourceOf,
+  candleTimeframeFor,
+  isCandleCloseSource,
+  signalExecutionBlock,
+  type CandleCloseSource,
+} from './signal-venue.js';
+export { CandleCloseVenue, SourceRoutingVenue, venueForPosition, venueForSource, withCandleClose } from './candle-close-venue.js';
 export { HyperliquidTestnetVenue } from './hyperliquid-venue.js';
 export { addressFromPrivateKey, judgeAgentRole, verifyAgentWallet, type AgentCheck } from './hyperliquid-agent.js';
 export {
