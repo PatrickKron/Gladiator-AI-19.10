@@ -5,19 +5,9 @@ import { CANDLE_VENUES, isCandleVenue, normalizeTradingPair, type CandleVenue } 
 import { protectedProcedure, router } from '../trpc.js';
 import { newsTicker } from '../market/asset-news.js';
 import { registerOrThrow } from '../market/register.js';
+import { assetSource } from '../market/asset-source.js';
 
 const { packages, assets, magazineArticles, assetFavorites } = schema;
-
-/**
- * Symbol + Quelle einer Asset-Zeile: Register-Quelle (candle_venue/data_symbol) gewinnt;
- * Katalog-Krypto → Binance-Paar; sonst ehrlich ohne Quelle (venue null, Ticker als Symbol).
- */
-function sourceOf(r: { ticker: string; assetType: string; tradingPair: string | null; candleVenue: string | null; dataSymbol: string | null }): { symbol: string; venue: CandleVenue | null } {
-  if (isCandleVenue(r.candleVenue) && r.dataSymbol) return { symbol: r.dataSymbol, venue: r.candleVenue };
-  const pair = normalizeTradingPair(r.tradingPair);
-  if (pair) return { symbol: pair, venue: 'binance' };
-  return { symbol: r.ticker.toUpperCase(), venue: null };
-}
 
 /**
  * Produkt-Daten (09_ §3.3 Pakete, §3.6 Magazin) — echte v1-Bestände aus der DB
@@ -98,7 +88,7 @@ export const productRouter = router({
     const chartSet = new Set((chartRows.rows as { symbol: string }[]).map((r) => r.symbol.toUpperCase()));
 
     return rows.map((r) => {
-      const src = sourceOf(r);
+      const src = assetSource(r);
       const registered = isCandleVenue(r.candleVenue) && r.dataSymbol !== null;
       return {
         id: r.id,
@@ -176,7 +166,7 @@ export const productRouter = router({
     const seen = new Set<string>();
     const out: { symbol: string; venue: CandleVenue | null; ticker: string; name: string; assetType: string; newsTicker: string }[] = [];
     for (const r of rows) {
-      const src = sourceOf(r);
+      const src = assetSource(r);
       const key = `${src.venue ?? '-'}:${src.symbol}`;
       if (seen.has(key)) continue;
       seen.add(key);

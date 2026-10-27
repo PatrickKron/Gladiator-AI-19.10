@@ -18,6 +18,9 @@ const RUN = `${process.pid}-${Date.now()}`;
 const SYM_KILL = `LCK${process.pid}/USDT`;
 const SYM_RE = `LCR${process.pid}/USDT`;
 const SYM_LEV = `LCL${process.pid}/USDT`;
+/** A2: Yahoo-Symbole (Schlusskurs statt Live-Preis) — eindeutig je Lauf. */
+const SYM_YH = `LCY${process.pid}.TEST`;
+const SYM_YH_OLD = `LCO${process.pid}.TEST`;
 const SMC_TAGS = ['Trend (EMA)', 'Struktur-Bruch', 'Retest@EMA/Level', 'RSI-Band', 'Volumen', 'Session aktiv', 'RR ≥ 2', 'Higher-TF bestätigt'];
 const NEUTRAL_CTX = { noTrade: null, vix: null };
 
@@ -79,6 +82,7 @@ describe.skipIf(!hasDb)('Signal-Lifecycle: Auto-Kill, Reentry, Leverage-Upgrade 
     confluence: string[];
     status: 'new' | 'confirmed';
     createdAt?: Date;
+    venue?: 'binance' | 'yahoo';
   }) {
     const plans = deriveLifecyclePlans({ direction: 'long', setupType: 'swing', entry: v.entry, stopLoss: v.stopLoss });
     const [sig] = await db
@@ -88,8 +92,9 @@ describe.skipIf(!hasDb)('Signal-Lifecycle: Auto-Kill, Reentry, Leverage-Upgrade 
         strategyId,
         strategyVersionId: versionId,
         symbol: v.symbol,
+        venue: v.venue ?? 'binance',
         timeframe: '1h',
-        assetClass: 'crypto',
+        assetClass: v.venue === 'yahoo' ? 'stock' : 'crypto',
         venueType: 'cex',
         direction: 'long',
         setupType: 'swing',
@@ -137,7 +142,7 @@ describe.skipIf(!hasDb)('Signal-Lifecycle: Auto-Kill, Reentry, Leverage-Upgrade 
     await db.execute(sql`DELETE FROM signals WHERE strategy_id = ${strategyId}`);
     await db.execute(sql`DELETE FROM strategy_versions WHERE strategy_id = ${strategyId}`);
     await db.execute(sql`DELETE FROM strategies WHERE id = ${strategyId}`);
-    await db.execute(sql`DELETE FROM ohlcv WHERE symbol IN (${SYM_KILL}, ${SYM_RE}, ${SYM_LEV})`);
+    await db.execute(sql`DELETE FROM ohlcv WHERE symbol IN (${SYM_KILL}, ${SYM_RE}, ${SYM_LEV}, ${SYM_YH}, ${SYM_YH_OLD})`);
     await db.execute(sql`DELETE FROM users WHERE id = ${userId}`);
     await pool.end();
   });
@@ -161,6 +166,33 @@ describe.skipIf(!hasDb)('Signal-Lifecycle: Auto-Kill, Reentry, Leverage-Upgrade 
     const second = await run();
     expect(second.killed).toBe(0);
     expect(await auditCount('signal.auto_killed', sig.id)).toBe(1);
+  });
+
+  it('A2 Yahoo-Signal: Kerzen und Preis aus der Quelle (frischer Schlusskurs), nie der Live-Preis-Venue', async () => {
+    const createdAt = new Date(Date.now() - 3 * 3_600_000);
+    const sig = await insertSignal({ symbol: SYM_YH, venue: 'yahoo', entry: 100, stopLoss: 90, takeProfits: [110, 120, 130], score: 9.5, confluence: SMC_TAGS, status: 'new', createdAt });
+    // Abgeschlossene Yahoo-1h-Kerze NACH der Erstellung mit Tief/Schluss unter dem Stop (Fixture).
+    const ts = new Date(Math.floor((Date.now() - 2 * 3_600_000) / 3_600_000) * 3_600_000);
+    await db.insert(ohlcv).values({ venue: 'yahoo', symbol: SYM_YH, timeframe: '1h', ts, open: '95', high: '96', low: '88', close: '89', volume: '10' });
+    // Gleiches Symbol auf Binance-Seite unbekannt: TestVenue würde werfen — darf nicht gefragt werden.
+    expect(venue.prices.has(SYM_YH)).toBe(false);
+
+    const res = await run();
+    expect(res.killed).toBeGreaterThanOrEqual(1);
+    const row = await db.execute(sql`SELECT status FROM signals WHERE id = ${sig.id}`);
+    expect((row.rows[0] as { status: string }).status).toBe('expired');
+    const audit = await db.execute(sql`SELECT details FROM audit_log WHERE action = 'signal.auto_killed' AND entity_id = ${sig.id}`);
+    expect((audit.rows[0] as { details: { price: number | null } }).details.price).toBe(89);
+  });
+
+  it('A2 Yahoo-Signal mit veralteten Kerzen: kein Schlusskurs als Preis, Signal bleibt offen', async () => {
+    const createdAt = new Date(Date.now() - 3 * 3_600_000);
+    const sig = await insertSignal({ symbol: SYM_YH_OLD, venue: 'yahoo', entry: 100, stopLoss: 90, takeProfits: [110, 120, 130], score: 9.5, confluence: SMC_TAGS, status: 'new', createdAt });
+    await db.insert(ohlcv).values({ venue: 'yahoo', symbol: SYM_YH_OLD, timeframe: '1h', ts: new Date(Date.now() - 30 * 86_400_000), open: '80', high: '81', low: '79', close: '80', volume: '10' });
+
+    await run();
+    const row = await db.execute(sql`SELECT status FROM signals WHERE id = ${sig.id}`);
+    expect((row.rows[0] as { status: string }).status).toBe('new');
   });
 
   it('Auto-Kill: Score fällt unter 6,5 (DSL-RR zum Live-Preis) → expired; gesundes Signal bleibt', async () => {

@@ -5,10 +5,13 @@ import { schema } from '@gladiator/db';
 import {
   buildAccountState,
   executeConfirmedSignal,
+  isCandleCloseSource,
   signalExecutionBlock,
+  venueForSource,
   loadActiveGates,
   loadRiskContext,
   loadRiskSettings,
+  type TradingVenue,
 } from '@gladiator/exchange';
 import { evaluateRisk, exposureFit } from '@gladiator/risk';
 import { leverageUpgradeSchema, reentrySchema } from '@gladiator/core';
@@ -17,6 +20,7 @@ import { getEurUsdRate } from '@gladiator/market-data';
 import { evaluateExpiredSignals, getOptimalParams, MIN_TRADES_PER_CLUSTER, type OptimalParams } from '@gladiator/backtest';
 import { buildClusterKey } from '@gladiator/strategy-engine';
 import { protectedProcedure, router } from '../trpc.js';
+import { assetSource } from '../market/asset-source.js';
 
 const { signals, signalReviews, strategies, auditLog, assetFavorites, assets } = schema;
 
@@ -37,6 +41,15 @@ type SignalReviewDto = {
 
 /** Auto-Kill-Ereignis (05_ §9) für die Karte: Grund + Score vorher/nachher. */
 type AutoKillDto = { reason: string; score: number | null; rescored: number | null; at: string };
+
+/** Venue für die Kursquelle des Signals; fehlt die Schlusskurs-Weiche ⇒ ehrlicher Vorbedingungsfehler. */
+function executionVenueOrThrow(venue: TradingVenue, source: string): TradingVenue {
+  try {
+    return venueForSource(venue, source);
+  } catch (err) {
+    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err instanceof Error ? err.message : String(err) });
+  }
+}
 
 export const signalsRouter = router({
   /**
@@ -76,6 +89,7 @@ export const signalsRouter = router({
           id: signals.id,
           createdAt: signals.createdAt,
           symbol: signals.symbol,
+          venue: signals.venue,
           timeframe: signals.timeframe,
           direction: signals.direction,
           setupType: signals.setupType,
@@ -107,18 +121,22 @@ export const signalsRouter = router({
         .orderBy(desc(signals.createdAt))
         .limit(input.limit);
 
-      // Favoriten (Stern-System): Symbole des Users → Filter/Priorität
+      // Favoriten (Stern-System) mit Kursquelle (A2): Krypto-Paare, Aktien, ETF, Forex, Rohstoffe —
+      // dieselbe Quellen-Auflösung wie product.favoriteSymbols; Katalog-Asset ohne Quelle per Symbol.
       const favRows = await ctx.db
-        .select({ pair: assets.tradingPair })
+        .select({
+          ticker: assets.ticker,
+          assetType: assets.assetType,
+          tradingPair: assets.tradingPair,
+          candleVenue: assets.candleVenue,
+          dataSymbol: assets.dataSymbol,
+        })
         .from(assetFavorites)
         .innerJoin(assets, eq(assets.id, assetFavorites.assetId))
         .where(eq(assetFavorites.userId, ctx.user.id));
-      const favSymbols = new Set(
-        favRows
-          .map((f) => f.pair?.toUpperCase().replaceAll('/', ''))
-          .filter((x): x is string => Boolean(x))
-          .map((x) => (x.endsWith('USDT') ? x.slice(0, -4) + '/USDT' : x.endsWith('USDC') ? x.slice(0, -4) + '/USDC' : x)),
-      );
+      const favSources = favRows.map(assetSource);
+      const isFavoriteSignal = (r: { symbol: string; venue: string }) =>
+        favSources.some((f) => f.symbol === r.symbol && (f.venue === null || f.venue === r.venue));
       // 05_ §9: Pläne/Vorschläge aus den jsonb-Spalten — validiert über das EINE Schema (@gladiator/core).
       let filtered = rows.map(({ reentryRaw, leverageUpgradeRaw, ...r }) => {
         const re = reentrySchema.safeParse(reentryRaw);
@@ -127,7 +145,7 @@ export const signalsRouter = router({
           ...r,
           reentry: re.success ? re.data : null,
           leverageUpgrade: lu.success ? lu.data : null,
-          isFavorite: favSymbols.has(r.symbol),
+          isFavorite: isFavoriteSignal(r),
         };
       });
       if (input.favoritesOnly) filtered = filtered.filter((r) => r.isFavorite);
@@ -197,12 +215,13 @@ export const signalsRouter = router({
       }
       const [signal] = await ctx.db.select().from(signals).where(eq(signals.id, input.id)).limit(1);
       if (!signal) throw new TRPCError({ code: 'NOT_FOUND', message: 'Signal nicht gefunden.' });
-      const venueBlock = signalExecutionBlock(signal.venue);
+      const venueBlock = signalExecutionBlock(signal.venue, ctx.venue.kind);
       if (venueBlock) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: venueBlock });
+      const execVenue = executionVenueOrThrow(ctx.venue, signal.venue);
 
       const settings = await loadRiskSettings(ctx.db, ctx.user.id);
       const state = await buildAccountState(ctx.db, ctx.user.id);
-      const rules = await ctx.venue.marketRules(signal.symbol);
+      const rules = await execVenue.marketRules(signal.symbol);
       const gates = await loadActiveGates(ctx.db);
       const verdict = evaluateRisk(
         {
@@ -252,6 +271,8 @@ export const signalsRouter = router({
         experience = { available: false, reason: 'error', tradeCount: 0, minTrades: MIN_TRADES_PER_CLUSTER };
       }
       return {
+        /** A2: Yahoo/Twelve Data füllen zum letzten echten Kerzenschluss (Paper) — die UI sagt es dazu. */
+        execution: { mode: isCandleCloseSource(signal.venue) ? ('candle_close' as const) : ('venue' as const), source: signal.venue },
         // Strategie-Vorschlag (Referenz fürs Ticket)
         suggested: {
           notionalUsd: suggestedNotionalUsd,
@@ -317,10 +338,11 @@ export const signalsRouter = router({
       if (!ctx.venue) {
         throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Kein Trading-Venue aktiv — Ausführung nicht möglich.' });
       }
-      // Kursquelle vor jeder Statusänderung prüfen (A1: nur Binance-Signale ausführbar, A2 folgt).
+      // Kursquelle vor jeder Statusänderung prüfen (A2: Yahoo/Twelve Data = Paper-Schlusskurs, nie live).
       const [target] = await ctx.db.select({ venue: signals.venue }).from(signals).where(eq(signals.id, input.id)).limit(1);
-      const venueBlock = target ? signalExecutionBlock(target.venue) : null;
+      const venueBlock = target ? signalExecutionBlock(target.venue, ctx.venue.kind) : null;
       if (venueBlock) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: venueBlock });
+      if (target) executionVenueOrThrow(ctx.venue, target.venue);
 
       // €-Betrag mit ECHTEM Kurs nach USD umrechnen — kein Kurs, kein Trade in €.
       let notionalUsd: number | undefined;

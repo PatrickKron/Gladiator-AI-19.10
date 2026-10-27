@@ -136,6 +136,7 @@ export const de = {
     maxRisk: 'Max. Verlust bis zur Absicherung',
     executeNow: 'Jetzt ausführen',
     gateRecheck: 'Hinweis: geprüft am Strategie-Vorschlag — dein angepasstes Ticket wird beim Ausführen neu geprüft.',
+    closeExecution: 'Schlusskurs-Ausführung (Paper): gefüllt wird zum letzten echten Kerzenschluss von {{source}} — keine Börse, kein Orderbuch.',
     experienceTitle: 'Vorschlag aus Erfahrung ({{n}} Trades)',
     experienceDetail: 'Hebel {{lev}}× · Risiko {{risk}} % je Trade · TP-Schema {{schema}}',
     experienceApply: 'Übernehmen',

@@ -3,7 +3,7 @@ import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { leverageUpgradeSchema, reentrySchema } from '@gladiator/core';
 import { loadRiskSettings } from '@gladiator/exchange';
-import { getOhlcv } from '@gladiator/market-data';
+import { getOhlcv, latestFreshClose } from '@gladiator/market-data';
 import {
   AUTO_KILL_SCORE_THRESHOLD,
   assessOpenSignal,
@@ -20,13 +20,16 @@ import {
 } from '@gladiator/strategy-engine';
 import { emaTrendOf, HIGHER_TF } from './signal-scan.js';
 import { ttlHoursFor, SIGNAL_TTL_HOURS } from './signal-expiry.js';
+import { AGGREGATE_LOOKBACK_MS, prepareScanCandles, scanSourceTimeframe } from './scan-targets.js';
 
 const { signals, positions, orders, auditLog } = schema;
 
 /**
  * Signal-Lifecycle-Monitor (05_ §9 „Reentry- & Leverage-Upgrade-Engine"):
  * EIN zustandsbehafteter Job, der je Tick offene Signale/Positionen gegen
- * ECHTE Kerzen (DB) und den ECHTEN Live-Preis (Venue) prüft:
+ * ECHTE Kerzen (DB) und den ECHTEN Preis prüft — je Kursquelle (A2): Binance = Live-Preis
+ * (Venue), Yahoo/Twelve Data = Schluss der neuesten FRISCHEN Kerze (`latestFreshClose`), veraltet
+ * ⇒ kein Preis, nichts wird bewertet (protokolliert); Kerzen mit Quelle, Börsen-4h aus 1h:
  *  1. Auto-Kill: 'new'-Signal mit gerissenem Stop / gegenläufigem
  *     Struktur-Bruch / auf < 6,5 gefallenem Score → 'expired' + Audit.
  *  2. Reentry: Position per SL/TP geschlossen, Plan erlaubt es, Preis im
@@ -45,7 +48,7 @@ const EMA_TREND_PERIOD = 200;
 const MAX_TTL_HOURS = Math.max(...Object.values(SIGNAL_TTL_HOURS));
 
 export type SignalLifecycleOptions = {
-  /** ECHTER Live-Preis (Worker: venue.markPrice). */
+  /** ECHTER Live-Preis für Binance-Symbole (Worker: venue.markPrice). */
   priceOf: (symbol: string) => Promise<number>;
   now?: Date;
   /**
@@ -66,7 +69,7 @@ export type SignalLifecycleResult = {
 export async function runSignalLifecycle(db: Db, opts: SignalLifecycleOptions): Promise<SignalLifecycleResult> {
   const now = opts.now ?? new Date();
   const result: SignalLifecycleResult = { checked: 0, killed: 0, reentries: 0, upgrades: 0, errors: [] };
-  const ctx = new TickContext(db, opts.priceOf);
+  const ctx = new TickContext(db, opts.priceOf, now);
 
   // Fehler-Isolation je Teil: ein defekter Schritt blockiert die anderen nie.
   try {
@@ -87,7 +90,7 @@ export async function runSignalLifecycle(db: Db, opts: SignalLifecycleOptions): 
   return result;
 }
 
-/** Cache je Tick: jede Kerzenreihe / jeder Preis wird höchstens einmal geladen. */
+/** Cache je Tick: jede Kerzenreihe / jeder Preis wird höchstens einmal geladen (je Quelle + Symbol). */
 class TickContext {
   private candles = new Map<string, Candle[]>();
   private prices = new Map<string, number | null>();
@@ -95,38 +98,58 @@ class TickContext {
   constructor(
     private db: Db,
     private priceOf: (symbol: string) => Promise<number>,
+    private now: Date,
   ) {}
 
-  async candlesFor(symbol: string, timeframe: string): Promise<Candle[]> {
-    const key = `${symbol}|${timeframe}`;
+  async candlesFor(venue: string, symbol: string, timeframe: string): Promise<Candle[]> {
+    const key = `${venue}|${symbol}|${timeframe}`;
     let c = this.candles.get(key);
     if (!c) {
-      c = await getOhlcv(this.db, { symbol, timeframe, limit: LOAD_LIMIT });
+      if (venue === 'binance') {
+        c = await getOhlcv(this.db, { venue, symbol, timeframe, limit: LOAD_LIMIT });
+      } else {
+        // Börsen-Quellen: nur abgeschlossene Kerzen, 4h aus 1h — dieselbe Aufbereitung wie der Scan.
+        const sourceTf = scanSourceTimeframe(venue, timeframe);
+        const raw = await getOhlcv(this.db, {
+          venue,
+          symbol,
+          timeframe: sourceTf,
+          ...(sourceTf === timeframe ? { limit: LOAD_LIMIT + 1 } : { since: new Date(this.now.getTime() - AGGREGATE_LOOKBACK_MS), until: this.now }),
+        });
+        c = prepareScanCandles(venue, timeframe, raw, this.now).slice(-LOAD_LIMIT);
+      }
       this.candles.set(key, c);
     }
     return c;
   }
 
-  /** Live-Preis oder undefined (ehrlich: nicht verfügbar → keine erfundene Zahl). */
-  async priceFor(symbol: string): Promise<number | undefined> {
-    if (!this.prices.has(symbol)) {
+  /** Preis je Quelle oder undefined (ehrlich: nicht verfügbar/veraltet → keine erfundene Zahl). */
+  async priceFor(venue: string, symbol: string): Promise<number | undefined> {
+    const key = `${venue}|${symbol}`;
+    if (!this.prices.has(key)) {
       try {
-        const p = await this.priceOf(symbol);
-        this.prices.set(symbol, Number.isFinite(p) && p > 0 ? p : null);
+        if (venue === 'binance') {
+          const p = await this.priceOf(symbol);
+          this.prices.set(key, Number.isFinite(p) && p > 0 ? p : null);
+        } else {
+          const best = await latestFreshClose(this.db, { venue, symbol, now: this.now });
+          if (!best.ok) console.log(`[signal-lifecycle] ${venue}:${symbol} ohne frischen Schlusskurs (${best.reason}) — nicht bewertet.`);
+          this.prices.set(key, best.ok && best.price > 0 ? best.price : null);
+        }
       } catch {
-        this.prices.set(symbol, null);
+        this.prices.set(key, null);
       }
     }
-    return this.prices.get(symbol) ?? undefined;
+    return this.prices.get(key) ?? undefined;
   }
 
   /** Trend der nächsthöheren TF; undefined bei zu wenig Historie (dann gilt der Stand bei Erstellung). */
-  async higherTrendFor(symbol: string, timeframe: string): Promise<'bull' | 'bear' | 'neutral' | undefined> {
+  async higherTrendFor(venue: string, symbol: string, timeframe: string): Promise<'bull' | 'bear' | 'neutral' | undefined> {
     const higher = (HIGHER_TF as Record<string, string | null>)[timeframe];
     if (!higher) return undefined;
-    const key = `${symbol}|${higher}`;
+    const key = `${venue}|${symbol}|${higher}`;
     if (!this.trends.has(key)) {
-      const c = await this.candlesFor(symbol, higher);
+      const c = await this.candlesFor(venue, symbol, higher);
       this.trends.set(key, c.length >= EMA_TREND_PERIOD ? emaTrendOf(c, EMA_TREND_PERIOD) : undefined);
     }
     return this.trends.get(key);
@@ -153,8 +176,8 @@ async function autoKillPass(
   for (const sig of open) {
     result.checked++;
     try {
-      const candles = await ctx.candlesFor(sig.symbol, sig.timeframe);
-      const price = await ctx.priceFor(sig.symbol);
+      const candles = await ctx.candlesFor(sig.venue, sig.symbol, sig.timeframe);
+      const price = await ctx.priceFor(sig.venue, sig.symbol);
       if (candles.length === 0 && price === undefined) continue; // keine echten Daten → keine Bewertung
 
       const takeProfits = sig.takeProfits.map(Number);
@@ -165,7 +188,7 @@ async function autoKillPass(
         confluence: sig.confluence,
         candles,
         price,
-        higherTfTrend: await ctx.higherTrendFor(sig.symbol, sig.timeframe),
+        higherTfTrend: await ctx.higherTrendFor(sig.venue, sig.symbol, sig.timeframe),
         score: Number(sig.score),
         createdAt: sig.createdAt,
       });
@@ -255,7 +278,7 @@ async function reentryPass(
         if (openPos) continue;
       }
 
-      const price = await ctx.priceFor(sig.symbol);
+      const price = await ctx.priceFor(sig.venue, sig.symbol);
       if (price === undefined) continue;
 
       const stopLoss = Number(sig.stopLoss);
@@ -268,7 +291,7 @@ async function reentryPass(
         maxReentries: parsed.data.maxReentries ?? 1,
         generation: parsed.data.generation ?? 0,
       };
-      const candles = await ctx.candlesFor(sig.symbol, sig.timeframe);
+      const candles = await ctx.candlesFor(sig.venue, sig.symbol, sig.timeframe);
       // Invalidierung ab dem Schluss: Der Stop-Ausstieg selbst ist das Exit-Ereignis;
       // ein WEITERER Bruch gegen das Setup danach verbietet die zweite Chance.
       const structureBroken = structureBrokenSince(candles, sig.direction, closedAt);
@@ -279,7 +302,7 @@ async function reentryPass(
         confluence: sig.confluence,
         candles,
         price,
-        higherTfTrend: await ctx.higherTrendFor(sig.symbol, sig.timeframe),
+        higherTfTrend: await ctx.higherTrendFor(sig.venue, sig.symbol, sig.timeframe),
         structureBroken,
       });
       const decision = evaluateReentry({
@@ -302,6 +325,7 @@ async function reentryPass(
           strategyId: sig.strategyId,
           strategyVersionId: sig.strategyVersionId,
           symbol: sig.symbol,
+          venue: sig.venue,
           timeframe: sig.timeframe,
           assetClass: sig.assetClass,
           venueType: sig.venueType,
@@ -383,7 +407,7 @@ async function leverageUpgradePass(
       // Dedupe: je Position genau EIN Vorschlag.
       if (parsed.data.suggestion?.positionId === pos.id) continue;
 
-      const price = await ctx.priceFor(pos.symbol);
+      const price = await ctx.priceFor(sig.venue, pos.symbol);
       if (price === undefined) continue;
 
       // Aktueller Stop DIESER Position (gleiche Konvention wie Monitor/Reconcile).

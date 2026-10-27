@@ -6,6 +6,8 @@ import {
   loadActiveGates,
   loadRiskContext,
   loadRiskSettings,
+  SourceRoutingVenue,
+  venueForSource,
   type TradingVenue,
 } from '@gladiator/exchange';
 import {
@@ -130,9 +132,9 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue, opts: { sign
     .where(
       and(
         eq(signals.status, 'new'),
-        // A1: Marktregeln/Risk-Vorschau kennt nur Binance-Paare — Signale anderer Kursquellen
-        // prüft der Schwarm erst mit dem Preis-Resolver (A2); sie blockieren das 50er-Fenster nicht.
-        eq(signals.venue, 'binance'),
+        // A2: Yahoo/Twelve Data prüft der Schwarm nur mit Schlusskurs-Weiche (Serverstart); ein
+        // Venue ohne Weiche (Tests) sieht nur Binance — andere Quellen blockieren das 50er-Fenster nicht.
+        venue instanceof SourceRoutingVenue ? undefined : eq(signals.venue, 'binance'),
         notExists(db.select().from(signalReviews).where(eq(signalReviews.signalId, signals.id))),
         opts.signalIds ? inArray(signals.id, opts.signalIds) : undefined,
       ),
@@ -195,7 +197,7 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue, opts: { sign
         marketPhase: s.marketPhase as 'bull' | 'bear',
       };
 
-      const rules = await venue.marketRules(s.symbol);
+      const rules = await venueForSource(venue, s.venue).marketRules(s.symbol);
       const riskVerdict = evaluateRisk(
         {
           symbol: s.symbol,

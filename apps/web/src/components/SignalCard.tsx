@@ -655,6 +655,12 @@ function AdjustTicket({
         </span>
       </div>
 
+      {preview.execution.mode === 'candle_close' && (
+        <p className="mt-2 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+          {t('ticket.closeExecution', { source: preview.execution.source === 'twelvedata' ? 'Twelve Data' : 'Yahoo' })}
+        </p>
+      )}
+
       {preview.gateReasons.length > 0 && (
         <p className="mt-2 text-[11px]" style={{ color: 'var(--color-warn)' }}>
           ⚠ {preview.gateReasons.join(' · ')}

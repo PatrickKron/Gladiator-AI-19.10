@@ -66,14 +66,14 @@ Zuletzt gebaut (Details in `OFFENER_PLAN.md` 0d/0e und `WORKOVER.md`):
 ### A · Signal-Scan und KI-Pipelines je Quelle (Hauptaufgabe, in drei PRs)
 Hinzugefügte Aktien/ETF/Forex/Rohstoffe erscheinen in Chart, Screener, Heatmap, Alarmen — aber der **Signal-Scan und die KI-Pipelines rechnen nur Krypto (Binance)**. Befund aus dem Register-Umbau (Zeilen vorher prüfen):
 
-**A1 · Scan je Quelle**
+**A1 · Scan je Quelle** — ✅ erledigt (PR #96)
 - `signals` hat keine Kerzenquelle → Migration 0044: `signals.venue` (Standard `binance`).
 - `packages/jobs/src/signal-scan.ts` (Universum über `scanUniverse`, `getOhlcv` ohne venue, `assetClass: 'crypto'` fest), `dsl-scan.ts` (gleich) → Universum aus `registeredAssets()` (`packages/jobs/src/asset-register.ts`, liefert `{symbol, venue, assetType, name}`), Kerzen mit venue, `assetClass` aus dem Register, `persistCandidate` setzt venue (heute `venueType: 'cex'` fest).
 - `SCAN_TIMEFRAMES` enthält 4h, `HIGHER_TF` braucht 4h — Yahoo liefert kein 4h, im Code gibt es keinen Aggregations-Helfer → reinen, getesteten Helfer 1h → 4h bauen (UTC-4h-Buckets; nur vollständige Buckets; Lücken außerhalb der Börsenzeiten ehrlich behandeln).
 - Börsenzeiten/Wochenenden: keine Signale auf veralteten Kerzen (Frische-Helfer `packages/market-data/src/freshness.ts` nutzen).
 - Erwartung: echte Signale für registrierte Nicht-Krypto-Assets, Tests mit Fixture-Kerzen, kein Fake.
 
-**A2 · Lebenszyklus, Review, Ausführung**
+**A2 · Lebenszyklus, Review, Ausführung** — ✅ erledigt (siehe OFFENER_PLAN 0e)
 - `packages/jobs/src/signal-lifecycle.ts` (`getOhlcv` ohne venue; `priceOf = venue.markPrice` = Binance) und `review.ts` (`venue.marketRules(symbol)` Binance) → Preis-Resolver: Binance live, sonst frischester Kerzenschluss (wie `latestFreshClose` in den Alarmen), veraltet ⇒ nichts tun und protokollieren.
 - Bestätigen eines Nicht-Krypto-Signals im Agenten-Konto (Paper): Ausführung zum letzten echten Schlusskurs, ehrlich als „Schlusskurs-Ausführung“ beschriftet (Vorbild `packages/api/src/demo/candle-book-source.ts`), **Risk-Engine bleibt hartes Gate**.
 - `packages/api/src/routers/signals.ts` (~111): Favoritenfilter erkennt nur Krypto-Paare → `favoriteSymbols` mit venue nutzen.
