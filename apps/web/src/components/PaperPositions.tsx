@@ -176,7 +176,7 @@ export function PaperPositions({ positions, onChanged }: { positions: PaperPosit
           <li key={p.id} className="rounded-[0.625rem] border p-4" style={{ borderColor: 'var(--color-line)' }}>
             <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
               <div className="flex flex-wrap items-center gap-3">
-                <a href={buildChartUrl(p.symbol)} className="num font-medium hover:underline" style={{ color: 'var(--color-cyan)' }}>
+                <a href={buildChartUrl(p.symbol, null, p.candleVenue)} className="num font-medium hover:underline" style={{ color: 'var(--color-cyan)' }}>
                   {p.symbol}
                 </a>
                 <span className="label" style={{ color: p.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>

@@ -15,9 +15,10 @@ import {
   type FeatureVector,
 } from '@gladiator/ml';
 import { scanUniverse } from './universe.js';
+import { loadSourceCandles } from './source-candles.js';
 import { SCAN_TIMEFRAMES } from './signal-scan.js';
 
-const { mlFeatures, mlLabels, mlModels } = schema;
+const { mlFeatures, mlLabels, mlModels, signals } = schema;
 
 export type MlFeatureResult = {
   computed: number;
@@ -87,9 +88,9 @@ export function labelHistoryStart(createdAt: Date, timeframe: string): Date {
   return new Date(createdAt.getTime() - (FEATURE_MIN_CANDLES + 20) * barMs);
 }
 
-/** Features zum Signal-Zeitpunkt: nur Kerzen bis einschließlich Signal (look-ahead-frei). */
-async function featuresAt(db: Db, symbol: string, timeframe: string, at: Date): Promise<FeatureVector | null> {
-  const history = await getOhlcv(db, { symbol, timeframe, since: labelHistoryStart(at, timeframe), until: at });
+/** Features zum Signal-Zeitpunkt: nur Kerzen bis einschließlich Signal (look-ahead-frei), je Kursquelle. */
+async function featuresAt(db: Db, venue: string, symbol: string, timeframe: string, at: Date): Promise<FeatureVector | null> {
+  const history = await loadSourceCandles(db, { venue, symbol, timeframe, since: labelHistoryStart(at, timeframe), until: at });
   return computeFeatures(history);
 }
 
@@ -98,10 +99,15 @@ async function featuresAt(db: Db, symbol: string, timeframe: string, at: Date): 
  * ergänzen (echte Kerzen aus der DB, nur bis zum Signal-Zeitpunkt).
  */
 export async function backfillLabelFeatures(db: Db, limit = 200): Promise<{ filled: number; skipped: number }> {
-  const missing = await db.select().from(mlLabels).where(isNull(mlLabels.features)).limit(limit);
+  const missing = await db
+    .select({ id: mlLabels.id, symbol: mlLabels.symbol, timeframe: mlLabels.timeframe, ts: mlLabels.ts, venue: signals.venue })
+    .from(mlLabels)
+    .leftJoin(signals, eq(signals.id, mlLabels.signalId))
+    .where(isNull(mlLabels.features))
+    .limit(limit);
   let filled = 0;
   for (const l of missing) {
-    const fv = await featuresAt(db, l.symbol, l.timeframe, l.ts);
+    const fv = await featuresAt(db, l.venue ?? 'binance', l.symbol, l.timeframe, l.ts);
     if (!fv) continue;
     await db.update(mlLabels).set({ features: fv }).where(eq(mlLabels.id, l.id));
     filled++;
@@ -119,16 +125,13 @@ export async function autoLabelSignals(db: Db): Promise<MlAutoLabelResult> {
   // Find signals without labels that are old enough (at least 24h old for outcome determination)
   const cutoff = new Date(Date.now() - 24 * 3600_000);
   const unlabeledSignals = await db.execute(sql`
-    SELECT s.id, s.symbol, s.timeframe, s.direction, s.entry, s.stop_loss,
+    SELECT s.id, s.symbol, s.venue, s.timeframe, s.direction, s.entry, s.stop_loss,
            s.take_profits, s.setup_type, s.created_at, s.score
     FROM signals s
     LEFT JOIN ml_labels ml ON ml.signal_id = s.id
     WHERE ml.id IS NULL
       AND s.created_at < ${cutoff}
       AND s.source IN ('engine', 'instruction', 'sub_agent')
-      -- bis A3 (Kerzen mit Quelle in den Pipelines): nur Binance-Signale, sonst verstopfen
-      -- unbeschriftbare Yahoo-/Twelve-Data-Signale dauerhaft das 200er-Fenster
-      AND s.venue = 'binance'
     ORDER BY s.created_at DESC
     LIMIT 200
   `);
@@ -137,6 +140,7 @@ export async function autoLabelSignals(db: Db): Promise<MlAutoLabelResult> {
     try {
       const sig = row as Record<string, unknown>;
       const symbol = sig.symbol as string;
+      const venue = (sig.venue as string | null) ?? 'binance';
       const timeframe = sig.timeframe as string;
       const direction = sig.direction as 'long' | 'short';
       const entryPrice = Number(sig.entry);
@@ -148,11 +152,13 @@ export async function autoLabelSignals(db: Db): Promise<MlAutoLabelResult> {
       // Max holding bars depends on timeframe
       const maxBars = timeframe === '15m' ? 16 : timeframe === '1h' ? 12 : timeframe === '4h' ? 12 : 5;
 
-      // Ausgang (Label) braucht nur die Kerzen AB dem Signal.
-      const candles = await getOhlcv(db, {
+      // Ausgang (Label) braucht nur die Kerzen AB dem Signal — je Kursquelle (A3; Börsen-4h aus 1h).
+      const barMs = (TIMEFRAME_MS as Record<string, number>)[timeframe] ?? 3600_000;
+      const candles = await loadSourceCandles(db, {
+        venue,
         symbol,
         timeframe,
-        since: new Date(createdAt.getTime() - 3600_000),
+        since: new Date(createdAt.getTime() - Math.max(barMs, 3600_000)),
         limit: 1000,
       });
 
@@ -185,7 +191,7 @@ export async function autoLabelSignals(db: Db): Promise<MlAutoLabelResult> {
       }
 
       // Features zum Signal-Zeitpunkt aus eigener Vorlauf-Historie (look-ahead-frei)
-      const fv = await featuresAt(db, symbol, timeframe, createdAt);
+      const fv = await featuresAt(db, venue, symbol, timeframe, createdAt);
 
       await db.insert(mlLabels).values({
         signalId: sig.id as string,
