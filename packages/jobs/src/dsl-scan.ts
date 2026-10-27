@@ -4,7 +4,7 @@ import { schema } from '@gladiator/db';
 import { getOhlcv, isCandleFresh } from '@gladiator/market-data';
 import { deriveLifecyclePlans, evaluateDslAt, parseInstructionDsl } from '@gladiator/strategy-engine';
 import { registeredAssets, type RegisteredAsset } from './asset-register.js';
-import { prepareScanCandles, scanSourceTimeframe, signalAssetClassFor, type ScanTarget } from './scan-targets.js';
+import { AGGREGATE_LOOKBACK_MS, prepareScanCandles, scanSourceTimeframe, signalAssetClassFor, type ScanTarget } from './scan-targets.js';
 import { normalizeTradingPair } from './universe.js';
 
 const { strategies, strategyVersions, signals } = schema;
@@ -84,7 +84,7 @@ export async function runDslScan(db: Db, opts: { now?: Date } = {}): Promise<Dsl
       venue: target.venue,
       symbol: target.symbol,
       timeframe: sourceTf,
-      limit: sourceTf === dsl.timeframe ? LOAD_LIMIT + 1 : LOAD_LIMIT * 4,
+      ...(sourceTf === dsl.timeframe ? { limit: LOAD_LIMIT + 1 } : { since: new Date(now.getTime() - AGGREGATE_LOOKBACK_MS), until: now }),
     });
     const candles = prepareScanCandles(target.venue, dsl.timeframe, raw, now).slice(-LOAD_LIMIT);
     result.scanned.push({ slug: row.slug, symbol: dsl.symbol, timeframe: dsl.timeframe, candles: candles.length });

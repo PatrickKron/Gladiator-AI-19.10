@@ -191,6 +191,7 @@ export async function evaluateExpiredSignals(
     let outcome: HindsightOutcome = { status: 'no_data', rMultiple: null, exitReason: null, exitTs: null, barsHeld: null };
     if (tfMs) {
       const candles = await getOhlcv(db, {
+        venue: s.venue,
         symbol: s.symbol,
         timeframe: s.timeframe,
         since: new Date(s.createdAt.getTime() - 3 * tfMs),

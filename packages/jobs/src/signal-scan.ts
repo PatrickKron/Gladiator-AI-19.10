@@ -5,7 +5,7 @@ import type { AssetClass } from '@gladiator/core';
 import { getOhlcv, isCandleFresh } from '@gladiator/market-data';
 import { ensureCandles } from './universe.js';
 import { registeredAssets } from './asset-register.js';
-import { buildScanTargets, prepareScanCandles, scanSourceTimeframe, type ScanTarget } from './scan-targets.js';
+import { AGGREGATE_LOOKBACK_MS, buildScanTargets, prepareScanCandles, scanSourceTimeframe, type ScanTarget } from './scan-targets.js';
 import { expireStaleSignals } from './signal-expiry.js';
 import {
   deriveLifecyclePlans,
@@ -46,8 +46,6 @@ export const HIGHER_TF: Record<Timeframe, Timeframe | null> = {
 /** Mindest-Kerzen, damit EMA200 & Co. definiert sind. */
 const MIN_CANDLES = 220;
 const LOAD_LIMIT = 400;
-/** 1h-Kerzen für ein aus 1h gebautes 4h (Börsenzeiten: ~2 Buckets je Handelstag). */
-const AGGREGATE_LOAD_LIMIT = LOAD_LIMIT * 4;
 
 export function emaTrendOf(candles: Candle[], period: number): 'bull' | 'bear' | 'neutral' {
   if (candles.length < period) return 'neutral';
@@ -115,7 +113,7 @@ async function loadScanCandles(db: Db, target: ScanTarget, timeframe: string, no
     venue: target.venue,
     symbol: target.symbol,
     timeframe: sourceTf,
-    limit: sourceTf === timeframe ? LOAD_LIMIT + 1 : AGGREGATE_LOAD_LIMIT,
+    ...(sourceTf === timeframe ? { limit: LOAD_LIMIT + 1 } : { since: new Date(now.getTime() - AGGREGATE_LOOKBACK_MS), until: now }),
   });
   return prepareScanCandles(target.venue, timeframe, raw, now).slice(-LOAD_LIMIT);
 }

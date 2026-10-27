@@ -62,6 +62,12 @@ export function scanSourceTimeframe(venue: string, timeframe: string): string {
   return venue !== 'binance' && timeframe === '4h' ? '1h' : timeframe;
 }
 
+/**
+ * Ladefenster für aus 1h gebaute Reihen: Yahoo hält 1h ein Jahr; ~7 Stundenkerzen je Handelstag
+ * ⇒ ~2 abgeschlossene 4h-Buckets je Tag ⇒ ein Jahr ≈ 500 Buckets (≥ 220 für EMA200).
+ */
+export const AGGREGATE_LOOKBACK_MS = 400 * 86_400_000;
+
 /** Rohkerzen (aufsteigend, aus `scanSourceTimeframe`) → nur abgeschlossene Kerzen im Scan-Zeitrahmen. */
 export function prepareScanCandles(venue: string, timeframe: string, raw: readonly Candle[], now: Date): Candle[] {
   const sourceTf = scanSourceTimeframe(venue, timeframe);

@@ -126,6 +126,9 @@ export async function autoLabelSignals(db: Db): Promise<MlAutoLabelResult> {
     WHERE ml.id IS NULL
       AND s.created_at < ${cutoff}
       AND s.source IN ('engine', 'instruction', 'sub_agent')
+      -- bis A3 (Kerzen mit Quelle in den Pipelines): nur Binance-Signale, sonst verstopfen
+      -- unbeschriftbare Yahoo-/Twelve-Data-Signale dauerhaft das 200er-Fenster
+      AND s.venue = 'binance'
     ORDER BY s.created_at DESC
     LIMIT 200
   `);
