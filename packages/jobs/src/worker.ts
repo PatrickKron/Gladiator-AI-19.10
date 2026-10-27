@@ -222,8 +222,9 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           const res = await runSignalScan(db);
           console.log(
             `[signal-scan] ${new Date().toISOString()} neu=${res.inserted} dupes=${res.skippedDuplicates} ` +
-              res.scanned.map((s) => `${s.symbol}@${s.timeframe}:${s.candles}`).join(' '),
+              res.scanned.map((s) => `${s.venue === 'binance' ? '' : `${s.venue}:`}${s.symbol}@${s.timeframe}:${s.candles}${s.stale ? '(alt)' : ''}`).join(' '),
           );
+          for (const s of res.skippedAssets) console.log('[signal-scan] übersprungen:', s);
           // DSL-Strategien (07_ §3) scannen — dieselbe Pipeline, source 'instruction'.
           const dsl = await runDslScan(db);
           if (dsl.inserted > 0 || dsl.errors.length > 0) {

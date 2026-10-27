@@ -73,6 +73,8 @@ export const signals = pgTable(
     /** Herkunft aus einem Sub-Agenten (Trading-Werkstatt) — für Signal-Historie je Agent. */
     subAgentId: uuid('sub_agent_id').references(() => subAgents.id, { onDelete: 'set null' }),
     symbol: text('symbol').notNull(),
+    /** Kerzenquelle des Symbols (binance | yahoo | twelvedata) — A1 Signal-Scan je Quelle, Migration 0044. */
+    venue: text('venue').notNull().default('binance'),
     /** Timeframe des Scans (Multi-TF: 15m/1h/4h/1d) — Ergänzung zum 04_-Modell. */
     timeframe: text('timeframe').notNull().default('1h'),
     assetClass: assetClassEnum('asset_class').notNull(),

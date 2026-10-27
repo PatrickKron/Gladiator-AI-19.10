@@ -1,8 +1,11 @@
 import { and, eq, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
-import { getOhlcv } from '@gladiator/market-data';
-import { ensureCandles, scanUniverse } from './universe.js';
+import type { AssetClass } from '@gladiator/core';
+import { getOhlcv, isCandleFresh } from '@gladiator/market-data';
+import { ensureCandles } from './universe.js';
+import { registeredAssets } from './asset-register.js';
+import { AGGREGATE_LOOKBACK_MS, buildScanTargets, prepareScanCandles, scanSourceTimeframe, type ScanTarget } from './scan-targets.js';
 import { expireStaleSignals } from './signal-expiry.js';
 import {
   deriveLifecyclePlans,
@@ -20,8 +23,13 @@ const { strategies, strategyVersions, signals } = schema;
  * bewertet; der Trend der nächsthöheren Timeframe (EMA-Trend) geht als
  * Kontext ein (Top-Down-Pflicht). Kandidaten (Score ≥ 6) landen als
  * kanonische Signale in der DB. Dedupe: existiert bereits ein 'new'-Signal
- * gleicher Strategie/Symbol/TF/Richtung/Setup, wird nicht dupliziert.
+ * gleicher Strategie/Quelle/Symbol/TF/Richtung/Setup, wird nicht dupliziert.
  * NUR echte Kerzen aus der DB — nichts wird erfunden.
+ *
+ * Je Quelle (A1, 2026-10-27): Universum = Asset-Register (Binance, Yahoo, Twelve Data;
+ * scan-targets.ts). Nur abgeschlossene Kerzen; Börsen-Quellen bekommen 4h aus 1h; veraltete
+ * Reihen (Börse lange zu, Quelle hängt) werden nicht bewertet. Kerzen von Yahoo/Twelve Data hält
+ * der Kerzen-Refresh-Job frisch, Binance der Scan selbst.
  */
 
 export const SCAN_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']; // Basis — Favoriten erweitern zur Laufzeit (universe.ts)
@@ -84,55 +92,84 @@ export async function ensureSmcCoreStrategy(db: Db): Promise<{ strategyId: strin
 }
 
 export type ScanResult = {
-  scanned: { symbol: string; timeframe: string; candles: number }[];
+  scanned: { symbol: string; venue: string; timeframe: string; candles: number; stale?: boolean }[];
   inserted: number;
   skippedDuplicates: number;
   /** Überfällige 'new'-Signale, die dieser Lauf auf 'expired' gesetzt hat. */
   expired: number;
+  /** Registrierte Assets ohne Signal-Klasse (mit Grund) — nie geraten. */
+  skippedAssets: string[];
 };
 
-export async function runSignalScan(db: Db): Promise<ScanResult> {
+/** Scan-Ziele aus dem Asset-Register (Basis + Favoriten + Hinzugefügte, alle Quellen). */
+export async function scanTargets(db: Db): Promise<{ targets: ScanTarget[]; skipped: string[] }> {
+  return buildScanTargets(await registeredAssets(db));
+}
+
+/** Abgeschlossene Kerzen eines Ziels im Scan-Zeitrahmen (Börsen-Quellen: 4h aus 1h). */
+async function loadScanCandles(db: Db, target: ScanTarget, timeframe: string, now: Date): Promise<Candle[]> {
+  const sourceTf = scanSourceTimeframe(target.venue, timeframe);
+  const raw = await getOhlcv(db, {
+    venue: target.venue,
+    symbol: target.symbol,
+    timeframe: sourceTf,
+    ...(sourceTf === timeframe ? { limit: LOAD_LIMIT + 1 } : { since: new Date(now.getTime() - AGGREGATE_LOOKBACK_MS), until: now }),
+  });
+  return prepareScanCandles(target.venue, timeframe, raw, now).slice(-LOAD_LIMIT);
+}
+
+export async function runSignalScan(db: Db, opts: { now?: Date } = {}): Promise<ScanResult> {
+  const now = opts.now ?? new Date();
   const { strategyId, versionId } = await ensureSmcCoreStrategy(db);
-  const result: ScanResult = { scanned: [], inserted: 0, skippedDuplicates: 0, expired: 0 };
+  const result: ScanResult = { scanned: [], inserted: 0, skippedDuplicates: 0, expired: 0, skippedAssets: [] };
 
   // Zuerst veraltete offene Signale ablaufen lassen → „offen"-Liste bleibt aktuell.
   result.expired = await expireStaleSignals(db);
   if (result.expired > 0) console.log(`[signal-scan] ${result.expired} überfällige Signale auf 'expired' gesetzt.`);
 
-  // Universum = Basis + Stern-Favoriten (Krypto). ALLE Symbole inkrementell
-  // frisch halten — auch die Basis: deren Kerzen kommen sonst nur aus dem Seed
-  // und veralten für immer (der Scan bewertete dann tagelang denselben Bar).
-  const universe = await scanUniverse(db);
-  for (const symbol of universe) {
-    const fill = await ensureCandles(db, symbol);
-    if (fill.inserted > 0) console.log(`[signal-scan] Backfill ${symbol}: +${fill.inserted} Kerzen`);
+  // Universum = Asset-Register (alle Quellen). Binance-Symbole inkrementell frisch
+  // halten — auch die Basis: deren Kerzen kommen sonst nur aus dem Seed und veralten
+  // für immer. Yahoo/Twelve Data hält der Kerzen-Refresh-Job (alle 15 min) frisch.
+  const { targets, skipped } = await scanTargets(db);
+  result.skippedAssets = skipped;
+  for (const target of targets) {
+    if (target.venue !== 'binance') continue;
+    const fill = await ensureCandles(db, target.symbol);
+    if (fill.inserted > 0) console.log(`[signal-scan] Backfill ${target.symbol}: +${fill.inserted} Kerzen`);
     for (const e of fill.errors) console.warn('[signal-scan] Backfill', e);
   }
 
-  for (const symbol of universe) {
-    // Höhere TF-Trends einmal je Symbol laden
-    const higherTrends = new Map<Timeframe, 'bull' | 'bear' | 'neutral'>();
-    for (const tf of SCAN_TIMEFRAMES) {
-      const higher = HIGHER_TF[tf];
-      if (!higher || higherTrends.has(higher)) continue;
-      const candles = await getOhlcv(db, { symbol, timeframe: higher, limit: LOAD_LIMIT });
-      higherTrends.set(higher, emaTrendOf(candles, SMC_CORE_DEFAULTS.emaTrendPeriod));
-    }
+  for (const target of targets) {
+    const { symbol, venue } = target;
+    // Jede Reihe einmal je Ziel laden (Scan-TF und Trend-Kontext der nächsthöheren TF).
+    const series = new Map<Timeframe, Candle[]>();
+    const candlesOf = async (tf: Timeframe) => {
+      let c = series.get(tf);
+      if (!c) {
+        c = await loadScanCandles(db, target, tf, now);
+        series.set(tf, c);
+      }
+      return c;
+    };
 
     for (const timeframe of SCAN_TIMEFRAMES) {
-      const candles = await getOhlcv(db, { symbol, timeframe, limit: LOAD_LIMIT });
-      result.scanned.push({ symbol, timeframe, candles: candles.length });
+      const candles = await candlesOf(timeframe);
+      const last = candles[candles.length - 1];
+      const stale = last !== undefined && !isCandleFresh(last.ts, timeframe, venue, now);
+      result.scanned.push({ symbol, venue, timeframe, candles: candles.length, ...(stale ? { stale } : {}) });
       if (candles.length < MIN_CANDLES) continue; // ehrlich: zu wenig Historie → kein Scan
+      if (stale) continue; // Börse lange zu / Quelle hängt → keine Signale auf alten Kerzen
 
       const higher = HIGHER_TF[timeframe];
-      const candidates = evaluateSmcCoreAt(candles, candles.length - 1, SMC_CORE_DEFAULTS, {
-        higherTfTrend: higher ? higherTrends.get(higher) : 'neutral',
-      });
+      const higherTfTrend = higher ? emaTrendOf(await candlesOf(higher), SMC_CORE_DEFAULTS.emaTrendPeriod) : 'neutral';
+      const candidates = evaluateSmcCoreAt(candles, candles.length - 1, SMC_CORE_DEFAULTS, { higherTfTrend });
 
       for (const candidate of candidates) {
         const inserted = await persistCandidate(db, {
           candidate,
           symbol,
+          venue,
+          assetClass: target.assetClass,
           timeframe,
           strategyId,
           versionId,
@@ -151,17 +188,19 @@ async function persistCandidate(
   opts: {
     candidate: SetupCandidate;
     symbol: string;
+    venue: string;
+    assetClass: AssetClass;
     timeframe: string;
     strategyId: string;
     versionId: string;
   },
 ): Promise<boolean> {
-  const { candidate, symbol, timeframe, strategyId, versionId } = opts;
+  const { candidate, symbol, venue, assetClass, timeframe, strategyId, versionId } = opts;
 
   // Dedupe: gleiches offenes Setup existiert bereits
   const dup = await db.execute(sql`
     SELECT 1 FROM signals
-    WHERE strategy_id = ${strategyId} AND symbol = ${symbol} AND timeframe = ${timeframe}
+    WHERE strategy_id = ${strategyId} AND venue = ${venue} AND symbol = ${symbol} AND timeframe = ${timeframe}
       AND direction = ${candidate.direction} AND setup_type = ${candidate.setupType}
       AND status = 'new'
     LIMIT 1
@@ -173,8 +212,10 @@ async function persistCandidate(
     strategyId,
     strategyVersionId: versionId,
     symbol,
+    venue,
     timeframe,
-    assetClass: 'crypto',
+    assetClass,
+    // Ausführungsort-Typ: Binance wie die Börsen-Quellen sind zentrale Märkte; die Kerzenquelle steht in `venue`.
     venueType: 'cex',
     direction: candidate.direction,
     setupType: candidate.setupType,

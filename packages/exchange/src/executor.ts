@@ -24,6 +24,7 @@ import {
   type DslExecutionPlan,
 } from '@gladiator/strategy-engine';
 import { recordPaperStudyTrade } from './study-record.js';
+import { signalExecutionBlock } from './signal-venue.js';
 
 const { signals, strategies, strategyVersions, orders, positions, executedTrades, tradingSettings, riskGates, auditLog, economicEvents, macroSeries, ohlcv, marketRegimes } = schema;
 
@@ -391,6 +392,8 @@ export async function executeConfirmedSignal(
   const [signal] = await db.select().from(signals).where(eq(signals.id, opts.signalId)).limit(1);
   if (!signal) throw new Error('Signal nicht gefunden.');
   if (signal.status !== 'confirmed') throw new Error(`Signal ist ${signal.status}, nicht confirmed.`);
+  const venueBlock = signalExecutionBlock(signal.venue);
+  if (venueBlock) throw new Error(venueBlock);
 
   const settings = await loadRiskSettings(db, opts.userId);
   if (opts.riskPctOverride !== undefined && opts.riskPctOverride > 0) {
