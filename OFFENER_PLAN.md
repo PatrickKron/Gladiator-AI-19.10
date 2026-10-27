@@ -1,5 +1,6 @@
-# Gladiator AI v2 — Offener Plan (Übergabe, Stand 2026-10-19)
+# Gladiator AI v2 — Offener Plan (Stand 2026-10-27)
 
+> **Fortsetzung in Antigravity + Claude Code (Patricks PC): zuerst `UEBERGABE_ANTIGRAVITY.md`** (Einrichtung, Arbeitsweise, priorisierte offene Punkte, Startprompt).
 > **Jede neue Claude-Code-Sitzung liest zuerst:** `CLAUDE.md` → diese Datei → `WORKOVER.md` (Arbeitsprotokoll Sessions 1–9) → bei Bedarf `PROGRESS.md` (Phasen-Historie) und `GLADIATOR_V2_BLUEPRINT/` (verbindliche Spezifikation).
 > Nach jedem erledigten Punkt: hier abhaken (`[x]` + Commit-Hash) und einen kurzen Abschnitt in `WORKOVER.md` ergänzen.
 
@@ -9,16 +10,21 @@
 |---|---|
 | Code (Quelle) | GitHub `PatrickKron/Gladiator-AI-19.10`, Branch `main` (Remote `origin`) |
 | Live-Server | Hetzner `95.216.10.238`, App unter `/opt/gladiator-v2/app`, systemd-Dienst `gladiator` (+ Worker-Dienst) |
-| Deploy | `git push server main` (Remote `server` = `ssh://root@95.216.10.238/opt/gladiator-v2/app`) → post-receive-Hook → `scripts/ci.sh` → Neustart NUR bei grüner CI |
+| Deploy | **automatisch aus GitHub `main`**: Server-Timer `gladiator-github-sync` (alle 2 min) pusht `main` ins Server-Repo (`/opt/gladiator-v2/app`) → post-receive-Hook → `scripts/ci.sh` → Neustart NUR bei grüner CI. Nie direkt `git push server main` (Server-Commits, die auf GitHub fehlen, stoppen den Sync). CI-Log: `/opt/gladiator-v2/ci.log`, Sync-Log: `journalctl -u gladiator-github-sync` |
 | App im Browser | `http://100.72.94.1:3010` (nur über Tailscale; öffentlicher Port bewusst NICHT gebunden) |
 | DB / Redis | Container `gladiator-postgres` (127.0.0.1:5433), `gladiator-redis` (127.0.0.1:6380) — Ports 5432/6379 gehören CHAMÆLIEN: niemals anfassen |
 | Secrets | NIE ins Repo. Pflicht-Secrets in `/opt/gladiator-v2/app/.env` (Server); Betriebs-Keys pflegt Patrick in der App unter Einstellungen → API-Keys (Vault, AES-256-GCM) |
 
-**Wichtig für Cloud-Sitzungen (aus GitHub geklont):** Dort gibt es weder SSH-Zugang zu Hetzner noch Tailscale. Dann: Code ändern, lokal testen (`npm ci && npm run lint && npm run typecheck && npm test`), auf einem Branch nach GitHub pushen — das **Deploy** (`git pull origin main && git push server main`) macht danach eine lokale Sitzung auf Patricks PC. DB-Integrationstests skippen ohne `DATABASE_URL`; maßgeblich ist die Server-CI.
+**Wichtig für Cloud-Sitzungen (aus GitHub geklont):** Dort gibt es weder SSH-Zugang zu Hetzner noch Tailscale. Code ändern, lokal testen (`npm ci && npm run lint && npm run typecheck && npm test`), Branch + Pull Request nach GitHub `main`; nach dem Merge deployt der Server-Timer automatisch. DB-Integrationstests skippen ohne `DATABASE_URL`; maßgeblich sind GitHub-CI und Server-CI.
 
 **Nicht verhandelbar:** kein Fake (keine erfundenen Daten), TDD, Paper-Default, kein Live-Order-Pfad ohne Patricks ausdrückliche Freigabe pro Börse, keine Auszahlungs-/Transfer-Codepfade, der alte v1-Telegram-Token `7544725601:…` bleibt gesperrt, v1-Ordner außerhalb dieses Repos nie verändern.
 
-## Live-Zustand bei Übergabe (2026-10-19)
+## Live-Zustand (2026-10-27)
+
+- Server läuft auf GitHub `main` `218318c` (PR #94, seit 2026-10-25 16:30; Server-CI grün, `/health` ok). Auto-Deploy-Timer aktiv.
+- Inhalt seit dem letzten Abschnitt: v2-Optik + Bedienung zurück (PR #91, #92), Chart-Reiter je Asset + Heatmap (PR #93), Asset-Register mit Kerzen-Refresh (PR #94) — Details 0d/0e.
+
+## Live-Zustand bei Übergabe (2026-10-19, historisch)
 
 - Server gesund (`/health` ok, Worker-Heartbeat aktiv, Preis-Feeds verbunden).
 - **Deploy-Stand:** Server läuft auf `92f1133` (Stand vor Session 9). GitHub `main` enthält zusätzlich PR #1 (Session 9: Navigation neu, Trading-/ML-Fixes, Position schließen/SL-TP ändern, Trailing-Stop am Monitor, Live-Chart, Migration 0019) — **noch NICHT deployt**. Server-Stand ist Vorgänger von GitHub-main → reiner Fast-Forward möglich.
@@ -115,7 +121,7 @@ Repo-Entscheidungen (Lizenz, Architektur, eine Wahrheit):
 
 ## 1 · Patrick-Schritte (blockieren am meisten — Claude kann sie nicht erledigen)
 
-- [ ] **Auto-Deploy GitHub → Server — Patricks einziger Handgriff (Session 14, PR #88):** Workflow `.github/workflows/deploy.yml` pusht nach jedem Merge auf `main` wie bisher die lokale Sitzung per `git push server main` auf den Hetzner-Server (post-receive-Hook = Server-CI, Neustart nur bei Grün). Dafür einmalig ein Repository-Secret **`DEPLOY_SSH_KEY`** anlegen (GitHub → Settings → Secrets and variables → Actions): ein SSH-Private-Key, der auf dem Server als root erlaubt ist (z. B. der Schlüssel, mit dem Patrick heute von seinem PC pusht). Fehlt das Secret, meldet der Lauf das ehrlich und tut nichts. Alternative bleibt `deploy/install-github-sync.sh` auf dem Server. Bis dahin deployt eine lokale Sitzung: `git pull origin main && git push server main`.
+- [x] **Auto-Deploy GitHub → Server**: Server-Timer `gladiator-github-sync` installiert und aktiv (2026-10-23, über die Sitzung auf Patricks PC; `deploy/install-github-sync.sh`). Der GitHub-Workflow `deploy.yml` (PR #88) bleibt ohne Secret `DEPLOY_SSH_KEY` absichtlich wirkungslos — nur EINEN Weg aktiv lassen.
 
 - [ ] **ANTHROPIC_API_KEY** in Einstellungen → API-Keys → schaltet Pine-Analyse, Workshop-Dialog, Text→Strategie, Makro-/Shadow-Agent, Signal-Erklärung frei.
 - [ ] *(optional seit Vision-Punkt 3 — Benachrichtigungen kommen in der App + per Push)* **Neuer Telegram-Bot** (BotFather) → `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` → Signal-/Preis-/Kill-Switch-Alarme + Morgen-Briefing aufs Handy.
