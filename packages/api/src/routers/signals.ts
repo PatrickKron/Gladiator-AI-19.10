@@ -5,6 +5,7 @@ import { schema } from '@gladiator/db';
 import {
   buildAccountState,
   executeConfirmedSignal,
+  signalExecutionBlock,
   loadActiveGates,
   loadRiskContext,
   loadRiskSettings,
@@ -196,6 +197,8 @@ export const signalsRouter = router({
       }
       const [signal] = await ctx.db.select().from(signals).where(eq(signals.id, input.id)).limit(1);
       if (!signal) throw new TRPCError({ code: 'NOT_FOUND', message: 'Signal nicht gefunden.' });
+      const venueBlock = signalExecutionBlock(signal.venue);
+      if (venueBlock) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: venueBlock });
 
       const settings = await loadRiskSettings(ctx.db, ctx.user.id);
       const state = await buildAccountState(ctx.db, ctx.user.id);
@@ -314,6 +317,10 @@ export const signalsRouter = router({
       if (!ctx.venue) {
         throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Kein Trading-Venue aktiv — Ausführung nicht möglich.' });
       }
+      // Kursquelle vor jeder Statusänderung prüfen (A1: nur Binance-Signale ausführbar, A2 folgt).
+      const [target] = await ctx.db.select({ venue: signals.venue }).from(signals).where(eq(signals.id, input.id)).limit(1);
+      const venueBlock = target ? signalExecutionBlock(target.venue) : null;
+      if (venueBlock) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: venueBlock });
 
       // €-Betrag mit ECHTEM Kurs nach USD umrechnen — kein Kurs, kein Trade in €.
       let notionalUsd: number | undefined;

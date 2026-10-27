@@ -7,8 +7,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, type Db } from '@gladiator/db';
 import type pg from 'pg';
-import { ensureSmcCoreStrategy, runSignalScan } from './signal-scan.js';
-import { scanUniverse } from './universe.js';
+import { ensureSmcCoreStrategy, runSignalScan, scanTargets } from './signal-scan.js';
 
 const hasDb = Boolean(process.env.DATABASE_URL);
 if (!hasDb) {
@@ -52,11 +51,12 @@ describe.skipIf(!hasDb)('Signal-Scan (Multi-TF, echte Kerzen)', () => {
   it('scannt alle Symbol×TF-Kombinationen und dedupliziert beim zweiten Lauf', async () => {
     const startedAt = new Date();
     const first = await runSignalScan(db);
-    // Universum ist dynamisch (Basis + ★ Favoriten aus der DB) × 4 TFs —
+    // Universum ist dynamisch (Asset-Register: Basis + ★ Favoriten + Hinzugefügte, jede Quelle) × 4 TFs —
     // die Erwartung wird aus derselben Quelle berechnet, nicht hart kodiert.
-    const universe = await scanUniverse(db);
-    expect(universe.length).toBeGreaterThanOrEqual(3);
-    expect(first.scanned).toHaveLength(universe.length * 4);
+    const { targets } = await scanTargets(db);
+    expect(targets.length).toBeGreaterThanOrEqual(3);
+    expect(first.scanned).toHaveLength(targets.length * 4);
+    for (const s of first.scanned) expect(targets.some((t) => t.symbol === s.symbol && t.venue === s.venue)).toBe(true);
     for (const s of first.scanned) {
       expect(s.candles).toBeGreaterThanOrEqual(0);
     }
@@ -68,10 +68,12 @@ describe.skipIf(!hasDb)('Signal-Scan (Multi-TF, echte Kerzen)', () => {
     // Persistierte Signale (falls die aktuelle Marktlage Setups hergibt) sind valide
     const rows = await db.execute(sql`
       SELECT score::float AS score, entry::float AS entry, stop_loss::float AS sl,
-             direction, timeframe, status
+             direction, timeframe, status, venue, asset_class
       FROM signals WHERE source = 'engine' ORDER BY created_at DESC LIMIT 20
     `);
-    for (const r of rows.rows as { score: number; entry: number; sl: number; direction: string; status: string }[]) {
+    for (const r of rows.rows as { score: number; entry: number; sl: number; direction: string; status: string; venue: string; asset_class: string }[]) {
+      expect(['binance', 'yahoo', 'twelvedata']).toContain(r.venue);
+      if (r.venue === 'binance') expect(r.asset_class).toBe('crypto');
       expect(r.score).toBeGreaterThanOrEqual(6);
       expect(r.score).toBeLessThanOrEqual(10);
       if (r.direction === 'long') expect(r.sl).toBeLessThan(r.entry);

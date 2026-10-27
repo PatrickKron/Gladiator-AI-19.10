@@ -130,6 +130,9 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue, opts: { sign
     .where(
       and(
         eq(signals.status, 'new'),
+        // A1: Marktregeln/Risk-Vorschau kennt nur Binance-Paare — Signale anderer Kursquellen
+        // prüft der Schwarm erst mit dem Preis-Resolver (A2); sie blockieren das 50er-Fenster nicht.
+        eq(signals.venue, 'binance'),
         notExists(db.select().from(signalReviews).where(eq(signalReviews.signalId, signals.id))),
         opts.signalIds ? inArray(signals.id, opts.signalIds) : undefined,
       ),
