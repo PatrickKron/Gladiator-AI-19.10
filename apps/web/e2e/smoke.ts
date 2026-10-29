@@ -82,6 +82,35 @@ async function sweep(browser: Browser, name: string, viewport: Viewport, mode: '
     return;
   }
 
+  // Handy: Einfach/Profi, Sprache und Abmelden müssen aus der Kopfzeile erreichbar sein (OFFENER_PLAN 0d) — ohne Überlauf.
+  if (viewport.width < 600) {
+    const push = (kind: string, detail: string) => findings.push({ sweep: name, route: '#/ (Kopfzeilen-Menü)', kind, detail });
+    const button = page.locator('#header-menu-button');
+    if (!(await button.isVisible().catch(() => false))) {
+      push('header-menu', 'Knopf #header-menu-button fehlt oder ist unsichtbar');
+    } else {
+      await button.click();
+      await page.waitForTimeout(300);
+      for (const [sel, what] of [
+        ['#header-menu [role="group"]', 'Einfach/Profi'],
+        ['#header-menu select', 'Sprache'],
+        ['#header-menu-logout', 'Abmelden'],
+      ] as const) {
+        if (!(await page.locator(sel).first().isVisible().catch(() => false))) push('header-menu', `${what} im Menü nicht sichtbar (${sel})`);
+      }
+      const offscreen = await page.evaluate(() => {
+        const r = document.getElementById('header-menu')?.getBoundingClientRect();
+        return r ? r.left < -1 || r.right > window.innerWidth + 1 : true;
+      });
+      if (offscreen) push('header-menu', 'Menü ragt über den Bildschirmrand');
+      const overflow = await page.evaluate(overflowDetail);
+      if (overflow) push('overflow', overflow);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(200);
+      if (await page.locator('#header-menu').isVisible().catch(() => false)) push('header-menu', 'Menü schließt nicht mit Esc');
+    }
+  }
+
   for (const route of routes) {
     pageErrors = [];
     consoleErrors = [];

@@ -476,6 +476,7 @@ export const es: Catalog = {
     proHint: '{{n}} más en modo Pro',
     sidebarLabel: "Páginas",
     modeLabel: 'Vista',
+    headerMenu: 'Menú',
     modeSimple: 'Sencillo',
     modePro: 'Pro',
     modeSimpleHint: 'Vista reducida — no se elimina nada, todo sigue disponible en modo Pro.',

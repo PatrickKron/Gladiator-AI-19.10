@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { logout, trpc } from '../api.js';
 import { NotificationBell } from './NotificationBell.js';
@@ -21,8 +21,8 @@ import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interva
  * Seiten eines Bereichs stehen als Segmente über dem Inhalt. Alles kommt aus
  * der Funktions-Registry (lib/navigation.ts); kein Link ändert sich.
  * Kopfzeile: Paper-/Demo-/Kill-Switch-Kennzeichen, Suche, Benachrichtigungen,
- * Feed-Status; Einfach/Profi, Session, Sprache und Abmelden nur auf dem Desktop
- * (auf dem Handy im Profil).
+ * Feed-Status; Einfach/Profi, Session, Sprache und Abmelden direkt auf dem Desktop,
+ * auf Handy/Tablet über das Kopfzeilen-Menü (⋮) — zusätzlich weiter im Profil.
  */
 
 const ico = (d: string, cls = 'h-[17px] w-[17px]') => (
@@ -101,14 +101,14 @@ function SessionBadge() {
   );
 }
 
-function LanguageSwitch() {
+function LanguageSwitch({ className = 'hidden lg:block' }: { className?: string }) {
   const { i18n } = useTranslation();
   const lang: LanguageCode = LANGUAGES.some((l) => l.code === i18n.language) ? (i18n.language as LanguageCode) : storedLanguage();
   return (
     <select
       value={lang}
       onChange={(e) => setLanguage(e.target.value as LanguageCode)}
-      className="field hidden cursor-pointer px-2 py-1 text-xs uppercase lg:block"
+      className={`field cursor-pointer px-2 py-1 text-xs uppercase ${className}`}
       style={{ color: 'var(--color-mut)' }}
       aria-label="Language"
     >
@@ -118,6 +118,73 @@ function LanguageSwitch() {
         </option>
       ))}
     </select>
+  );
+}
+
+/**
+ * Kopfzeilen-Menü für Handy/Tablet (unter lg): Einfach/Profi, Sprache, Profil, Abmelden —
+ * auf dem Desktop stehen diese direkt in der Kopfzeile. Ein Knopf breit, damit 390 px nicht überlaufen.
+ * Schließt bei Seitenwechsel, Klick daneben und Esc.
+ */
+function HeaderMenu({ route }: { route: string }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => setOpen(false), [route]);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('touchstart', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('touchstart', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+  return (
+    <div ref={ref} className="relative lg:hidden">
+      <button
+        id="header-menu-button"
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center rounded-[0.625rem] border px-2 py-1.5 text-xs transition-colors"
+        style={{ borderColor: open ? 'var(--color-blue)' : 'var(--color-line)', color: open ? 'var(--color-ink)' : 'var(--color-mut)' }}
+        title={t('nav.headerMenu')}
+        aria-label={t('nav.headerMenu')}
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-controls="header-menu"
+      >
+        {ico('M12 5.5h.01M12 12h.01M12 18.5h.01', 'h-[17px] w-[17px]')}
+      </button>
+      {open && (
+        <div id="header-menu" className="glass absolute top-full right-0 z-40 mt-2 flex w-60 max-w-[calc(100vw-2rem)] flex-col gap-3 p-3" aria-label={t('nav.headerMenu')}>
+          <div className="flex flex-col gap-1.5">
+            <span className="label">{t('nav.modeLabel')}</span>
+            <UiModeToggle className="flex w-fit" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="label">{t('profile.languageTitle')}</span>
+            <LanguageSwitch className="block w-full" />
+          </div>
+          <div className="flex items-center justify-between gap-3 border-t pt-3" style={{ borderColor: 'var(--color-line)' }}>
+            <a href="#/profil" className="text-sm hover:underline" style={{ color: 'var(--color-ink)' }}>
+              {t('ia.page_profile')}
+            </a>
+            <button id="header-menu-logout" type="button" onClick={() => void logout()} className="text-sm transition-colors" style={{ color: 'var(--color-neg)' }}>
+              {t('common.logout')}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -329,6 +396,7 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
             <button onClick={() => void logout()} className="hidden text-sm transition-colors hover:text-[color:var(--color-ink)] lg:inline" style={{ color: 'var(--color-mut)' }}>
               {t('common.logout')}
             </button>
+            <HeaderMenu route={route} />
           </div>
         </header>
 
