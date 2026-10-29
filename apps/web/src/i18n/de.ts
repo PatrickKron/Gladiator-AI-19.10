@@ -475,6 +475,7 @@ export const de = {
     proHint: '{{n}} weitere im Profi-Modus',
     sidebarLabel: "Seiten",
     modeLabel: 'Ansicht',
+    headerMenu: 'Menü',
     modeSimple: 'Einfach',
     modePro: 'Profi',
     modeSimpleHint: 'Reduzierte Ansicht — nichts wird gelöscht, alles bleibt im Profi-Modus erreichbar.',

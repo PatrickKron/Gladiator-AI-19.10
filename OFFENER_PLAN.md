@@ -57,7 +57,8 @@ Vergleich v2 (`92f1133`, bis 2026-10-22 auf dem Server) ↔ heute, Seite für Se
 - [x] Traden öffnet das Agenten-Konto (Paper, Kill-Switch) statt Demo; neuer Merker-Schlüssel.
 - [x] Demo-Ticket „Erweitert“ offen; Vermögen mit Summen Übungsgeld/echtes Geld, Min/Max/Zeitraum, direkter „Börse verbinden“-Link; Echtes Geld mit Knöpfen zu Kill-Switch und Live-Freigabe; Agenten-Seite in v2-Reihenfolge; Eröffnungszeit bei Agenten-Positionen; Signal-Bereich auf Heute immer sichtbar.
 - [x] Chart: neun Ein-Klick-Chips zurück, v2-Standard (BOS/CHoCH, OB/FVG, RSI an), Fensterhöhen-Fehler behoben, „Alle Indikatoren entfernen“, Reiter Makro/Risiko direkt am Chart, **v2-Indikatoren aus dem Browser werden einmalig übernommen** (`lib/v2-indicators.ts`), unterschiedliche Farben je EMA/SMA.
-- [ ] Offen (klein): Einfach/Profi, Sprache, Abmelden auf dem Handy nur unter Profil; Workshop-Tab ohne eigene Überschrift; Analyse-Knopf im Chart-Kopf doppelt zum Reiter.
+- [x] Handy/Tablet: Kopfzeilen-Menü (⋮, `HeaderMenu` in `Shell.tsx`) mit Einfach/Profi, Sprache, Profil, Abmelden — UI-Smoke prüft es bei 390 px (Knopf, Inhalt, kein Überlauf, Esc). Workshop-Tab unter Strategien mit eigener Überschrift + Untertitel. (Branch `feat/b-ui-kleinpunkte`, 2026-10-28, Antigravity)
+- [ ] Offen (klein): Analyse-Knopf im Chart-Kopf doppelt zum Reiter — welcher umgewidmet wird, entscheidet Patrick.
 - [ ] Patricks Grundsatzpunkt: v3 sei „sehr weit weg“ vom Ziel — braucht sein Bild, wie er es heute angehen würde.
 
 ## 0c · Patricks Mängelliste (2026-10-22, nach dem ersten Blick auf v3) — verbindliche Reihenfolge

@@ -1214,7 +1214,7 @@ function VersionsPanel({
 
 // ── Hauptview ───────────────────────────────────────────────────────────────
 
-/** `embedded`: als Tab unter Strategien (UI-Welle 5) — ohne eigene Seitenüberschrift. */
+/** `embedded`: als Tab unter Strategien (UI-Welle 5) — ohne eigene Seitenüberschrift, mit Abschnittsüberschrift (OFFENER_PLAN 0d). */
 export function Workshop({ embedded = false }: { embedded?: boolean } = {}) {
   const { t } = useTranslation();
   const [sessions, setSessions] = useState<SessionRow[] | null>(null);
@@ -1315,6 +1315,14 @@ export function Workshop({ embedded = false }: { embedded?: boolean } = {}) {
   return (
     <div>
       {!embedded && <PageHeader title={t('sw.title')} subtitle={t('sw.subtitle')} />}
+      {embedded && (
+        <div className="mb-4">
+          <h2 className="text-base font-semibold">{t('sw.title')}</h2>
+          <p className="mt-1 text-sm leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+            {t('sw.subtitle')}
+          </p>
+        </div>
+      )}
       {loadError && <ErrorBox message={loadError} />}
 
       <Panel label={t('sw.sessions')} stagger={0}>
