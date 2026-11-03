@@ -10,6 +10,7 @@ import { expireStaleSignals } from './signal-expiry.js';
 import {
   deriveLifecyclePlans,
   evaluateSmcCoreAt,
+  setupTypeForTimeframe,
   SMC_CORE_DEFAULTS,
   type Candle,
   type SetupCandidate,
@@ -162,7 +163,10 @@ export async function runSignalScan(db: Db, opts: { now?: Date } = {}): Promise<
 
       const higher = HIGHER_TF[timeframe];
       const higherTfTrend = higher ? emaTrendOf(await candlesOf(higher), SMC_CORE_DEFAULTS.emaTrendPeriod) : 'neutral';
-      const candidates = evaluateSmcCoreAt(candles, candles.length - 1, SMC_CORE_DEFAULTS, { higherTfTrend });
+      const preferredSetup = setupTypeForTimeframe(timeframe);
+      const candidates = evaluateSmcCoreAt(candles, candles.length - 1, SMC_CORE_DEFAULTS, { higherTfTrend }).filter(
+        (c) => c.setupType === preferredSetup,
+      );
 
       for (const candidate of candidates) {
         const inserted = await persistCandidate(db, {

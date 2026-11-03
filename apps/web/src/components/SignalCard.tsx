@@ -718,7 +718,17 @@ function AdjustTicket({
  * Mensch-im-Loop-Entscheidung. EHRLICH: Bestätigen führt noch KEINE Order aus
  * (Ausführung kommt mit Phase 4) — das steht sichtbar auf der Karte.
  */
-export function SignalCard({ signal, onDecided, readOnly = false }: { signal: SignalRow; onDecided: () => void; readOnly?: boolean }) {
+export function SignalCard({
+  signal,
+  onDecided,
+  readOnly = false,
+  initialTicketOpen = false,
+}: {
+  signal: SignalRow;
+  onDecided: () => void;
+  readOnly?: boolean;
+  initialTicketOpen?: boolean;
+}) {
   const { t } = useTranslation();
   // Das Bild gehört zur Karte (Welle D): bei offenen Signalen von Anfang an sichtbar, bei abgelaufenen auf Wunsch.
   const [showChart, setShowChart] = useState(signal.status === 'new');
@@ -726,7 +736,7 @@ export function SignalCard({ signal, onDecided, readOnly = false }: { signal: Si
   const [error, setError] = useState<string | null>(null);
   const [blocked, setBlocked] = useState<string[] | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [ticketOpen, setTicketOpen] = useState(false);
+  const [ticketOpen, setTicketOpen] = useState(initialTicketOpen);
   const long = signal.direction === 'long';
   const exp = signal.status === 'new' ? expiryInfo(signal.createdAt, signal.timeframe) : null;
 

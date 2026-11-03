@@ -29,7 +29,25 @@ export type DataQualityReport = {
 
 const pct = (x: number) => (x * 100).toLocaleString('de-DE', { maximumFractionDigits: 2 });
 
-export function assessDataQuality(candles: Candle[], timeframeMs: number): DataQualityReport {
+/**
+ * Prüft, ob eine Lücke zwischen zwei Kerzen bei Börsen-Quellen (Yahoo/Twelve Data)
+ * eine reguläre Handels-Pause ist (Nachtpause ~14–18h oder Wochenende ~48–72h).
+ */
+function isScheduledMarketClosure(prevTs: Date, nextTs: Date, timeframeMs: number, venue = 'binance'): boolean {
+  if (venue === 'binance') return false;
+  const diffHours = (nextTs.getTime() - prevTs.getTime()) / 3_600_000;
+  // Wochenende (Freitag Abend bis Sonntag Abend / Montag Morgen: 40h bis 88h) oder Feiertags-Wochenende (bis 115h)
+  if (diffHours >= 40 && diffHours <= 115) {
+    const prevDay = prevTs.getUTCDay();
+    const nextDay = nextTs.getUTCDay();
+    if (prevDay === 5 || prevDay === 4 || nextDay === 0 || nextDay === 1 || nextDay === 2) return true;
+  }
+  // Intraday-Nachtpause bei Aktien/ETFs/Futures (≤ 4h-Kerzen, Pause zwischen Handelsschluss und Eröffnung: 12h bis 20h)
+  if (timeframeMs <= 4 * 3_600_000 && diffHours >= 12 && diffHours <= 20) return true;
+  return false;
+}
+
+export function assessDataQuality(candles: Candle[], timeframeMs: number, opts: { venue?: string } = {}): DataQualityReport {
   if (candles.length === 0) {
     return {
       gaps: 0,
@@ -43,12 +61,14 @@ export function assessDataQuality(candles: Candle[], timeframeMs: number): DataQ
     };
   }
 
+  const venue = opts.venue ?? 'binance';
   const firstTs = candles[0]!.ts;
   const lastTs = candles[candles.length - 1]!.ts;
-  const expectedBars = Math.floor((lastTs.getTime() - firstTs.getTime()) / timeframeMs) + 1;
 
   // Lücken: jeder Abstand > 1 Timeframe zählt die dazwischen fehlenden Bars
+  // (reguläre Börsen-Schließzeiten bei Yahoo/Twelve Data zählen nicht als Datenlücke).
   let gaps = 0;
+  let scheduledClosureBars = 0;
   let unordered = 0;
   for (let k = 1; k < candles.length; k++) {
     const diff = candles[k]!.ts.getTime() - candles[k - 1]!.ts.getTime();
@@ -57,10 +77,20 @@ export function assessDataQuality(candles: Candle[], timeframeMs: number): DataQ
       continue;
     }
     const steps = Math.round(diff / timeframeMs);
-    if (steps > 1) gaps += steps - 1;
+    if (steps > 1) {
+      if (isScheduledMarketClosure(candles[k - 1]!.ts, candles[k]!.ts, timeframeMs, venue)) {
+        scheduledClosureBars += steps - 1;
+      } else {
+        gaps += steps - 1;
+      }
+    }
   }
 
-  const zeroVolumeBars = candles.filter((c) => !(c.volume > 0)).length;
+  const rawExpected = Math.floor((lastTs.getTime() - firstTs.getTime()) / timeframeMs) + 1;
+  const expectedBars = Math.max(candles.length, rawExpected - scheduledClosureBars);
+
+  // Spot-Forex und Indizes auf Yahoo/Twelve Data liefern regulär volume = 0.
+  const zeroVolumeBars = venue === 'binance' ? candles.filter((c) => !(c.volume > 0)).length : 0;
 
   // Spikes: z-Score der Log-Returns (nur aus gültigen positiven Closes)
   const rets: number[] = [];

@@ -818,7 +818,7 @@ export function Dashboard() {
       </section>
 
       {/* Alles Weitere aufklappbar (Prinzip 3): KI-Status, Briefings, Konto, System, Datenquellen, historische Daten */}
-      <details className="mt-8 group" open>
+      <details className="mt-8 group">
         <summary className="glass flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm">
           <span>
             <span className="font-medium">{t('dashboard.details')}</span>

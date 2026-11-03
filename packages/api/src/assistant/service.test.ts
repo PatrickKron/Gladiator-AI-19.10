@@ -12,7 +12,8 @@ import { appRouter } from '../routers/index.js';
 import { buildContext, createCallerFactory } from '../trpc.js';
 import { register } from '../auth/service.js';
 import { ASSISTANT_SYSTEM, historyToMessages, runAssistantTurn, toolResultText } from './service.js';
-import { ASSISTANT_TOOLS, parseLimitChanges } from './tools.js';
+import { ASSISTANT_TOOLS, parseLimitChanges, synthesizeDslFromPine } from './tools.js';
+import { analyzePineScript, parseInstructionDsl } from '@gladiator/strategy-engine';
 import { setDemoBookSourceForTests } from '../routers/demo.js';
 import type { DemoBookSource, MarketRules, OrderBookSnapshot } from '@gladiator/exchange';
 
@@ -46,8 +47,44 @@ describe('toolResultText / Werkzeuge', () => {
       expect(t.inputSchema.type).toBe('object');
     }
     expect(names).toEqual(
-      expect.arrayContaining(['propose_strategy', 'run_backtest', 'save_version', 'promote_version', 'run_screen', 'navigate', 'app_overview', 'agents_status', 'trading_settings', 'update_trading_settings', 'kill_switch', 'demo_account', 'recent_signals', 'demo_order']),
+      expect.arrayContaining([
+        'propose_strategy',
+        'analyze_script',
+        'test_strategy_on_assets',
+        'run_backtest',
+        'save_version',
+        'promote_version',
+        'run_screen',
+        'navigate',
+        'app_overview',
+        'agents_status',
+        'trading_settings',
+        'update_trading_settings',
+        'kill_switch',
+        'demo_account',
+        'recent_signals',
+        'demo_order',
+      ]),
     );
+  });
+  it('synthesizeDslFromPine übersetzt erkannte Pine-Script-Indikatoren in eine valide Instruction-DSL', () => {
+    const code = `//@version=5
+strategy("EMA RSI Trend", overlay=true)
+fast = ta.ema(close, 20)
+slow = ta.ema(close, 50)
+r = ta.rsi(close, 14)
+a = ta.atr(14)
+if ta.crossover(fast, slow) and r < 60
+    strategy.entry("Long", strategy.long)
+strategy.exit("Exit", "Long", stop=close - a * 1.5, limit=close + a * 3)`;
+    const analysis = analyzePineScript(code);
+    const dsl = synthesizeDslFromPine(analysis, 'ETH/USDT', '4h');
+    const parsed = parseInstructionDsl(dsl);
+    expect(parsed.ok).toBe(true);
+    expect(dsl.symbol).toBe('ETH/USDT');
+    expect(dsl.timeframe).toBe('4h');
+    expect(dsl.direction).toBe('long');
+    expect(dsl.stopLoss.type).toBe('ATR');
   });
   it('Limit-Änderungen: nur bekannte Schlüssel, Zahlen innerhalb der Grenzen aus @gladiator/core', () => {
     expect(parseLimitChanges({ riskPctPerTrade: 2, maxLeverage: 10 })).toEqual({ riskPctPerTrade: 2, maxLeverage: 10 });

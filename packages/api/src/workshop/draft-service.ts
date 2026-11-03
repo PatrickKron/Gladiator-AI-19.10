@@ -4,7 +4,7 @@ import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { evaluateDslAt, parseInstructionDsl, type InstructionDsl } from '@gladiator/strategy-engine';
 import { DEFAULT_COSTS, runBacktest, type CostModel } from '@gladiator/backtest';
-import { BARS_PER_YEAR, getOhlcv } from '@gladiator/market-data';
+import { BARS_PER_YEAR, loadSourceCandles } from '@gladiator/market-data';
 
 const { workshopSessions, workshopBacktests, strategies, strategyVersions, auditLog } = schema;
 
@@ -90,7 +90,7 @@ export async function runDraftBacktest(db: Db, userId: string, input: DraftBackt
     .returning();
 
   try {
-    const candles = await getOhlcv(db, { symbol: dsl.symbol, timeframe: dsl.timeframe, since: from, until: to });
+    const candles = await loadSourceCandles(db, { symbol: dsl.symbol, timeframe: dsl.timeframe, since: from, until: to });
     if (candles.length < 250) {
       throw new Error(`Zu wenig echte Kerzen im Zeitraum (${candles.length}) für ${dsl.symbol}@${dsl.timeframe} — Backtest wäre nicht belastbar.`);
     }

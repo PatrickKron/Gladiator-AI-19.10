@@ -140,4 +140,19 @@ describe('SMC Core (05_ §4 — Pine-Referenz, Retest ist PFLICHT)', () => {
     expect(flagged.confluence.includes('Discount/Premium')).toBe(favorable);
   });
 
+  it('Counter-Confluence: bestätigtes Gegen-Swing-Hoch dicht vor 1,5 R senkt den Score um 1,0 ("Gegen-Liquidität nahe")', () => {
+    const candles = longScenario();
+    candles[7] = c(106.5, 117.2, 105.5, 107);
+    const withObstacle = evaluateSmcCoreAt(candles, 17, TEST_PARAMS, { higherTfTrend: 'neutral' });
+    const scalp = withObstacle.find((s) => s.setupType === 'scalp')!;
+    expect(scalp.confluence).toContain('Gegen-Liquidität nahe');
+  });
+
+  it('setupTypeForTimeframe wählt pro Zeitrahmen genau den passenden Setup-Typ (15m→scalp, 1h→swing, 4h/1d→position)', async () => {
+    const { setupTypeForTimeframe } = await import('./smc-core.js');
+    expect(setupTypeForTimeframe('15m')).toBe('scalp');
+    expect(setupTypeForTimeframe('1h')).toBe('swing');
+    expect(setupTypeForTimeframe('4h')).toBe('position');
+    expect(setupTypeForTimeframe('1d')).toBe('position');
+  });
 });

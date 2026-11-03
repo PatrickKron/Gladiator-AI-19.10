@@ -119,8 +119,39 @@ describe('rescoreSignal (05_ §6-Gewichte, echte Kerzen)', () => {
 
   it('DSL: RR-Score wird zum aktuellen Preis neu berechnet (min(10, RR1 × 3))', () => {
     const c = trendCandles(10, 100, 0); // Close 100
-    const r = rescoreSignal({ direction: 'long', stopLoss: 98, takeProfits: [104], confluence: ['dsl:EMA200_up', 'score:rr-basiert'], candles: c });
+    const r = rescoreSignal({ direction: 'long', entry: 100, stopLoss: 98, takeProfits: [104], confluence: ['dsl:EMA200_up', 'score:rr-basiert'], candles: c });
     expect(r!.score).toBeCloseTo(6, 5); // RR1 = 4/2 = 2 → 6,0
+  });
+
+  it('DSL: Preis fällt Richtung Stop-Loss → Score SINKT (nicht invertiert auf 10.0!)', () => {
+    const c = trendCandles(10, 100, 0);
+    // Ursprünglich: Entry 100, SL 98 (Risiko 2), TP1 104 (Reward 4) → RR1 = 2 → Score 6,0
+    // Jetzt fällt der Preis auf 98,2 (90 % des Weges zum Stop-Loss):
+    const nearStop = rescoreSignal({
+      direction: 'long',
+      entry: 100,
+      stopLoss: 98,
+      takeProfits: [104],
+      confluence: ['dsl:EMA200_up', 'score:rr-basiert'],
+      candles: c,
+      price: 98.2,
+    });
+    expect(nearStop!.score).toBeLessThan(3);
+  });
+
+  it('DSL: Preis läuft leicht Richtung TP1 → Score bleibt stabil (kein fälschlicher Auto-Kill)', () => {
+    const c = trendCandles(10, 100, 0);
+    // Ursprünglich: Entry 100, SL 98, TP1 106 → RR1 = 3 → Score 9,0
+    const favorable = rescoreSignal({
+      direction: 'long',
+      entry: 100,
+      stopLoss: 98,
+      takeProfits: [106],
+      confluence: ['dsl:EMA200_up', 'score:rr-basiert'],
+      candles: c,
+      price: 101,
+    });
+    expect(favorable!.score).toBeGreaterThanOrEqual(7.5);
   });
 
   it('Unbekannte Herkunft (Pine/manuell) → null (kein erfundener Score)', () => {

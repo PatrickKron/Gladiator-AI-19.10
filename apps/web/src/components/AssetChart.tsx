@@ -38,6 +38,7 @@ import { applyDrawingClick, pickDrawing, pointFromChart, translatePoints, type D
 import type { DrawingPoint } from '@gladiator/core/drawings';
 import { DrawingsPrimitive, type ChartDrawing } from './chart-drawings-primitive.js';
 import { SmcBoxesPrimitive, type SmcItem } from './smc-boxes-primitive.js';
+import { computeChartHeatmap } from '../lib/chart-heatmap.js';
 import { appLocale } from '../lib/locale.js';
 
 /**
@@ -793,6 +794,7 @@ export function AssetChart({
   }, [symbol]);
 
   const activeZones = useMemo(() => (data?.zones ?? []).filter((z) => z.active).slice(0, 6), [data]);
+  const heatmapProfile = useMemo(() => (toggles.heatmap && data ? computeChartHeatmap(data.candles, 24) : null), [toggles.heatmap, data]);
 
 
   /** Signale der im Menü gewählten Pine-/DSL-Strategien (für Entry-Marker). */
@@ -1269,6 +1271,38 @@ export function AssetChart({
       smcItems.push({ kind: 'box', fromTime: r.fromTime, toTime: null, top: r.equilibrium, bottom: r.low, fill: 'rgba(34,197,94,0.06)', label: 'Discount', labelColor: 'rgba(34,197,94,0.8)' });
       smcItems.push({ kind: 'line', fromTime: r.fromTime, toTime: null, price: r.equilibrium, color: C.faint, dash: [4, 4], label: 'EQ' });
     }
+    if (toggles.heatmap && heatmapProfile) {
+      for (const b of heatmapProfile.buckets) {
+        smcItems.push({
+          kind: 'heatmap_band',
+          top: b.top,
+          bottom: b.bottom,
+          intensity: b.intensity,
+          buyRatio: b.buyRatio,
+          isPoc: b.isPoc,
+          inValueArea: b.inValueArea,
+          ...(b.isPoc ? { label: `POC ${fmtPx(heatmapProfile.pocPrice)}` } : {}),
+        });
+      }
+      smcItems.push({
+        kind: 'line',
+        fromTime: heatmapProfile.fromTime,
+        toTime: null,
+        price: heatmapProfile.vahPrice,
+        color: 'rgba(56,189,248,0.45)',
+        dash: [3, 3],
+        label: 'VAH',
+      });
+      smcItems.push({
+        kind: 'line',
+        fromTime: heatmapProfile.fromTime,
+        toTime: null,
+        price: heatmapProfile.valPrice,
+        color: 'rgba(56,189,248,0.45)',
+        dash: [3, 3],
+        label: 'VAL',
+      });
+    }
     smcPrim.setItems(smcItems);
 
     // Signal-Level (nur bei Einbettung in Signal-Karten)
@@ -1359,7 +1393,7 @@ export function AssetChart({
         /* schon entsorgt — ignorieren */
       }
     };
-  }, [state, data, toggles, tf, levels, activeZones, signals, warmupInfo, t, strategySignals, strategySlugs, symbol, panes, venue, syncGroup, replayTrades]);
+  }, [state, data, toggles, tf, levels, activeZones, heatmapProfile, signals, warmupInfo, t, strategySignals, strategySlugs, symbol, panes, venue, syncGroup, replayTrades]);
 
   // Neue Ergebnisse oder Stil-Änderungen zeichnen, ohne den Chart neu zu bauen.
   useEffect(() => {
@@ -1386,6 +1420,7 @@ export function AssetChart({
     zones: 'OB/FVG',
     liquidity: t('chart.liquidity'),
     pd: t('chart.pd'),
+    heatmap: t('chart.heatmap'),
     signals: t('chart.signals'),
   };
   // Ein-Klick-Chips (wie v2): kurze Beschriftung, die volle steht im Tooltip und im Popover „Ansicht ▾".
@@ -1773,6 +1808,16 @@ export function AssetChart({
         {toggles.pd && data?.range && (
           <p className="label mt-1.5 px-2" style={{ color: data.range.zone === 'premium' ? C.red : data.range.zone === 'discount' ? C.green : C.mut }}>
             {t('chart.rangeInfo', { low: fmtPx(data.range.low), high: fmtPx(data.range.high), pct: Math.round(data.range.position * 100), zone: t(`chart.zone_${data.range.zone}`) })}
+          </p>
+        )}
+        {toggles.heatmap && heatmapProfile && (
+          <p className="label mt-1.5 px-2" style={{ color: C.amber }}>
+            {t('chart.heatmapInfo', {
+              mode: t(`chart.heatmapMode_${heatmapProfile.mode}`),
+              poc: fmtPx(heatmapProfile.pocPrice),
+              val: fmtPx(heatmapProfile.valPrice),
+              vah: fmtPx(heatmapProfile.vahPrice),
+            })}
           </p>
         )}
         {warmupInfo.length > 0 && (

@@ -1,12 +1,13 @@
-import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lte, or, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { withBinancePublic } from './binance-public.js';
 import { sanitizeCandles, type RawOhlcv } from './candles.js';
 import { freshCutoff, pickLatestClose, type LatestClose } from './freshness.js';
 import { candleRows, upsertCandles } from './candle-store.js';
+import { aggregateCandles, closedCandles } from './aggregate.js';
 
-const { ohlcv } = schema;
+const { ohlcv, assets } = schema;
 
 export type BackfillResult = {
   venue: string;
@@ -177,4 +178,63 @@ export async function latestFreshClose(db: Db, opts: { venue: string; symbol: st
     if (c) candidates.push({ timeframe, ts: c.ts, close: c.close });
   }
   return pickLatestClose(candidates, opts.venue, opts.now ?? new Date());
+}
+
+/** Ladefenster für aus 1h gebaute 4h-Reihen (~400 Tage). */
+const SOURCE_AGGREGATE_LOOKBACK_MS = 400 * 86_400_000;
+
+/**
+ * Löst die Kerzenquelle (`binance` | `yahoo` | `twelvedata`) eines Symbols auf:
+ * zuerst über `assets.candle_venue`, sonst über vorhandene Kerzen in `ohlcv`, Fallback `'binance'`.
+ */
+export async function resolveCandleVenue(db: Db, symbol: string): Promise<string> {
+  const sym = symbol.toUpperCase();
+  if (sym.endsWith('/USDT') || sym.endsWith('/USDC') || sym.endsWith('/BTC')) return 'binance';
+  try {
+    const [reg] = await db
+      .select({ candleVenue: assets.candleVenue })
+      .from(assets)
+      .where(or(eq(assets.dataSymbol, sym), eq(assets.ticker, sym)))
+      .limit(1);
+    if (reg?.candleVenue) return reg.candleVenue;
+    const rows = await db.execute(sql`
+      SELECT venue FROM ohlcv WHERE symbol = ${sym} GROUP BY venue ORDER BY count(*) DESC LIMIT 1
+    `);
+    const found = (rows.rows[0] as { venue?: string } | undefined)?.venue;
+    return found ?? 'binance';
+  } catch {
+    return 'binance';
+  }
+}
+
+/**
+ * Lädt Kerzen je Kursquelle (Binance direkt; Yahoo/Twelve Data: `4h` wird look-ahead-frei aus
+ * abgeschlossenen `1h`-Kerzen aggregiert). Ohne `venue` wird sie über `resolveCandleVenue` aufgelöst.
+ */
+export async function loadSourceCandles(
+  db: Db,
+  p: { venue?: string; symbol: string; timeframe: string; since?: Date; until?: Date; limit?: number; now?: Date },
+): Promise<{ ts: Date; open: number; high: number; low: number; close: number; volume: number }[]> {
+  const venue = p.venue ?? (await resolveCandleVenue(db, p.symbol));
+  const sourceTf = venue !== 'binance' && p.timeframe === '4h' ? '1h' : p.timeframe;
+  if (sourceTf === p.timeframe) {
+    return getOhlcv(db, {
+      venue,
+      symbol: p.symbol,
+      timeframe: p.timeframe,
+      ...(p.since ? { since: p.since } : {}),
+      ...(p.until ? { until: p.until } : {}),
+      ...(p.limit ? { limit: p.limit } : {}),
+    });
+  }
+  const end = p.until ?? p.now ?? new Date();
+  const raw = await getOhlcv(db, {
+    venue,
+    symbol: p.symbol,
+    timeframe: sourceTf,
+    since: p.since ?? new Date(end.getTime() - SOURCE_AGGREGATE_LOOKBACK_MS),
+    until: end,
+  });
+  const out = aggregateCandles(closedCandles(raw, sourceTf, end), sourceTf, p.timeframe, end);
+  return p.limit ? out.slice(-p.limit) : out;
 }

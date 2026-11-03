@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, notExists } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, notExists } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import {
@@ -69,6 +69,9 @@ const llmGuard = new CostGuard({ dailyBudgetUsd: Number(process.env.LLM_DAILY_BU
 
 /** Devil-Evidenz: echte study_trades-Buckets, die auf das Signal zutreffen. */
 export async function buildDevilEvidence(db: Db, facts: SignalFacts): Promise<DevilEvidence> {
+  // Direkt in SQL auf Symbol + Timeframe vorfiltern (verhindert 5.000-Zeilen-N+1 je Signal).
+  const escapedSym = facts.symbol.replace(/[%_\\]/g, '\\$&');
+  const escapedTf = facts.timeframe.replace(/[%_\\]/g, '\\$&');
   const rows = await db
     .select({
       clusterKey: studyTrades.clusterKey,
@@ -78,8 +81,9 @@ export async function buildDevilEvidence(db: Db, facts: SignalFacts): Promise<De
       netPnl: studyTrades.netPnl,
     })
     .from(studyTrades)
+    .where(ilike(studyTrades.clusterKey, `%|${escapedSym}|%|${escapedTf}%`))
     .orderBy(desc(studyTrades.exitTs))
-    .limit(5000);
+    .limit(1000);
 
   // clusterKey: smc-core|{symbol}|{setupType}|{timeframe}|…
   const matching = rows.filter((r) => {

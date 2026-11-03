@@ -1,5 +1,6 @@
 import { atr, ema, rsi, sma } from './indicators.js';
 import { detectStructure } from './structure.js';
+import { computeSwings } from './swings.js';
 import { detectFvgs } from './zones.js';
 import { dealingRangeAt, detectLiquidity } from './liquidity.js';
 import { computeScore, riskClassOf, type RiskClass, type TradingSession } from './scoring.js';
@@ -75,6 +76,16 @@ const SETUPS = [
   { type: 'swing' as const, slAtrMult: 1.5, tpRs: [1, 2, 3], rrMin: 2.0 },
   { type: 'position' as const, slAtrMult: 2.5, tpRs: [2, 3, 5], rrMin: 3.0 },
 ];
+
+/**
+ * Ordnet jedem Scan-Zeitrahmen genau den passenden Setup-Typ zu (verhindert 3×
+ * fast identische Signale pro getroffener Kerze im Live-Scan).
+ */
+export function setupTypeForTimeframe(timeframe: string): 'scalp' | 'swing' | 'position' {
+  if (timeframe === '1m' || timeframe === '5m' || timeframe === '15m') return 'scalp';
+  if (timeframe === '30m' || timeframe === '1h') return 'swing';
+  return 'position';
+}
 
 export type SetupCandidate = {
   direction: 'long' | 'short';
@@ -216,6 +227,7 @@ export function evaluateSmcCoreAt(
   }
 
   const entry = bar.close;
+  const swings = computeSwings(candles, params.swingLeftBars, params.swingRightBars).filter((s) => s.confirmedAt <= i);
   const candidates: SetupCandidate[] = [];
 
   for (const setup of SETUPS) {
@@ -228,6 +240,14 @@ export function evaluateSmcCoreAt(
     const rr = Math.abs(lastTp - entry) / slDistance;
     if (rr < setup.rrMin) continue; // RR-Minimum je Setup (05_ §5)
 
+    // Gegen-Liquidität nahe (05_ §6: −1,0): bestätigtes Swing-Hoch (Long) bzw.
+    // Swing-Tief (Short) liegt zwischen Entry und 1,5 R im Weg.
+    const obstacleLimit = direction === 'long' ? entry + 1.5 * slDistance : entry - 1.5 * slDistance;
+    const counterConfluence =
+      direction === 'long'
+        ? swings.some((s) => s.type === 'high' && s.price > entry && s.price <= obstacleLimit)
+        : swings.some((s) => s.type === 'low' && s.price < entry && s.price >= obstacleLimit);
+
     const { score, confluence } = computeScore({
       trendAligned: true,
       structureBreak: true,
@@ -238,7 +258,7 @@ export function evaluateSmcCoreAt(
       sessionActive: isActiveSession(session),
       rrAtLeast2: rr >= 2,
       higherTf,
-      counterConfluence: false,
+      counterConfluence,
       liquiditySweep,
       dealingRangeFavorable,
     });

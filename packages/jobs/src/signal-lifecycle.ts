@@ -183,6 +183,7 @@ async function autoKillPass(
       const takeProfits = sig.takeProfits.map(Number);
       const assessment = assessOpenSignal({
         direction: sig.direction,
+        entry: Number(sig.entry),
         stopLoss: Number(sig.stopLoss),
         takeProfits,
         confluence: sig.confluence,
@@ -297,6 +298,7 @@ async function reentryPass(
       const structureBroken = structureBrokenSince(candles, sig.direction, closedAt);
       const rescored = rescoreSignal({
         direction: sig.direction,
+        entry,
         stopLoss,
         takeProfits,
         confluence: sig.confluence,

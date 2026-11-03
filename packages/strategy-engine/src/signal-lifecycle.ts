@@ -126,6 +126,8 @@ export function deriveLifecyclePlans(setup: SetupGeometry): { reentry: ReentryPl
 
 export type RescoreInput = {
   direction: LifecycleDirection;
+  /** Ursprünglicher Entry-Preis des Setups (für drift-sichere Bewertung bei DSL-Signalen). */
+  entry?: number;
   stopLoss: number;
   takeProfits: number[];
   /** Confluence-Tags des Signals — Herkunft der Bewertung (SMC-Gewichte oder DSL-RR). */
@@ -147,7 +149,10 @@ export type RescoreInput = {
  *    RR ≥ 2 (zum aktuellen Preis) und Higher-TF werden NEU gemessen; die
  *    übrigen Faktoren (Retest, RSI, Volumen, FVG, Session) beschreiben das
  *    Entstehungs-Ereignis und bleiben, wie sie waren.
- *  - DSL-Signale ('score:rr-basiert'): min(10, RR1 × 3) zum aktuellen Preis.
+ *  - DSL-Signale ('score:rr-basiert'): Basis-RR (vom ursprünglichen Risiko
+ *    oder aktuellem Preis) abzüglich Drift Richtung Stop-Loss bzw. verpasstem
+ *    Entry Richtung TP1 — verhindert den Invertierungs-Fehler, bei dem ein
+ *    Rückgang kurz vor den Stop-Loss das Verhältnis reward/risk auf 10.0 aufbläht.
  *  - Sonst (Pine/manuell/…): null — kein erfundener Score.
  */
 export function rescoreSignal(input: RescoreInput): { score: number; confluence: string[] } | null {
@@ -161,9 +166,23 @@ export function rescoreSignal(input: RescoreInput): { score: number; confluence:
   if (tags.has('score:rr-basiert')) {
     const tp1 = input.takeProfits[0];
     if (tp1 === undefined) return null;
-    const reward = (tp1 - price) * sign;
-    const rr1 = risk > 0 ? Math.max(0, reward) / risk : 0;
-    const score = Math.min(10, Math.round(rr1 * 30) / 10);
+    if (risk <= 0) return { score: 0, confluence: input.confluence };
+    const rewardNow = Math.max(0, (tp1 - price) * sign);
+    const refEntry = input.entry !== undefined && (input.entry - input.stopLoss) * sign > 0 ? input.entry : price;
+    const initialRisk = (refEntry - input.stopLoss) * sign;
+    const initialReward = Math.max(0, (tp1 - refEntry) * sign);
+    const baseRr = initialRisk > 0 ? initialReward / initialRisk : 0;
+
+    let effectiveRr = baseRr;
+    if ((price - refEntry) * sign < 0) {
+      // Kurs läuft GEGEN das Setup Richtung Stop-Loss: verbleibender Puffer (0..1) skaliert den Score abwärts.
+      const remainingBuffer = Math.max(0, Math.min(1, risk / initialRisk));
+      effectiveRr = baseRr * remainingBuffer;
+    } else if (initialReward > 0) {
+      // Kurs ist dem Entry bereits Richtung TP1 davongelaufen: verbleibendes Upside zum ursprünglichen Risiko.
+      effectiveRr = rewardNow / initialRisk;
+    }
+    const score = Math.max(0, Math.min(10, Math.round(effectiveRr * 30) / 10));
     return { score, confluence: input.confluence };
   }
 

@@ -66,6 +66,14 @@ describe('assessDataQuality (08_ §3b)', () => {
     expect(q.ok).toBe(false);
     expect(q.warnings.length).toBeGreaterThan(0);
   });
+
+  it('Börsen-Quelle (venue=yahoo): Nacht- und Wochenend-Handelspausen zählen nicht als Lücke', () => {
+    // 2 Handelstage (je 7 Stunden) mit 17h Nachtpause dazwischen
+    const hours = [...range(7, 14), ...range(7, 38)];
+    const q = assessDataQuality(series(hours, { volume: () => 0 }), H, { venue: 'yahoo' });
+    expect(q.gaps).toBe(0);
+    expect(() => assertDataQuality(q)).not.toThrow();
+  });
 });
 
 describe('assertDataQuality (Lab-Gate)', () => {

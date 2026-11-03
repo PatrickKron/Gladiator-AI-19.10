@@ -2,11 +2,20 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import type { LlmTool } from '@gladiator/agents';
-import { parseInstructionDsl, DSL_TIMEFRAMES } from '@gladiator/strategy-engine';
+import {
+  analyzePineScript,
+  DSL_TIMEFRAMES,
+  parseInstructionDsl,
+  STRATEGY_PRESETS,
+  type DslCondition,
+  type DslTimeframe,
+  type InstructionDsl,
+  type PineAnalysis,
+} from '@gladiator/strategy-engine';
 import { conditionsSchema, SCREEN_PRESETS } from '@gladiator/indicators';
 import { runLabBacktest } from '@gladiator/backtest';
 import { SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
-import { scanUniverse } from '@gladiator/jobs';
+import { registeredAssets, scanUniverse } from '@gladiator/jobs';
 import { runDraftBacktest, saveWorkshopVersion, ownedSession } from '../workshop/draft-service.js';
 import { runScreen } from '../routers/screener.js';
 import { loadVersionValidity } from '../routers/strategies.js';
@@ -78,6 +87,108 @@ export type ToolOutcome = { result: unknown; cards?: AssistantCard[] };
 
 const TF = [...new Set([...DSL_TIMEFRAMES, ...SUPPORTED_TIMEFRAMES])];
 
+/**
+ * Baut aus einer regelbasierten Pine-Script-Analyse (oder Skript-Idee) einen validen
+ * Instruction-DSL-Startentwurf, damit ein Skript im Chat sofort auf echten Asset-Kerzen
+ * backgetestet werden kann.
+ */
+export function synthesizeDslFromPine(
+  analysis: PineAnalysis,
+  symbol = 'BTC/USDT',
+  timeframe: DslTimeframe = '1h',
+): InstructionDsl {
+  const joinedEntries = analysis.entryCalls.join(' ').toLowerCase();
+  const hasShort = joinedEntries.includes('strategy.short') || joinedEntries.includes('short');
+  const hasLong = joinedEntries.includes('strategy.long') || joinedEntries.includes('long');
+  const direction: 'long' | 'short' = hasShort && !hasLong ? 'short' : 'long';
+  const inds = new Set(analysis.indicators.map((i) => i.toLowerCase()));
+  const conds: DslCondition[] = [];
+
+  if (inds.has('supertrend')) {
+    conds.push({ supertrend: { period: 10, mult: 3, direction: direction === 'long' ? 'up' : 'down' } });
+  }
+  if (inds.has('ema') || inds.has('sma') || inds.has('crossover') || inds.has('crossunder')) {
+    const kind = inds.has('sma') && !inds.has('ema') ? 'SMA' : 'EMA';
+    if (inds.has('crossover') || inds.has('crossunder')) {
+      conds.push({ maCross: { kind, fast: 20, slow: 50, cross: direction === 'long' ? 'bullish' : 'bearish', withinBars: 3 } });
+    } else {
+      conds.push({ priceVs: { kind, period: 50, is: direction === 'long' ? 'above' : 'below' } });
+    }
+  }
+  if (inds.has('rsi')) {
+    conds.push(direction === 'long' ? { indicator: 'RSI', lt: 55, period: 14 } : { indicator: 'RSI', gt: 45, period: 14 });
+  }
+  if (inds.has('macd')) {
+    conds.push({
+      macd: {
+        fast: 12,
+        slow: 26,
+        signal: 9,
+        event: direction === 'long' ? 'histogram_positive' : 'histogram_negative',
+        withinBars: 2,
+      },
+    });
+  }
+  if (inds.has('bb') || inds.has('bollinger')) {
+    conds.push({
+      bollinger: {
+        period: 20,
+        mult: 2,
+        event: direction === 'long' ? 'close_above_middle' : 'close_below_middle',
+      },
+    });
+  }
+  if (inds.has('stoch')) {
+    conds.push({
+      stochastic: {
+        kPeriod: 14,
+        dPeriod: 3,
+        smoothK: 1,
+        cross: direction === 'long' ? 'bullish' : 'bearish',
+        withinBars: 3,
+      },
+    });
+  }
+  if (inds.has('adx') || inds.has('dmi')) {
+    conds.push({ adx: { period: 14, gt: 20 } });
+  }
+  if (conds.length === 0) {
+    conds.push({ trend: direction === 'long' ? 'EMA200_up' : 'EMA200_down' });
+    conds.push({ signal: 'BOS' });
+  }
+
+  const rawSlug = (analysis.title ?? 'script-draft')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+  const id = rawSlug.length >= 3 ? rawSlug : 'pine-script-draft';
+
+  const candidate: InstructionDsl = {
+    id,
+    symbol: symbol.toUpperCase(),
+    timeframe,
+    venueType: 'cex',
+    direction,
+    setupType: timeframe === '5m' || timeframe === '15m' ? 'scalp' : timeframe === '1d' || timeframe === '1w' ? 'position' : 'swing',
+    when: { all: conds.slice(0, 5) },
+    entry: 'market',
+    stopLoss: inds.has('atr') || analysis.hasStopLoss ? { type: 'ATR', mult: 1.5 } : { type: 'pct', pct: 2 },
+    takeProfits: [{ rr: 1.5 }, { rr: 2.5 }, { rr: 4 }],
+    breakEvenAfterTp1: true,
+    risk: { maxLeveragePerTrade: 3, riskPctPerTrade: 1 },
+  };
+  const parsed = parseInstructionDsl(candidate);
+  if (parsed.ok) return parsed.dsl;
+  const fallback = parseInstructionDsl({
+    ...candidate,
+    id: 'pine-script-draft',
+    when: { all: [{ trend: direction === 'long' ? 'EMA200_up' : 'EMA200_down' }, { signal: 'BOS' }] },
+  });
+  if (!fallback.ok) throw new Error(fallback.errors.join('; '));
+  return fallback.dsl;
+}
+
 export const ASSISTANT_TOOLS: LlmTool[] = [
   {
     name: 'app_overview',
@@ -97,6 +208,47 @@ export const ASSISTANT_TOOLS: LlmTool[] = [
         sessionId: { type: 'string', description: 'Bestehende Workshop-Sitzung aktualisieren (optional)' },
       },
       required: ['name', 'dsl'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'analyze_script',
+    description:
+      'Analysiert ein TradingView-Pine-Script oder einen eingefügten Skript-/Strategie-Code regelbasiert (Indikatoren, Inputs, Entries/Exits, Stop-Loss/Take-Profit, Repaint-Warnungen), übersetzt die erkannte Logik direkt in einen testbaren Workshop-Entwurf (Instruction-DSL) und liefert passende Assets zum direkten Backtesten. IMMER aufrufen, sobald der Nutzer über ein Skript, Pine-Code oder einen Indikator-Algorithmus schreibt.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: 'Der Pine-Script-Code oder Skript-Auszug des Nutzers' },
+        name: { type: 'string', description: 'Optionaler Name für die Workshop-Sitzung' },
+        symbol: { type: 'string', description: 'Ziel-Asset für den Startentwurf (z. B. BTC/USDT, ETH/USDT, AAPL, EURUSD=X)' },
+        timeframe: { type: 'string', enum: [...DSL_TIMEFRAMES], description: 'Zeitrahmen für den Startentwurf (Standard 1h)' },
+        dsl: { type: 'object', description: 'Optional: deine verfeinerte Instruction-DSL passend zum Skript (sonst wird aus den erkannten Indikatoren ein Startentwurf gebaut)' },
+      },
+      required: ['code'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'test_strategy_on_assets',
+    description:
+      'Testet einen Workshop-Entwurf (sessionId) gleichzeitig auf mehreren Assets (z. B. ["BTC/USDT", "ETH/USDT", "SOL/USDT", "AAPL", "EURUSD=X"]) über denselben Zeitraum auf echten DB-Kerzen (netto nach Gebühren, Slippage, Funding). Nutze dieses Werkzeug proaktiv, um ein Skript oder eine Strategie über verschiedene Märkte zu vergleichen.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string', description: 'ID der Workshop-Sitzung (aus analyze_script oder propose_strategy)' },
+        symbols: {
+          type: 'array',
+          items: { type: 'string' },
+          minItems: 1,
+          maxItems: 6,
+          description: 'Liste der Assets, z. B. ["BTC/USDT", "ETH/USDT", "SOL/USDT"]',
+        },
+        from: { type: 'string', description: 'ISO-Datum Start, z. B. 2025-10-01' },
+        to: { type: 'string', description: 'ISO-Datum Ende, z. B. 2026-10-29' },
+        timeframe: { type: 'string', enum: TF, description: 'Optional: Zeitrahmen für alle Läufe' },
+        riskPctPerTrade: { type: 'number', minimum: 0.1, maximum: 5 },
+      },
+      required: ['sessionId', 'symbols', 'from', 'to'],
       additionalProperties: false,
     },
   },
@@ -292,14 +444,131 @@ export async function executeTool(ctx: ToolCtx, name: string, input: Record<stri
         .orderBy(desc(workshopSessions.updatedAt))
         .limit(20);
       const universe = await scanUniverse(ctx.db);
+      const regAssets = await registeredAssets(ctx.db).catch(() => []);
       return {
         result: {
           strategies: rows.map((r) => ({ ...r, latestVersion: latest.get(r.id) ? { id: latest.get(r.id)!.id, version: latest.get(r.id)!.version, status: latest.get(r.id)!.status } : null })),
           workshopSessions: sessions,
           scanUniverse: universe,
+          registeredAssets: regAssets.map((a) => ({ symbol: a.symbol, venue: a.venue, assetType: a.assetType })),
+          strategyPresets: STRATEGY_PRESETS.map((p) => ({ slug: p.slug, slugKey: p.slugKey, category: p.category, timeframe: p.dsl.timeframe })),
           screenPresets: SCREEN_PRESETS.map((p) => ({ id: p.id, timeframe: 'timeframe' in p ? (p as { timeframe?: string }).timeframe : undefined })),
           today: new Date().toISOString().slice(0, 10),
         },
+      };
+    }
+    case 'analyze_script': {
+      const code = str(input.code, 'code');
+      const analysis = analyzePineScript(code);
+      const symbol = typeof input.symbol === 'string' && input.symbol.trim() ? input.symbol.trim().toUpperCase() : 'BTC/USDT';
+      const timeframe: DslTimeframe =
+        typeof input.timeframe === 'string' && (DSL_TIMEFRAMES as readonly string[]).includes(input.timeframe)
+          ? (input.timeframe as DslTimeframe)
+          : '1h';
+
+      let dsl: InstructionDsl;
+      let customDslErrors: string[] | null = null;
+      if (input.dsl && typeof input.dsl === 'object') {
+        const parsed = parseInstructionDsl(input.dsl);
+        if (parsed.ok) {
+          dsl = parsed.dsl;
+        } else {
+          customDslErrors = parsed.errors;
+          dsl = synthesizeDslFromPine(analysis, symbol, timeframe);
+        }
+      } else {
+        dsl = synthesizeDslFromPine(analysis, symbol, timeframe);
+      }
+
+      const name = (typeof input.name === 'string' && input.name.trim() ? input.name.trim() : analysis.title ?? `Skript-Entwurf (${symbol})`).slice(0, 120);
+      const [row] = await ctx.db
+        .insert(workshopSessions)
+        .values({
+          userId: ctx.userId,
+          name,
+          pineSource: code,
+          draftDsl: dsl,
+          instructions: 'Skript-Analyse & Entwurf aus dem Gladiator-Chat.',
+        })
+        .returning();
+      const sessionId = row!.id;
+      await ctx.db.insert(auditLog).values({
+        actor: 'user',
+        userId: ctx.userId,
+        action: 'workshop.session.created',
+        entityType: 'workshop_session',
+        entityId: sessionId,
+        details: { name, via: 'assistant.analyze_script', indicators: analysis.indicators },
+        ip: ctx.ip,
+      });
+
+      const universe = await scanUniverse(ctx.db).catch(() => ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']);
+      const regAssets = await registeredAssets(ctx.db).catch(() => []);
+      const suggestedTestAssets = [...new Set([symbol, ...universe.slice(0, 4), ...regAssets.slice(0, 3).map((a) => a.symbol)])].slice(0, 6);
+      const hash = `#/strategien?tab=workshop&session=${sessionId}`;
+
+      return {
+        result: {
+          ok: true,
+          sessionId,
+          name,
+          analysis,
+          draftDsl: dsl,
+          ...(customDslErrors ? { customDslFallbackNote: `Übergebene DSL hatte Fehler (${customDslErrors.join('; ')}); Regel-Startentwurf wurde stattdessen erzeugt.` } : {}),
+          suggestedTestAssets,
+          hash,
+        },
+        cards: [{ kind: 'proposal', sessionId, name, symbol: dsl.symbol, timeframe: dsl.timeframe, direction: dsl.direction, hash }],
+      };
+    }
+    case 'test_strategy_on_assets': {
+      const sessionId = str(input.sessionId, 'sessionId');
+      if (!Array.isArray(input.symbols) || input.symbols.length === 0) {
+        throw new Error('symbols (Array mit mindestens einem Asset) fehlt.');
+      }
+      const symbols = [...new Set(input.symbols.map((s) => String(s).trim().toUpperCase()).filter(Boolean))].slice(0, 6);
+      const from = isoDate(input.from, 'from');
+      const to = isoDate(input.to, 'to');
+      const riskPctPerTrade = typeof input.riskPctPerTrade === 'number' ? input.riskPctPerTrade : 1;
+      const timeframe = typeof input.timeframe === 'string' ? (input.timeframe as InstructionDsl['timeframe']) : undefined;
+      const hash = `#/strategien?tab=workshop&session=${sessionId}`;
+
+      const runs: {
+        symbol: string;
+        timeframe: string;
+        ok: boolean;
+        candles?: number;
+        metrics?: unknown;
+        error?: string;
+      }[] = [];
+      const cards: AssistantCard[] = [];
+
+      for (const sym of symbols) {
+        try {
+          const out = await runDraftBacktest(ctx.db, ctx.userId, {
+            id: sessionId,
+            symbol: sym,
+            from,
+            to,
+            riskPctPerTrade,
+            ...(timeframe ? { timeframe } : {}),
+            label: `Multi-Asset · ${sym}`,
+          });
+          runs.push({ symbol: out.symbol, timeframe: out.timeframe, ok: true, candles: out.candles, metrics: out.metrics });
+          cards.push(metricsCard(`Backtest ${out.symbol}`, out.symbol, out.timeframe, out.candles, out.metrics as Record<string, unknown>, hash));
+        } catch (err) {
+          runs.push({
+            symbol: sym,
+            timeframe: timeframe ?? '1h',
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      return {
+        result: { sessionId, testedAssets: runs.length, runs, hash },
+        cards,
       };
     }
     case 'propose_strategy': {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Panel, TabBar } from '../components/ui.js';
+import { Panel } from '../components/ui.js';
 import { AssetSelect, getSelectedAsset, getSelectedVenue, setSelectedAsset, setSelectedVenue } from '../components/AssetSelect.js';
 import { AssetAnalysis } from '../components/AssetAnalysis.js';
 import { openAssistant } from '../components/AssistantPanel.js';
@@ -13,11 +13,19 @@ import { MacroPanels } from '../components/MacroPanels.js';
 import { RiskPanels } from '../components/RiskPanels.js';
 import { FavStarSymbol } from '../components/FavStar.js';
 import { ASSET_TABS, buildAssetUrl, parseChartHash, type AssetTab, type ChartVenue } from '../lib/chart-url.js';
+import { loadTf } from '../lib/chart-tf.js';
 import { parseTab } from '../lib/tab-hash.js';
 import { Watchlist } from '../components/Watchlist.js';
 import { CHART_LAYOUTS, layoutGridClass, loadChartLayout, normalizeCells, saveChartLayout, type ChartCell, type ChartLayout } from '../lib/chart-layout.js';
 import { appLocale } from '../lib/locale.js';
 import { priceUnit } from '../lib/asset-tabs.js';
+
+const TAB_ICONS: Record<AssetTab, string> = {
+  chart: '📈',
+  kontext: '🧭',
+  makro: '🌐',
+  risiko: '🛡️',
+};
 
 const DOCK_KEY = 'gladiator.chartBookDock';
 function bookDockOpen(): boolean {
@@ -60,7 +68,8 @@ export function AssetDetail() {
       setSelectedVenue(v);
       setAsset(sym);
       setVenue(v);
-      window.history.replaceState(null, '', buildAssetUrl(sym, tab, null, v));
+      const activeTf = parseChartHash(window.location.hash).tf ?? loadTf(sym);
+      window.history.replaceState(null, '', buildAssetUrl(sym, tab, activeTf, v));
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     },
     [tab],
@@ -103,7 +112,8 @@ export function AssetDetail() {
   }
   function changeTab(tb: AssetTab) {
     setTab(tb);
-    window.history.replaceState(null, '', buildAssetUrl(asset, tb, null, venue));
+    const activeTf = parseChartHash(window.location.hash).tf ?? loadTf(asset);
+    window.history.replaceState(null, '', buildAssetUrl(asset, tb, activeTf, venue));
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   }
 
@@ -131,8 +141,8 @@ export function AssetDetail() {
 
   return (
     <div>
-      {/* Kompakter Kopf (Welle C): Asset · Kurs · Ansicht 1/2/4 · Kontext — der Chart bekommt die Fläche */}
-      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+      {/* Kompakter Cockpit-Kopf: Asset · Kurs · Modus-Wahl (Chart · Analyse · Makro · Risiko) · Layout · Aktionen */}
+      <div className="glass mb-4 flex flex-wrap items-center gap-x-3 gap-y-2.5 p-3">
         <div className="flex min-w-0 max-w-full items-center gap-2">
           <AssetSelect value={asset} venue={venue} onChange={changeAsset} />
           <FavStarSymbol symbol={asset} />
@@ -144,6 +154,41 @@ export function AssetDetail() {
             {change != null && <span className={`chip ${change >= 0 ? 'chip--pos' : 'chip--neg'}`}>{change >= 0 ? '▲' : '▼'} {Math.abs(change).toFixed(2)} %</span>}
           </span>
         )}
+
+        {/* Segmented Cockpit-Tabs: Chart · Analyse · Makro · Risiko */}
+        <div
+          role="tablist"
+          aria-label={t('ia.page_chart')}
+          className="flex max-w-full items-center gap-1 overflow-x-auto rounded-xl border p-1"
+          style={{ background: 'var(--color-bg3)', borderColor: 'var(--color-line)' }}
+        >
+          {ASSET_TABS.map((id) => {
+            const isActive = tab === id;
+            return (
+              <button
+                key={id}
+                role="tab"
+                type="button"
+                aria-selected={isActive}
+                onClick={() => changeTab(id)}
+                className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all"
+                style={
+                  isActive
+                    ? {
+                        background: 'rgba(59, 130, 246, 0.22)',
+                        color: 'var(--color-ink)',
+                        boxShadow: 'inset 0 0 0 1px rgba(59, 130, 246, 0.45)',
+                      }
+                    : { color: 'var(--color-mut)' }
+                }
+              >
+                <span aria-hidden="true">{TAB_ICONS[id]}</span>
+                <span>{t(`asset.tab_${id}`)}</span>
+              </button>
+            );
+          })}
+        </div>
+
         <div className="ml-auto flex items-center gap-1.5">
           <div className="flex gap-0.5 rounded-lg p-0.5" style={{ background: 'var(--color-bg3)' }} role="group" aria-label={t('asset.layout')}>
             {CHART_LAYOUTS.map((l) => (
@@ -163,9 +208,6 @@ export function AssetDetail() {
               </button>
             ))}
           </div>
-          <button type="button" className="tbtn" aria-pressed={tab === 'kontext'} onClick={() => changeTab(tab === 'kontext' ? 'chart' : 'kontext')}>
-            {t('chart.context')}
-          </button>
           {/* Patricks Mängelliste Punkt 12: aus dem Chart in einem Klick ins Ticket — ohne Seitenwechsel. */}
           <button type="button" className="btn-primary px-3 py-1.5 text-xs" aria-expanded={ticketOpen} onClick={() => (ticketOpen ? setTicketOpen(false) : openTicket())}>
             {t('chart.trade')}
@@ -177,61 +219,66 @@ export function AssetDetail() {
         </div>
       </div>
 
-      {/* Tab-Leiste wie v2: Chart · Analyse · Makro · Risiko (scrollt auf schmalen Bildschirmen waagrecht) */}
-      <TabBar
-        label={t('ia.page_chart')}
-        active={tab}
-        onChange={changeTab}
-        tabs={ASSET_TABS.map((id) => ({ id, label: t(`asset.tab_${id}`) }))}
-      />
-
       {tab === 'chart' && (
-        // Markt-Bühne (UI-Welle 4): Watchlist links, Chart mittig, Orderbuch als ein-/ausblendbares Dock
+        // Markt-Bühne (UI-Welle 4): Watchlist links, Chart mittig, Schnell-Ticket rechts gedockt (auf großen Bildschirmen)
         <div className="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
           <div className="hidden xl:block">
             <Watchlist value={asset} onSelect={changeAsset} />
           </div>
-          <div className="min-w-0">
-            <div className={`grid gap-4 ${layoutGridClass(layout)}`}>
-              <section className="glass reveal p-3" style={{ '--stagger': 1 } as React.CSSProperties}>
-                {venue !== 'binance' && <p className="label mb-1 px-1">{`${asset} · ${venue === 'twelvedata' ? 'Twelve Data' : 'Yahoo'}`}</p>}
-                <AssetChart symbol={asset} venue={venue} timeframeOverride={linked.tf ?? undefined} mainHeight={layout === 1 ? 460 : 340} syncGroup={layout === 1 ? undefined : 'chart-cells'} />
-              </section>
-              {cells.map((cell, i) => (
-                <Panel key={i} label={`${cell.symbol} · ${cell.tf}`} stagger={1}>
-                  <div className="mb-2 flex justify-end">
-                    <AssetSelect value={cell.symbol} venue={cell.venue} onChange={(sym, v) => updateCell(i, { symbol: sym, venue: v })} persist={false} label={t('asset.cellSymbol', { n: i + 2 })} />
-                  </div>
-                  <AssetChart key={`${cell.venue}:${cell.symbol}:${i}`} symbol={cell.symbol} venue={cell.venue} timeframeOverride={cell.tf} rememberTf={false} onTimeframeChange={(tf) => updateCell(i, { tf })} syncGroup="chart-cells" />
-                </Panel>
-              ))}
+          <div className={`min-w-0 ${ticketOpen && layout === 1 ? 'grid gap-4 lg:grid-cols-[minmax(0,1fr)_350px] lg:items-start' : ''}`}>
+            <div className="min-w-0">
+              <div className={`grid gap-4 ${layoutGridClass(layout)}`}>
+                <section className="glass reveal p-3" style={{ '--stagger': 1 } as React.CSSProperties}>
+                  {(venue !== 'binance' || layout > 1) && (
+                    <p className="label mb-1 px-1">
+                      {`${asset}${venue !== 'binance' ? ` · ${venue === 'twelvedata' ? 'Twelve Data' : 'Yahoo'}` : ''}`}
+                    </p>
+                  )}
+                  <AssetChart symbol={asset} venue={venue} timeframeOverride={linked.tf ?? undefined} mainHeight={layout === 1 ? 540 : 340} syncGroup={layout === 1 ? undefined : 'chart-cells'} />
+                </section>
+                {cells.map((cell, i) => (
+                  <Panel key={i} label={`${cell.symbol} · ${cell.tf}`} stagger={1}>
+                    <div className="mb-2 flex justify-end">
+                      <AssetSelect value={cell.symbol} venue={cell.venue} onChange={(sym, v) => updateCell(i, { symbol: sym, venue: v })} persist={false} label={t('asset.cellSymbol', { n: i + 2 })} />
+                    </div>
+                    <AssetChart key={`${cell.venue}:${cell.symbol}:${i}`} symbol={cell.symbol} venue={cell.venue} timeframeOverride={cell.tf} rememberTf={false} onTimeframeChange={(tf) => updateCell(i, { tf })} syncGroup="chart-cells" />
+                  </Panel>
+                ))}
+              </div>
+              {ticketOpen && layout > 1 && (
+                <div ref={ticketRef} className="mt-3">
+                  <OrderTicket symbol={asset} venue={venue} embedded onPlaced={() => undefined} />
+                </div>
+              )}
+              {venue === 'binance' ? (
+                <div className="mt-3">
+                  <button type="button" onClick={toggleBook} className="tbtn" aria-expanded={bookOpen}>
+                    {t('chart.orderbook')} {bookOpen ? '▴' : '▾'}
+                  </button>
+                  {bookOpen && <OrderBookPanel symbol={asset} />}
+                </div>
+              ) : (
+                <p className="label mt-3">{t('market.bookCryptoOnly')}</p>
+              )}
             </div>
-            {ticketOpen && (
-              <div ref={ticketRef} className="mt-3">
+            {ticketOpen && layout === 1 && (
+              <div ref={ticketRef} className="min-w-0">
                 <OrderTicket symbol={asset} venue={venue} embedded onPlaced={() => undefined} />
               </div>
-            )}
-            {venue === 'binance' ? (
-              <div className="mt-3">
-                <button type="button" onClick={toggleBook} className="tbtn" aria-expanded={bookOpen}>
-                  {t('chart.orderbook')} {bookOpen ? '▴' : '▾'}
-                </button>
-                {bookOpen && <OrderBookPanel symbol={asset} />}
-              </div>
-            ) : (
-              <p className="label mt-3">{t('market.bookCryptoOnly')}</p>
             )}
           </div>
         </div>
       )}
       {tab === 'kontext' && (
-        <AssetAnalysis symbol={asset} venue={venue} ctx={ctx} />
-      )}
-      {tab === 'kontext' && (
-        <Panel label={t('assetCtx.title', { symbol: asset })} stagger={1}>
-          <AssetContextBody ctx={ctx} />
-          <MlInsights symbol={asset} />
-        </Panel>
+        <div>
+          <AssetAnalysis symbol={asset} venue={venue} ctx={ctx} />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <MlInsights symbol={asset} />
+            <Panel label={t('assetCtx.title', { symbol: asset })} stagger={2}>
+              <AssetContextBody ctx={ctx} sections="supplement" />
+            </Panel>
+          </div>
+        </div>
       )}
       {/* Patrick 2026-10-25: Makro/Risiko zeigen hier NUR, was zum gewählten Asset passt (Marktlage bleibt global). */}
       {tab === 'makro' && <MacroPanels symbol={asset} venue={venue} />}

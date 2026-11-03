@@ -66,6 +66,7 @@ function fmt(n: string): string {
 export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDecided: () => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState<'reject' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,8 +94,9 @@ export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDeci
   async function decide(action: 'confirm' | 'reject') {
     if (action === 'confirm') {
       // EIN Trade-Flow überall (Umbau 2026-07-10): Bestätigen öffnet die
-      // Detail-Karte mit dem anpassbaren Ticket (Betrag/Hebel/SL/TP) —
+      // Detail-Karte direkt mit geöffnetem anpassbaren Ticket (Betrag/Hebel/SL/TP) —
       // die Zeile platziert selbst KEINE Order mehr.
+      setConfirmOpen(true);
       setOpen(true);
       return;
     }
@@ -257,7 +259,7 @@ export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDeci
               {t('signals.riskVetoHint', { reason: verdict.riskReject })}
             </div>
           )}
-          <SignalCard signal={signal} onDecided={onDecided} readOnly={!isNew} />
+          <SignalCard signal={signal} onDecided={onDecided} readOnly={!isNew} initialTicketOpen={confirmOpen} />
         </div>
       )}
     </div>
