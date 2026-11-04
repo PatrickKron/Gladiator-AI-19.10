@@ -12,7 +12,17 @@ import { timeToLogical } from '../lib/chart-drawings.js';
 
 export type SmcItem =
   | { kind: 'box'; fromTime: number; toTime: number | null; top: number; bottom: number; fill: string; stroke?: string; label?: string; labelColor?: string }
-  | { kind: 'line'; fromTime: number; toTime: number | null; price: number; color: string; width?: number; dash?: number[]; label?: string };
+  | { kind: 'line'; fromTime: number; toTime: number | null; price: number; color: string; width?: number; dash?: number[]; label?: string }
+  | {
+      kind: 'heatmap_band';
+      top: number;
+      bottom: number;
+      intensity: number;
+      buyRatio: number;
+      isPoc: boolean;
+      inValueArea: boolean;
+      label?: string;
+    };
 
 type DrawTarget = Parameters<IPrimitivePaneRenderer['draw']>[0];
 
@@ -71,6 +81,60 @@ export class SmcBoxesPrimitive implements ISeriesPrimitive<Time> {
     target.useMediaCoordinateSpace(({ context: ctx, mediaSize }) => {
       const right = mediaSize.width;
       for (const it of this.items) {
+        if (it.kind === 'heatmap_band') {
+          const yt = this.y(it.top);
+          const yb = this.y(it.bottom);
+          if (yt == null || yb == null) continue;
+          const top = Math.min(yt, yb);
+          const h = Math.max(2, Math.abs(yb - yt) - 1);
+          const intensity = Math.max(0, Math.min(1, it.intensity));
+          if (intensity <= 0.02) continue;
+
+          ctx.save();
+          // 1) Subtiles thermisches Band über die gesamte Chartbreite für starke Liquiditätszonen
+          if (intensity >= 0.25) {
+            const bgAlpha = (0.02 + intensity * 0.075).toFixed(3);
+            ctx.fillStyle =
+              intensity >= 0.78
+                ? `rgba(245, 182, 66, ${bgAlpha})`
+                : intensity >= 0.48
+                  ? `rgba(56, 189, 248, ${bgAlpha})`
+                  : `rgba(99, 102, 241, ${bgAlpha})`;
+            ctx.fillRect(0, top, right, h);
+          }
+
+          // 2) Rechtsbündiges Volumen-/Liquiditäts-Profil (bis 26 % der Chartbreite)
+          const maxProfileW = Math.min(220, Math.max(80, right * 0.26));
+          const barW = Math.max(3, intensity * maxProfileW);
+          const barLeft = right - barW;
+          const barAlpha = (0.18 + intensity * 0.38).toFixed(3);
+          const fill = it.isPoc
+            ? `rgba(245, 182, 66, 0.58)`
+            : intensity >= 0.72
+              ? `rgba(245, 158, 11, ${barAlpha})`
+              : it.inValueArea
+                ? `rgba(56, 189, 248, ${barAlpha})`
+                : `rgba(100, 116, 139, ${(0.12 + intensity * 0.2).toFixed(3)})`;
+          ctx.fillStyle = fill;
+          ctx.fillRect(barLeft, top, barW, h);
+
+          // Feiner Buy/Sell-Akzentstreifen am linken Rand des Profilbalkens
+          const accentColor =
+            it.buyRatio >= 0.55
+              ? 'rgba(34, 197, 94, 0.75)'
+              : it.buyRatio <= 0.45
+                ? 'rgba(239, 68, 68, 0.75)'
+                : 'rgba(245, 182, 66, 0.75)';
+          ctx.fillStyle = it.isPoc ? '#f5b642' : accentColor;
+          ctx.fillRect(barLeft, top, 2, h);
+
+          if (it.isPoc && it.label) {
+            this.text(ctx, it.label, Math.max(6, barLeft - 4 - it.label.length * 6), top + Math.min(h - 2, 11), '#f5b642');
+          }
+          ctx.restore();
+          continue;
+        }
+
         const x1 = this.x(it.fromTime);
         if (x1 == null) continue;
         const x2 = it.toTime == null ? right : (this.x(it.toTime) ?? right);

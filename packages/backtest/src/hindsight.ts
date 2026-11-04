@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
-import { getOhlcv } from '@gladiator/market-data';
+import { loadSourceCandles } from '@gladiator/market-data';
 import type { Candle } from '@gladiator/strategy-engine';
 import { DEFAULT_COSTS, runBacktest, type CostModel, type EvaluatorSetup } from './engine.js';
 
@@ -190,7 +190,7 @@ export async function evaluateExpiredSignals(
     };
     let outcome: HindsightOutcome = { status: 'no_data', rMultiple: null, exitReason: null, exitTs: null, barsHeld: null };
     if (tfMs) {
-      const candles = await getOhlcv(db, {
+      const candles = await loadSourceCandles(db, {
         venue: s.venue,
         symbol: s.symbol,
         timeframe: s.timeframe,

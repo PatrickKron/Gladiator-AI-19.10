@@ -98,14 +98,15 @@ export async function buildAccountState(db: Db, userId: string, now = new Date()
     exposureBySymbolPct[p.symbol] = (exposureBySymbolPct[p.symbol] ?? 0) + (equity > 0 ? (notional / equity) * 100 : 0);
   }
 
+  const denom = (since: Date) => Math.max(1, equity - pnlSince(since));
   return {
     equity,
     availableMargin: equity, // Paper: keine Fremd-Margin; konservativ = Equity
     openPositions: openPos.length,
     exposureBySymbolPct,
-    dailyPnlPct: equity > 0 ? (pnlSince(dayStart) / PAPER_START_EQUITY) * 100 : 0,
-    weeklyPnlPct: equity > 0 ? (pnlSince(weekStart) / PAPER_START_EQUITY) * 100 : 0,
-    monthlyPnlPct: equity > 0 ? (pnlSince(monthStart) / PAPER_START_EQUITY) * 100 : 0,
+    dailyPnlPct: equity > 0 ? (pnlSince(dayStart) / denom(dayStart)) * 100 : 0,
+    weeklyPnlPct: equity > 0 ? (pnlSince(weekStart) / denom(weekStart)) * 100 : 0,
+    monthlyPnlPct: equity > 0 ? (pnlSince(monthStart) / denom(monthStart)) * 100 : 0,
     consecutiveLosses,
     lastLossAt,
     now,
@@ -763,15 +764,11 @@ export async function monitorOpenPositions(
 
       // decker S010: nach dem ersten TP-Fill Stop auf Break-Even (nur verschärfen)
       if (fill.type === 'take_profit_market') {
-        const slRow = prot.find((o) => o.type === 'stop_market');
+        const slIdx = prot.findIndex((o) => o.type === 'stop_market');
+        const slRow = slIdx >= 0 ? prot[slIdx] : undefined;
         // Der Stop deckt nur noch die RESTMENGE ab — sonst würde er beim
         // Auslösen mehr schließen, als offen ist (Exit-Menge > Positionsgröße).
         const tpQty = Number(prot.find((o) => o.id === fill.id)?.qty ?? 0);
-        if (slRow && tpQty > 0) {
-          const remaining = Math.max(0, Number(slRow.qty) - tpQty);
-          slRow.qty = String(remaining);
-          await db.update(orders).set({ qty: String(remaining), updatedAt: new Date() }).where(eq(orders.id, slRow.id));
-        }
         if (breakEvenAfterTp1 === null) {
           const tpSignalId = prot.find((o) => o.id === fill.id)?.signalId ?? null;
           const [sig] = tpSignalId
@@ -780,21 +777,26 @@ export async function monitorOpenPositions(
           breakEvenAfterTp1 = (await loadExecutionPlan(db, sig?.v ?? null)).breakEvenAfterTp1;
         }
         const slNotAtBE =
-          breakEvenAfterTp1 &&
-          slRow &&
+          Boolean(breakEvenAfterTp1) &&
+          slRow !== undefined &&
           (pos.direction === 'long'
             ? Number(slRow.price) < Number(pos.entryPrice)
             : Number(slRow.price) > Number(pos.entryPrice));
-        if (slRow && slNotAtBE) {
-          await db.update(orders).set({ price: pos.entryPrice, updatedAt: new Date() }).where(eq(orders.id, slRow.id));
-          await db.insert(auditLog).values({
-            actor: 'system',
-            userId: pos.userId,
-            action: 'position.stop_to_breakeven',
-            entityType: 'position',
-            entityId: pos.id,
-            details: { newStop: pos.entryPrice },
-          });
+        if (slRow && !fill.closesPosition && (tpQty > 0 || slNotAtBE)) {
+          const remaining = tpQty > 0 ? Math.max(0, Number(slRow.qty) - tpQty) : Number(slRow.qty);
+          const nextPrice = slNotAtBE ? Number(pos.entryPrice) : Number(slRow.price);
+          const r = await replaceProtectionOrder(db, venue, pos, slRow, { qty: remaining, price: nextPrice });
+          if (r.ok && r.row) prot[slIdx] = r.row;
+          if (slNotAtBE) {
+            await db.insert(auditLog).values({
+              actor: 'system',
+              userId: pos.userId,
+              action: 'position.stop_to_breakeven',
+              entityType: 'position',
+              entityId: pos.id,
+              details: { newStop: pos.entryPrice },
+            });
+          }
         }
       }
 
@@ -885,7 +887,9 @@ async function closePaperPosition(
   const grossPnl = (avgExit - entry) * qty * sign;
   const fees = (entry * qty + exitNotional) * TAKER_FEE;
   const hoursHeld = Math.max(0, (Date.now() - pos.openedAt.getTime()) / 3_600_000);
-  const funding = entry * qty * FUNDING_PER_8H * (hoursHeld / 8);
+  // Perp-Funding fällt nur auf Krypto-Perpetual-Venues an, nicht auf Aktien/ETF/Forex-Schlusskurs-Positionen (paper-close:*).
+  const isCloseVenue = pos.venue.startsWith('paper-close:');
+  const funding = isCloseVenue ? 0 : entry * qty * FUNDING_PER_8H * (hoursHeld / 8);
   const netPnl = grossPnl - fees - funding;
   const riskAmount = Math.abs(entry - Number(exits.find((e) => e.type === 'stop_market')?.price ?? entry * 0.99)) * qty;
 

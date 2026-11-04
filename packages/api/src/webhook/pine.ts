@@ -4,8 +4,9 @@ import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
-import { getOhlcv } from '@gladiator/market-data';
-import { detectStructure, ema, riskClassOf, sessionOf } from '@gladiator/strategy-engine';
+import { assetProfile } from '@gladiator/core';
+import { loadSourceCandles, resolveCandleVenue } from '@gladiator/market-data';
+import { deriveLifecyclePlans, detectStructure, ema, riskClassOf, sessionOf } from '@gladiator/strategy-engine';
 
 const { strategies, signals, auditLog } = schema;
 
@@ -87,13 +88,14 @@ export function rrBasedScore(entry: number, stopLoss: number, tp1: number, direc
   return Math.min(10, Math.round((reward / risk) * 30) / 10);
 }
 
-/** EMA200-Regime + Marktphase (letztes Struktur-Break) aus ECHTEN eigenen Kerzen. */
+/** EMA200-Regime + Marktphase (letztes Struktur-Break) aus ECHTEN eigenen Kerzen (alle Kursquellen). */
 async function computeRegime(
   db: Db,
+  venue: string,
   symbol: string,
   timeframe: string,
 ): Promise<{ emaRegime: 'above' | 'below'; marketPhase: 'bull' | 'bear' } | null> {
-  const candles = await getOhlcv(db, { symbol, timeframe, limit: 400 });
+  const candles = await loadSourceCandles(db, { venue, symbol, timeframe, limit: 400 });
   if (candles.length < 220) return null; // ehrlich: zu wenig Historie
   const closes = candles.map((c) => c.close);
   const ema200 = ema(closes, 200);
@@ -156,7 +158,8 @@ export function pineWebhookHandler(db: Db): express.RequestHandler {
       }
 
       // Regime aus ECHTEN eigenen Kerzen — ohne Historie kein Risk-Gate-Matching möglich.
-      const regime = await computeRegime(db, symbol, p.timeframe);
+      const venue = await resolveCandleVenue(db, symbol);
+      const regime = await computeRegime(db, venue, symbol, p.timeframe);
       if (!regime) {
         res.status(422).json({
           ok: false,
@@ -179,6 +182,8 @@ export function pineWebhookHandler(db: Db): express.RequestHandler {
 
       const score = p.score ?? rrBasedScore(p.entry, p.stopLoss, p.takeProfits[0]!, p.direction);
       const confluence = p.score !== undefined ? ['extern:pine'] : ['extern:pine', 'score:rr-basiert'];
+      const rawClass = assetProfile(symbol, venue)?.assetClass ?? 'crypto';
+      const assetClass = rawClass === 'future' ? 'commodity' : rawClass;
 
       const [inserted] = await db
         .insert(signals)
@@ -186,8 +191,9 @@ export function pineWebhookHandler(db: Db): express.RequestHandler {
           source: 'pine',
           strategyId: p.strategyId,
           symbol,
+          venue,
           timeframe: p.timeframe,
-          assetClass: 'crypto',
+          assetClass,
           venueType: 'cex',
           direction: p.direction,
           setupType: p.setupType,
@@ -202,6 +208,12 @@ export function pineWebhookHandler(db: Db): express.RequestHandler {
           emaRegime: regime.emaRegime,
           marketPhase: regime.marketPhase,
           status: 'new',
+          ...deriveLifecyclePlans({
+            direction: p.direction,
+            setupType: p.setupType,
+            entry: p.entry,
+            stopLoss: p.stopLoss,
+          }),
         })
         .returning({ id: signals.id });
 

@@ -82,38 +82,94 @@ export function AssetAnalysis({ symbol, venue = 'binance', ctx }: { symbol: stri
   const aiFor = (agent: 'makro' | 'shadow') => ai?.agents.find((x) => x.agent === agent) ?? null;
 
   return (
-    <section className="mb-4">
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <h2 className="text-base font-semibold">{t('analysis.title', { symbol })}</h2>
-        <span className="text-xs" style={{ color: 'var(--color-mut)' }}>
-          {t('analysis.subtitle')}
-        </span>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <button type="button" className="tbtn" onClick={() => void askAi()} disabled={aiBusy || !a} title={a && !a.llmConfigured ? t('analysis.aiNotConfigured') : undefined}>
-            {aiBusy ? t('analysis.aiBusy') : t('analysis.ai')}
+    <section className="mb-5">
+      <div className="glass mb-4 flex flex-wrap items-center justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-semibold tracking-tight">{t('analysis.title', { symbol })}</h2>
+            {c?.emaRegime && (
+              <span className={`chip ${c.emaRegime === 'above' ? 'chip--pos' : 'chip--neg'}`}>
+                {t(`analysis.regime_${c.emaRegime}`)}
+              </span>
+            )}
+            {c?.marketPhase && (
+              <span className={`chip ${c.marketPhase === 'bull' ? 'chip--pos' : 'chip--neg'}`}>
+                {t(`analysis.phase_${c.marketPhase}`)}
+              </span>
+            )}
+          </div>
+          <p className="mt-0.5 text-xs" style={{ color: 'var(--color-mut)' }}>
+            {t('analysis.subtitle')}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="btn px-3 py-1.5 text-xs"
+            onClick={() => void askAi()}
+            disabled={aiBusy || !a}
+            title={a && !a.llmConfigured ? t('analysis.aiNotConfigured') : undefined}
+          >
+            ✦ {aiBusy ? t('analysis.aiBusy') : t('analysis.ai')}
           </button>
-          <button type="button" className="tbtn" onClick={deepen}>
-            {t('analysis.deepen')}
+          <button type="button" className="btn-primary px-3 py-1.5 text-xs" onClick={deepen}>
+            💬 {t('analysis.deepen')}
           </button>
         </div>
       </div>
+
+      {/* Kompakte Impuls-Leiste aus den echten Kerzen dieses Assets */}
+      {c && (
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="glass p-3">
+            <p className="label">{t('assetCtx.rsi')}</p>
+            <p
+              className="num mt-1 text-lg font-semibold"
+              style={{
+                color: c.rsi14 != null && c.rsi14 >= 70 ? 'var(--color-neg)' : c.rsi14 != null && c.rsi14 <= 30 ? 'var(--color-pos)' : 'var(--color-ink)',
+              }}
+            >
+              {num(c.rsi14, 1)}
+            </p>
+          </div>
+          <div className="glass p-3">
+            <p className="label">{t('assetCtx.intraday')}</p>
+            <p className="num mt-1 text-lg font-semibold" style={{ color: (c.intradayRangePct ?? 0) > 10 ? 'var(--color-warn)' : 'var(--color-ink)' }}>
+              {pct(c.intradayRangePct, 2)}
+            </p>
+          </div>
+          <div className="glass p-3">
+            <p className="label">{t('analysis.structure')}</p>
+            <p className="num mt-1 truncate text-sm font-semibold">
+              {c.lastStructure ? `${c.lastStructure.kind} ${c.lastStructure.direction} @ ${num(c.lastStructure.level, 0)}` : '—'}
+            </p>
+          </div>
+          <div className="glass p-3">
+            <p className="label">{t('assetCtx.openSignals')}</p>
+            <p className="num mt-1 text-lg font-semibold" style={{ color: c.openSignals > 0 ? 'var(--color-cyan)' : 'var(--color-ink)' }}>
+              {c.openSignals}
+            </p>
+          </div>
+        </div>
+      )}
+
       {aiErr && (
-        <p className="mb-2 text-xs" style={{ color: 'var(--color-warn)' }}>
+        <p className="mb-3 rounded-lg border px-3 py-2 text-xs" style={{ borderColor: 'rgba(245,158,11,0.4)', color: 'var(--color-warn)' }}>
           {aiErr} <a href="#/einstellungen?tab=keys" className="underline">{t('analysis.aiToKeys')}</a>
         </p>
       )}
       {ai && (
-        <p className="mb-2 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+        <p className="mb-3 text-[11px]" style={{ color: 'var(--color-mut)' }}>
           {t('analysis.aiCost', { usd: ai.costUsd.toFixed(4), when: fmtTime(ai.asOf) })}
         </p>
       )}
       {err && (
-        <p className="text-sm" style={{ color: 'var(--color-neg)' }}>
+        <p className="mb-3 text-sm" style={{ color: 'var(--color-neg)' }}>
           {err}
         </p>
       )}
-      <div className="grid gap-3 md:grid-cols-3">
-        <Card name={t('analysis.oracle')} sub={t('analysis.oracleSub')} verdict={oracle} t={t} footer={a ? (a.macro.connected ? t('analysis.asOf', { when: fmtTime(a.macro.asOf) }) : t('analysis.notConnected')) : null}>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card icon="🌐" name={t('analysis.oracle')} sub={t('analysis.oracleSub')} verdict={oracle} t={t} footer={a ? (a.macro.connected ? t('analysis.asOf', { when: fmtTime(a.macro.asOf) }) : t('analysis.notConnected')) : null}>
           <Row label={t('analysis.grs')} value={a?.macro.grs ? `${num(a.macro.grs.score, 1)} · ${t(`analysis.grs_${a.macro.grs.label}`)}` : '—'} />
           <Row label="VIX" value={num(a?.macro.vix, 1)} />
           <Row label="DXY" value={num(a?.macro.dxy, 2)} />
@@ -124,6 +180,7 @@ export function AssetAnalysis({ symbol, venue = 'binance', ctx }: { symbol: stri
           <AiRow outcome={aiFor('makro')} t={t} />
         </Card>
         <Card
+          icon="🧭"
           name={t('analysis.shadow')}
           sub={t('analysis.shadowSub')}
           verdict={shadow}
@@ -139,7 +196,7 @@ export function AssetAnalysis({ symbol, venue = 'binance', ctx }: { symbol: stri
           <Row label={t('analysis.cotWeek')} value={a?.cot.weekChange == null ? '—' : `${a.cot.weekChange >= 0 ? '+' : ''}${num(a.cot.weekChange, 3)}`} />
           <AiRow outcome={aiFor('shadow')} t={t} />
         </Card>
-        <Card name={t('analysis.sentinel')} sub={t('analysis.sentinelSub')} verdict={sentinel} t={t} footer={a ? (a.noTrade.calendarConnected ? t('analysis.calendarOk') : t('analysis.calendarNone')) : null}>
+        <Card icon="🛡️" name={t('analysis.sentinel')} sub={t('analysis.sentinelSub')} verdict={sentinel} t={t} footer={a ? (a.noTrade.calendarConnected ? t('analysis.calendarOk') : t('analysis.calendarNone')) : null}>
           <Row label={t('analysis.killSwitch')} value={a ? (a.risk.killSwitchActive ? t('analysis.on') : t('analysis.off')) : '—'} tone={a?.risk.killSwitchActive ? 'neg' : 'pos'} />
           {/* Engine-Sperre ist GLOBAL: steht immer da, bei fremdem Termin ausdrücklich als „global“. */}
           <Row
@@ -164,19 +221,61 @@ export function AssetAnalysis({ symbol, venue = 'binance', ctx }: { symbol: stri
   );
 }
 
-function Card({ name, sub, verdict, footer, t, children }: { name: string; sub: string; verdict: Verdict | null; footer: string | null; t: (k: string, o?: Record<string, unknown>) => string; children: React.ReactNode }) {
+function Card({
+  icon,
+  name,
+  sub,
+  verdict,
+  footer,
+  t,
+  children,
+}: {
+  icon: string;
+  name: string;
+  sub: string;
+  verdict: Verdict | null;
+  footer: string | null;
+  t: (k: string, o?: Record<string, unknown>) => string;
+  children: React.ReactNode;
+}) {
+  const accent = verdict ? TONE[verdict.tone] : 'var(--color-line)';
   return (
-    <div className="glass p-4">
-      <p className="text-sm font-semibold">{name}</p>
-      <p className="text-xs" style={{ color: 'var(--color-mut)' }}>
-        {sub}
-      </p>
-      <p className="mt-2 text-sm leading-snug" style={{ color: verdict ? TONE[verdict.tone] : 'var(--color-mut)' }}>
-        {verdict ? t(verdict.key, verdict.params) : t('common.loading')}
-      </p>
-      <ul className="mt-3 space-y-1 text-sm">{children}</ul>
+    <div className="glass flex flex-col justify-between p-4" style={{ borderTop: `3px solid ${accent}` }}>
+      <div>
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold">
+              <span className="mr-1.5" aria-hidden="true">{icon}</span>
+              {name}
+            </p>
+            <p className="text-xs" style={{ color: 'var(--color-mut)' }}>
+              {sub}
+            </p>
+          </div>
+          {verdict && (
+            <span
+              className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ background: accent, boxShadow: `0 0 8px ${accent}` }}
+              aria-hidden="true"
+            />
+          )}
+        </div>
+        <div
+          className="mt-3 rounded-lg border px-3 py-2 text-xs font-medium leading-relaxed"
+          style={{
+            borderColor: 'var(--color-line)',
+            background: 'rgba(15, 23, 42, 0.45)',
+            color: verdict ? TONE[verdict.tone] : 'var(--color-mut)',
+          }}
+        >
+          {verdict ? t(verdict.key, verdict.params) : t('common.loading')}
+        </div>
+        <ul className="mt-3 divide-y text-sm" style={{ borderColor: 'rgba(148,163,184,0.08)' }}>
+          {children}
+        </ul>
+      </div>
       {footer && (
-        <p className="mt-3 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+        <p className="mt-3 border-t pt-2 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
           {footer}
         </p>
       )}
@@ -217,9 +316,9 @@ function AiRow({ outcome, t }: { outcome: VerdictResult['agents'][number] | null
 
 function Row({ label, value, tone }: { label: string; value: string; tone?: Tone }) {
   return (
-    <li className="flex items-baseline justify-between gap-3">
-      <span style={{ color: 'var(--color-mut)' }}>{label}</span>
-      <span className="num text-right" style={{ color: tone ? TONE[tone] : 'var(--color-ink)' }}>
+    <li className="flex items-baseline justify-between gap-3 py-1.5">
+      <span className="text-xs" style={{ color: 'var(--color-mut)' }}>{label}</span>
+      <span className="num text-right text-xs font-medium" style={{ color: tone ? TONE[tone] : 'var(--color-ink)' }}>
         {value}
       </span>
     </li>

@@ -325,15 +325,23 @@ const BUFFETT_COLOR: Record<Buffett['status'], string> = {
   extreme: 'var(--color-neg)',
 };
 
-function Stat({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
+function Stat({ label, value, sub, color, barPct }: { label: string; value: string; sub?: string; color?: string; barPct?: number }) {
   return (
-    <div className="min-w-0">
+    <div className="min-w-0 rounded-xl border p-3" style={{ borderColor: 'var(--color-line)', background: 'rgba(15, 23, 42, 0.4)' }}>
       <p className="label truncate">{label}</p>
       <p className="num mt-1 text-lg font-semibold" style={{ color: color ?? 'var(--color-ink)' }}>
         {value}
       </p>
+      {barPct !== undefined && (
+        <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full" style={{ background: 'rgba(148,163,184,0.16)' }}>
+          <div
+            className="h-full rounded-full transition-all"
+            style={{ width: `${Math.max(4, Math.min(100, barPct))} %`.replace(' %', '%'), background: color ?? 'var(--color-blue)' }}
+          />
+        </div>
+      )}
       {sub && (
-        <p className="num truncate text-xs" style={{ color: 'var(--color-mut)' }}>
+        <p className="num mt-1 truncate text-xs" style={{ color: 'var(--color-mut)' }}>
           {sub}
         </p>
       )}
@@ -392,8 +400,14 @@ function AssetMacroPanels({ symbol, venue }: { symbol: string; venue: string }) 
           <NotConnected detail={t('oracle.syncPending')} />
         ) : (
           <>
-            <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
-              <Stat label={t('oracle.grs')} value={grs ? String(Math.round(grs.score)) : '—'} sub={grs?.label} color={grs ? GRS_COLOR(grs.label) : undefined} />
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Stat
+                label={t('oracle.grs')}
+                value={grs ? String(Math.round(grs.score)) : '—'}
+                sub={grs?.label}
+                color={grs ? GRS_COLOR(grs.label) : undefined}
+                barPct={grs ? Math.round(grs.score) : undefined}
+              />
               <Stat
                 label="VIX"
                 value={macro.vix ? fixed(macro.vix.value) : '—'}

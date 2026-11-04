@@ -1,9 +1,11 @@
 import { and, desc, eq, gte } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
-import { getMacroSnapshot, getOhlcv, latestNews, upcomingEvents } from '@gladiator/market-data';
+import { assetProfile } from '@gladiator/core';
+import { getMacroSnapshot, latestNews, upcomingEvents } from '@gladiator/market-data';
 import { getDerivativesSnapshot } from '@gladiator/market-data';
 import {
+  deriveLifecyclePlans,
   evaluateSubAgentEntry,
   evaluateSubAgentExit,
   parseSubAgentSpec,
@@ -19,6 +21,9 @@ import { CostGuard, envAnthropicProvider } from '@gladiator/agents';
 import { runAnalysisGate } from './sub-agent-llm.js';
 import { formatEmergencyAlert } from './telegram.js';
 import { notifySafe, telegramHtmlToText } from './notify.js';
+import { registeredAssets } from './asset-register.js';
+import { signalAssetClassFor } from './scan-targets.js';
+import { loadSourceCandles } from './source-candles.js';
 
 const { subAgents, subAgentRuns, signals, positions, executedTrades, strategies, auditLog } = schema;
 
@@ -167,10 +172,11 @@ export async function ensureSubAgentStrategy(db: Db): Promise<string> {
   return existing!.id;
 }
 
-function assetClassFor(symbol: string): 'crypto' | 'stock' | 'etf' | 'forex' {
+function fallbackAssetClassFor(symbol: string, venue: string): 'crypto' | 'stock' | 'etf' | 'forex' | 'commodity' | 'index' {
   const s = symbol.toUpperCase();
   if (s.endsWith('/USDT') || s.endsWith('/USDC') || s.includes(':USDT') || s.endsWith('/BTC')) return 'crypto';
-  return 'crypto'; // MVP: Sub-Agenten handeln zunächst Krypto (ehrliche Vorgabe)
+  const raw = assetProfile(symbol, venue)?.assetClass ?? 'crypto';
+  return raw === 'future' ? 'commodity' : raw;
 }
 
 /** Startäquivalent des Tages: 00:00 UTC. */
@@ -193,6 +199,8 @@ export async function runSubAgents(
   if (active.length === 0) return summary;
 
   const strategyId = await ensureSubAgentStrategy(db);
+  const regAssets = await registeredAssets(db).catch(() => []);
+  const regBySymbol = new Map(regAssets.map((a) => [a.symbol, a]));
 
   // Geteilte Feeds EINMAL pro Lauf laden (Effizienz; alle Agenten sehen denselben Stand).
   const macroSnap = await getMacroSnapshot(db);
@@ -243,7 +251,8 @@ export async function runSubAgents(
 
       // (2) Ausstiege — pro offener Position agenten-verwaltete Exits prüfen.
       for (const pos of openPositions) {
-        const snap = await snapshotFor(db, pos.symbol, spec, macro, news, events, now);
+        const reg = regBySymbol.get(pos.symbol);
+        const snap = await snapshotFor(db, reg?.venue ?? 'binance', pos.symbol, spec, macro, news, events, now);
         if (!snap) continue;
         const exit = evaluateSubAgentExit(spec, { openedAt: pos.openedAt, direction: pos.direction, entryPrice: Number(pos.entryPrice) }, snap);
         if (exit) {
@@ -276,7 +285,11 @@ export async function runSubAgents(
           .limit(1);
         if (symbolOnCooldown(lastSig?.createdAt ?? null, now, spec.riskParams.cooldownMinutes)) continue;
 
-        const snap = await snapshotFor(db, symbol, spec, macro, news, events, now);
+        const reg = regBySymbol.get(symbol);
+        const symVenue = reg?.venue ?? 'binance';
+        const symAssetClass = (reg ? signalAssetClassFor(reg) : null) ?? fallbackAssetClassFor(symbol, symVenue);
+
+        const snap = await snapshotFor(db, symVenue, symbol, spec, macro, news, events, now);
         if (!snap) continue;
         const decision = evaluateSubAgentEntry(spec, snap);
         if (!decision) continue;
@@ -308,7 +321,7 @@ export async function runSubAgents(
         }
 
         // EMA-Regime/Marktphase aus Kerzen für die adaptiven Risk-Gates.
-        const regime = snap.recentHigh !== null ? await emaRegimeFor(db, symbol, spec.timeframe, snap.price) : 'above';
+        const regime = snap.recentHigh !== null ? await emaRegimeFor(db, symVenue, symbol, spec.timeframe, snap.price) : 'above';
         const rr = spec.exitRules.takeProfitPct / spec.exitRules.stopLossPct;
         const score = Math.min(10, rr * 3);
 
@@ -319,8 +332,9 @@ export async function runSubAgents(
             strategyId,
             subAgentId: agent.id,
             symbol,
+            venue: symVenue,
             timeframe: spec.timeframe,
-            assetClass: assetClassFor(symbol),
+            assetClass: symAssetClass,
             venueType: 'cex',
             direction: decision.direction,
             setupType: decision.setupType,
@@ -335,6 +349,12 @@ export async function runSubAgents(
             emaRegime: regime,
             marketPhase: regime === 'above' ? 'bull' : 'bear',
             status: 'new',
+            ...deriveLifecyclePlans({
+              direction: decision.direction,
+              setupType: decision.setupType,
+              entry: decision.entry,
+              stopLoss: decision.stopLoss,
+            }),
           })
           .returning();
         runRow.signalsCreated++;
@@ -382,9 +402,10 @@ export async function runSubAgents(
   return summary;
 }
 
-/** Snapshot für ein Symbol bauen (Kerzen + Funding aus DB + geteilte Feeds). */
+/** Snapshot für ein Symbol bauen (Kerzen + Funding aus DB + geteilte Feeds, je Kursquelle). */
 async function snapshotFor(
   db: Db,
+  venue: string,
   symbol: string,
   spec: SubAgentSpec,
   macro: { vix: number | null; grsLabel: 'risk-on' | 'neutral' | 'risk-off' | null; dxyChangePct20d: number | null },
@@ -392,10 +413,10 @@ async function snapshotFor(
   events: { importance: number | null; scheduledAt: Date }[],
   now: Date,
 ): Promise<SubAgentSnapshot | null> {
-  const candles = await getOhlcv(db, { symbol, timeframe: spec.timeframe, limit: LOAD_LIMIT });
+  const candles = await loadSourceCandles(db, { venue, symbol, timeframe: spec.timeframe, limit: LOAD_LIMIT, now });
   if (candles.length === 0) return null;
   let fundingRate: number | null = null;
-  if (spec.dataSources.includes('funding')) {
+  if (spec.dataSources.includes('funding') && venue === 'binance') {
     const [d] = await getDerivativesSnapshot(db, [symbol]);
     fundingRate = d?.fundingRate ?? null;
   }
@@ -414,8 +435,8 @@ async function snapshotFor(
 }
 
 /** EMA200-Regime aus echten Kerzen (für die adaptiven Risk-Gates). */
-async function emaRegimeFor(db: Db, symbol: string, timeframe: string, price: number): Promise<'above' | 'below'> {
-  const candles = await getOhlcv(db, { symbol, timeframe, limit: EMA_TREND + 10 });
+async function emaRegimeFor(db: Db, venue: string, symbol: string, timeframe: string, price: number): Promise<'above' | 'below'> {
+  const candles = await loadSourceCandles(db, { venue, symbol, timeframe, limit: EMA_TREND + 10 });
   if (candles.length < 2) return 'above';
   const series = ema(candles.map((c) => c.close), Math.min(EMA_TREND, candles.length));
   const last = series[series.length - 1];

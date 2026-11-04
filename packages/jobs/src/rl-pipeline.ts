@@ -1,7 +1,6 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
-import { getOhlcv } from '@gladiator/market-data';
 import {
   initEpisode,
   getState,
@@ -24,7 +23,8 @@ import {
   type EpisodeConfig,
   DEFAULT_EPISODE_CONFIG,
 } from '@gladiator/ml';
-import { scanUniverse } from './universe.js';
+import { loadSourceCandles } from './source-candles.js';
+import { scanTargets } from './signal-scan.js';
 
 const { rlAgents, rlEpisodes, rlActions, rlAgentPerformance } = schema;
 
@@ -65,8 +65,8 @@ export async function runRlEpisodes(db: Db, opts?: { agentId?: string }): Promis
 
   if (agents.length === 0) return result;
 
-  const universe = await scanUniverse(db);
-  if (universe.length === 0) {
+  const { targets } = await scanTargets(db);
+  if (targets.length === 0) {
     result.errors.push('No symbols in universe');
     return result;
   }
@@ -74,11 +74,12 @@ export async function runRlEpisodes(db: Db, opts?: { agentId?: string }): Promis
   for (const agent of agents) {
     try {
       // Pick a symbol (rotate based on agent index + time)
-      const symIdx = (agents.indexOf(agent) + Math.floor(Date.now() / 3600_000)) % universe.length;
-      const symbol = universe[symIdx]!;
+      const symIdx = (agents.indexOf(agent) + Math.floor(Date.now() / 3600_000)) % targets.length;
+      const target = targets[symIdx]!;
+      const { symbol, venue } = target;
       const timeframe = '1h'; // default timeframe for RL episodes
 
-      const candles = await getOhlcv(db, { symbol, timeframe, limit: 1000 });
+      const candles = await loadSourceCandles(db, { venue, symbol, timeframe, limit: 1000 });
       if (candles.length < 300) {
         result.skipped++;
         continue;

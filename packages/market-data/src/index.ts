@@ -1,4 +1,14 @@
-export { backfillOhlcv, candleUniverse, getOhlcv, latestCandleTs, latestFreshClose, LATEST_CLOSE_TIMEFRAMES, type BackfillResult } from './ohlcv.js';
+export {
+  backfillOhlcv,
+  candleUniverse,
+  getOhlcv,
+  latestCandleTs,
+  latestFreshClose,
+  loadSourceCandles,
+  resolveCandleVenue,
+  LATEST_CLOSE_TIMEFRAMES,
+  type BackfillResult,
+} from './ohlcv.js';
 export { candleRows, upsertCandles, type OhlcvRow } from './candle-store.js';
 export { aggregateCandles, closedCandles } from './aggregate.js';
 export { FRESH_INTERVALS, freshCutoff, freshnessLimitMs, isCandleFresh, pickLatestClose, type CloseCandidate, type LatestClose } from './freshness.js';

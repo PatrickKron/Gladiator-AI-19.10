@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gt, lte } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
-import { getOhlcv, BARS_PER_YEAR, TIMEFRAME_MS, type SupportedTimeframe } from '@gladiator/market-data';
+import { getOhlcv, loadSourceCandles, resolveCandleVenue, BARS_PER_YEAR, TIMEFRAME_MS, type SupportedTimeframe } from '@gladiator/market-data';
 import { buildClusterKey, detectStructure, evaluateDslAt, evaluateSmcCoreAt, parseInstructionDsl, SMC_CORE_DEFAULTS, type InstructionDsl, type SmcCoreParams } from '@gladiator/strategy-engine';
 import { DEFAULT_COSTS, runBacktest, type BacktestResult, type CostModel } from './engine.js';
 import { runWalkForward, type WalkForwardResult } from './walkforward.js';
@@ -153,9 +153,11 @@ export type LabMarketData = {
  */
 export async function loadLabMarketData(
   db: Db,
-  opts: { symbol: string; timeframe: SupportedTimeframe; from: Date; to: Date; minCandles: number; minCandlesMessage?: (n: number) => string },
+  opts: { symbol: string; venue?: string; timeframe: SupportedTimeframe; from: Date; to: Date; minCandles: number; minCandlesMessage?: (n: number) => string },
 ): Promise<LabMarketData> {
-  const candles = await getOhlcv(db, {
+  const venue = opts.venue ?? (await resolveCandleVenue(db, opts.symbol));
+  const candles = await loadSourceCandles(db, {
+    venue,
     symbol: opts.symbol,
     timeframe: opts.timeframe,
     since: opts.from,
@@ -170,7 +172,7 @@ export async function loadLabMarketData(
 
   // ── Datenqualität (08_ §3b): zu viele Lücken → Abbruch; sonst Warnungen ans UI ──
   const tfMs = TIMEFRAME_MS[opts.timeframe];
-  const dataQuality = assessDataQuality(candles, tfMs);
+  const dataQuality = assessDataQuality(candles, tfMs, { venue });
   assertDataQuality(dataQuality);
   const firstTs = candles[0]!.ts;
   const lastTs = candles[candles.length - 1]!.ts;

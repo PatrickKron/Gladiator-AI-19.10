@@ -9,7 +9,7 @@
  * bzw. für Schlüssel, die in der gespeicherten Wahl fehlen.
  */
 
-export const TOGGLE_KEYS = ['ema', 'bollinger', 'volume', 'structure', 'zones', 'liquidity', 'pd', 'signals', 'rsi', 'macd', 'atr'] as const;
+export const TOGGLE_KEYS = ['ema', 'bollinger', 'volume', 'heatmap', 'structure', 'zones', 'liquidity', 'pd', 'signals', 'rsi', 'macd', 'atr'] as const;
 export type ToggleKey = (typeof TOGGLE_KEYS)[number];
 export type Toggles = Record<ToggleKey, boolean>;
 
@@ -17,6 +17,7 @@ export const DEFAULT_TOGGLES: Readonly<Toggles> = Object.freeze({
   ema: true,
   bollinger: false,
   volume: true,
+  heatmap: false,
   structure: true,
   zones: true,
   liquidity: false,
@@ -27,12 +28,12 @@ export const DEFAULT_TOGGLES: Readonly<Toggles> = Object.freeze({
   atr: false,
 });
 
-/** Die neun Ein-Klick-Chips der Werkzeugzeile — Reihenfolge wie in v2. */
-export const CHIP_KEYS: readonly ToggleKey[] = ['ema', 'bollinger', 'volume', 'structure', 'zones', 'signals', 'rsi', 'macd', 'atr'];
+/** Die Ein-Klick-Chips der Werkzeugzeile — Reihenfolge wie in v2 + Heatmap-Profil. */
+export const CHIP_KEYS: readonly ToggleKey[] = ['ema', 'bollinger', 'volume', 'heatmap', 'structure', 'zones', 'signals', 'rsi', 'macd', 'atr'];
 /** „Smart Money"-Knopf schaltet diese gemeinsam. */
 export const SMC_KEYS: readonly ToggleKey[] = ['structure', 'zones', 'liquidity'];
 /** Gruppen im Popover „Ansicht ▾". */
-export const BUILTIN_KEYS: readonly ToggleKey[] = ['ema', 'bollinger', 'volume', 'rsi', 'macd', 'atr'];
+export const BUILTIN_KEYS: readonly ToggleKey[] = ['ema', 'bollinger', 'volume', 'heatmap', 'rsi', 'macd', 'atr'];
 export const SMC_ALL_KEYS: readonly ToggleKey[] = ['structure', 'zones', 'liquidity', 'pd', 'signals'];
 
 export const TOGGLES_KEY = 'gladiator.chartToggles';

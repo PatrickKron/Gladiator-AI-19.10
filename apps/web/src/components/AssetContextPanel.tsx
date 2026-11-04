@@ -53,7 +53,15 @@ function Row({ label, value, color }: { label: string; value: string; color?: st
   );
 }
 
-export function AssetContextBody({ ctx, compact = false }: { ctx: AssetContext | null; compact?: boolean }) {
+export function AssetContextBody({
+  ctx,
+  compact = false,
+  sections = 'all',
+}: {
+  ctx: AssetContext | null;
+  compact?: boolean;
+  sections?: 'all' | 'supplement';
+}) {
   const { t } = useTranslation();
   if (ctx === null) return <Loading />;
   if (!ctx.available) {
@@ -70,28 +78,32 @@ export function AssetContextBody({ ctx, compact = false }: { ctx: AssetContext |
   return (
     <>
       <ul className="mt-3 space-y-1 text-sm">
-        <Row label={t('assetCtx.price')} value={money(ctx.price, ctx.price >= 1000 ? 0 : 4)} />
-        <Row
-          label={t('assetCtx.change24h')}
-          value={ctx.change24hPct == null ? '—' : `${ctx.change24hPct >= 0 ? '+' : ''}${ctx.change24hPct.toFixed(2)} %`}
-          color={(ctx.change24hPct ?? 0) >= 0 ? pos : neg}
-        />
-        <Row label={t('assetCtx.regime')} value={ctx.emaRegime ?? '—'} color={ctx.emaRegime === 'above' ? pos : neg} />
-        <Row label={t('assetCtx.phase')} value={ctx.marketPhase ?? '—'} color={ctx.marketPhase === 'bull' ? pos : neg} />
-        {!compact && (
-          <Row
-            label={t('assetCtx.structure')}
-            value={ctx.lastStructure ? `${ctx.lastStructure.kind} ${ctx.lastStructure.direction} @ ${fmt(ctx.lastStructure.level, 0)}` : '—'}
-          />
+        {sections === 'all' && (
+          <>
+            <Row label={t('assetCtx.price')} value={money(ctx.price, ctx.price >= 1000 ? 0 : 4)} />
+            <Row
+              label={t('assetCtx.change24h')}
+              value={ctx.change24hPct == null ? '—' : `${ctx.change24hPct >= 0 ? '+' : ''}${ctx.change24hPct.toFixed(2)} %`}
+              color={(ctx.change24hPct ?? 0) >= 0 ? pos : neg}
+            />
+            <Row label={t('assetCtx.regime')} value={ctx.emaRegime ?? '—'} color={ctx.emaRegime === 'above' ? pos : neg} />
+            <Row label={t('assetCtx.phase')} value={ctx.marketPhase ?? '—'} color={ctx.marketPhase === 'bull' ? pos : neg} />
+            {!compact && (
+              <Row
+                label={t('assetCtx.structure')}
+                value={ctx.lastStructure ? `${ctx.lastStructure.kind} ${ctx.lastStructure.direction} @ ${fmt(ctx.lastStructure.level, 0)}` : '—'}
+              />
+            )}
+          </>
         )}
         <Row label={t('assetCtx.rsi')} value={fmt(ctx.rsi14, 1)} />
-        <Row label={t('assetCtx.atrPct')} value={ctx.atrPct == null ? '—' : `${ctx.atrPct.toFixed(2)} %`} />
+        {sections === 'all' && <Row label={t('assetCtx.atrPct')} value={ctx.atrPct == null ? '—' : `${ctx.atrPct.toFixed(2)} %`} />}
         <Row
           label={t('assetCtx.intraday')}
           value={ctx.intradayRangePct == null ? '—' : `${ctx.intradayRangePct.toFixed(2)} %`}
           color={(ctx.intradayRangePct ?? 0) > 10 ? neg : undefined}
         />
-        {ctx.funding && (
+        {sections === 'all' && ctx.funding && (
           <Row
             label={t('assetCtx.funding')}
             value={ctx.funding.rate == null ? '—' : `${(ctx.funding.rate * 100).toFixed(4)} %`}
@@ -99,7 +111,9 @@ export function AssetContextBody({ ctx, compact = false }: { ctx: AssetContext |
           />
         )}
         <Row label={t('assetCtx.openSignals')} value={String(ctx.openSignals)} color={ctx.openSignals > 0 ? 'var(--color-cyan)' : undefined} />
-        {!compact && <Row label={t('assetCtx.exposure')} value={t('assetCtx.exposureSplit', { agent: money(ctx.exposureNotional), demo: money(ctx.demoExposureNotional) })} />}
+        {sections === 'all' && !compact && (
+          <Row label={t('assetCtx.exposure')} value={t('assetCtx.exposureSplit', { agent: money(ctx.exposureNotional), demo: money(ctx.demoExposureNotional) })} />
+        )}
       </ul>
       {!compact && ctx.matchingGates.length > 0 && (
         <div className="mt-3">

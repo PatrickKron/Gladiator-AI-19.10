@@ -236,6 +236,39 @@ function AssetRiskPanels({ symbol, venue }: { symbol: string; venue: string }) {
         </p>
       )}
 
+      {/* Kompakte Risiko-Statusleiste auf einen Blick */}
+      {a && (
+        <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div
+            className="glass p-3"
+            style={{ borderTop: `3px solid ${a.risk.killSwitchActive || a.noTrade.active ? 'var(--color-neg)' : 'var(--color-pos)'}` }}
+          >
+            <p className="label">{t('analysis.noTrade')}</p>
+            <p className="num mt-1 text-sm font-semibold" style={{ color: a.risk.killSwitchActive || a.noTrade.active ? 'var(--color-neg)' : 'var(--color-pos)' }}>
+              {a.risk.killSwitchActive ? t('analysis.killSwitch') : a.noTrade.active ? t('analysis.on') : t('aegis.noTradeNone')}
+            </p>
+          </div>
+          <div className="glass p-3" style={{ borderTop: `3px solid ${regime ? REGIME_COLORS[regime.regime] : 'var(--color-line)'}` }}>
+            <p className="label">{t('aegis.regimeTitle')}</p>
+            <p className="num mt-1 text-sm font-semibold" style={{ color: regime ? REGIME_COLORS[regime.regime] : 'var(--color-ink)' }}>
+              {regime === undefined ? '…' : regime === null ? '—' : t(`regime.${regime.regime}`)}
+            </p>
+          </div>
+          <div className="glass p-3" style={{ borderTop: `3px solid ${(v?.atrPct ?? 0) >= 5 ? 'var(--color-warn)' : 'var(--color-blue)'}` }}>
+            <p className="label">{t('aegis.atr')}</p>
+            <p className="num mt-1 text-sm font-semibold" style={{ color: (v?.atrPct ?? 0) >= 5 ? 'var(--color-warn)' : 'var(--color-ink)' }}>
+              {pct(v?.atrPct)}
+            </p>
+          </div>
+          <div className="glass p-3" style={{ borderTop: '3px solid var(--color-cyan)' }}>
+            <p className="label">{t('analysis.exposure')}</p>
+            <p className="num mt-1 text-sm font-semibold">
+              {money(a.risk.exposureNotional)} · {t('analysis.positions', { n: a.risk.openPositions })}
+            </p>
+          </div>
+        </div>
+      )}
+
       <section className="grid gap-5 lg:grid-cols-2">
         {/* Termine dieses Assets */}
         <Panel label={t('aegis.eventsTitle', { symbol })} stagger={1} className="min-w-0">
@@ -319,9 +352,35 @@ function AssetRiskPanels({ symbol, venue }: { symbol: string; venue: string }) {
                 />
               </ul>
               <p className="label mt-4">{t('aegis.safe003Title')}</p>
-              <ul className="mt-1">
-                <Row label={t('aegis.safe003Major', { asset: 'BTC', max: v.safe003.btcMaxPct })} value={pct(v.safe003.btcMovePct)} color={SAFE_COLOR[btcState]} />
-                <Row label={t('aegis.safe003Major', { asset: 'ETH', max: v.safe003.ethMaxPct })} value={pct(v.safe003.ethMovePct)} color={SAFE_COLOR[ethState]} />
+              <ul className="mt-1 space-y-2">
+                <div>
+                  <Row label={t('aegis.safe003Major', { asset: 'BTC', max: v.safe003.btcMaxPct })} value={pct(v.safe003.btcMovePct)} color={SAFE_COLOR[btcState]} />
+                  {v.safe003.btcMovePct !== null && (
+                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full" style={{ background: 'rgba(148,163,184,0.15)' }}>
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{
+                          width: `${Math.min(100, Math.round((Math.abs(v.safe003.btcMovePct) / v.safe003.btcMaxPct) * 100))}%`,
+                          background: SAFE_COLOR[btcState],
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <Row label={t('aegis.safe003Major', { asset: 'ETH', max: v.safe003.ethMaxPct })} value={pct(v.safe003.ethMovePct)} color={SAFE_COLOR[ethState]} />
+                  {v.safe003.ethMovePct !== null && (
+                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full" style={{ background: 'rgba(148,163,184,0.15)' }}>
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{
+                          width: `${Math.min(100, Math.round((Math.abs(v.safe003.ethMovePct) / v.safe003.ethMaxPct) * 100))}%`,
+                          background: SAFE_COLOR[ethState],
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
               </ul>
               {(btcState === 'breach' || ethState === 'breach') && (
                 <p className="mt-2 text-xs" style={{ color: 'var(--color-neg)' }}>

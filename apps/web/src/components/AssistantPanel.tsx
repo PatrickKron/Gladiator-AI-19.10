@@ -17,7 +17,35 @@ type Status = Awaited<ReturnType<typeof trpc.assistant.status.query>>;
 type Conversation = Awaited<ReturnType<typeof trpc.assistant.conversations.query>>[number];
 
 const CONV_KEY = 'gladiator.chatConversation';
-const TOOL_KEYS = ['app_overview', 'propose_strategy', 'run_backtest', 'save_version', 'lab_backtest', 'promote_version', 'run_screen', 'asset_analysis', 'agents_status', 'trading_settings', 'update_trading_settings', 'kill_switch', 'demo_account', 'recent_signals', 'demo_order', 'navigate'] as const;
+const TOOL_KEYS = [
+  'app_overview',
+  'propose_strategy',
+  'analyze_script',
+  'test_strategy_on_assets',
+  'run_backtest',
+  'save_version',
+  'lab_backtest',
+  'promote_version',
+  'run_screen',
+  'asset_analysis',
+  'agents_status',
+  'trading_settings',
+  'update_trading_settings',
+  'kill_switch',
+  'demo_account',
+  'recent_signals',
+  'demo_order',
+  'navigate',
+] as const;
+
+/** Erkennt Pine-Script-Code oder eine Beschreibung über Skripte/Strategien im Eingabefeld. */
+export function looksLikeScriptOrStrategy(text: string): boolean {
+  const s = text.trim();
+  if (s.length < 12) return false;
+  return /\/\/@version|\b(strategy|indicator|study)\s*\(|\bta\.(ema|sma|rsi|macd|atr|crossover|crossunder|supertrend|bb)\b|\bstrategy\.(entry|exit|close)\b|\b(pine\s*script|pine-skript|skript|script)\b/i.test(
+    s,
+  );
+}
 
 /** Öffnet den Chat von überall (z. B. Leer-Zustand im Workshop). */
 export function openAssistant(prefill?: string): void {
@@ -220,7 +248,7 @@ export function AssistantPanel({ open, onClose, prefill }: { open: boolean; onCl
           <div className="text-sm" style={{ color: 'var(--color-mut)' }}>
             <p>{t('assistant.empty')}</p>
             <div className="mt-3 flex flex-col gap-2">
-              {(['suggest1', 'suggest2', 'suggest3', 'suggest4'] as const).map((k) => (
+              {(['suggest1', 'suggest5', 'suggest2', 'suggest3', 'suggest4'] as const).map((k) => (
                 <button key={k} type="button" className="chip text-left" onClick={() => void send(t(`assistant.${k}`))}>
                   {t(`assistant.${k}`)}
                 </button>
@@ -235,7 +263,17 @@ export function AssistantPanel({ open, onClose, prefill }: { open: boolean; onCl
               {m.cards.length > 0 && (
                 <div className="mt-2 flex flex-col gap-2">
                   {m.cards.map((c, i) => (
-                    <Card key={i} card={c} onConfirm={(accept) => void confirm(m.id, i, accept)} onNavigate={onClose} t={t} fmtPct={fmtPct} fmtNum={fmtNum} />
+                    <Card
+                      key={i}
+                      card={c}
+                      onConfirm={(accept) => void confirm(m.id, i, accept)}
+                      onNavigate={onClose}
+                      onPrompt={(prompt) => void send(prompt)}
+                      busy={busy}
+                      t={t}
+                      fmtPct={fmtPct}
+                      fmtNum={fmtNum}
+                    />
                   ))}
                 </div>
               )}
@@ -253,6 +291,40 @@ export function AssistantPanel({ open, onClose, prefill }: { open: boolean; onCl
           </p>
         )}
       </div>
+
+      {!busy && status?.configured && looksLikeScriptOrStrategy(input) && (
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-2 text-xs"
+          style={{ borderColor: 'var(--color-line)', background: 'rgba(59, 130, 246, 0.08)' }}
+        >
+          <span className="font-medium" style={{ color: 'var(--color-cyan)' }}>
+            🔬 {t('assistant.scriptDetected')}
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              className="tbtn px-2 py-0.5 text-[11px]"
+              onClick={() => {
+                const sym = getSelectedAsset();
+                void send(`${input.trim()}\n\n[Bitte per analyze_script analysieren, als Entwurf anlegen und auf ${sym} backtesten.]`);
+              }}
+            >
+              ▶ {t('assistant.scriptActionAnalyzeAndTest', { symbol: getSelectedAsset() })}
+            </button>
+            <button
+              type="button"
+              className="tbtn px-2 py-0.5 text-[11px]"
+              onClick={() => {
+                void send(
+                  `${input.trim()}\n\n[Bitte per analyze_script analysieren und per test_strategy_on_assets auf BTC/USDT, ETH/USDT und SOL/USDT backtesten und vergleichen.]`,
+                );
+              }}
+            >
+              🌐 {t('assistant.scriptActionMultiAsset')}
+            </button>
+          </div>
+        </div>
+      )}
 
       <form
         className="flex items-end gap-2 border-t px-3 py-2"
@@ -289,6 +361,8 @@ function Card({
   card,
   onConfirm,
   onNavigate,
+  onPrompt,
+  busy,
   t,
   fmtPct,
   fmtNum,
@@ -296,6 +370,8 @@ function Card({
   card: AssistantCard;
   onConfirm: (accept: boolean) => void;
   onNavigate: () => void;
+  onPrompt: (prompt: string) => void;
+  busy: boolean;
   t: (k: string, o?: Record<string, unknown>) => string;
   fmtPct: (v: number | null) => string;
   fmtNum: (v: number | null) => string;
@@ -315,9 +391,27 @@ function Card({
           <p className="num text-xs" style={{ color: 'var(--color-mut)' }}>
             {card.symbol} · {card.timeframe} · {card.direction}
           </p>
-          <a href={card.hash} className="mt-1 inline-block text-xs underline" style={{ color: 'var(--color-blue)' }} onClick={onNavigate}>
-            {t('assistant.cardOpenWorkshop')}
-          </a>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              disabled={busy}
+              className="tbtn px-2 py-0.5 text-[11px] disabled:opacity-50"
+              onClick={() => onPrompt(t('assistant.promptTestAsset', { sessionId: card.sessionId, symbol: card.symbol, tf: card.timeframe }))}
+            >
+              ▶ {t('assistant.cardTestAsset', { symbol: card.symbol })}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              className="tbtn px-2 py-0.5 text-[11px] disabled:opacity-50"
+              onClick={() => onPrompt(t('assistant.promptTestMulti', { sessionId: card.sessionId, tf: card.timeframe }))}
+            >
+              🌐 {t('assistant.cardTestMulti')}
+            </button>
+            <a href={card.hash} className="ml-auto text-xs underline" style={{ color: 'var(--color-blue)' }} onClick={onNavigate}>
+              {t('assistant.cardOpenWorkshop')}
+            </a>
+          </div>
         </div>
       );
     case 'backtest':
@@ -336,9 +430,19 @@ function Card({
             <span style={{ color: 'var(--color-mut)' }}>{t('assistant.cardWin')}</span>
             <span>{fmtPct(card.winRate)}</span>
           </div>
-          <p className="num mt-1 text-[11px]" style={{ color: 'var(--color-mut)' }}>
-            {t('assistant.cardTrades', { n: card.trades, c: card.candles })}
-          </p>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="num text-[11px]" style={{ color: 'var(--color-mut)' }}>
+              {t('assistant.cardTrades', { n: card.trades, c: card.candles })}
+            </span>
+            <button
+              type="button"
+              disabled={busy}
+              className="tbtn px-2 py-0.5 text-[11px] disabled:opacity-50"
+              onClick={() => onPrompt(t('assistant.promptCompareAssets', { symbol: card.symbol }))}
+            >
+              🔄 {t('assistant.cardCompareOtherAssets')}
+            </button>
+          </div>
         </div>
       );
     case 'version':

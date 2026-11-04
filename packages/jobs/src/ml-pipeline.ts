@@ -1,7 +1,7 @@
 import { asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
-import { getOhlcv, TIMEFRAME_MS } from '@gladiator/market-data';
+import { TIMEFRAME_MS } from '@gladiator/market-data';
 import {
   computeFeatures,
   featureVectorToArray,
@@ -14,9 +14,8 @@ import {
   type TrainingSample,
   type FeatureVector,
 } from '@gladiator/ml';
-import { scanUniverse } from './universe.js';
 import { loadSourceCandles } from './source-candles.js';
-import { SCAN_TIMEFRAMES } from './signal-scan.js';
+import { SCAN_TIMEFRAMES, scanTargets } from './signal-scan.js';
 
 const { mlFeatures, mlLabels, mlModels, signals } = schema;
 
@@ -27,17 +26,18 @@ export type MlFeatureResult = {
 };
 
 /**
- * Compute and store features for all tracked symbols × timeframes.
+ * Compute and store features for all tracked symbols × timeframes (alle Kursquellen).
  * Runs periodically to keep the feature store fresh.
  */
 export async function computeAllFeatures(db: Db): Promise<MlFeatureResult> {
   const result: MlFeatureResult = { computed: 0, skipped: 0, errors: [] };
-  const universe = await scanUniverse(db);
+  const { targets } = await scanTargets(db);
 
-  for (const symbol of universe) {
+  for (const target of targets) {
+    const { symbol, venue } = target;
     for (const timeframe of SCAN_TIMEFRAMES) {
       try {
-        const candles = await getOhlcv(db, { symbol, timeframe, limit: 400 });
+        const candles = await loadSourceCandles(db, { venue, symbol, timeframe, limit: 400 });
         const fv = computeFeatures(candles);
         if (!fv) {
           result.skipped++;

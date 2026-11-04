@@ -1,7 +1,6 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
-import { getOhlcv } from '@gladiator/market-data';
 import {
   detectRegimeMultiWindow,
   evaluateAgent,
@@ -14,8 +13,8 @@ import {
   type FeatureVector,
   type TrainingSample,
 } from '@gladiator/ml';
-import { scanUniverse } from './universe.js';
-import { SCAN_TIMEFRAMES } from './signal-scan.js';
+import { loadSourceCandles } from './source-candles.js';
+import { SCAN_TIMEFRAMES, scanTargets } from './signal-scan.js';
 
 const {
   marketRegimes,
@@ -37,17 +36,18 @@ export type RegimeDetectionResult = {
 };
 
 /**
- * Detect and store market regimes for all tracked symbols × timeframes.
+ * Detect and store market regimes for all tracked symbols × timeframes (alle Kursquellen).
  * Runs every 15 minutes to keep regime classifications fresh.
  */
 export async function detectAllRegimes(db: Db): Promise<RegimeDetectionResult> {
   const result: RegimeDetectionResult = { detected: 0, skipped: 0, errors: [] };
-  const universe = await scanUniverse(db);
+  const { targets } = await scanTargets(db);
 
-  for (const symbol of universe) {
+  for (const target of targets) {
+    const { symbol, venue } = target;
     for (const timeframe of SCAN_TIMEFRAMES) {
       try {
-        const candles = await getOhlcv(db, { symbol, timeframe, limit: 400 });
+        const candles = await loadSourceCandles(db, { venue, symbol, timeframe, limit: 400 });
         if (candles.length < 220) {
           result.skipped++;
           continue;
@@ -154,7 +154,7 @@ export type ModelComparisonResult = {
  * Stores version history for audit trail.
  */
 export async function runModelComparison(db: Db): Promise<ModelComparisonResult> {
-  const labels = await db.select().from(mlLabels);
+  const labels = await db.select().from(mlLabels).orderBy(asc(mlLabels.ts));
 
   const samples: TrainingSample[] = [];
   for (const label of labels) {
@@ -266,7 +266,7 @@ export async function createPerformanceSnapshots(
         return { ts: p.periodEnd, value: equity };
       });
 
-      const totalReturn = returns.reduce((a, b) => a + b, 0);
+      const totalReturn = equity - 1;
       const maxDD = (() => {
         let peak = 1;
         let dd = 0;

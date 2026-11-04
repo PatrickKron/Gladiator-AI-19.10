@@ -17,7 +17,14 @@ export {
 } from './liquidity.js';
 export { computeScore, riskClassOf, type ConfluenceFlags, type RiskClass, type TradingSession } from './scoring.js';
 export { sessionOf, isActiveSession } from './session.js';
-export { evaluateSmcCoreAt, SMC_CORE_DEFAULTS, type SmcCoreParams, type SetupCandidate, type SmcContext } from './smc-core.js';
+export {
+  evaluateSmcCoreAt,
+  setupTypeForTimeframe,
+  SMC_CORE_DEFAULTS,
+  type SmcCoreParams,
+  type SetupCandidate,
+  type SmcContext,
+} from './smc-core.js';
 export {
   evaluateDslAt,
   dslExecutionPlan,
