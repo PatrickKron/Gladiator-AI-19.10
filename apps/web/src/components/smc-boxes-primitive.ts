@@ -22,7 +22,49 @@ export type SmcItem =
       isPoc: boolean;
       inValueArea: boolean;
       label?: string;
+    }
+  | {
+      kind: 'heatmap_2d_cell';
+      fromTime: number;
+      toTime: number | null;
+      top: number;
+      bottom: number;
+      intensity: number;
+    }
+  | {
+      kind: 'orderbook_wall';
+      top: number;
+      bottom: number;
+      intensity: number;
+      side: 'bid' | 'ask' | 'coinglass';
+      label?: string;
     };
+
+/**
+ * Originale CoinGlass / Bookmap Thermal-Farbskala:
+ * Dunkel-Violett/Indigo (niedrig) → Türkis/Cyan (mittel) → Smaragd/Limette (hoch) → Leuchtend Gelb/Gold (Magnet-Spitze).
+ */
+function thermalHeatmapFill(intensity: number): string {
+  const v = Math.max(0, Math.min(1, intensity));
+  if (v >= 0.82) {
+    const a = (0.34 + (v - 0.82) * 1.1).toFixed(3);
+    return `rgba(250, 204, 21, ${a})`; // Leuchtend Gelb / Gold (Magnet-Zone)
+  }
+  if (v >= 0.62) {
+    const a = (0.24 + (v - 0.62) * 0.5).toFixed(3);
+    return `rgba(132, 204, 22, ${a})`; // Limette / Hellgrün
+  }
+  if (v >= 0.42) {
+    const a = (0.17 + (v - 0.42) * 0.35).toFixed(3);
+    return `rgba(6, 182, 212, ${a})`; // Türkis / Cyan
+  }
+  if (v >= 0.24) {
+    const a = (0.11 + (v - 0.24) * 0.3).toFixed(3);
+    return `rgba(59, 130, 246, ${a})`; // Tiefblau
+  }
+  const a = (0.05 + v * 0.22).toFixed(3);
+  return `rgba(79, 70, 229, ${a})`; // Indigo / Violett
+}
 
 type DrawTarget = Parameters<IPrimitivePaneRenderer['draw']>[0];
 
@@ -81,6 +123,63 @@ export class SmcBoxesPrimitive implements ISeriesPrimitive<Time> {
     target.useMediaCoordinateSpace(({ context: ctx, mediaSize }) => {
       const right = mediaSize.width;
       for (const it of this.items) {
+        if (it.kind === 'heatmap_2d_cell') {
+          const x1 = this.x(it.fromTime);
+          if (x1 == null) continue;
+          const x2 = it.toTime == null ? right : (this.x(it.toTime) ?? right);
+          if (x2 <= 0 || x1 >= right) continue;
+          const yt = this.y(it.top);
+          const yb = this.y(it.bottom);
+          if (yt == null || yb == null) continue;
+          const left = Math.max(0, x1);
+          const w = Math.max(2, Math.min(right, x2) - left);
+          const top = Math.min(yt, yb);
+          const h = Math.max(1.5, Math.abs(yb - yt));
+          ctx.save();
+          ctx.fillStyle = thermalHeatmapFill(it.intensity);
+          ctx.fillRect(left, top, w, h);
+          if (it.intensity >= 0.84 && h >= 3) {
+            ctx.strokeStyle = 'rgba(254, 240, 138, 0.45)';
+            ctx.lineWidth = 0.75;
+            ctx.strokeRect(left, top, w, h);
+          }
+          ctx.restore();
+          continue;
+        }
+
+        if (it.kind === 'orderbook_wall') {
+          const yt = this.y(it.top);
+          const yb = this.y(it.bottom);
+          if (yt == null || yb == null) continue;
+          const top = Math.min(yt, yb);
+          const h = Math.max(2, Math.abs(yb - yt) - 1);
+          const intensity = Math.max(0, Math.min(1, it.intensity));
+          if (intensity <= 0.05) continue;
+
+          ctx.save();
+          const maxWallW = Math.min(150, Math.max(60, right * 0.16));
+          const wallW = Math.max(4, intensity * maxWallW);
+          const wallLeft = right - wallW;
+          const alpha = (0.24 + intensity * 0.48).toFixed(3);
+          ctx.fillStyle =
+            it.side === 'coinglass'
+              ? `rgba(250, 204, 21, ${alpha})`
+              : it.side === 'bid'
+                ? `rgba(16, 185, 129, ${alpha})`
+                : `rgba(244, 63, 94, ${alpha})`;
+          ctx.fillRect(wallLeft, top, wallW, h);
+
+          ctx.fillStyle = it.side === 'coinglass' ? '#facc15' : it.side === 'bid' ? '#10b981' : '#f43f5e';
+          ctx.fillRect(wallLeft, top, 2.5, h);
+
+          if (it.label) {
+            const labelColor = it.side === 'coinglass' ? '#fde047' : it.side === 'bid' ? '#34d399' : '#fb7185';
+            this.text(ctx, it.label, Math.max(6, wallLeft - 6 - it.label.length * 6), top + Math.min(h - 1, 10), labelColor);
+          }
+          ctx.restore();
+          continue;
+        }
+
         if (it.kind === 'heatmap_band') {
           const yt = this.y(it.top);
           const yb = this.y(it.bottom);

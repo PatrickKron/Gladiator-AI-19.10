@@ -43,9 +43,11 @@ describe('validateSecretValue (pur)', () => {
     expect(validateSecretValue('PINE_WEBHOOK_SECRET', 'kurz')).toMatch(/16/);
   });
 
-  it('Twelve Data: alphanumerischer Key akzeptiert, Sonderzeichen abgelehnt', () => {
+  it('Twelve Data & CoinGlass: alphanumerischer Key akzeptiert, Sonderzeichen abgelehnt', () => {
     expect(validateSecretValue('TWELVE_DATA_API_KEY', 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4')).toBeNull();
     expect(validateSecretValue('TWELVE_DATA_API_KEY', 'hat-bindestrich!')).toMatch(/Format/);
+    expect(validateSecretValue('COINGLASS_API_KEY', 'cg_a1b2c3d4e5f6a1b2c3d4e5f6')).toBeNull();
+    expect(validateSecretValue('COINGLASS_API_KEY', 'kurz!')).toMatch(/Format/);
   });
 
   it('unbekannter Key wird abgelehnt (Whitelist)', () => {
