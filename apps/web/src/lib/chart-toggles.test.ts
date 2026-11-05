@@ -44,8 +44,8 @@ describe('Chart-Ansicht: Standard wie in v2, gespeicherte Wahl gewinnt', () => {
     expect(DEFAULT_TOGGLES.rsi).toBe(true);
   });
 
-  it('die Ein-Klick-Chips der Werkzeugzeile in v2-Reihenfolge inkl. Heatmap', () => {
-    expect(CHIP_KEYS).toEqual(['ema', 'bollinger', 'volume', 'heatmap', 'structure', 'zones', 'signals', 'rsi', 'macd', 'atr']);
+  it('die Ein-Klick-Chips der Werkzeugzeile in v2-Reihenfolge inkl. Heatmap & Vol-Profil', () => {
+    expect(CHIP_KEYS).toEqual(['ema', 'bollinger', 'volume', 'heatmap', 'volProfile', 'structure', 'zones', 'signals', 'rsi', 'macd', 'atr']);
     for (const k of CHIP_KEYS) expect(TOGGLE_KEYS).toContain(k);
   });
 });

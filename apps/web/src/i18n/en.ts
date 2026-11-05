@@ -899,6 +899,9 @@ export const en: Catalog = {
     liquidity: "Liquidity",
     pd: "Premium/Discount",
     heatmap: "Heatmap",
+    volProfile: "Vol Profile",
+    heatmap2dTitle: "2D Liquidity & Liquidation Heatmap",
+    coinglassHint: "+ CoinGlass API key for external exchange liquidation feeds",
     heatmapMode_volume: "Volume Profile",
     heatmapMode_liquidity: "Liquidity Density",
     heatmapInfo: "Heatmap ({{mode}}) · POC {{poc}} · Value Area (70 %) {{val}} – {{vah}}",
@@ -2187,6 +2190,7 @@ export const en: Catalog = {
     desc_HEALTHCHECKS_URL: 'Ping URL of an external monitor (e.g. healthchecks.io) — real dead-man switch.',
     desc_FRED_API_KEY: 'Optional: FRED API key for extra macro series (fred.stlouisfed.org).',
     desc_TWELVE_DATA_API_KEY: 'Stock/ETF/forex candles (all timeframes) via Twelve Data — 800 calls/day free (twelvedata.com).',
+    desc_COINGLASS_API_KEY: 'Optional: CoinGlass API key for external crypto liquidation heatmaps & clusters on the chart (coinglass.com).',
   },
   ml: {
     title: 'ML Models',

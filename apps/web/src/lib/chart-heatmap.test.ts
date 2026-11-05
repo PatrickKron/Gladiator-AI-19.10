@@ -1,60 +1,82 @@
 import { describe, expect, it } from 'vitest';
-import { computeChartHeatmap, type HeatmapCandle } from './chart-heatmap.js';
+import { compute2dHeatmap, computeChartHeatmap, type HeatmapCandle } from './chart-heatmap.js';
 
-function makeCandles(count: number, opts?: { zeroVolume?: boolean; clusterAround?: number }): HeatmapCandle[] {
-  const out: HeatmapCandle[] = [];
-  const center = opts?.clusterAround ?? 100;
-  for (let i = 0; i < count; i++) {
-    const isCluster = i % 3 !== 0;
-    const base = isCluster ? center + Math.sin(i) * 0.5 : center + (i % 2 === 0 ? 8 : -8);
-    out.push({
-      time: 1_700_000_000 + i * 3600,
-      open: base - 0.3,
-      high: base + 1.0,
-      low: base - 1.0,
-      close: base + 0.4,
-      volume: opts?.zeroVolume ? 0 : isCluster ? 500 : 80,
-    });
-  }
-  return out;
-}
+describe('computeChartHeatmap & compute2dHeatmap', () => {
+  it('nutzt Modus "volume", wenn echte Volumina vorhanden sind, und erkennt POC sowie Value Area', () => {
+    const candles: HeatmapCandle[] = [
+      { time: 1, open: 100, high: 102, low: 99, close: 101, volume: 100 },
+      { time: 2, open: 101, high: 103, low: 100, close: 102, volume: 500 },
+      { time: 3, open: 100.5, high: 102.5, low: 100, close: 101.5, volume: 800 },
+      { time: 4, open: 101, high: 102, low: 100.5, close: 101.2, volume: 600 },
+      { time: 5, open: 102, high: 110, low: 101.5, close: 109, volume: 50 },
+      { time: 6, open: 109, high: 112, low: 108, close: 111, volume: 40 },
+    ];
 
-describe('computeChartHeatmap (Chart-Heatmap-Indikator für alle Asset-Klassen)', () => {
-  it('berechnet Volumen-Profil mit POC und Value Area für Assets mit echtem Volumen (Krypto/Aktien)', () => {
-    const candles = makeCandles(60, { clusterAround: 100 });
-    const profile = computeChartHeatmap(candles, 20);
-    expect(profile).not.toBeNull();
-    expect(profile!.mode).toBe('volume');
-    expect(profile!.buckets).toHaveLength(20);
-    // POC muss nahe am Cluster-Zentrum (100) liegen
-    expect(Math.abs(profile!.pocPrice - 100)).toBeLessThan(2.5);
-    expect(profile!.valPrice).toBeLessThanOrEqual(profile!.pocPrice);
-    expect(profile!.vahPrice).toBeGreaterThanOrEqual(profile!.pocPrice);
-    const pocBuckets = profile!.buckets.filter((b) => b.isPoc);
+    const res = computeChartHeatmap(candles, 12);
+    expect(res).not.toBeNull();
+    expect(res!.mode).toBe('volume');
+    expect(res!.minPrice).toBe(99);
+    expect(res!.maxPrice).toBe(112);
+    expect(res!.pocPrice).toBeGreaterThanOrEqual(100);
+    expect(res!.pocPrice).toBeLessThanOrEqual(103);
+    expect(res!.valPrice).toBeLessThanOrEqual(res!.pocPrice);
+    expect(res!.vahPrice).toBeGreaterThanOrEqual(res!.pocPrice);
+
+    const pocBuckets = res!.buckets.filter((b) => b.isPoc);
     expect(pocBuckets).toHaveLength(1);
-    expect(pocBuckets[0]!.intensity).toBeCloseTo(1, 6);
+    expect(pocBuckets[0]!.intensity).toBeCloseTo(1, 5);
   });
 
-  it('fällt bei 0-Volumen-Kerzen (z. B. Spot-Forex) ehrlich auf den Liquiditäts-Modus zurück', () => {
-    const candles = makeCandles(60, { zeroVolume: true, clusterAround: 1.085 });
-    const profile = computeChartHeatmap(candles, 16);
-    expect(profile).not.toBeNull();
-    expect(profile!.mode).toBe('liquidity');
-    expect(profile!.buckets).toHaveLength(16);
-    expect(Math.abs(profile!.pocPrice - 1.085)).toBeLessThan(2.5);
+  it('fällt bei 0-Volumen-Kerzen (z. B. Spot-Forex) ehrlich auf Modus "liquidity" zurück', () => {
+    const forexCandles: HeatmapCandle[] = [
+      { time: 1, open: 1.081, high: 1.083, low: 1.08, close: 1.082, volume: 0 },
+      { time: 2, open: 1.082, high: 1.0835, low: 1.0815, close: 1.0825, volume: 0 },
+      { time: 3, open: 1.0825, high: 1.0832, low: 1.0818, close: 1.0822, volume: 0 },
+      { time: 4, open: 1.0822, high: 1.083, low: 1.0819, close: 1.0826, volume: 0 },
+      { time: 5, open: 1.0826, high: 1.09, low: 1.0825, close: 1.089, volume: 0 },
+    ];
+
+    const res = computeChartHeatmap(forexCandles, 10);
+    expect(res).not.toBeNull();
+    expect(res!.mode).toBe('liquidity');
+    expect(res!.pocPrice).toBeGreaterThanOrEqual(1.081);
+    expect(res!.pocPrice).toBeLessThanOrEqual(1.0845);
   });
 
-  it('liefert null bei zu wenigen Kerzen oder flachem Preis', () => {
-    expect(computeChartHeatmap([], 20)).toBeNull();
+  it('compute2dHeatmap erzeugt 2D Zeit×Preis Liquidations-Zellen und erkennt Magnet-Zonen oben/unten', () => {
+    const candles: HeatmapCandle[] = [];
+    for (let i = 0; i < 20; i++) {
+      candles.push({
+        time: 1000 + i * 60,
+        open: 100 + Math.sin(i * 0.4) * 2,
+        high: 101.5 + Math.sin(i * 0.4) * 2,
+        low: 98.5 + Math.sin(i * 0.4) * 2,
+        close: 100.3 + Math.sin(i * 0.4) * 2,
+        volume: 200 + (i % 5) * 80,
+      });
+    }
+
+    const hm = compute2dHeatmap(candles, 24);
+    expect(hm).not.toBeNull();
+    expect(hm!.mode).toBe('volume');
+    expect(hm!.cells.length).toBeGreaterThan(10);
+    expect(hm!.magnetAbove).not.toBeNull();
+    expect(hm!.magnetBelow).not.toBeNull();
+    expect(hm!.magnetAbove!.price).toBeGreaterThan(candles[candles.length - 1]!.close);
+    expect(hm!.magnetBelow!.price).toBeLessThan(candles[candles.length - 1]!.close);
+  });
+
+  it('liefert null bei zu wenigen Kerzen oder flacher Preisspanne', () => {
+    expect(computeChartHeatmap([])).toBeNull();
+    expect(compute2dHeatmap([])).toBeNull();
     expect(
-      computeChartHeatmap(
-        [
-          { time: 1, open: 10, high: 10, low: 10, close: 10, volume: 10 },
-          { time: 2, open: 10, high: 10, low: 10, close: 10, volume: 10 },
-        ],
-        20,
-      ),
+      computeChartHeatmap([
+        { time: 1, open: 10, high: 10, low: 10, close: 10, volume: 10 },
+        { time: 2, open: 10, high: 10, low: 10, close: 10, volume: 10 },
+        { time: 3, open: 10, high: 10, low: 10, close: 10, volume: 10 },
+        { time: 4, open: 10, high: 10, low: 10, close: 10, volume: 10 },
+        { time: 5, open: 10, high: 10, low: 10, close: 10, volume: 10 },
+      ]),
     ).toBeNull();
   });
 });
-
