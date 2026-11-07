@@ -367,13 +367,26 @@ export async function fetchTokenOutflows(
   fetchFn: Fetch = fetch,
 ): Promise<{ transfers: { to: string; amount: bigint; tx: string }[]; cursor: string }> {
   const problems: string[] = [];
+  let maxLatest = 0n;
+  let sawLagging = false;
   for (const url of logRpcCandidates(chain)) {
     try {
       const head = BigInt((await rpc(chain, url, 'eth_blockNumber', [], fetchFn)) as string);
       const latest = head > EVM_CONFIRMATIONS ? head - EVM_CONFIRMATIONS : 0n;
+      if (latest > maxLatest) maxLatest = latest;
       if (cursor === null) return { transfers: [], cursor: latest.toString() };
+      // Eingefrorener/stark hinterherhängender Fallback-Knoten → nächsten Kandidaten versuchen
+      if (maxLatest > latest && maxLatest - latest > 20n) {
+        problems.push(`${new URL(url).host}: Knoten hängt zurück (${latest} < ${maxLatest})`);
+        continue;
+      }
       // hinterherhängender Knoten: Cursor nie zurückdrehen
-      if (latest <= cursor) return { transfers: [], cursor: cursor.toString() };
+      if (latest <= cursor) {
+        if (problems.length === 0) return { transfers: [], cursor: cursor.toString() };
+        sawLagging = true;
+        problems.push(`${new URL(url).host}: Spitze ${latest} <= Cursor ${cursor}`);
+        continue;
+      }
       const from = cursor + 1n;
       const to = latest - from + 1n > BigInt(EVM_MAX_BLOCKS) ? from + BigInt(EVM_MAX_BLOCKS) - 1n : latest;
       const logs = (await rpc(chain, url, 'eth_getLogs', [{ address: token, fromBlock: hex(from), toBlock: hex(to), topics: [ERC20_TRANSFER_TOPIC, padTopic(sender)] }], fetchFn)) as EvmLog[];
@@ -385,6 +398,7 @@ export async function fetchTokenOutflows(
       problems.push(`${new URL(url).host}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+  if (sawLagging && cursor !== null) return { transfers: [], cursor: cursor.toString() };
   throw new Error(`Kein ${SWAP_CHAINS[chain].name}-RPC liefert die Transfer-Logs (${problems.join(' | ')}).`);
 }
 
