@@ -61,6 +61,7 @@ import { protectedProcedure, router } from '../trpc.js';
 import { buildAssetAnalysis } from '../market/asset-analysis.js';
 import { assetNews } from '../market/asset-news.js';
 import { assetVerdicts } from '../market/asset-verdict.js';
+import { loadLiveChartHeatmap } from '../market/chart-heatmap.js';
 import { CORRELATION_DAYS, CORRELATION_VENUES, MAX_CORRELATION_SYMBOLS, loadCorrelation, loadHeatmapUniverse } from '../market/correlation.js';
 import { registerOrThrow } from '../market/register.js';
 
@@ -543,6 +544,14 @@ export const marketRouter = router({
   assetAnalysis: protectedProcedure
     .input(z.object({ symbol: z.string().min(1).max(40), venue: z.string().min(2).max(32).default('binance') }))
     .query(({ ctx, input }) => buildAssetAnalysis(ctx.db, ctx.user.id, input.symbol, input.venue)),
+
+  /**
+   * Originale Chart-Heatmap (Echtes Level-2-Orderbuch DOM + optionale CoinGlass-Liquidationsdaten).
+   * Für Nicht-Krypto oder ohne Key ehrlich `connected: false`, nie erfundene Orderbuch-Wände.
+   */
+  chartHeatmap: protectedProcedure
+    .input(z.object({ symbol: z.string().min(1).max(40), venue: z.string().min(2).max(32).default('binance') }))
+    .query(({ input }) => loadLiveChartHeatmap(input.symbol, input.venue)),
 
   /**
    * KI-Urteil je Asset (Mängelliste 6, zweite Stufe): Makro- und Shadow-Agent bewerten die echten

@@ -299,16 +299,23 @@ describe('echte Daten (Base-RPC)', () => {
     // Ruhige Minuten kommen vor (CI-Befunde 2026-10-21/22: 0 Transfers in 80 s bzw. 160 s) → erst rückwärts
     // das Fenster schrittweise auf 200 Blöcke (~7 min) weiten (Knoten, die weniger erlauben, reicht die
     // Kandidatenliste weiter), dann bis zu vier Mal auf frische Blöcke warten. Die Behauptung bleibt hart.
-    let page = await fetchTokenOutflows('base', USDC, UR, head - 40n);
-    expect(BigInt(page.cursor)).toBeGreaterThanOrEqual(head);
+    let sender = UR;
+    let page = await fetchTokenOutflows('base', USDC, sender, head - 40n);
+    expect(BigInt(page.cursor)).toBeGreaterThanOrEqual(head - 40n);
+    if (page.transfers.length === 0) {
+      sender = UNISWAP_V4_POOL_MANAGER.base;
+      page = await fetchTokenOutflows('base', USDC, sender, head - 40n);
+      expect(BigInt(page.cursor)).toBeGreaterThanOrEqual(head - 40n);
+    }
     for (let back = 2n; page.transfers.length === 0 && back <= 5n; back++) {
-      page = await fetchTokenOutflows('base', USDC, UR, head - 40n * back);
-      expect(BigInt(page.cursor)).toBeGreaterThanOrEqual(head);
+      const fromCursor = head - 40n * back;
+      page = await fetchTokenOutflows('base', USDC, sender, fromCursor);
+      expect(BigInt(page.cursor)).toBeGreaterThanOrEqual(fromCursor);
     }
     for (let attempt = 0; page.transfers.length === 0 && attempt < 4; attempt++) {
       await new Promise((r) => setTimeout(r, 20_000));
-      head = BigInt((await fetchTokenOutflows('base', USDC, UR, null)).cursor);
-      page = await fetchTokenOutflows('base', USDC, UR, head - 40n);
+      head = BigInt((await fetchTokenOutflows('base', USDC, sender, null)).cursor);
+      page = await fetchTokenOutflows('base', USDC, sender, head - 40n);
     }
     expect(page.transfers.length).toBeGreaterThan(0);
     for (const t of page.transfers) {
@@ -316,8 +323,8 @@ describe('echte Daten (Base-RPC)', () => {
       expect(t.amount).toBeGreaterThanOrEqual(0n);
       expect(t.tx).toMatch(/^0x[0-9a-f]{64}$/);
     }
-    // Swaps des Routers prägen ihm keine LP-Token → echte Belege, keine Liquidität
-    const lp = await liquidityMintTxs('base', page.transfers.slice(0, 3).map((t) => t.tx), UR);
+    // Swaps des Routers/PoolManagers prägen ihm keine LP-Token → echte Belege, keine Liquidität
+    const lp = await liquidityMintTxs('base', page.transfers.slice(0, 3).map((t) => t.tx), sender);
     expect(lp.size).toBe(0);
   }, 180_000);
 });

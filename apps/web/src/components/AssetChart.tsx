@@ -38,7 +38,7 @@ import { applyDrawingClick, pickDrawing, pointFromChart, translatePoints, type D
 import type { DrawingPoint } from '@gladiator/core/drawings';
 import { DrawingsPrimitive, type ChartDrawing } from './chart-drawings-primitive.js';
 import { SmcBoxesPrimitive, type SmcItem } from './smc-boxes-primitive.js';
-import { computeChartHeatmap } from '../lib/chart-heatmap.js';
+import { compute2dHeatmap, computeChartHeatmap } from '../lib/chart-heatmap.js';
 import { appLocale } from '../lib/locale.js';
 
 /**
@@ -51,6 +51,7 @@ import { appLocale } from '../lib/locale.js';
  */
 
 type ChartData = Extract<Awaited<ReturnType<typeof trpc.market.chartData.query>>, { available: true }>;
+type LiveHeatmapData = Awaited<ReturnType<typeof trpc.market.chartHeatmap.query>>;
 type Timeframe = ChartTf;
 
 /** Timeframes, die auch ohne DB-Abfrage sicher vorhanden sind (Fallback vor dem Laden). */
@@ -794,7 +795,34 @@ export function AssetChart({
   }, [symbol]);
 
   const activeZones = useMemo(() => (data?.zones ?? []).filter((z) => z.active).slice(0, 6), [data]);
-  const heatmapProfile = useMemo(() => (toggles.heatmap && data ? computeChartHeatmap(data.candles, 24) : null), [toggles.heatmap, data]);
+  const heatmap2d = useMemo(() => (toggles.heatmap && data ? compute2dHeatmap(data.candles, 36) : null), [toggles.heatmap, data]);
+  const volProfile = useMemo(() => (toggles.volProfile && data ? computeChartHeatmap(data.candles, 24) : null), [toggles.volProfile, data]);
+  const [liveHeatmap, setLiveHeatmap] = useState<LiveHeatmapData | null>(null);
+
+  useEffect(() => {
+    if (!toggles.heatmap) {
+      setLiveHeatmap(null);
+      return;
+    }
+    let cancelled = false;
+    const fetchLive = () => {
+      void trpc.market.chartHeatmap
+        .query({ symbol, venue })
+        .then((res) => {
+          if (!cancelled) setLiveHeatmap(res);
+        })
+        .catch(() => {
+          if (!cancelled) setLiveHeatmap(null);
+        });
+    };
+    fetchLive();
+    if (replayUntil !== null) return () => { cancelled = true; };
+    const id = setVisibleInterval(fetchLive, 15_000);
+    return () => {
+      cancelled = true;
+      clearVisibleInterval(id);
+    };
+  }, [toggles.heatmap, symbol, venue, replayUntil]);
 
 
   /** Signale der im Menü gewählten Pine-/DSL-Strategien (für Entry-Marker). */
@@ -1230,10 +1258,78 @@ export function AssetChart({
       createSeriesMarkers(candle, markers);
     }
 
-    // Smart-Money-Flächen: Zonen als Boxen (Entstehung → Mitigation, offen bis zum
-    // rechten Rand), Liquiditäts-Level als Segmente, Premium/Discount als getönte
-    // Dealing Range — ein Primitive, bei jedem Pan/Zoom neu projiziert.
+    // Smart-Money-Flächen & Originale 2D-Heatmap:
+    // Zuerst die 2D-Heatmap-Zellen (damit Zonen, Linien und Kerzen scharf darüber liegen).
     const smcItems: SmcItem[] = [];
+    if (toggles.heatmap && heatmap2d) {
+      for (const cell of heatmap2d.cells) {
+        smcItems.push({
+          kind: 'heatmap_2d_cell',
+          fromTime: cell.fromTime,
+          toTime: cell.toTime,
+          top: cell.top,
+          bottom: cell.bottom,
+          intensity: cell.intensity,
+        });
+      }
+      const firstTime = data.candles[0]?.time as number | undefined;
+      if (firstTime !== undefined && heatmap2d.magnetAbove) {
+        smcItems.push({
+          kind: 'line',
+          fromTime: firstTime,
+          toTime: null,
+          price: heatmap2d.magnetAbove.price,
+          color: '#facc15',
+          width: 1,
+          dash: [4, 3],
+          label: `Magnet ↑ ${fmtPx(heatmap2d.magnetAbove.price)}`,
+        });
+      }
+      if (firstTime !== undefined && heatmap2d.magnetBelow) {
+        smcItems.push({
+          kind: 'line',
+          fromTime: firstTime,
+          toTime: null,
+          price: heatmap2d.magnetBelow.price,
+          color: '#22d3ee',
+          width: 1,
+          dash: [4, 3],
+          label: `Magnet ↓ ${fmtPx(heatmap2d.magnetBelow.price)}`,
+        });
+      }
+      if (liveHeatmap?.orderbook.connected) {
+        const topBidP = liveHeatmap.orderbook.topBidWall?.price;
+        const topAskP = liveHeatmap.orderbook.topAskWall?.price;
+        for (const w of liveHeatmap.orderbook.walls) {
+          if (w.intensity < 0.2) continue;
+          const isTopBid = topBidP !== undefined && Math.abs(w.mid - topBidP) <= (w.top - w.bottom) * 0.6;
+          const isTopAsk = topAskP !== undefined && Math.abs(w.mid - topAskP) <= (w.top - w.bottom) * 0.6;
+          const usdK = w.totalUsd >= 1_000_000 ? `${(w.totalUsd / 1_000_000).toFixed(1)}M $` : `${Math.round(w.totalUsd / 1_000)}k $`;
+          smcItems.push({
+            kind: 'orderbook_wall',
+            top: w.top,
+            bottom: w.bottom,
+            intensity: w.intensity,
+            side: w.dominantSide === 'ask' ? 'ask' : 'bid',
+            ...(isTopBid ? { label: `DOM Bid ${usdK}` } : isTopAsk ? { label: `DOM Ask ${usdK}` } : {}),
+          });
+        }
+      }
+      if (liveHeatmap?.coinglass.connected && liveHeatmap.coinglass.levels.length > 0) {
+        const step = (heatmap2d.maxPrice - heatmap2d.minPrice) / Math.max(24, heatmap2d.rowCount);
+        for (const lv of liveHeatmap.coinglass.levels) {
+          if (lv.intensity < 0.25) continue;
+          smcItems.push({
+            kind: 'orderbook_wall',
+            top: lv.price + step * 0.35,
+            bottom: lv.price - step * 0.35,
+            intensity: lv.intensity,
+            side: 'coinglass',
+            ...(lv.intensity >= 0.85 ? { label: `CG Liq ${Math.round(lv.usd / 1_000)}k $` } : {}),
+          });
+        }
+      }
+    }
     if (toggles.zones) {
       for (const z of activeZones) {
         const bull = z.kind.startsWith('bullish');
@@ -1271,8 +1367,8 @@ export function AssetChart({
       smcItems.push({ kind: 'box', fromTime: r.fromTime, toTime: null, top: r.equilibrium, bottom: r.low, fill: 'rgba(34,197,94,0.06)', label: 'Discount', labelColor: 'rgba(34,197,94,0.8)' });
       smcItems.push({ kind: 'line', fromTime: r.fromTime, toTime: null, price: r.equilibrium, color: C.faint, dash: [4, 4], label: 'EQ' });
     }
-    if (toggles.heatmap && heatmapProfile) {
-      for (const b of heatmapProfile.buckets) {
+    if (toggles.volProfile && volProfile) {
+      for (const b of volProfile.buckets) {
         smcItems.push({
           kind: 'heatmap_band',
           top: b.top,
@@ -1281,23 +1377,23 @@ export function AssetChart({
           buyRatio: b.buyRatio,
           isPoc: b.isPoc,
           inValueArea: b.inValueArea,
-          ...(b.isPoc ? { label: `POC ${fmtPx(heatmapProfile.pocPrice)}` } : {}),
+          ...(b.isPoc ? { label: `POC ${fmtPx(volProfile.pocPrice)}` } : {}),
         });
       }
       smcItems.push({
         kind: 'line',
-        fromTime: heatmapProfile.fromTime,
+        fromTime: volProfile.fromTime,
         toTime: null,
-        price: heatmapProfile.vahPrice,
+        price: volProfile.vahPrice,
         color: 'rgba(56,189,248,0.45)',
         dash: [3, 3],
         label: 'VAH',
       });
       smcItems.push({
         kind: 'line',
-        fromTime: heatmapProfile.fromTime,
+        fromTime: volProfile.fromTime,
         toTime: null,
-        price: heatmapProfile.valPrice,
+        price: volProfile.valPrice,
         color: 'rgba(56,189,248,0.45)',
         dash: [3, 3],
         label: 'VAL',
@@ -1393,7 +1489,7 @@ export function AssetChart({
         /* schon entsorgt — ignorieren */
       }
     };
-  }, [state, data, toggles, tf, levels, activeZones, heatmapProfile, signals, warmupInfo, t, strategySignals, strategySlugs, symbol, panes, venue, syncGroup, replayTrades]);
+  }, [state, data, toggles, tf, levels, activeZones, heatmap2d, liveHeatmap, volProfile, signals, warmupInfo, t, strategySignals, strategySlugs, symbol, panes, venue, syncGroup, replayTrades]);
 
   // Neue Ergebnisse oder Stil-Änderungen zeichnen, ohne den Chart neu zu bauen.
   useEffect(() => {
@@ -1421,6 +1517,7 @@ export function AssetChart({
     liquidity: t('chart.liquidity'),
     pd: t('chart.pd'),
     heatmap: t('chart.heatmap'),
+    volProfile: t('chart.volProfile'),
     signals: t('chart.signals'),
   };
   // Ein-Klick-Chips (wie v2): kurze Beschriftung, die volle steht im Tooltip und im Popover „Ansicht ▾".
@@ -1810,13 +1907,46 @@ export function AssetChart({
             {t('chart.rangeInfo', { low: fmtPx(data.range.low), high: fmtPx(data.range.high), pct: Math.round(data.range.position * 100), zone: t(`chart.zone_${data.range.zone}`) })}
           </p>
         )}
-        {toggles.heatmap && heatmapProfile && (
+        {toggles.heatmap && heatmap2d && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 rounded border px-2.5 py-1.5 text-[11px]" style={{ borderColor: 'rgba(250,204,21,0.28)', background: 'rgba(15,23,42,0.55)' }}>
+            <span className="inline-flex items-center gap-1.5 font-semibold" style={{ color: '#facc15' }}>
+              <span className="inline-block h-2 w-8 rounded-sm" style={{ background: 'linear-gradient(90deg, #4f46e5 0%, #06b6d4 38%, #84cc16 70%, #facc15 100%)' }} />
+              {t('chart.heatmap2dTitle')}
+            </span>
+            {heatmap2d.magnetAbove && (
+              <span className="num" style={{ color: '#fde047' }}>
+                Magnet ↑ {fmtPx(heatmap2d.magnetAbove.price)}
+              </span>
+            )}
+            {heatmap2d.magnetBelow && (
+              <span className="num" style={{ color: '#22d3ee' }}>
+                Magnet ↓ {fmtPx(heatmap2d.magnetBelow.price)}
+              </span>
+            )}
+            {liveHeatmap?.orderbook.connected && (
+              <span className="num" style={{ color: '#34d399' }}>
+                DOM Orderbuch: {liveHeatmap.orderbook.topBidWall ? `Bid-Wand ${fmtPx(liveHeatmap.orderbook.topBidWall.price)} (${Math.round(liveHeatmap.orderbook.topBidWall.usd / 1000)}k $)` : 'aktiv'}
+                {liveHeatmap.orderbook.topAskWall ? ` · Ask-Wand ${fmtPx(liveHeatmap.orderbook.topAskWall.price)} (${Math.round(liveHeatmap.orderbook.topAskWall.usd / 1000)}k $)` : ''}
+              </span>
+            )}
+            {liveHeatmap?.coinglass.connected ? (
+              <span className="num" style={{ color: '#facc15' }}>
+                CoinGlass: {liveHeatmap.coinglass.levels.length} Liquidations-Cluster aktiv
+              </span>
+            ) : venue === 'binance' ? (
+              <a href="#/einstellungen?tab=keys" className="underline-offset-2 hover:underline" style={{ color: 'var(--color-mut)' }}>
+                {t('chart.coinglassHint')}
+              </a>
+            ) : null}
+          </div>
+        )}
+        {toggles.volProfile && volProfile && (
           <p className="label mt-1.5 px-2" style={{ color: C.amber }}>
             {t('chart.heatmapInfo', {
-              mode: t(`chart.heatmapMode_${heatmapProfile.mode}`),
-              poc: fmtPx(heatmapProfile.pocPrice),
-              val: fmtPx(heatmapProfile.valPrice),
-              vah: fmtPx(heatmapProfile.vahPrice),
+              mode: t(`chart.heatmapMode_${volProfile.mode}`),
+              poc: fmtPx(volProfile.pocPrice),
+              val: fmtPx(volProfile.valPrice),
+              vah: fmtPx(volProfile.vahPrice),
             })}
           </p>
         )}

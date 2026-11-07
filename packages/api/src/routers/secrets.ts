@@ -34,6 +34,7 @@ const KEY_ENUM = z.enum([
   'HEALTHCHECKS_URL',
   'FRED_API_KEY',
   'TWELVE_DATA_API_KEY',
+  'COINGLASS_API_KEY',
 ]);
 
 type TestResult = { ok: boolean; detail: string };
@@ -114,6 +115,16 @@ async function testSecret(key: SecretKey): Promise<TestResult> {
       case 'PINE_WEBHOOK_SECRET':
         // Ehrlich: kein externer Test möglich — das Secret prüft eingehende Alerts.
         return { ok: true, detail: 'Format ok. Externer Test nicht möglich — TradingView-Alert senden, um den Webhook zu prüfen.' };
+      case 'COINGLASS_API_KEY': {
+        const res = await fetch('https://open-api-v3.coinglass.com/api/futures/supported-coins', {
+          headers: { 'CG-API-KEY': value, accept: 'application/json' },
+        });
+        const json = (await res.json()) as { code?: string; msg?: string; data?: string[] };
+        if (res.ok && (json.code === '0' || Array.isArray(json.data))) {
+          return { ok: true, detail: `CoinGlass-API akzeptiert den Key (${json.data?.length ?? '?'} unterstützte Coins).` };
+        }
+        return { ok: false, detail: `CoinGlass lehnt ab: ${json.msg ?? `HTTP ${res.status}`}.` };
+      }
     }
   } catch (err) {
     return { ok: false, detail: `Test fehlgeschlagen: ${String(err).slice(0, 200)}` };
