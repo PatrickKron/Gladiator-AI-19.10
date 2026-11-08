@@ -3,12 +3,18 @@ import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
-import { presetBySlug, STRATEGY_PRESETS } from '@gladiator/strategy-engine';
+import {
+  adaptPresetDslToTarget,
+  DSL_TIMEFRAMES,
+  presetBySlug,
+  STRATEGY_PRESETS,
+  summarizeDslRules,
+} from '@gladiator/strategy-engine';
 import { evaluateBacktestValidity, readHoldout, runLabBacktest, type ValidityVerdict } from '@gladiator/backtest';
 import { ensureCandleHistory } from '@gladiator/market-data';
 import { protectedProcedure, router } from '../trpc.js';
 
-const { strategies, strategyVersions, backtests, auditLog } = schema;
+const { strategies, strategyVersions, backtests, workshopSessions, workshopMessages, auditLog } = schema;
 
 /**
  * Strategie-Katalog (Patricks Auftrag C): kuratierte Presets mit ECHTEN
@@ -69,6 +75,7 @@ export const catalogRouter = router({
         riskPctPerTrade: preset.dsl.risk.riskPctPerTrade,
         maxLeverage: preset.dsl.risk.maxLeveragePerTrade,
         takeProfitRrs: preset.dsl.takeProfits.map((tp) => tp.rr),
+        ruleSummary: summarizeDslRules(preset.dsl),
         status: (version?.status ?? 'not_activated') as 'not_activated' | 'draft' | 'paper' | 'live' | 'retired',
         validity,
       });
@@ -77,21 +84,101 @@ export const catalogRouter = router({
   }),
 
   /**
-   * One-Click-Aktivierung: registrieren → echter Backtest → Gate → Paper.
-   * Gibt IMMER das echte Backtest-Ergebnis zurück — auch wenn das Gate fällt.
+   * Katalog-Vorlage direkt im KI-Workshop öffnen (mit wählbarem Ziel-Asset & Timeframe),
+   * um Regeln anzupassen oder auf beliebigen Assets (Krypto, Aktien, ETFs, Forex, Rohstoffe)
+   * zu backtesten.
    */
-  activate: protectedProcedure
-    .input(z.object({ slug: z.string().min(3).max(64) }))
+  openInWorkshop: protectedProcedure
+    .input(
+      z.object({
+        slug: z.string().min(3).max(64),
+        symbol: z.string().min(1).max(32).optional(),
+        timeframe: z.enum(DSL_TIMEFRAMES).optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const preset = presetBySlug(input.slug);
       if (!preset) throw new TRPCError({ code: 'NOT_FOUND', message: 'Katalog-Strategie nicht gefunden.' });
 
+      const targetDsl = adaptPresetDslToTarget(preset.dsl, {
+        symbol: input.symbol,
+        timeframe: input.timeframe,
+      });
+      const rules = summarizeDslRules(targetDsl);
+
+      const [session] = await ctx.db
+        .insert(workshopSessions)
+        .values({
+          userId: ctx.user.id,
+          name: `${preset.slug} (${targetDsl.symbol} · ${targetDsl.timeframe})`,
+          draftDsl: targetDsl,
+        })
+        .returning();
+
+      await ctx.db.insert(workshopMessages).values({
+        sessionId: session!.id,
+        role: 'assistant',
+        content: [
+          `Katalog-Vorlage **${preset.slug}** für **${targetDsl.symbol}** (${targetDsl.timeframe}, ${targetDsl.direction.toUpperCase()}) geladen.`,
+          `- **Bedingungen:** ${rules.conditions.join(' UND ') || '—'}`,
+          `- **Entry:** ${rules.entry} | **Stop-Loss:** ${rules.stopLoss} | **TPs:** ${rules.takeProfits}`,
+          `- **Risiko:** ${rules.risk}${rules.trailingStop ? ` | ${rules.trailingStop}` : ''}`,
+          '',
+          'Du kannst den Entwurf rechts direkt bearbeiten, im Backtest-Panel auf echten Kerzen prüfen oder mir im Chat Änderungswünsche schreiben.',
+        ].join('\n'),
+        proposedDsl: targetDsl,
+      });
+
+      await ctx.db.insert(auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: 'workshop.session.from_preset',
+        entityType: 'workshop_session',
+        entityId: session!.id,
+        details: { presetSlug: preset.slug, symbol: targetDsl.symbol, timeframe: targetDsl.timeframe },
+        ip: ctx.ip,
+      });
+
+      return {
+        sessionId: session!.id,
+        symbol: targetDsl.symbol,
+        timeframe: targetDsl.timeframe,
+      };
+    }),
+
+  /**
+   * One-Click-Aktivierung: registrieren → echter Backtest → Gate → Paper.
+   * Unterstützt optional ein abweichendes Ziel-Asset (`symbol`) und `timeframe`.
+   * Gibt IMMER das echte Backtest-Ergebnis zurück — auch wenn das Gate fällt.
+   */
+  activate: protectedProcedure
+    .input(
+      z.object({
+        slug: z.string().min(3).max(64),
+        symbol: z.string().min(1).max(32).optional(),
+        timeframe: z.enum(DSL_TIMEFRAMES).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const preset = presetBySlug(input.slug);
+      if (!preset) throw new TRPCError({ code: 'NOT_FOUND', message: 'Katalog-Strategie nicht gefunden.' });
+
+      const targetDsl = adaptPresetDslToTarget(preset.dsl, {
+        symbol: input.symbol,
+        timeframe: input.timeframe,
+      });
+
       // 1) Strategie + Version sicherstellen (idempotent, kind 'dsl' wie Workshop)
-      let [strategy] = await ctx.db.select().from(strategies).where(eq(strategies.slug, preset.slug)).limit(1);
+      let [strategy] = await ctx.db.select().from(strategies).where(eq(strategies.slug, targetDsl.id)).limit(1);
       if (!strategy) {
         [strategy] = await ctx.db
           .insert(strategies)
-          .values({ slug: preset.slug, name: preset.slug, kind: 'dsl', description: `Katalog-Preset (${preset.category})` })
+          .values({
+            slug: targetDsl.id,
+            name: targetDsl.id,
+            kind: 'dsl',
+            description: `Katalog-Preset (${preset.category} · ${targetDsl.symbol} ${targetDsl.timeframe})`,
+          })
           .returning();
       }
       let [version] = await ctx.db
@@ -103,11 +190,24 @@ export const catalogRouter = router({
       if (!version) {
         [version] = await ctx.db
           .insert(strategyVersions)
-          .values({ strategyId: strategy!.id, version: 1, params: preset.dsl, status: 'draft' })
+          .values({ strategyId: strategy!.id, version: 1, params: targetDsl, status: 'draft' })
           .returning();
+      } else if (targetDsl.timeframe !== (version.params as { timeframe?: string })?.timeframe) {
+        await ctx.db
+          .update(strategyVersions)
+          .set({ params: targetDsl })
+          .where(eq(strategyVersions.id, version.id));
       }
       if (version!.status === 'paper' || version!.status === 'live') {
-        return { activated: true, alreadyActive: true, gateReasons: [] as string[], validity: await loadCatalogValidity(ctx.db, version!.id) };
+        return {
+          activated: true,
+          alreadyActive: true,
+          targetSlug: targetDsl.id,
+          symbol: targetDsl.symbol,
+          timeframe: targetDsl.timeframe,
+          gateReasons: [] as string[],
+          validity: await loadCatalogValidity(ctx.db, version!.id),
+        };
       }
 
       // 2) ECHTER Backtest über die letzten 12 Monate echte Kerzen
@@ -117,7 +217,7 @@ export const catalogRouter = router({
       // sonst scheitert der Backtest an „zu wenig Kerzen". Nur echte Börsendaten.
       let history: { before: number; after: number; backfilled: boolean };
       try {
-        history = await ensureCandleHistory(ctx.db, { symbol: preset.dsl.symbol, timeframe: preset.dsl.timeframe, from, to });
+        history = await ensureCandleHistory(ctx.db, { symbol: targetDsl.symbol, timeframe: targetDsl.timeframe, from, to });
       } catch (err) {
         throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err instanceof Error ? err.message : String(err) });
       }
@@ -126,12 +226,12 @@ export const catalogRouter = router({
       try {
         lab = await runLabBacktest(ctx.db, {
           strategyId: strategy!.id,
-          symbol: preset.dsl.symbol,
-          timeframe: preset.dsl.timeframe,
-          setupType: preset.dsl.setupType,
+          symbol: targetDsl.symbol,
+          timeframe: targetDsl.timeframe,
+          setupType: targetDsl.setupType,
           from,
           to,
-          riskPctPerTrade: preset.dsl.risk.riskPctPerTrade,
+          riskPctPerTrade: targetDsl.risk.riskPctPerTrade,
         });
       } catch (err) {
         throw new TRPCError({
@@ -156,7 +256,10 @@ export const catalogRouter = router({
         entityType: 'strategy',
         entityId: strategy!.id,
         details: {
-          slug: preset.slug,
+          slug: targetDsl.id,
+          presetSlug: preset.slug,
+          symbol: targetDsl.symbol,
+          timeframe: targetDsl.timeframe,
           backtestId: lab.backtestId,
           candles: lab.candles,
           history,
@@ -169,6 +272,9 @@ export const catalogRouter = router({
       return {
         activated: verdict.passed,
         alreadyActive: false,
+        targetSlug: targetDsl.id,
+        symbol: targetDsl.symbol,
+        timeframe: targetDsl.timeframe,
         gateReasons: verdict.passed ? [] : verdict.reasons,
         validity: await loadCatalogValidity(ctx.db, version!.id),
       };

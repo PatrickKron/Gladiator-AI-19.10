@@ -274,7 +274,7 @@ function PineAnalyzePanel() {
   const { t } = useTranslation();
   const [code, setCode] = useState('');
   const [goal, setGoal] = useState('');
-  const [busy, setBusy] = useState<'analyze' | 'improve' | null>(null);
+  const [busy, setBusy] = useState<'analyze' | 'improve' | 'workshop' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<PineAnalyzeResult | null>(null);
   const [improved, setImproved] = useState<PineImproveResult | null>(null);
@@ -302,6 +302,26 @@ function PineAnalyzePanel() {
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.error'));
       setImproved(null);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function doOpenInWorkshop() {
+    setBusy('workshop');
+    setError(null);
+    try {
+      const sourceToUse = improved?.improved ?? code;
+      const rawTitle = analysis?.structural.title?.trim() || goal.trim() || 'Pine-Strategie';
+      const cleanName = rawTitle.length >= 3 ? rawTitle.slice(0, 100) : `Pine-${rawTitle}`;
+      const session = await trpc.workshop.create.mutate({
+        name: cleanName,
+        pineSource: sourceToUse,
+        autoSynthesizeDraft: true,
+      });
+      window.location.hash = `#/strategien?tab=workshop&session=${session.id}`;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'));
     } finally {
       setBusy(null);
     }
@@ -360,6 +380,14 @@ function PineAnalyzePanel() {
           style={{ borderColor: 'rgba(148,163,184,0.5)', color: 'var(--color-violet, #94a3b8)' }}
         >
           {busy === 'improve' ? t('builder.pineImproving') : t('builder.pineImproveBtn')}
+        </button>
+        <button
+          onClick={() => void doOpenInWorkshop()}
+          disabled={busy !== null || code.trim().length < 20}
+          className="rounded-[0.625rem] border px-5 py-2 text-sm transition-colors disabled:opacity-50"
+          style={{ borderColor: 'rgba(6,182,212,0.5)', color: 'var(--color-cyan)' }}
+        >
+          {busy === 'workshop' ? t('common.loading') : t('builder.pineOpenInWorkshop')}
         </button>
       </div>
 
@@ -516,18 +544,17 @@ function PineAnalyzePanel() {
   );
 }
 
-/** Tabs im Hash — Deep-Link z. B. `#/strategien?tab=pine` (auch über ⌘K-Suche). */
-const STRATEGY_TABS = ['katalog', 'workshop', 'builtin', 'pine'] as const;
+/** Tabs im Hash — Deep-Link z. B. `#/strategien?tab=pine` oder `#/strategien?tab=registry` (Legacy `builtin` wird auf `registry` abgebildet). */
+const STRATEGY_TABS = ['katalog', 'workshop', 'pine', 'registry', 'builtin'] as const;
 type StrategyTab = (typeof STRATEGY_TABS)[number];
 
 export function Strategien() {
   const { t } = useTranslation();
-  // Katalog zuerst (Patricks „umfassendes Sortiment"); der DSL-Editor-Tab
-  // wurde konsolidiert — DSL-Strategien baut man im Strategie-Workshop
-  // (iterativ, mit Backtest-Gate), nicht mehr an zwei Orten.
-  const [tab, setTab] = useHashTab<StrategyTab>('#/strategien', STRATEGY_TABS, 'katalog');
+  const [rawTab, setTab] = useHashTab<StrategyTab>('#/strategien', STRATEGY_TABS, 'katalog');
+  const tab: Exclude<StrategyTab, 'builtin'> = rawTab === 'builtin' ? 'registry' : rawTab;
   const [list, setList] = useState<Strategy[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [kindFilter, setKindFilter] = useState<'all' | 'dsl' | 'pine' | 'builtin'>('all');
 
   async function load() {
     try {
@@ -543,11 +570,23 @@ export function Strategien() {
   }, []);
 
   const tabs = [
-    { id: 'katalog' as const, key: 'builder.tabCatalog' },
-    { id: 'workshop' as const, key: 'builder.tabWorkshop' },
-    { id: 'builtin' as const, key: 'builder.tabBuiltin' },
-    { id: 'pine' as const, key: 'builder.tabPine' },
+    { id: 'katalog' as const, label: t('builder.tabCatalog') },
+    { id: 'workshop' as const, label: t('builder.tabWorkshop') },
+    { id: 'pine' as const, label: t('builder.tabPine') },
+    {
+      id: 'registry' as const,
+      label: list ? `${t('builder.tabRegistry')} (${list.length})` : t('builder.tabRegistry'),
+    },
   ];
+
+  const registryItems =
+    list === null
+      ? null
+      : tab === 'pine'
+        ? list.filter((s) => s.kind === 'pine')
+        : kindFilter === 'all'
+          ? list
+          : list.filter((s) => s.kind === kindFilter);
 
   return (
     <div>
@@ -571,7 +610,7 @@ export function Strategien() {
                     : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
                 }
               >
-                {t(x.key)}
+                {x.label}
               </button>
             ))}
           </div>
@@ -579,42 +618,57 @@ export function Strategien() {
       />
       {error && <ErrorBox message={error} />}
 
+      {tab === 'katalog' && <StrategyCatalog />}
+      {tab === 'workshop' && <Workshop embedded />}
       {tab === 'pine' && (
         <>
           <PineTab onRegistered={() => void load()} />
           <PineAnalyzePanel />
         </>
       )}
-      {tab === 'katalog' && <StrategyCatalog />}
-      {tab === 'workshop' && <Workshop embedded />}
-      {tab === 'builtin' && (
-        <Panel stagger={2}>
-          <p className="text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
-            {t('builder.builtinHint')}
-          </p>
-          <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
-            {t('builder.dslMovedHint')}{' '}
-            <a href="#/strategien?tab=workshop" className="underline decoration-dotted" style={{ color: 'var(--color-cyan)' }}>
-              {t('nav.strategyWorkshop')}
-            </a>
-          </p>
+
+      {(tab === 'registry' || tab === 'pine') && (
+        <Panel label={t('builder.registry')} stagger={3} className={tab === 'pine' ? 'mt-5' : ''}>
+          {tab === 'registry' && (
+            <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+                {t('builder.builtinHint')}{' '}
+                <a href="#/strategien?tab=workshop" className="underline decoration-dotted" style={{ color: 'var(--color-cyan)' }}>
+                  {t('nav.strategyWorkshop')}
+                </a>
+              </p>
+              <div className="flex flex-wrap gap-1.5 shrink-0">
+                {(['all', 'dsl', 'pine', 'builtin'] as const).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setKindFilter(k)}
+                    className="rounded border px-2.5 py-1 text-xs transition-colors"
+                    style={
+                      kindFilter === k
+                        ? { borderColor: 'var(--color-cyan)', color: 'var(--color-cyan)', background: 'rgba(6,182,212,0.12)' }
+                        : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
+                    }
+                  >
+                    {k === 'all' ? t('common.all') : k.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {registryItems === null ? (
+            <Loading />
+          ) : registryItems.length === 0 ? (
+            <Empty text={t('common.empty')} />
+          ) : (
+            <ul className="mt-4 space-y-3">
+              {registryItems.map((s) => (
+                <StrategyRow key={s.id} s={s} onChanged={() => void load()} />
+              ))}
+            </ul>
+          )}
         </Panel>
       )}
-
-      {/* Registry: alle Strategien mit Versionen (immer sichtbar) */}
-      <Panel label={t('builder.registry')} stagger={3} className="mt-5">
-        {list === null ? (
-          <Loading />
-        ) : list.length === 0 ? (
-          <Empty text={t('common.empty')} />
-        ) : (
-          <ul className="mt-4 space-y-3">
-            {(tab === 'pine' ? list.filter((s) => s.kind === 'pine') : list).map((s) => (
-              <StrategyRow key={s.id} s={s} onChanged={() => void load()} />
-            ))}
-          </ul>
-        )}
-      </Panel>
     </div>
   );
 }

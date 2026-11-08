@@ -161,3 +161,106 @@ export function analyzePineScript(code: string): PineAnalysis {
     lineCount: rawLines.length,
   };
 }
+
+/**
+ * Erzeugt einen deterministischen, validierten DSL-Startentwurf aus einer
+ * statischen Pine-Script-Analyse — damit Pine-Scripts sofort im Workshop
+ * gebacktestet und angepasst werden können (auch ohne LLM-Key).
+ */
+export function synthesizeDslFromPineScript(
+  code: string,
+  opts: {
+    id?: string;
+    symbol?: string;
+    timeframe?: '5m' | '15m' | '30m' | '1h' | '2h' | '4h' | '12h' | '1d' | '1w' | '1M';
+  } = {},
+) {
+  const analysis = analyzePineScript(code);
+  const rawSlug = (opts.id ?? analysis.title ?? 'pine-strategy')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+  const id = rawSlug.length >= 3 && /^[a-z0-9][a-z0-9-]*$/.test(rawSlug) ? rawSlug : `pine-${Date.now().toString(36)}`;
+  const symbol = opts.symbol?.trim() ? opts.symbol.trim().toUpperCase() : 'BTC/USDT';
+  const timeframe = opts.timeframe ?? '1h';
+
+  const isShortOnly =
+    analysis.entryCalls.length > 0 &&
+    analysis.entryCalls.every((c) => /strategy\.short/i.test(c)) &&
+    !analysis.entryCalls.some((c) => /strategy\.long/i.test(c));
+  const direction: 'long' | 'short' = isShortOnly ? 'short' : 'long';
+
+  const indLower = analysis.indicators.map((i) => i.toLowerCase());
+  const allConditions: Array<
+    | { signal: 'BOS' | 'CHoCH' }
+    | { indicator: 'RSI'; lt?: number; gt?: number; period?: number }
+    | { trend: 'EMA200_up' | 'EMA200_down' }
+    | { maCross: { kind: 'EMA' | 'SMA'; fast: number; slow: number; cross: 'bullish' | 'bearish'; withinBars: number } }
+    | { macd: { fast: number; slow: number; signal: number; event: 'bullish_cross' | 'bearish_cross'; withinBars: number } }
+    | { supertrend: { period: number; mult: number; direction: 'up' | 'down' } }
+  > = [];
+
+  if (indLower.includes('ema') || indLower.includes('sma')) {
+    allConditions.push({ trend: direction === 'long' ? 'EMA200_up' : 'EMA200_down' });
+  }
+  if (indLower.includes('crossover') || indLower.includes('crossunder')) {
+    allConditions.push({
+      maCross: {
+        kind: indLower.includes('sma') && !indLower.includes('ema') ? 'SMA' : 'EMA',
+        fast: 9,
+        slow: 21,
+        cross: direction === 'long' ? 'bullish' : 'bearish',
+        withinBars: 2,
+      },
+    });
+  }
+  if (indLower.includes('rsi')) {
+    allConditions.push(
+      direction === 'long'
+        ? { indicator: 'RSI', gt: 30, lt: 68, period: 14 }
+        : { indicator: 'RSI', gt: 32, lt: 70, period: 14 },
+    );
+  }
+  if (indLower.includes('macd')) {
+    allConditions.push({
+      macd: {
+        fast: 12,
+        slow: 26,
+        signal: 9,
+        event: direction === 'long' ? 'bullish_cross' : 'bearish_cross',
+        withinBars: 2,
+      },
+    });
+  }
+  if (indLower.includes('supertrend')) {
+    allConditions.push({
+      supertrend: {
+        period: 10,
+        mult: 3,
+        direction: direction === 'long' ? 'up' : 'down',
+      },
+    });
+  }
+  if (allConditions.length === 0) {
+    allConditions.push({ signal: 'BOS' });
+  }
+
+  const useAtr = indLower.includes('atr');
+  return {
+    id,
+    symbol,
+    timeframe,
+    venueType: 'cex' as const,
+    direction,
+    setupType: 'swing' as const,
+    when: {
+      all: allConditions.slice(0, 5),
+    },
+    entry: 'market' as const,
+    stopLoss: useAtr ? ({ type: 'ATR' as const, mult: 1.5 }) : ({ type: 'pct' as const, pct: 1.5 }),
+    takeProfits: [{ rr: 1.5 }, { rr: 2.5 }, { rr: 3.5 }],
+    risk: { maxLeveragePerTrade: 2, riskPctPerTrade: 1 },
+  };
+}
+
