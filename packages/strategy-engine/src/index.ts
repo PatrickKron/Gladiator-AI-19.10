@@ -58,7 +58,13 @@ export {
   type SubAgentExitDecision,
   type SubAgentPositionView,
 } from './sub-agent.js';
-export { analyzePineScript, type PineAnalysis, type PineInput } from './pine-analyze.js';
+export { analyzePineScript, synthesizeDslFromPineScript, type PineAnalysis, type PineInput } from './pine-analyze.js';
+export {
+  adaptPresetDslToTarget,
+  summarizeDslCondition,
+  summarizeDslRules,
+  type DslRuleSummary,
+} from './dsl-summary.js';
 
 export { presetBySlug, STRATEGY_PRESETS, type PresetCategory, type StrategyPreset } from './strategy-presets.js';
 export { trailStep, type TrailInput } from './trailing.js';

@@ -3,8 +3,9 @@ import { and, asc, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
 import { envAnthropicProvider } from '@gladiator/agents';
-import { parseInstructionDsl } from '@gladiator/strategy-engine';
-import { SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
+import { parseInstructionDsl, synthesizeDslFromPineScript } from '@gladiator/strategy-engine';
+import { ensureCandleHistory, SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
+import { evaluateBacktestValidity, runLabBacktest } from '@gladiator/backtest';
 import { protectedProcedure, router } from '../trpc.js';
 import { analyzePine } from '../workshop/llm.js';
 import { performWorkshopChat, WorkshopNotFoundError, workshopLlmGuard } from '../workshop/chat-service.js';
@@ -76,11 +77,34 @@ export const workshopRouter = router({
   }),
 
   create: protectedProcedure
-    .input(z.object({ name: z.string().min(3).max(120), pineSource: z.string().max(100_000).optional() }))
+    .input(
+      z.object({
+        name: z.string().min(3).max(120),
+        pineSource: z.string().max(100_000).optional(),
+        autoSynthesizeDraft: z.boolean().optional(),
+        symbol: z.string().min(1).max(32).optional(),
+        timeframe: timeframeSchema.optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
+      let initialDraft = null;
+      if (input.autoSynthesizeDraft && input.pineSource && input.pineSource.trim().length > 0) {
+        const synthesized = synthesizeDslFromPineScript(input.pineSource, {
+          id: input.name,
+          symbol: input.symbol,
+          timeframe: input.timeframe,
+        });
+        const parsed = parseInstructionDsl(synthesized);
+        if (parsed.ok) initialDraft = parsed.dsl;
+      }
       const [row] = await ctx.db
         .insert(workshopSessions)
-        .values({ userId: ctx.user.id, name: input.name, pineSource: input.pineSource ?? null })
+        .values({
+          userId: ctx.user.id,
+          name: input.name,
+          pineSource: input.pineSource ?? null,
+          ...(initialDraft ? { draftDsl: initialDraft } : {}),
+        })
         .returning();
       await ctx.db.insert(auditLog).values({
         actor: 'user',
@@ -88,7 +112,7 @@ export const workshopRouter = router({
         action: 'workshop.session.created',
         entityType: 'workshop_session',
         entityId: row!.id,
-        details: { name: input.name, hasPine: Boolean(input.pineSource) },
+        details: { name: input.name, hasPine: Boolean(input.pineSource), autoSynthesizeDraft: Boolean(initialDraft) },
         ip: ctx.ip,
       });
       return row!;
@@ -307,6 +331,73 @@ export const workshopRouter = router({
   saveVersion: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(({ ctx, input }) => saveWorkshopVersion(ctx.db, ctx.user.id, input.id, ctx.ip)),
+
+  /**
+   * 1-Schritt-Validierung: Entwurf als neue Strategie-Version speichern UND
+   * sofort den offiziellen 12-Monats-Backtest (inkl. Netto-Kostenmodell &
+   * Validitäts-Urteil) an dieser Version ausführen. Erspart dem Nutzer den
+   * doppelten Klick über zwei getrennte Panels vor dem Paper-Promotion-Gate.
+   */
+  saveAndValidateVersion: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const session = await ownedSession(ctx.db, ctx.user.id, input.id);
+      const parsed = parseInstructionDsl(session.draftDsl);
+      if (!parsed.ok) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Kein gültiger Entwurf in der Sitzung: ${parsed.errors.join('; ')}`,
+        });
+      }
+      const dsl = parsed.dsl;
+      const saved = await saveWorkshopVersion(ctx.db, ctx.user.id, input.id, ctx.ip);
+
+      const to = new Date();
+      const from = new Date(to.getTime() - 365 * 86_400_000);
+      try {
+        await ensureCandleHistory(ctx.db, {
+          symbol: dsl.symbol,
+          timeframe: dsl.timeframe,
+          from,
+          to,
+        });
+      } catch {
+        // Falls Live-Backfill fehlschlägt (z. B. Offline/Test-DB), prüft runLabBacktest die vorhandenen DB-Kerzen.
+      }
+
+      try {
+        const lab = await runLabBacktest(ctx.db, {
+          strategyId: saved.strategyId,
+          versionId: saved.versionId,
+          symbol: dsl.symbol,
+          timeframe: dsl.timeframe,
+          setupType: dsl.setupType,
+          from,
+          to,
+          riskPctPerTrade: dsl.risk.riskPctPerTrade,
+        });
+        const verdict = evaluateBacktestValidity(lab.result.metrics);
+        return {
+          ...saved,
+          backtestOk: true as const,
+          backtestId: lab.backtestId,
+          candles: lab.candles,
+          metrics: lab.result.metrics,
+          verdict,
+          backtestError: null as string | null,
+        };
+      } catch (err) {
+        return {
+          ...saved,
+          backtestOk: false as const,
+          backtestId: null,
+          candles: 0,
+          metrics: null,
+          verdict: null,
+          backtestError: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }),
 
   /** Versionshistorie der verknüpften Strategie. */
   versions: protectedProcedure.input(z.object({ id: z.string().uuid() })).query(async ({ ctx, input }) => {

@@ -1069,6 +1069,27 @@ function VersionsPanel({
     }
   }
 
+  async function saveAndValidateVersion() {
+    setBusy('save-validate');
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await trpc.workshop.saveAndValidateVersion.mutate({ id: session.id });
+      onChanged();
+      await checkValidity(res.versionId);
+      if (res.backtestOk) {
+        setNotice(`${t('sw.versionSaved', { n: res.version })} · ${t('sw.officialBacktestDone')}`);
+      } else {
+        setNotice(t('sw.versionSaved', { n: res.version }));
+        if (res.backtestError) setError(res.backtestError);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function restore(versionId: string) {
     setBusy(versionId);
     setError(null);
@@ -1147,7 +1168,10 @@ function VersionsPanel({
     <Panel label={t('sw.versionsTitle')} stagger={5}>
       <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>{t('sw.versionsHint')}</p>
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <button onClick={() => void saveVersion()} disabled={busy !== null || !draft} className="btn-primary px-4 py-2 text-sm">
+        <button onClick={() => void saveAndValidateVersion()} disabled={busy !== null || !draft} className="btn-primary px-4 py-2 text-sm">
+          {busy === 'save-validate' ? t('sw.backtestRunning') : t('sw.saveAndValidateVersion')}
+        </button>
+        <button onClick={() => void saveVersion()} disabled={busy !== null || !draft} className={secondaryBtn} style={ghostStyle}>
           {busy === 'save' ? t('common.loading') : t('sw.saveVersion')}
         </button>
         {notice && <span className="text-xs" style={{ color: 'var(--color-pos)' }}>{notice}</span>}
@@ -1255,7 +1279,22 @@ export function Workshop({ embedded = false }: { embedded?: boolean } = {}) {
 
   useEffect(() => {
     void loadSessions();
-    void trpc.market.scanUniverse.query().then(setUniverse).catch(() => undefined);
+    void Promise.all([
+      trpc.market.scanUniverse.query().catch(() => ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']),
+      trpc.market.stockSymbols.query().catch(() => ({ configured: { twelvedata: false }, rows: [] as { symbol: string }[] })),
+    ]).then(([cryptoList, stockList]) => {
+      const merged = new Set<string>([
+        ...cryptoList,
+        ...stockList.rows.map((s) => s.symbol),
+        'XAU/USD',
+        'EUR/USD',
+        'SPY',
+        'QQQ',
+        'AAPL',
+        'NVDA',
+      ]);
+      setUniverse(Array.from(merged));
+    });
   }, [loadSessions]);
 
   // Deep-Link aus dem Gladiator-Chat: #/strategien?tab=workshop&session=<id> öffnet die Sitzung direkt.

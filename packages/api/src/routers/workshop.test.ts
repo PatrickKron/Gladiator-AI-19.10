@@ -189,4 +189,42 @@ describe.skipIf(!hasDb)('Workshop: Sitzungen, Entwurf, Backtest, Versionen', () 
     const rows = await db.select().from(workshopSessions).where(eq(workshopSessions.id, sessionId));
     expect(rows).toHaveLength(0);
   });
+
+  it('catalog.list liefert ruleSummary & catalog.openInWorkshop öffnet Preset mit Wunsch-Asset im Workshop', async () => {
+    const list = await caller.catalog.list();
+    expect(list.length).toBeGreaterThan(0);
+    for (const item of list) {
+      expect(item.ruleSummary).toBeDefined();
+      expect(item.ruleSummary.conditions.length).toBeGreaterThan(0);
+      expect(item.ruleSummary.stopLoss.length).toBeGreaterThan(0);
+    }
+
+    const opened = await caller.catalog.openInWorkshop({
+      slug: list[0]!.slug,
+      symbol: 'XAU/USD',
+      timeframe: '4h',
+    });
+    expect(opened.symbol).toBe('XAU/USD');
+    expect(opened.timeframe).toBe('4h');
+
+    const detail = await caller.workshop.get({ id: opened.sessionId });
+    expect((detail.session.draftDsl as { symbol?: string })?.symbol).toBe('XAU/USD');
+    expect(detail.messages.length).toBe(1);
+
+    await caller.workshop.remove({ id: opened.sessionId });
+  });
+
+  it('workshop.create mit autoSynthesizeDraft erzeugt sofortigen DSL-Entwurf aus Pine-Code', async () => {
+    const pine = `//@version=5\nstrategy("Pine Auto Test", overlay=true)\nfast = ta.ema(close, 9)\nslow = ta.ema(close, 21)\nif ta.crossover(fast, slow)\n    strategy.entry("L", strategy.long)`;
+    const created = await caller.workshop.create({
+      name: `Pine Auto ${RUN}`,
+      pineSource: pine,
+      autoSynthesizeDraft: true,
+      symbol: 'SOL/USDT',
+      timeframe: '1h',
+    });
+    expect(created.draftDsl).toBeTruthy();
+    expect((created.draftDsl as { symbol?: string })?.symbol).toBe('SOL/USDT');
+    await caller.workshop.remove({ id: created.id });
+  });
 });
