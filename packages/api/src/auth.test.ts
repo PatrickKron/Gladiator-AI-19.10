@@ -76,8 +76,8 @@ describe.skipIf(!hasDb)('Auth (JWT + Refresh, ein User-Typ)', () => {
     expect(ok.accessToken).toBeTruthy();
 
     const wrongPw = caller.auth.login({ email: email('login'), password: 'falsches-passwort-123' });
-    const unknown = caller.auth.login({ email: email('gibtsnicht'), password: PASSWORD });
     await expect(wrongPw).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    const unknown = caller.auth.login({ email: email('gibtsnicht'), password: PASSWORD });
     await expect(unknown).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
     const [msg1, msg2] = await Promise.all([wrongPw.catch((e) => e.message), unknown.catch((e) => e.message)]);
     expect(msg1).toBe(msg2);

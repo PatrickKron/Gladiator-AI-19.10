@@ -1281,7 +1281,7 @@ export function Workshop({ embedded = false }: { embedded?: boolean } = {}) {
     void loadSessions();
     void Promise.all([
       trpc.market.scanUniverse.query().catch(() => ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']),
-      trpc.market.stockSymbols.query().catch(() => ({ configured: { twelvedata: false }, rows: [] as { symbol: string }[] })),
+      trpc.market.stockSymbols.query().catch(() => ({ rows: [] as { symbol: string }[] })),
     ]).then(([cryptoList, stockList]) => {
       const merged = new Set<string>([
         ...cryptoList,

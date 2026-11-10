@@ -71,6 +71,7 @@ export const mlRouter = router({
       const candles = await getOhlcv(ctx.db, {
         symbol: signal.symbol,
         timeframe: signal.timeframe,
+        venue: signal.venue,
         limit: 1000,
         since: new Date(signal.createdAt.getTime() - 3600_000),
       });
@@ -246,6 +247,7 @@ export const mlRouter = router({
       const candles = await getOhlcv(ctx.db, {
         symbol: signal.symbol,
         timeframe: signal.timeframe,
+        venue: signal.venue,
         limit: 400,
       });
 
@@ -318,6 +320,7 @@ export const mlRouter = router({
       const candles = await getOhlcv(ctx.db, {
         symbol: signal.symbol,
         timeframe: signal.timeframe,
+        venue: signal.venue,
         limit: 400,
       });
 

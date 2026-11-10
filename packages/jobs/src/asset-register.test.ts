@@ -80,6 +80,11 @@ describe('normalizeRegisterSymbol', () => {
     expect(normalizeRegisterSymbol('yahoo', 'DROP TABLE')).toBeNull();
     expect(normalizeRegisterSymbol('yahoo', 'X'.repeat(30))).toBeNull();
   });
+  it('Twelve Data: Großschreibung, Aktien-/ETF-Ticker', () => {
+    expect(normalizeRegisterSymbol('twelvedata', ' aapl ')).toBe('AAPL');
+    expect(normalizeRegisterSymbol('twelvedata', 'brk.b')).toBe('BRK.B');
+    expect(normalizeRegisterSymbol('twelvedata', '')).toBeNull();
+  });
 });
 
 describe('isCandleVenue / assetIdFor / Paket', () => {

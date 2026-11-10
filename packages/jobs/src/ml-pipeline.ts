@@ -10,14 +10,16 @@ import {
   trainForest,
   evaluateForest,
   serializeForest,
+  compareModels,
   DEFAULT_HYPERPARAMS,
   type TrainingSample,
   type FeatureVector,
+  type ForestMetrics,
 } from '@gladiator/ml';
 import { loadSourceCandles } from './source-candles.js';
 import { SCAN_TIMEFRAMES, scanTargets } from './signal-scan.js';
 
-const { mlFeatures, mlLabels, mlModels, signals } = schema;
+const { mlFeatures, mlLabels, mlModels, modelVersions, signals } = schema;
 
 export type MlFeatureResult = {
   computed: number;
@@ -259,8 +261,12 @@ export async function retrainModel(db: Db): Promise<MlRetrainResult> {
   const metrics = evaluateForest(model, testSet);
   const serialized = serializeForest(model);
 
-  // Deactivate previous models
-  await db.update(mlModels).set({ isActive: false }).where(eq(mlModels.isActive, true));
+  // Get current active model (for quality gate comparison)
+  const [activeModel] = await db.select()
+    .from(mlModels)
+    .where(eq(mlModels.isActive, true))
+    .orderBy(desc(mlModels.version))
+    .limit(1);
 
   // Get next version
   const existing = await db.select({ version: mlModels.version })
@@ -269,20 +275,43 @@ export async function retrainModel(db: Db): Promise<MlRetrainResult> {
     .limit(1);
   const nextVersion = (existing[0]?.version ?? 0) + 1;
 
-  await db.insert(mlModels).values({
+  const currentMetrics = (activeModel?.metrics as ForestMetrics | null) ?? null;
+  const comparison = currentMetrics
+    ? compareModels(currentMetrics, metrics, activeModel?.version ?? nextVersion - 1)
+    : null;
+  const shouldActivate = !activeModel || (comparison?.shouldPromote ?? true);
+
+  if (shouldActivate && activeModel) {
+    await db.update(mlModels).set({ isActive: false }).where(eq(mlModels.isActive, true));
+  }
+
+  const [inserted] = await db.insert(mlModels).values({
     name: `meta-rf-global-auto`,
     version: nextVersion,
     modelType: 'random_forest',
     hyperparams: DEFAULT_HYPERPARAMS,
     metrics,
     modelBlob: serialized,
-    isActive: true,
+    isActive: shouldActivate,
+  }).returning({ id: mlModels.id });
+
+  await db.insert(modelVersions).values({
+    modelId: inserted?.id ?? activeModel?.id ?? null,
+    version: nextVersion,
+    metrics,
+    comparison,
+    promoted: shouldActivate,
+    promotedAt: shouldActivate ? new Date() : null,
+    promotedBy: shouldActivate ? 'auto' : null,
+    sampleCount: samples.length,
+    trainSize: trainSet.length,
+    testSize: testSet.length,
   });
 
   return {
-    retrained: true,
+    retrained: shouldActivate,
     sampleCount: samples.length,
     metrics: metrics as unknown as Record<string, number>,
-    reason: null,
+    reason: shouldActivate ? null : (comparison?.reason ?? 'Below quality gate'),
   };
 }

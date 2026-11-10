@@ -12,12 +12,14 @@ import { trpc } from '../api.js';
 export function SignalChart({
   symbol,
   timeframe,
+  venue,
   entry,
   stopLoss,
   takeProfits,
 }: {
   symbol: string;
   timeframe: '15m' | '1h' | '4h' | '1d';
+  venue?: string;
   entry: number;
   stopLoss: number;
   takeProfits: number[];
@@ -59,7 +61,7 @@ export function SignalChart({
     });
 
     void trpc.market.chartCandles
-      .query({ symbol, timeframe, limit: 200 })
+      .query({ symbol, timeframe, venue, limit: 200 })
       .then((candles) => {
         if (cancelled || candles.length === 0) return;
         series.setData(candles as Parameters<typeof series.setData>[0]);
@@ -79,7 +81,7 @@ export function SignalChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [symbol, timeframe, entry, stopLoss, takeProfits]);
+  }, [symbol, timeframe, venue, entry, stopLoss, takeProfits]);
 
   return (
     <div className="mt-3">

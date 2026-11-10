@@ -317,7 +317,7 @@ export function StrategyCatalog() {
       if (Array.isArray(cryptoUni)) {
         for (const s of cryptoUni) merged.add(s);
       }
-      if (stockUni?.rows) {
+      if (stockUni && Array.isArray(stockUni.rows)) {
         for (const s of stockUni.rows) merged.add(s.symbol);
       }
       setAvailableSymbols(Array.from(merged));

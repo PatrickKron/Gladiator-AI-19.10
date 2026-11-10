@@ -9,14 +9,14 @@ import { normalizeRegime, REGIME_COLORS, REGIME_ICONS, type RegimeData } from '.
  * zurückgibt — bei allem Unklaren versteckt sich das Badge, statt
  * „regime.undefined (NaN %)" anzuzeigen.
  */
-export function RegimeBadge({ symbol, timeframe }: { symbol: string; timeframe: string }) {
+export function RegimeBadge({ symbol, timeframe, venue }: { symbol: string; timeframe: string; venue?: string }) {
   const { t } = useTranslation();
   const [data, setData] = useState<RegimeData | null | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
     trpc.ml.regime
-      .query({ symbol, timeframe })
+      .query({ symbol, timeframe, ...(venue ? { venue } : {}) })
       .then((r) => {
         if (!cancelled) setData(normalizeRegime(r));
       })
@@ -24,7 +24,7 @@ export function RegimeBadge({ symbol, timeframe }: { symbol: string; timeframe: 
         if (!cancelled) setData(null);
       });
     return () => { cancelled = true; };
-  }, [symbol, timeframe]);
+  }, [symbol, timeframe, venue]);
 
   if (data === undefined || data === null) return null;
 

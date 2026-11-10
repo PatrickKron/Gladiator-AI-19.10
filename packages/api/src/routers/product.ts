@@ -230,7 +230,7 @@ export const productRouter = router({
   addAsset: protectedProcedure
     .input(
       z.object({
-        venue: z.enum(['binance', 'yahoo']),
+        venue: z.enum(['binance', 'yahoo', 'twelvedata']),
         symbol: z.string().trim().min(1).max(32),
         name: z.string().trim().max(120).optional(),
         kind: z.string().trim().max(20).optional(),
