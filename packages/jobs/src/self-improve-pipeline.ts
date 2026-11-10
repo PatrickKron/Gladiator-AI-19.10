@@ -10,6 +10,8 @@ import {
   computeCalmar,
   retrainWithFeedback,
   featureVectorToArray,
+  serializeForest,
+  DEFAULT_HYPERPARAMS,
   type FeatureVector,
   type TrainingSample,
 } from '@gladiator/ml';
@@ -178,10 +180,32 @@ export async function runModelComparison(db: Db): Promise<ModelComparisonResult>
 
   const retrain = retrainWithFeedback(samples, currentMetrics, currentVersion);
 
+  let targetModelId = activeModel?.id ?? null;
+  if (retrain.newModel && retrain.newMetrics) {
+    if (retrain.retrained && activeModel) {
+      await db.update(mlModels).set({ isActive: false }).where(eq(mlModels.isActive, true));
+    }
+    const existing = await db.select({ version: mlModels.version })
+      .from(mlModels)
+      .orderBy(desc(mlModels.version))
+      .limit(1);
+    const nextVersion = (existing[0]?.version ?? currentVersion) + 1;
+    const [inserted] = await db.insert(mlModels).values({
+      name: `meta-rf-global-auto`,
+      version: nextVersion,
+      modelType: 'random_forest',
+      hyperparams: DEFAULT_HYPERPARAMS,
+      metrics: retrain.newMetrics,
+      modelBlob: serializeForest(retrain.newModel),
+      isActive: retrain.retrained,
+    }).returning({ id: mlModels.id });
+    targetModelId = inserted?.id ?? targetModelId;
+  }
+
   // Record version in history regardless of promotion
   if (retrain.newMetrics) {
     await db.insert(modelVersions).values({
-      modelId: activeModel?.id ?? null,
+      modelId: targetModelId,
       version: currentVersion + 1,
       metrics: retrain.newMetrics,
       comparison: retrain.comparison,

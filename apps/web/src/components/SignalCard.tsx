@@ -821,7 +821,7 @@ export function SignalCard({
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <RegimeBadge symbol={signal.symbol} timeframe={signal.timeframe} />
+          <RegimeBadge symbol={signal.symbol} timeframe={signal.timeframe} venue={signal.venue} />
           <MlBadge signalId={signal.id} />
           <span className="num text-2xl font-bold tracking-tight" style={{ color: RISK_COLOR[signal.riskClass] }} title={`${Number(signal.score).toLocaleString(appLocale(), { minimumFractionDigits: 1 })} / 10`}>
             {Number(signal.score).toLocaleString(appLocale(), { minimumFractionDigits: 1 })}
@@ -863,6 +863,7 @@ export function SignalCard({
         <SignalChart
           symbol={signal.symbol}
           timeframe={signal.timeframe as '15m' | '1h' | '4h' | '1d'}
+          venue={signal.venue}
           entry={Number(signal.entry)}
           stopLoss={Number(signal.stopLoss)}
           takeProfits={signal.takeProfits.map(Number)}

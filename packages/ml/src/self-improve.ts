@@ -288,7 +288,7 @@ export function retrainWithFeedback(
 
   return {
     retrained: comparison.shouldPromote,
-    newModel: comparison.shouldPromote ? newModel : null,
+    newModel,
     newMetrics,
     comparison,
     reason: comparison.reason,

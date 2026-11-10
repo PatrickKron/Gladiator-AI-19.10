@@ -395,7 +395,7 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue, opts: { sign
         kind: 'signal',
         title: `${facts.symbol} ${facts.direction === 'long' ? 'Long' : 'Short'} · ${facts.timeframe} · Score ${facts.score.toFixed(1)}`,
         body: telegramHtmlToText(signalHtml),
-        link: '#/signals',
+        link: `#/signals?symbol=${encodeURIComponent(facts.symbol)}`,
         telegramHtml: signalHtml,
       });
 

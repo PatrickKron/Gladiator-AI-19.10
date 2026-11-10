@@ -2,15 +2,19 @@ import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import {
+  ingestTwelveData,
   ingestYahooChart,
   latestCandleTs,
   listBinanceSpotPairs,
   searchYahoo,
+  twelveDataConfigured,
+  TWELVEDATA_VENUE,
   yahooRefreshRange,
   YAHOO_LOAD_PLAN,
   YAHOO_VENUE,
   type SpotPair,
   type StockHit,
+  type TwelveDataIngestResult,
   type YahooChartMeta,
   type YahooIngestResult,
 } from '@gladiator/market-data';
@@ -224,6 +228,7 @@ export class AssetRegisterError extends Error {
 }
 
 type YahooIngest = (db: Db, opts: { symbol: string; timeframe?: string; range?: string }) => Promise<YahooIngestResult>;
+type TwelveDataIngest = (db: Db, opts: { symbol: string; timeframe: string; outputsize?: number }) => Promise<TwelveDataIngestResult>;
 
 /** Netz-Quellen austauschbar (Tests); Produktion nutzt die echten Adapter. */
 export type RegisterDeps = {
@@ -231,11 +236,13 @@ export type RegisterDeps = {
   searchYahoo?: (q: string, limit: number) => Promise<StockHit[]>;
   ensureBinance?: (db: Db, symbol: string) => Promise<{ symbol: string; inserted: number; errors: string[] }>;
   ingestYahoo?: YahooIngest;
+  ingestTwelveData?: TwelveDataIngest;
+  twelveDataConfigured?: () => boolean;
   now?: () => Date;
 };
 
 export type RegisterInput = {
-  venue: 'binance' | 'yahoo';
+  venue: CandleVenue;
   symbol: string;
   /** Anzeigename aus der Suche des Clients — nur Fallback, die Quelle gewinnt. */
   name?: string | null;
@@ -376,7 +383,58 @@ async function loadYahoo(db: Db, symbol: string, input: RegisterInput, deps: Reg
   };
 }
 
-/** Paket „Eigene Märkte“ finden oder anlegen (idempotent über den Slug). */
+async function loadTwelveData(
+  db: Db,
+  symbol: string,
+  input: RegisterInput,
+  deps: RegisterDeps,
+): Promise<{ d: Descriptor; inserted: number; errors: string[]; candles: Record<string, number> }> {
+  const configured = (deps.twelveDataConfigured ?? twelveDataConfigured)();
+  const ingest = deps.ingestTwelveData ?? ingestTwelveData;
+  let inserted = 0;
+  const errors: string[] = [];
+
+  if (configured) {
+    for (const timeframe of ['1d', '1h'] as const) {
+      try {
+        const r = await ingest(db, { symbol, timeframe, outputsize: 500 });
+        inserted += r.inserted;
+      } catch (err) {
+        errors.push(`${timeframe}: ${errText(err)}`);
+      }
+    }
+  }
+
+  const candles = await candleCounts(db, TWELVEDATA_VENUE, symbol);
+  if (Object.keys(candles).length === 0) {
+    if (!configured) {
+      throw new AssetRegisterError(
+        'UNREACHABLE',
+        'Twelve-Data-API-Key nicht gesetzt — in Einstellungen → API-Keys hinterlegen oder Yahoo nutzen.',
+      );
+    }
+    throw new AssetRegisterError('NO_CANDLES', `Twelve Data liefert keine Kerzen für ${symbol} (${errors.join(' · ') || 'unbekannt'}).`);
+  }
+
+  const clientName = input.name?.trim().slice(0, 120) || null;
+  const ticker = displayTicker('twelvedata', symbol);
+  return {
+    d: {
+      venue: 'twelvedata',
+      dataSymbol: symbol,
+      ticker,
+      name: clientName ?? ticker,
+      assetType: assetTypeFor('twelvedata', input.kind ?? null, symbol),
+      exchange: null,
+      tradingPair: null,
+      baseCurrency: null,
+      quoteCurrency: null,
+    },
+    inserted,
+    errors,
+    candles,
+  };
+}
 export async function ensureUserMarketsPackage(db: Db): Promise<number> {
   await db
     .insert(packages)
@@ -459,9 +517,15 @@ export async function upsertRegisteredAsset(db: Db, d: Descriptor): Promise<{ ro
 export async function registerAsset(db: Db, input: RegisterInput, deps: RegisterDeps = {}): Promise<RegisterResult> {
   const symbol = normalizeRegisterSymbol(input.venue, input.symbol);
   if (!symbol) {
-    throw new AssetRegisterError('BAD_INPUT', `„${input.symbol.slice(0, 40)}“ ist kein gültiges ${input.venue === 'binance' ? 'Binance-Paar' : 'Yahoo-Symbol'}.`);
+    const label = input.venue === 'binance' ? 'Binance-Paar' : input.venue === 'twelvedata' ? 'Twelve-Data-Symbol' : 'Yahoo-Symbol';
+    throw new AssetRegisterError('BAD_INPUT', `„${input.symbol.slice(0, 40)}“ ist kein gültiges ${label}.`);
   }
-  const loaded = input.venue === 'binance' ? await loadBinance(db, symbol, deps) : await loadYahoo(db, symbol, input, deps);
+  const loaded =
+    input.venue === 'binance'
+      ? await loadBinance(db, symbol, deps)
+      : input.venue === 'twelvedata'
+        ? await loadTwelveData(db, symbol, input, deps)
+        : await loadYahoo(db, symbol, input, deps);
   const { row, created, linked } = await upsertRegisteredAsset(db, loaded.d);
 
   if (input.favorite) {
