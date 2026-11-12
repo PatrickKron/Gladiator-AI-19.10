@@ -65,9 +65,10 @@ describe.skipIf(!hasDb)('Schlusskurs-Ausführung (Yahoo-Signal, echte DB)', () =
     const [s] = await db.insert(strategies).values({ slug: `close-exec-${RUN}`, name: 'Close Exec Test', kind: 'builtin' }).returning();
     const [v] = await db.insert(strategyVersions).values({ strategyId: s!.id, version: 1, params: {}, status: 'paper' }).returning();
 
-    // 60 abgeschlossene 1h-Kerzen bis vor einer Stunde, leicht schwankend, letzter Schluss 100.
+    // 60 abgeschlossene 1h-Kerzen bis vor 18 Stunden (Börsenschluss-Pause über Nacht/Wochenende:
+    // älter als 2h+5m für 24/7-Krypto, aber innerhalb der 4-Tage-Frischegrenze für Yahoo).
     const hour = 3_600_000;
-    const lastTs = Math.floor(Date.now() / hour) * hour - hour;
+    const lastTs = Math.floor(Date.now() / hour) * hour - 18 * hour;
     for (let i = 59; i >= 0; i--) {
       const ts = new Date(lastTs - i * hour);
       const close = i === 0 ? 100 : 100 + (i % 2 === 0 ? 0.4 : -0.4);

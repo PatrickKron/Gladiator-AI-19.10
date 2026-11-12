@@ -4,7 +4,8 @@ import { z } from 'zod';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { DSL_SCHEMA_DOC, analyzePineScript, parseInstructionDsl, type InstructionDsl } from '@gladiator/strategy-engine';
-import { evaluateBacktestValidity, readHoldout, DEFAULT_VALIDITY_THRESHOLDS, type ValidityVerdict } from '@gladiator/backtest';
+import { evaluateBacktestValidity, readHoldout, runLabBacktest, DEFAULT_VALIDITY_THRESHOLDS, type ValidityVerdict } from '@gladiator/backtest';
+import { ensureCandleHistory } from '@gladiator/market-data';
 import { CostGuard, envAnthropicProvider, guardedComplete } from '@gladiator/agents';
 import { protectedProcedure, router } from '../trpc.js';
 
@@ -402,7 +403,13 @@ Antworte exakt in dieser Form:
       return { ok: true as const, llmUsed, dsl: parsed.dsl, errors: [] as string[] };
     }),
 
-  /** DSL registrieren (Patricks Bestätigung — Mensch im Loop). Paper-Status, nie live. */
+  /**
+   * DSL registrieren (Patricks Bestätigung — Mensch im Loop).
+   * Vision-5-Gate: legt die Version zunächst als `draft` an, führt automatisch
+   * einen echten 12-Monats-Netto-Backtest durch und schaltet nur bei bestandenem
+   * Validitäts-Gate auf `paper`. Scheitert der Backtest oder fällt das Gate,
+   * bleibt die Version sicher auf `draft` (nie blind in den Paper-Scan).
+   */
   dslRegister: protectedProcedure
     .input(z.object({ dsl: z.unknown() }))
     .mutation(async ({ ctx, input }) => {
@@ -448,11 +455,42 @@ Antworte exakt in dieser Form:
           strategyId,
           version: nextVersion,
           params: dsl,
-          status: 'paper', // Paper-Default (Regel 3); Live-Promotion ist ein separater Schritt.
-          promotedBy: ctx.user.id,
-          promotedAt: new Date(),
+          status: 'draft',
         })
         .returning();
+
+      const to = new Date();
+      const from = new Date(to.getTime() - 12 * 30 * 86_400_000);
+      let status: 'draft' | 'paper' = 'draft';
+      let gateReasons: string[] = [];
+
+      try {
+        await ensureCandleHistory(ctx.db, { symbol: dsl.symbol, timeframe: dsl.timeframe, from, to });
+        const lab = await runLabBacktest(ctx.db, {
+          strategyId,
+          versionId: version!.id,
+          symbol: dsl.symbol,
+          timeframe: dsl.timeframe,
+          setupType: dsl.setupType,
+          from,
+          to,
+          riskPctPerTrade: dsl.risk.riskPctPerTrade,
+        });
+        const verdict = evaluateBacktestValidity(lab.result.metrics);
+        if (verdict.passed) {
+          await ctx.db
+            .update(strategyVersions)
+            .set({ status: 'paper', promotedBy: ctx.user.id, promotedAt: new Date() })
+            .where(eq(strategyVersions.id, version!.id));
+          status = 'paper';
+        } else {
+          gateReasons = verdict.reasons;
+        }
+      } catch (err) {
+        gateReasons = [err instanceof Error ? err.message : String(err)];
+      }
+
+      const validity = await loadVersionValidity(ctx.db, version!.id);
 
       await ctx.db.insert(auditLog).values({
         actor: 'user',
@@ -460,10 +498,10 @@ Antworte exakt in dieser Form:
         action: 'strategy.dsl.registered',
         entityType: 'strategy',
         entityId: strategyId,
-        details: { slug: dsl.id, version: nextVersion, dsl },
+        details: { slug: dsl.id, version: nextVersion, status, gateReasons, dsl },
         ip: ctx.ip,
       });
 
-      return { strategyId, versionId: version!.id, version: nextVersion, status: 'paper' as const };
+      return { strategyId, versionId: version!.id, version: nextVersion, status, gateReasons, validity };
     }),
 });

@@ -194,4 +194,29 @@ describe.skipIf(!hasDb)('Phase-6-Router (Settings, Product, Agents, Promotion)',
     expect(versions.length).toBe(1);
     expect(versions[0]!.status).toBe('paper');
   });
+
+  it('strategies.dslRegister: ohne bestandenen 12-Monats-Backtest bleibt die Version sicher auf draft (Vision-5-Gate)', async () => {
+    const slug = `dsl-reg-${RUN}`;
+    try {
+      const reg = await caller.strategies.dslRegister({
+        dsl: {
+          id: slug,
+          symbol: `NODB${Date.now() % 100000}/USDT`,
+          timeframe: '1h',
+          direction: 'long',
+          setupType: 'swing',
+          when: { session: 'london', all: [{ rsi: { period: 14, op: 'lt', value: 30 } }] },
+          entry: { type: 'market' },
+          stopLoss: { type: 'pct', pct: 1.5 },
+          takeProfits: [{ rr: 2 }],
+          risk: { riskPctPerTrade: 1, maxLeveragePerTrade: 2 },
+        },
+      });
+      expect(reg.status).toBe('draft');
+      expect(reg.gateReasons.length).toBeGreaterThan(0);
+      expect(reg.validity.hasBacktest).toBe(false);
+    } finally {
+      await db.delete(strategies).where(eq(strategies.slug, slug));
+    }
+  });
 });
