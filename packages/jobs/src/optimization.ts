@@ -11,7 +11,7 @@ import {
   type SmcCoreParams,
 } from '@gladiator/strategy-engine';
 import {
-  DEFAULT_COSTS,
+  costModelForVenue,
   diffParams,
   dslGrid,
   loadLabMarketData,
@@ -26,6 +26,7 @@ import {
   type OptimizationStudy,
   type StudyMarket,
 } from '@gladiator/backtest';
+import { registeredAssets } from './asset-register.js';
 import { BASE_SYMBOLS } from './universe.js';
 
 const { strategies, strategyVersions, optimizations, auditLog } = schema;
@@ -142,7 +143,7 @@ async function loadMarkets(
         base: {
           initialEquity: 10_000,
           riskPctPerTrade: 1,
-          costModel: DEFAULT_COSTS,
+          costModel: costModelForVenue(data.venue),
           barsPerYear: BARS_PER_YEAR[m.timeframe]!,
           tpWeights: [0.5, 0.3, 0.2],
           setupType,
@@ -175,7 +176,8 @@ export async function runStrategyOptimization(db: Db, opts: OptimizationRunOptio
       if (target.kind === 'smc') {
         const current: SmcCoreParams = { ...SMC_CORE_DEFAULTS, ...(target.params as Partial<SmcCoreParams>) };
         currentParams = current;
-        const symbols = opts.smcSymbols ?? BASE_SYMBOLS;
+        const reg = opts.smcSymbols ? [] : await registeredAssets(db);
+        const symbols = opts.smcSymbols ?? [...new Set([...BASE_SYMBOLS, ...reg.map((r) => r.symbol)])];
         markets = await loadMarkets(db, symbols.map((symbol) => ({ symbol, timeframe: SMC_OPT_TIMEFRAME })), SMC_OPT_SETUP, now, summary.skipped, label);
         if (markets.study.length === 0) continue;
         await breathe();

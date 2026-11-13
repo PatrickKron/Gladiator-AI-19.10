@@ -11,9 +11,11 @@ import {
   PAPER_START_EQUITY,
   updateProtection,
   venueForPosition,
+  venueForSource,
   candleCloseSourceOf,
 } from '@gladiator/exchange';
 import { evaluateRisk } from '@gladiator/risk';
+import { resolveCandleVenue } from '@gladiator/market-data';
 import { CANDLE_VENUES } from '@gladiator/jobs';
 import { protectedProcedure, router } from '../trpc.js';
 import { buildTradesCsv } from '../export/trades-csv.js';
@@ -181,12 +183,13 @@ export const tradingRouter = router({
   history: protectedProcedure
     .input(z.object({ limit: z.number().int().min(1).max(100).default(25) }))
     .query(async ({ ctx, input }) => {
-      return ctx.db
+      const rows = await ctx.db
         .select()
         .from(executedTrades)
         .where(eq(executedTrades.userId, ctx.user.id))
         .orderBy(desc(executedTrades.createdAt))
         .limit(input.limit);
+      return rows.map((r) => ({ ...r, candleVenue: candleCloseSourceOf(r.venue) ?? 'binance' }));
     }),
 
   /**
@@ -295,7 +298,8 @@ export const tradingRouter = router({
   sizePreview: protectedProcedure
     .input(
       z.object({
-        symbol: z.string().min(3),
+        symbol: z.string().min(1),
+        venue: z.enum(CANDLE_VENUES).optional(),
         direction: z.enum(['long', 'short']),
         entry: z.number().positive(),
         stopLoss: z.number().positive(),
@@ -304,18 +308,26 @@ export const tradingRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       if (!ctx.venue) return { available: false as const, detail: 'Kein Trading-Venue aktiv.' };
+      const symbol = input.symbol.toUpperCase();
+      const sourceVenue = input.venue ?? (await resolveCandleVenue(ctx.db, symbol));
       const settings = await loadRiskSettings(ctx.db, ctx.user.id);
       const state = await buildAccountState(ctx.db, ctx.user.id);
       const gates = await loadActiveGates(ctx.db);
       let rules;
       try {
-        rules = await ctx.venue.marketRules(input.symbol.toUpperCase());
-      } catch {
-        return { available: false as const, detail: `Keine Marktregeln fuer ${input.symbol} (Symbol an der Boerse unbekannt).` };
+        const execVenue = venueForSource(ctx.venue, sourceVenue);
+        rules = await execVenue.marketRules(symbol);
+      } catch (err) {
+        return {
+          available: false as const,
+          detail: err instanceof Error && err.message.includes('Kursquelle')
+            ? err.message
+            : `Keine Marktregeln fuer ${symbol} (${sourceVenue}).`,
+        };
       }
       const verdict = evaluateRisk(
         {
-          symbol: input.symbol.toUpperCase(),
+          symbol,
           direction: input.direction,
           entry: input.entry,
           stopLoss: input.stopLoss,

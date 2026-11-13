@@ -142,7 +142,7 @@ export const instructionDslSchema = z
       .min(3)
       .max(64)
       .regex(/^[a-z0-9][a-z0-9-]*$/, 'id: nur Kleinbuchstaben, Ziffern, Bindestriche'),
-    symbol: z.string().min(3),
+    symbol: z.string().min(1).max(32),
     timeframe: z.enum(DSL_TIMEFRAMES).default('1h'),
     venueType: z.enum(['cex', 'dex']).default('cex'),
     direction: z.enum(['long', 'short']),

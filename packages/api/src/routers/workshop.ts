@@ -268,7 +268,7 @@ export const workshopRouter = router({
       z.object({
         id: z.string().uuid(),
         label: z.string().max(120).optional(),
-        symbol: z.string().min(3).optional(),
+        symbol: z.string().min(1).optional(),
         timeframe: timeframeSchema.optional(),
         from: z.string().datetime(),
         to: z.string().datetime(),

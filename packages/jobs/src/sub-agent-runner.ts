@@ -16,7 +16,7 @@ import {
   type SubAgentSnapshot,
   type SubAgentSpec,
 } from '@gladiator/strategy-engine';
-import { closePositionNow, executeConfirmedSignal, PAPER_START_EQUITY, type TradingVenue } from '@gladiator/exchange';
+import { candleCloseSourceOf, closePositionNow, executeConfirmedSignal, PAPER_START_EQUITY, type TradingVenue } from '@gladiator/exchange';
 import { CostGuard, envAnthropicProvider } from '@gladiator/agents';
 import { runAnalysisGate } from './sub-agent-llm.js';
 import { formatEmergencyAlert } from './telegram.js';
@@ -252,7 +252,8 @@ export async function runSubAgents(
       // (2) Ausstiege — pro offener Position agenten-verwaltete Exits prüfen.
       for (const pos of openPositions) {
         const reg = regBySymbol.get(pos.symbol);
-        const snap = await snapshotFor(db, reg?.venue ?? 'binance', pos.symbol, spec, macro, news, events, now);
+        const posVenueSource = candleCloseSourceOf(pos.venue) ?? reg?.venue ?? 'binance';
+        const snap = await snapshotFor(db, posVenueSource, pos.symbol, spec, macro, news, events, now);
         if (!snap) continue;
         const exit = evaluateSubAgentExit(spec, { openedAt: pos.openedAt, direction: pos.direction, entryPrice: Number(pos.entryPrice) }, snap);
         if (exit) {

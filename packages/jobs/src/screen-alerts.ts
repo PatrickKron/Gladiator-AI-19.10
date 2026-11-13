@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { conditionsSchema, evaluateScreen, MAX_UNIVERSE, MIN_CANDLES, pineTimeframe, SCREEN_CANDLES, tickerIdOf } from '@gladiator/indicators';
-import { candleUniverse, getOhlcv } from '@gladiator/market-data';
+import { candleUniverse, loadSourceCandles } from '@gladiator/market-data';
 import { escapeHtml } from './telegram.js';
 import { notifySafe, telegramHtmlToText, type NotifyDeps } from './notify.js';
 
@@ -71,7 +71,7 @@ export async function runScreenAlerts(db: Db, deps: { notify?: NotifyDeps; now?:
       const ck = `${key}:${symbol}`;
       let candles = candleCache.get(ck);
       if (!candles) {
-        candles = await getOhlcv(db, { symbol, timeframe: screen.timeframe, limit: SCREEN_CANDLES, venue });
+        candles = await loadSourceCandles(db, { symbol, timeframe: screen.timeframe, limit: SCREEN_CANDLES, venue });
         candleCache.set(ck, candles);
       }
       if (candles.length < MIN_CANDLES) continue;
