@@ -124,7 +124,14 @@ export function Labor() {
       .query()
       .then((rows) => setDslStrategies(rows.filter((r) => r.kind === 'dsl').map((r) => ({ id: r.id, name: r.name, slug: r.slug }))))
       .catch(() => setDslStrategies([]));
-    void trpc.market.scanUniverse.query().then(setUniverse).catch(() => undefined);
+    void Promise.all([
+      trpc.market.scanUniverse.query().catch(() => ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']),
+      trpc.market.stockSymbols.query().catch(() => ({ configured: { twelvedata: false }, rows: [] })),
+    ]).then(([crypto, stocks]) => {
+      const merged = new Set<string>(crypto);
+      for (const s of stocks.rows) merged.add(s.symbol);
+      setUniverse([...merged]);
+    });
   }, []);
   const [timeframe, setTimeframe] = useState<(typeof TIMEFRAMES)[number]>('1h');
   const [setupType, setSetupType] = useState<(typeof SETUPS)[number]>('swing');

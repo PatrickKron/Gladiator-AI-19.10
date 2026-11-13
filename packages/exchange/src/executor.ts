@@ -24,6 +24,7 @@ import {
   type DslExecutionPlan,
 } from '@gladiator/strategy-engine';
 import { recordPaperStudyTrade } from './study-record.js';
+import { freshnessLimitMs } from '@gladiator/market-data';
 import { candleTimeframeFor, signalExecutionBlock } from './signal-venue.js';
 import { CandleCloseVenue, venueForPosition, venueForSource } from './candle-close-venue.js';
 
@@ -221,19 +222,35 @@ export async function loadOrderRiskInputs(
     // ehrlich null → Collar blockt
   }
 
-  // SAFE-005: Kerzen-Frische + Z-Score aus den echten Kerzen des Signal-Timeframes
+  // SAFE-005: Kerzen-Frische + Z-Score aus den echten Kerzen des Signal-Timeframes.
+  // Bei Schlusskurs-Venues (Yahoo/Twelve Data) gilt dieselbe Quellen-Frischegrenze
+  // (freshnessLimitMs: mind. 4 Tage für Wochenend-/Börsenschluss-Pausen) wie bei markPrice.
   const candleTf = p.candleTimeframe ?? p.timeframe;
   const tfMs = timeframeToMs(candleTf);
+  const closeSource = venue instanceof CandleCloseVenue ? venue.source : undefined;
   const candleRows = await db
     .select({ ts: ohlcv.ts, close: ohlcv.close })
     .from(ohlcv)
-    .where(and(eq(ohlcv.symbol, p.symbol), eq(ohlcv.timeframe, candleTf), lte(ohlcv.ts, now)))
+    .where(
+      and(
+        eq(ohlcv.symbol, p.symbol),
+        eq(ohlcv.timeframe, candleTf),
+        closeSource ? eq(ohlcv.venue, closeSource) : undefined,
+        lte(ohlcv.ts, now),
+      ),
+    )
     .orderBy(desc(ohlcv.ts))
     .limit(60);
   const candles = dedupeByTs(candleRows).slice(0, 51).reverse();
   const lastCandle = candles[candles.length - 1];
+  const expectedMaxAgeMs =
+    tfMs !== null
+      ? closeSource
+        ? Math.max(2 * tfMs + CANDLE_REFRESH_CADENCE_MS, freshnessLimitMs(candleTf, closeSource))
+        : 2 * tfMs + CANDLE_REFRESH_CADENCE_MS
+      : null;
   const marketData =
-    lastCandle && tfMs !== null ? { lastCandleTs: lastCandle.ts, expectedMaxAgeMs: 2 * tfMs + CANDLE_REFRESH_CADENCE_MS } : null;
+    lastCandle && expectedMaxAgeMs !== null ? { lastCandleTs: lastCandle.ts, expectedMaxAgeMs } : null;
   const priceZScore = markPrice !== null ? returnZScore(markPrice, candles.map((c) => Number(c.close))) : null;
 
   // SAFE-006: Slippage der eigenen Entry-Fills im 24-h-Fenster (am Order-Datensatz gemessen)

@@ -16,6 +16,7 @@ import {
   getAssetQuotes,
   getEurUsdRate,
   getOhlcv,
+  loadSourceCandles,
   latestFreshClose,
   ingestTwelveData,
   twelveDataConfigured,
@@ -754,7 +755,7 @@ export const marketRouter = router({
       }),
     )
     .query(async ({ ctx, input }) => {
-      const candles = await getOhlcv(ctx.db, {
+      const candles = await loadSourceCandles(ctx.db, {
         symbol: input.symbol.toUpperCase(),
         timeframe: input.timeframe,
         venue: input.venue,
