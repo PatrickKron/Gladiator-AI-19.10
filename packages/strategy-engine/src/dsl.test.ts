@@ -43,6 +43,19 @@ describe('Anweisungs-DSL: Schema-Validierung (Zod, 07_ §3)', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors.length).toBeGreaterThan(0);
   });
+
+  it('akzeptiert 1-Zeichen-Aktienticker wie F oder T', () => {
+    const res = parseInstructionDsl({
+      id: 'short-ticker-f',
+      symbol: 'F',
+      direction: 'long',
+      when: { all: [{ trend: 'EMA200_up' }] },
+      entry: 'market',
+      stopLoss: { type: 'pct', pct: 2 },
+      takeProfits: [{ rr: 2 }],
+    });
+    expect(res.ok).toBe(true);
+  });
 });
 
 // ── Auswertung auf synthetischen Kerzen (deterministisch, look-ahead-frei) ──

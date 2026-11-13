@@ -2,9 +2,9 @@ import { TRPCError } from '@trpc/server';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema, type Db } from '@gladiator/db';
-import { getOhlcv } from '@gladiator/market-data';
+import { loadSourceCandles, resolveCandleVenue } from '@gladiator/market-data';
 import { parseSubAgentSpec, subAgentSpecSchema, type SubAgentSpec } from '@gladiator/strategy-engine';
-import { backtestSubAgent } from '@gladiator/backtest';
+import { backtestSubAgent, costModelForVenue } from '@gladiator/backtest';
 import { PAPER_START_EQUITY, venueForPosition } from '@gladiator/exchange';
 import { SUB_AGENT_TEMPLATES } from './sub-agent-templates.js';
 import { protectedProcedure, router } from '../trpc.js';
@@ -24,7 +24,7 @@ const metaInput = z.object({
   thesis: z.string().max(2000).optional(),
   /** Optionaler KI-Analyse-Prompt (leer = rein regelbasiert). */
   analysisPrompt: z.string().max(4000).optional(),
-  symbols: z.array(z.string().min(3).max(20)).min(1).max(20),
+  symbols: z.array(z.string().min(1).max(20)).min(1).max(20),
 });
 
 /** Leerer/whitespace-Prompt wird als „nicht gesetzt" (NULL) gespeichert. */
@@ -130,7 +130,8 @@ type BacktestResponse =
 /** Führt den Backtest für einen (bereits validierten) Spec aus — eine Wahrheit für backtest + backtestDraft. */
 async function runSpecBacktest(db: Db, spec: SubAgentSpec, symbol: string, days: number): Promise<BacktestResponse> {
   const since = new Date(Date.now() - days * 86_400_000);
-  const candles = await getOhlcv(db, { symbol, timeframe: spec.timeframe, since });
+  const venue = await resolveCandleVenue(db, symbol);
+  const candles = await loadSourceCandles(db, { venue, symbol, timeframe: spec.timeframe, since });
   if (candles.length < 30) {
     return {
       symbol,
@@ -139,7 +140,7 @@ async function runSpecBacktest(db: Db, spec: SubAgentSpec, symbol: string, days:
       detail: `Zu wenig Historie für ${symbol} @ ${spec.timeframe} (${candles.length} Kerzen) — bitte Backfill/anderes Symbol.`,
     };
   }
-  const res = backtestSubAgent(candles, spec);
+  const res = backtestSubAgent(candles, spec, { costModel: costModelForVenue(venue) });
   return {
     symbol,
     candleCount: candles.length,
@@ -186,11 +187,16 @@ export const subAgentsRouter = router({
       .groupBy(executedTrades.subAgentId);
     for (const r of statRows) if (r.subAgentId) statByAgent.set(r.subAgentId, { trades: r.trades, netPnl: r.netPnl });
 
+    const uniqueSyms = [...new Set(rows.flatMap((r) => r.symbols))];
+    const venueEntries = await Promise.all(uniqueSyms.map(async (s) => [s, await resolveCandleVenue(ctx.db, s)] as const));
+    const venueMap = Object.fromEntries(venueEntries);
+
     return rows.map((r) => ({
       ...toDto(r),
       openPositions: openByAgent.get(r.id) ?? 0,
       closedTrades: statByAgent.get(r.id)?.trades ?? 0,
       netPnl: statByAgent.get(r.id)?.netPnl ?? 0,
+      symbolVenues: Object.fromEntries(r.symbols.map((s) => [s, venueMap[s] ?? 'binance'])),
     }));
   }),
 
@@ -384,7 +390,7 @@ export const subAgentsRouter = router({
     .input(
       z.object({
         id: z.string().uuid(),
-        symbol: z.string().min(3).max(20).optional(),
+        symbol: z.string().min(1).max(20).optional(),
         days: z.number().int().min(7).max(730).default(120),
       }),
     )
@@ -404,9 +410,9 @@ export const subAgentsRouter = router({
   backtestDraft: protectedProcedure
     .input(
       z.object({
-        symbols: z.array(z.string().min(3).max(20)).min(1).max(20),
+        symbols: z.array(z.string().min(1).max(20)).min(1).max(20),
         spec: subAgentSpecSchema,
-        symbol: z.string().min(3).max(20).optional(),
+        symbol: z.string().min(1).max(20).optional(),
         days: z.number().int().min(7).max(730).default(30),
       }),
     )

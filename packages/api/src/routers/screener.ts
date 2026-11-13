@@ -3,7 +3,7 @@ import { and, asc, count, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema, type Db } from '@gladiator/db';
 import { conditionsSchema, evaluateScreen, MAX_UNIVERSE, MIN_CANDLES, pineTimeframe, SCREEN_CANDLES, SCREEN_PRESETS, tickerIdOf, type ScreenResult } from '@gladiator/indicators';
-import { candleUniverse, getOhlcv, isCandleFresh, SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
+import { candleUniverse, isCandleFresh, loadSourceCandles, SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
 import { protectedProcedure, router } from '../trpc.js';
 
 const { screens } = schema;
@@ -43,7 +43,7 @@ export async function runScreen(db: Db, input: RunScreenInput) {
   const pineTf = pineTimeframe(input.timeframe);
   const rows: ScreenRow[] = [];
   for (const symbol of universe.slice(0, MAX_UNIVERSE)) {
-    const candles = await getOhlcv(db, { symbol, timeframe: input.timeframe, limit: SCREEN_CANDLES, venue });
+    const candles = await loadSourceCandles(db, { symbol, timeframe: input.timeframe, limit: SCREEN_CANDLES, venue });
     if (candles.length === 0) {
       rows.push({ symbol, candles: 0, error: 'Keine Kerzen in der DB.' });
       continue;

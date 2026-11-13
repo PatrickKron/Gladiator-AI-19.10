@@ -847,7 +847,7 @@ function AgentCard({ a, onChanged, onEdit }: { a: Agent; onChanged: () => void; 
           <span className="label flex flex-wrap gap-1.5">
             {a.symbols.map((s, i) => (
               <span key={s}>
-                <a href={buildChartUrl(s)} className="hover:underline" style={{ color: 'var(--color-cyan)' }} onClick={(e) => e.stopPropagation()}>{s}</a>
+                <a href={buildChartUrl(s, a.symbolVenues?.[s])} className="hover:underline" style={{ color: 'var(--color-cyan)' }} onClick={(e) => e.stopPropagation()}>{s}</a>
                 {i < a.symbols.length - 1 ? ',' : ''}
               </span>
             ))}

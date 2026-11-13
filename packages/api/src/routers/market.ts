@@ -17,6 +17,7 @@ import {
   getEurUsdRate,
   getOhlcv,
   loadSourceCandles,
+  resolveCandleVenue,
   latestFreshClose,
   ingestTwelveData,
   twelveDataConfigured,
@@ -150,16 +151,24 @@ export const marketRouter = router({
     return { feed: 'online' as const, tickers: snap.tickers, status: snap.status };
   }),
 
-  /** Historische Kerzen aus der DB (echte Binance-Daten, kein Random-Walk). */
+  /** Historische Kerzen aus der DB (alle registrierten Kursquellen, inkl. 4h-Synthese). */
   ohlcv: protectedProcedure
     .input(
       z.object({
         symbol: z.string().min(1),
         timeframe: timeframeEnum,
+        venue: z.string().optional(),
         limit: z.number().int().min(2).max(500).default(168),
       }),
     )
-    .query(({ ctx, input }) => getOhlcv(ctx.db, input)),
+    .query(({ ctx, input }) =>
+      loadSourceCandles(ctx.db, {
+        symbol: input.symbol.toUpperCase(),
+        timeframe: input.timeframe,
+        venue: input.venue,
+        limit: input.limit,
+      }),
+    ),
 
   /**
    * Verfügbare Timeframes je Asset (Feature A): exakt die unterstützten TFs, für
@@ -170,21 +179,27 @@ export const marketRouter = router({
   availableTimeframes: protectedProcedure
     .input(z.object({ symbol: z.string().min(1), venue: z.string().optional() }))
     .query(async ({ ctx, input }) => {
+      const symbol = input.symbol.toUpperCase();
+      const venue = input.venue ?? (await resolveCandleVenue(ctx.db, symbol));
       const rows = await ctx.db.execute(sql`
         SELECT DISTINCT timeframe FROM ohlcv
-        WHERE symbol = ${input.symbol.toUpperCase()} AND venue = ${input.venue ?? 'binance'}
+        WHERE symbol = ${symbol} AND venue = ${venue}
       `);
-      return orderTimeframes((rows.rows as { timeframe: string }[]).map((r) => r.timeframe));
+      const tfs = (rows.rows as { timeframe: string }[]).map((r) => r.timeframe);
+      if (venue !== 'binance' && tfs.includes('1h') && !tfs.includes('4h')) {
+        tfs.push('4h');
+      }
+      return orderTimeframes(tfs);
     }),
 
-  /** Ehrliche Übersicht: wie viele echte Kerzen liegen je Symbol/Timeframe in der DB. */
+  /** Ehrliche Übersicht: wie viele echte Kerzen liegen je Symbol/Venue/Timeframe in der DB. */
   ingestStatus: protectedProcedure.query(async ({ ctx }) => {
     const res = await ctx.db.execute(sql`
-      SELECT symbol, timeframe, count(*)::int AS candles,
+      SELECT symbol, venue, timeframe, count(*)::int AS candles,
              min(ts) AS from_ts, max(ts) AS to_ts
-      FROM ohlcv GROUP BY symbol, timeframe ORDER BY symbol, timeframe
+      FROM ohlcv GROUP BY symbol, venue, timeframe ORDER BY symbol, venue, timeframe
     `);
-    return res.rows as { symbol: string; timeframe: string; candles: number; from_ts: string; to_ts: string }[];
+    return res.rows as { symbol: string; venue: string; timeframe: string; candles: number; from_ts: string; to_ts: string }[];
   }),
 
   /** Makro-Snapshot (Phase-1-Rest): echte VIX/DXY/US10Y-Serien + GRS. Keine Daten ⇒ nulls. */
@@ -733,7 +748,7 @@ export const marketRouter = router({
       }),
     )
     .query(async ({ ctx, input }) => {
-      const candles = await getOhlcv(ctx.db, { symbol: input.symbol.toUpperCase(), timeframe: input.timeframe, limit: input.limit, venue: input.venue });
+      const candles = await loadSourceCandles(ctx.db, { symbol: input.symbol.toUpperCase(), timeframe: input.timeframe, limit: input.limit, venue: input.venue });
       return candles.map((c) => ({ time: Math.floor(c.ts.getTime() / 1000), open: c.open, high: c.high, low: c.low, close: c.close }));
     }),
 
@@ -799,7 +814,7 @@ export const marketRouter = router({
     .query(async ({ ctx, input }) => {
       const tfMs = TIMEFRAME_MS[input.timeframe];
       const symbol = input.symbol.toUpperCase();
-      const candles = await getOhlcv(ctx.db, {
+      const candles = await loadSourceCandles(ctx.db, {
         symbol,
         timeframe: input.timeframe,
         venue: input.venue,
@@ -850,7 +865,7 @@ export const marketRouter = router({
     .query(async ({ ctx, input }) => {
       const symbol = input.symbol.toUpperCase();
       const until = input.until !== undefined ? new Date(input.until * 1000) : undefined;
-      const candles = await getOhlcv(ctx.db, { symbol, timeframe: input.timeframe, limit: input.limit, venue: input.venue, until });
+      const candles = await loadSourceCandles(ctx.db, { symbol, timeframe: input.timeframe, limit: input.limit, venue: input.venue, until });
       if (candles.length === 0) {
         return { symbol, timeframe: input.timeframe, candles: [], available: false as const };
       }
