@@ -154,23 +154,37 @@ describe('echte Daten (Solana-RPC, GoPlus)', () => {
     expect(r.severe).toEqual([]);
   }, 30_000);
 
-  it('Halter-Konzentration echter Solana-Tokens (Im Trend, GeckoTerminal) über GoPlus Solana', async () => {
+  it('Halter-Konzentration echter Solana-Tokens (Im Trend, GeckoTerminal) über GoPlus Solana', async (ctx) => {
     // Trend-Token sind oft minutenalt — GoPlus kennt deren Halter noch nicht (CI-Befund: 5 × „keine Halter“).
-    // Deshalb acht Trend-Token UND ein etabliertes Token (BONK): die Halter-Abfrage muss auf echten Daten
-    // funktionieren, darf aber nicht davon abhängen, wie frisch die Trend-Liste gerade ist.
+    // Deshalb ein etabliertes Token (BONK) UND acht Trend-Token; sobald ein echter Abruf gelingt, brechen wir ab,
+    // um GoPlus-Rate-Limits auf geteilten CI-IPs zu schonen. Nur bei reinem Rate-Limit überspringen.
     const trending = (await fetchTokenDiscovery('solana', 'trending')).slice(0, 8);
     expect(trending.length).toBeGreaterThan(0);
-    const tokens = [...trending, { symbol: 'BONK', address: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263' }];
+    const tokens = [{ symbol: 'BONK', address: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263' }, ...trending];
     const results: number[] = [];
     const problems: string[] = [];
+    let rateLimitedOnly = true;
     for (const t of tokens) {
       try {
         const pct = await fetchSolanaTop10Pct(t.address, fetch, {});
-        if (pct !== null) results.push(pct);
-        else problems.push(`${t.symbol}: keine Halter`);
+        if (pct !== null) {
+          results.push(pct);
+          break;
+        }
+        rateLimitedOnly = false;
+        problems.push(`${t.symbol}: keine Halter`);
       } catch (err) {
-        problems.push(`${t.symbol}: ${err instanceof Error ? err.message : String(err)}`);
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/too many requests|HTTP 429/i.test(msg)) rateLimitedOnly = false;
+        problems.push(`${t.symbol}: ${msg}`);
+        if (/too many requests|HTTP 429/i.test(msg)) {
+          await new Promise((r) => setTimeout(r, 1500));
+        }
       }
+    }
+    if (results.length === 0 && problems.length > 0 && rateLimitedOnly) {
+      ctx.skip('GoPlus Solana API rate-limited (too many requests)');
+      return;
     }
     // bei Fehlschlag die echten Antworten zeigen (Diagnose)
     expect(results.length, problems.join(' | ')).toBeGreaterThan(0);
