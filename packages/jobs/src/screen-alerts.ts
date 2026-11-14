@@ -41,7 +41,7 @@ export function formatScreenAlert(name: string, timeframe: string, symbols: read
   };
 }
 
-type Candle = Awaited<ReturnType<typeof getOhlcv>>;
+type Candle = Awaited<ReturnType<typeof loadSourceCandles>>;
 
 export async function runScreenAlerts(db: Db, deps: { notify?: NotifyDeps; now?: () => Date } = {}): Promise<ScreenAlertResult> {
   const result: ScreenAlertResult = { screens: 0, notified: 0, errors: [] };

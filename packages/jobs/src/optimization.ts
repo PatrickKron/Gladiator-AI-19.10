@@ -12,6 +12,7 @@ import {
 } from '@gladiator/strategy-engine';
 import {
   costModelForVenue,
+  DEFAULT_COSTS,
   diffParams,
   dslGrid,
   loadLabMarketData,

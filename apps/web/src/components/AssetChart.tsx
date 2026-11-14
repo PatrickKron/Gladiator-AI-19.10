@@ -755,10 +755,14 @@ export function AssetChart({
     try {
       if (venue === 'yahoo') {
         const r = await trpc.market.ensureStockCandles.mutate({ symbol });
-        if (r.inserted1d === 0 && r.inserted1h === 0) throw new Error('keine Yahoo-Kerzen');
+        if (r.inserted === 0 && (r.candles['1d'] ?? 0) === 0 && (r.candles['1h'] ?? 0) === 0) {
+          throw new Error(r.errors[0] ?? 'keine Yahoo-Kerzen');
+        }
       } else if (venue === 'twelvedata') {
-        const r = await trpc.product.addAsset.mutate({ symbol, venue: 'twelvedata', favorite: false });
-        if (r.inserted === 0 && r.alreadyHadCandles === 0) throw new Error('keine Twelve-Data-Kerzen');
+        const r = await trpc.product.addAsset.mutate({ symbol, venue: 'twelvedata' });
+        if (r.inserted === 0 && Object.values(r.candles).every((n) => n === 0)) {
+          throw new Error(r.errors[0] ?? 'keine Twelve-Data-Kerzen');
+        }
       } else {
         const r = await trpc.market.ensureCandles.mutate({ symbol });
         if (r.candles1h === 0) throw new Error(r.errors[0] ?? 'keine Kerzen');
