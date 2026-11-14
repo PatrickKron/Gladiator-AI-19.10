@@ -5,6 +5,7 @@ export {
   latestCandleTs,
   latestFreshClose,
   loadSourceCandles,
+  resolveCandleTarget,
   resolveCandleVenue,
   LATEST_CLOSE_TIMEFRAMES,
   type BackfillResult,

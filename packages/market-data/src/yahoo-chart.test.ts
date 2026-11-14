@@ -123,10 +123,14 @@ describe('Yahoo-Ladeplan und Refresh-Fenster', () => {
   });
 
   it('nie größer als Yahoo je Intervall erlaubt; ohne Kerze = Erstlade-Fenster', () => {
+    expect(yahooRefreshRange('5m', ago(200 * D), NOW)).toBe('60d');
     expect(yahooRefreshRange('15m', ago(200 * D), NOW)).toBe('60d');
+    expect(yahooRefreshRange('30m', ago(200 * D), NOW)).toBe('60d');
     expect(yahooRefreshRange('1h', ago(900 * D), NOW)).toBe('1y');
     expect(yahooRefreshRange('1d', ago(4000 * D), NOW)).toBe('5y');
+    expect(yahooRefreshRange('5m', null, NOW)).toBe('60d');
     expect(yahooRefreshRange('15m', null, NOW)).toBe('60d');
+    expect(yahooRefreshRange('30m', null, NOW)).toBe('60d');
     expect(yahooRefreshRange('1h', null, NOW)).toBe('1y');
     expect(yahooRefreshRange('1d', null, NOW)).toBe('5y');
   });

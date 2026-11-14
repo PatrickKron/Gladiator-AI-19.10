@@ -17,6 +17,7 @@ import {
   getEurUsdRate,
   getOhlcv,
   loadSourceCandles,
+  resolveCandleTarget,
   resolveCandleVenue,
   latestFreshClose,
   ingestTwelveData,
@@ -813,13 +814,14 @@ export const marketRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const tfMs = TIMEFRAME_MS[input.timeframe];
-      const symbol = input.symbol.toUpperCase();
+      const { venue, symbol } = await resolveCandleTarget(ctx.db, input.symbol, input.venue);
+      const untilMs = input.until * 1000 + (venue !== 'binance' && input.timeframe === '4h' ? tfMs : 0);
       const candles = await loadSourceCandles(ctx.db, {
         symbol,
         timeframe: input.timeframe,
-        venue: input.venue,
+        venue,
         since: new Date(input.entryTime * 1000),
-        until: new Date(input.until * 1000),
+        until: new Date(untilMs),
       });
       const entryBar = candles.find((c) => c.ts.getTime() === input.entryTime * 1000);
       const none = { entry: null, rMultiple: null, exitReason: null, exitTime: null, barsHeld: null, lastClose: null };

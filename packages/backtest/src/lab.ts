@@ -119,18 +119,43 @@ async function smcCoreIds(db: Db): Promise<{ strategyId: string; defaultVersionI
   return { strategyId: s.id, defaultVersionId: v1.id };
 }
 
-/** Löst eine registrierte DSL-Strategie in (dsl, versionId) auf — neueste Paper-Version. */
-async function resolveDslStrategy(db: Db, strategyId: string): Promise<{ dsl: InstructionDsl; versionId: string; slug: string }> {
-  const [strategy] = await db.select().from(strategies).where(eq(strategies.id, strategyId)).limit(1);
+/**
+ * Löst eine registrierte DSL-Strategie in (dsl, versionId, slug) auf:
+ * - ist `versionId` gesetzt, wird genau diese Version geladen (auch wenn `strategyId` fehlt);
+ * - ist nur `strategyId` gesetzt, wird deren neueste Version geladen.
+ * Bei Builtin-Strategien (`kind !== 'dsl'`) liefert die Funktion `null`, wenn nur `versionId` übergeben wurde.
+ */
+async function resolveDslStrategy(
+  db: Db,
+  strategyId?: string,
+  versionId?: string,
+): Promise<{ dsl: InstructionDsl; versionId: string; slug: string } | null> {
+  if (!strategyId && !versionId) return null;
+  if (versionId && !strategyId) {
+    const [version] = await db.select().from(strategyVersions).where(eq(strategyVersions.id, versionId)).limit(1);
+    if (!version) throw new Error('Strategie-Version nicht gefunden.');
+    const [strategy] = await db.select().from(strategies).where(eq(strategies.id, version.strategyId)).limit(1);
+    if (!strategy || strategy.kind !== 'dsl') return null;
+    const parsed = parseInstructionDsl(version.params);
+    if (!parsed.ok) throw new Error(`DSL der Version ungültig: ${parsed.errors.join('; ')}`);
+    return { dsl: parsed.dsl, versionId: version.id, slug: strategy.slug };
+  }
+  const [strategy] = await db.select().from(strategies).where(eq(strategies.id, strategyId!)).limit(1);
   if (!strategy) throw new Error('Strategie nicht gefunden.');
   if (strategy.kind !== 'dsl') throw new Error(`Strategie ${strategy.slug} ist kind '${strategy.kind}' — im Labor sind SMC Core (Standard) und DSL-Strategien backtestbar.`);
-  const [version] = await db
-    .select()
-    .from(strategyVersions)
-    .where(eq(strategyVersions.strategyId, strategyId))
-    .orderBy(desc(strategyVersions.version))
-    .limit(1);
-  if (!version) throw new Error('Strategie hat keine Version.');
+  const [version] = versionId
+    ? await db
+        .select()
+        .from(strategyVersions)
+        .where(and(eq(strategyVersions.id, versionId), eq(strategyVersions.strategyId, strategy.id)))
+        .limit(1)
+    : await db
+        .select()
+        .from(strategyVersions)
+        .where(eq(strategyVersions.strategyId, strategy.id))
+        .orderBy(desc(strategyVersions.version))
+        .limit(1);
+  if (!version) throw new Error('Strategie hat keine passende Version.');
   const parsed = parseInstructionDsl(version.params);
   if (!parsed.ok) throw new Error(`DSL der Version ungültig: ${parsed.errors.join('; ')}`);
   return { dsl: parsed.dsl, versionId: version.id, slug: strategy.slug };
@@ -210,15 +235,16 @@ export async function loadLabMarketData(
 
 export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRunOutput> {
   const { defaultVersionId } = await smcCoreIds(db);
-  const versionParams = input.versionId ? await resolveVersion(db, input.versionId) : {};
+  // DSL-Strategie? Symbol/Timeframe/Setup kommen aus der DSL (die Strategie bzw. gewählte Version definiert sie).
+  const dslResolved = await resolveDslStrategy(db, input.strategyId, input.versionId);
+  const versionParams = !dslResolved && input.versionId ? await resolveVersion(db, input.versionId) : {};
   const params: SmcCoreParams = { ...SMC_CORE_DEFAULTS, ...versionParams, ...input.params };
-  const riskPct = input.riskPctPerTrade ?? 1;
+  const riskPct = input.riskPctPerTrade ?? dslResolved?.dsl.risk.riskPctPerTrade ?? 1;
 
-  // DSL-Strategie? Symbol/Timeframe/Setup kommen aus der DSL (die Strategie definiert sie).
-  const dslResolved = input.strategyId ? await resolveDslStrategy(db, input.strategyId) : null;
   const runSymbol = dslResolved ? dslResolved.dsl.symbol : input.symbol;
   const runTimeframe = dslResolved ? dslResolved.dsl.timeframe : input.timeframe;
   const runSetupType = dslResolved ? dslResolved.dsl.setupType : input.setupType;
+  const effectiveTrailPct = dslResolved?.dsl.trailingStop?.pct ?? input.trailPct;
 
   const { venue, candles, dataQuality, fundingSeries, fundingSource } = await loadLabMarketData(db, {
     symbol: runSymbol,
@@ -243,7 +269,7 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
     barsPerYear: BARS_PER_YEAR[runTimeframe]!,
     tpWeights: [0.5, 0.3, 0.2],
     setupType: runSetupType,
-    ...(input.trailPct !== undefined ? { trailPct: input.trailPct } : {}),
+    ...(effectiveTrailPct !== undefined ? { trailPct: effectiveTrailPct } : {}),
     ...(fundingSeries ? { fundingSeries } : {}),
   });
 
@@ -257,8 +283,8 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
       fromTs: input.from,
       toTs: input.to,
       config: dslResolved
-        ? { strategy: dslResolved.slug, dsl: dslResolved.dsl, riskPctPerTrade: riskPct, trailPct: input.trailPct ?? null, fundingSource, dataWarnings: dataQuality.warnings }
-        : { setupType: input.setupType, riskPctPerTrade: riskPct, params, trailPct: input.trailPct ?? null, fundingSource, dataWarnings: dataQuality.warnings },
+        ? { strategy: dslResolved.slug, dsl: dslResolved.dsl, riskPctPerTrade: riskPct, trailPct: effectiveTrailPct ?? null, fundingSource, dataWarnings: dataQuality.warnings }
+        : { setupType: input.setupType, riskPctPerTrade: riskPct, params, trailPct: effectiveTrailPct ?? null, fundingSource, dataWarnings: dataQuality.warnings },
       feesModel: { ...costModel, fundingSource },
       sharpe: m.sharpe === null ? null : String(m.sharpe),
       sortino: m.sortino === null ? null : String(m.sortino),

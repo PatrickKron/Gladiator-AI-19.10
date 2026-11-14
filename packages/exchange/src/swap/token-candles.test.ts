@@ -57,6 +57,7 @@ describe('echte Daten (DexScreener-Pool → GeckoTerminal)', () => {
     const candles = await retryOnTimeout(() => fetchTokenCandles('solana', info.pairAddress!, '1h'));
     expect(candles.length).toBeGreaterThan(24);
     for (let i = 1; i < candles.length; i++) expect(candles[i]!.time).toBeGreaterThan(candles[i - 1]!.time);
-    expect(candles.at(-1)!.close).toBeGreaterThan(1);
+    // Ist im liquidesten Pool USDC/USDT das Base-Token gegen SOL, liegt der USD-Kurs bei ~1.0 (z. B. 0.998).
+    expect(candles.at(-1)!.close).toBeGreaterThan(0.5);
   }, 75_000);
 });
