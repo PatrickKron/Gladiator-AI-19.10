@@ -1123,9 +1123,10 @@ function VersionsPanel({
     setError(null);
     setNotice(null);
     try {
-      // Offizieller Labor-Backtest an der Version (Symbol/TF/Setup kommen aus der DSL der Version).
+      // Offizieller Labor-Backtest an genau der gewählten Version (Symbol/TF/Setup kommen aus der DSL der Version).
       await trpc.lab.runBacktest.mutate({
         strategyId: session.strategyId,
+        versionId,
         symbol: draft.symbol,
         timeframe: draft.timeframe as never,
         setupType: draft.setupType,

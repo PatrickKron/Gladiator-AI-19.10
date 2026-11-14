@@ -314,7 +314,7 @@ export async function loadLiveChartHeatmap(symbol: string, venue = 'binance'): P
           .map((w) => ({
             mid: w.mid,
             totalUsd: w.totalUsd,
-            side: w.dominantSide === 'ask' ? 'ask' : 'bid',
+            side: w.dominantSide === 'ask' || (w.dominantSide === 'neutral' && w.askUsd > w.bidUsd) ? 'ask' : 'bid',
             intensity: w.intensity,
           })),
       });

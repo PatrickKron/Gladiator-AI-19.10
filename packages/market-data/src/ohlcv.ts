@@ -186,43 +186,70 @@ export async function latestFreshClose(db: Db, opts: { venue: string; symbol: st
 const SOURCE_AGGREGATE_LOOKBACK_MS = 400 * 86_400_000;
 
 /**
- * Löst die Kerzenquelle (`binance` | `yahoo` | `twelvedata`) eines Symbols auf:
- * zuerst über `assets.candle_venue`, sonst über vorhandene Kerzen in `ohlcv`, Fallback `'binance'`.
+ * Löst Kerzenquelle (`binance` | `yahoo` | `twelvedata`) und kanonisches `dataSymbol`
+ * eines Symbols auf:
+ * 1. Krypto-Paare (`/USDT`, `/USDC`, `/BTC`) → `'binance'` + Paar
+ * 2. `assets`-Register (Matching über `data_symbol` oder `ticker`, bevorzugt Zeilen mit gesetztem `candle_venue`)
+ * 3. Vorhandene Kerzen in `ohlcv`
+ * 4. Eindeutige Yahoo-Syntax (`^...`, `...=X`, `...=F`) → `'yahoo'`
+ * 5. Fallback: `venueHint ?? 'binance'` + getrimmtes Großbuchstaben-Symbol
  */
-export async function resolveCandleVenue(db: Db, symbol: string): Promise<string> {
-  const sym = symbol.toUpperCase();
-  if (sym.endsWith('/USDT') || sym.endsWith('/USDC') || sym.endsWith('/BTC')) return 'binance';
+export async function resolveCandleTarget(
+  db: Db,
+  symbol: string,
+  venueHint?: string,
+): Promise<{ venue: string; symbol: string }> {
+  const sym = symbol.trim().toUpperCase();
+  if (sym.endsWith('/USDT') || sym.endsWith('/USDC') || sym.endsWith('/BTC')) {
+    return { venue: venueHint ?? 'binance', symbol: sym };
+  }
   try {
     const [reg] = await db
-      .select({ candleVenue: assets.candleVenue })
+      .select({ candleVenue: assets.candleVenue, dataSymbol: assets.dataSymbol })
       .from(assets)
       .where(or(eq(assets.dataSymbol, sym), eq(assets.ticker, sym)))
+      .orderBy(sql`${assets.candleVenue} IS NULL ASC`)
       .limit(1);
-    if (reg?.candleVenue) return reg.candleVenue;
+    if (reg?.candleVenue) {
+      return { venue: venueHint ?? reg.candleVenue, symbol: reg.dataSymbol ?? sym };
+    }
     const rows = await db.execute(sql`
       SELECT venue FROM ohlcv WHERE symbol = ${sym} GROUP BY venue ORDER BY count(*) DESC LIMIT 1
     `);
     const found = (rows.rows[0] as { venue?: string } | undefined)?.venue;
-    return found ?? 'binance';
+    if (found) return { venue: venueHint ?? found, symbol: sym };
   } catch {
-    return 'binance';
+    // DB-Fehler oder Minimal-Mock → Fallback unten
   }
+  if (sym.startsWith('^') || sym.endsWith('=X') || sym.endsWith('=F')) {
+    return { venue: venueHint ?? 'yahoo', symbol: sym };
+  }
+  return { venue: venueHint ?? 'binance', symbol: sym };
+}
+
+/**
+ * Löst die Kerzenquelle (`binance` | `yahoo` | `twelvedata`) eines Symbols auf:
+ * zuerst über `assets.candle_venue`, sonst über vorhandene Kerzen in `ohlcv`, Fallback `'binance'`.
+ */
+export async function resolveCandleVenue(db: Db, symbol: string): Promise<string> {
+  const target = await resolveCandleTarget(db, symbol);
+  return target.venue;
 }
 
 /**
  * Lädt Kerzen je Kursquelle (Binance direkt; Yahoo/Twelve Data: `4h` wird look-ahead-frei aus
- * abgeschlossenen `1h`-Kerzen aggregiert). Ohne `venue` wird sie über `resolveCandleVenue` aufgelöst.
+ * abgeschlossenen `1h`-Kerzen aggregiert). Ohne `venue` wird sie über `resolveCandleTarget` aufgelöst.
  */
 export async function loadSourceCandles(
   db: Db,
   p: { venue?: string; symbol: string; timeframe: string; since?: Date; until?: Date; limit?: number; now?: Date },
 ): Promise<{ ts: Date; open: number; high: number; low: number; close: number; volume: number }[]> {
-  const venue = p.venue ?? (await resolveCandleVenue(db, p.symbol));
+  const { venue, symbol } = await resolveCandleTarget(db, p.symbol, p.venue);
   const sourceTf = venue !== 'binance' && p.timeframe === '4h' ? '1h' : p.timeframe;
   if (sourceTf === p.timeframe) {
     return getOhlcv(db, {
       venue,
-      symbol: p.symbol,
+      symbol,
       timeframe: p.timeframe,
       ...(p.since ? { since: p.since } : {}),
       ...(p.until ? { until: p.until } : {}),
@@ -230,13 +257,17 @@ export async function loadSourceCandles(
     });
   }
   const end = p.until ?? p.now ?? new Date();
+  const lookbackMs = p.limit
+    ? Math.min(SOURCE_AGGREGATE_LOOKBACK_MS, Math.max(p.limit * 4 * 3_600_000 * 4, 45 * 86_400_000))
+    : SOURCE_AGGREGATE_LOOKBACK_MS;
   const raw = await getOhlcv(db, {
     venue,
-    symbol: p.symbol,
+    symbol,
     timeframe: sourceTf,
-    since: p.since ?? new Date(end.getTime() - SOURCE_AGGREGATE_LOOKBACK_MS),
+    since: p.since ?? new Date(end.getTime() - lookbackMs),
     until: end,
   });
   const out = aggregateCandles(closedCandles(raw, sourceTf, end), sourceTf, p.timeframe, end);
-  return p.limit ? out.slice(-p.limit) : out;
+  if (!p.limit) return out;
+  return p.since ? out.slice(0, p.limit) : out.slice(-p.limit);
 }

@@ -1,5 +1,5 @@
 import { TRPCError } from '@trpc/server';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, like } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
@@ -64,6 +64,29 @@ export const catalogRouter = router({
           .limit(1);
         if (version) validity = await loadCatalogValidity(ctx.db, version.id);
       }
+      const derivedRows = await ctx.db
+        .select({
+          slug: strategies.slug,
+          status: strategyVersions.status,
+          params: strategyVersions.params,
+        })
+        .from(strategies)
+        .innerJoin(strategyVersions, eq(strategyVersions.strategyId, strategies.id))
+        .where(
+          and(
+            like(strategies.slug, `${preset.slug}-%`),
+            inArray(strategyVersions.status, ['paper', 'live']),
+          ),
+        );
+      const activeTargets = derivedRows.map((r) => {
+        const p = r.params as { symbol?: string; timeframe?: string } | null;
+        return {
+          slug: r.slug,
+          symbol: p?.symbol ?? preset.dsl.symbol,
+          timeframe: (p?.timeframe ?? preset.dsl.timeframe) as (typeof DSL_TIMEFRAMES)[number],
+          status: r.status as 'paper' | 'live',
+        };
+      });
       out.push({
         slug: preset.slug,
         slugKey: preset.slugKey,
@@ -77,6 +100,7 @@ export const catalogRouter = router({
         takeProfitRrs: preset.dsl.takeProfits.map((tp) => tp.rr),
         ruleSummary: summarizeDslRules(preset.dsl),
         status: (version?.status ?? 'not_activated') as 'not_activated' | 'draft' | 'paper' | 'live' | 'retired',
+        activeTargets,
         validity,
       });
     }
@@ -192,11 +216,15 @@ export const catalogRouter = router({
           .insert(strategyVersions)
           .values({ strategyId: strategy!.id, version: 1, params: targetDsl, status: 'draft' })
           .returning();
-      } else if (targetDsl.timeframe !== (version.params as { timeframe?: string })?.timeframe) {
-        await ctx.db
-          .update(strategyVersions)
-          .set({ params: targetDsl })
-          .where(eq(strategyVersions.id, version.id));
+      } else {
+        const prevParams = version.params as { symbol?: string; timeframe?: string } | null;
+        if (targetDsl.timeframe !== prevParams?.timeframe || targetDsl.symbol !== prevParams?.symbol) {
+          await ctx.db
+            .update(strategyVersions)
+            .set({ params: targetDsl, status: 'draft' })
+            .where(eq(strategyVersions.id, version.id));
+          version = { ...version, params: targetDsl, status: 'draft' };
+        }
       }
       if (version!.status === 'paper' || version!.status === 'live') {
         return {
@@ -226,6 +254,7 @@ export const catalogRouter = router({
       try {
         lab = await runLabBacktest(ctx.db, {
           strategyId: strategy!.id,
+          versionId: version!.id,
           symbol: targetDsl.symbol,
           timeframe: targetDsl.timeframe,
           setupType: targetDsl.setupType,
@@ -282,11 +311,17 @@ export const catalogRouter = router({
 
   /** Deaktivieren: Version zurück auf draft (dsl-scan erzeugt keine Signale mehr). */
   deactivate: protectedProcedure
-    .input(z.object({ slug: z.string().min(3).max(64) }))
+    .input(z.object({ slug: z.string().min(3).max(64), symbol: z.string().min(1).max(32).optional() }))
     .mutation(async ({ ctx, input }) => {
-      const preset = presetBySlug(input.slug);
-      if (!preset) throw new TRPCError({ code: 'NOT_FOUND', message: 'Katalog-Strategie nicht gefunden.' });
-      const [strategy] = await ctx.db.select().from(strategies).where(eq(strategies.slug, preset.slug)).limit(1);
+      const basePreset =
+        presetBySlug(input.slug) ??
+        STRATEGY_PRESETS.find((p) => input.slug.startsWith(`${p.slug}-`));
+      if (!basePreset) throw new TRPCError({ code: 'NOT_FOUND', message: 'Katalog-Strategie nicht gefunden.' });
+      const targetSlug =
+        input.symbol && input.slug === basePreset.slug
+          ? adaptPresetDslToTarget(basePreset.dsl, { symbol: input.symbol }).id
+          : input.slug;
+      const [strategy] = await ctx.db.select().from(strategies).where(eq(strategies.slug, targetSlug)).limit(1);
       if (!strategy) throw new TRPCError({ code: 'NOT_FOUND', message: 'Strategie ist nicht registriert.' });
       const [version] = await ctx.db
         .select()
@@ -302,10 +337,10 @@ export const catalogRouter = router({
         action: 'catalog.strategy.deactivated',
         entityType: 'strategy',
         entityId: strategy.id,
-        details: { slug: preset.slug },
+        details: { slug: targetSlug, presetSlug: basePreset.slug },
         ip: ctx.ip,
       });
-      return { deactivated: true };
+      return { deactivated: true, slug: targetSlug };
     }),
 });
 

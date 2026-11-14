@@ -176,20 +176,20 @@ export async function runModelComparison(db: Db): Promise<ModelComparisonResult>
     .limit(1);
 
   const currentMetrics = activeModel?.metrics as { accuracy: number; precision: number; recall: number; f1: number; auc: number } | null ?? null;
-  const currentVersion = activeModel?.version ?? 0;
+  const existing = await db.select({ version: mlModels.version })
+    .from(mlModels)
+    .orderBy(desc(mlModels.version))
+    .limit(1);
+  const baseVersion = existing[0]?.version ?? activeModel?.version ?? 0;
+  const nextVersion = baseVersion + 1;
 
-  const retrain = retrainWithFeedback(samples, currentMetrics, currentVersion);
+  const retrain = retrainWithFeedback(samples, currentMetrics, baseVersion);
 
   let targetModelId = activeModel?.id ?? null;
   if (retrain.newModel && retrain.newMetrics) {
     if (retrain.retrained && activeModel) {
       await db.update(mlModels).set({ isActive: false }).where(eq(mlModels.isActive, true));
     }
-    const existing = await db.select({ version: mlModels.version })
-      .from(mlModels)
-      .orderBy(desc(mlModels.version))
-      .limit(1);
-    const nextVersion = (existing[0]?.version ?? currentVersion) + 1;
     const [inserted] = await db.insert(mlModels).values({
       name: `meta-rf-global-auto`,
       version: nextVersion,
@@ -206,7 +206,7 @@ export async function runModelComparison(db: Db): Promise<ModelComparisonResult>
   if (retrain.newMetrics) {
     await db.insert(modelVersions).values({
       modelId: targetModelId,
-      version: currentVersion + 1,
+      version: nextVersion,
       metrics: retrain.newMetrics,
       comparison: retrain.comparison,
       promoted: retrain.retrained,
@@ -221,7 +221,7 @@ export async function runModelComparison(db: Db): Promise<ModelComparisonResult>
   return {
     retrained: retrain.retrained,
     promoted: retrain.retrained,
-    version: retrain.retrained ? currentVersion + 1 : null,
+    version: retrain.retrained ? nextVersion : null,
     accuracy: retrain.newMetrics?.accuracy ?? null,
     improvement: retrain.comparison?.improvement ?? null,
     reason: retrain.reason,

@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, schema, type Db } from '@gladiator/db';
 import type pg from 'pg';
 import { coverageRatio, ensureCandleHistory, requiredCoverage } from './ensure-history.js';
+import { loadSourceCandles } from './ohlcv.js';
 
 describe('coverageRatio', () => {
   it('Anteil vorhandener Kerzen am erwarteten Raster, gedeckelt bei 1', () => {
@@ -132,6 +133,26 @@ describe.skipIf(!process.env.DATABASE_URL)('ensureCandleHistory (echte DB)', () 
       expect(calledVenue).toBe('yahoo');
       expect(calledTf).toBe('1h');
       expect(res2).toMatchObject({ backfilled: true, before: 0, after: 20 });
+
+      // loadSourceCandles 4h auf Yahoo: mit `since + limit` erste N Kerzen ab `since`, ohne `since` letzte N Kerzen
+      const first2 = await loadSourceCandles(db, {
+        venue: 'yahoo',
+        symbol: Y_SYM,
+        timeframe: '4h',
+        since: from,
+        until: to,
+        limit: 2,
+      });
+      const last2 = await loadSourceCandles(db, {
+        venue: 'yahoo',
+        symbol: Y_SYM,
+        timeframe: '4h',
+        until: to,
+        limit: 2,
+      });
+      expect(first2).toHaveLength(2);
+      expect(last2).toHaveLength(2);
+      expect(first2[0]!.ts.getTime()).toBeLessThan(last2[0]!.ts.getTime());
     } finally {
       await db.execute(sql`DELETE FROM ohlcv WHERE symbol = ${Y_SYM}`);
     }

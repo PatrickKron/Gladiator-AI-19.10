@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
-import { loadSourceCandles, resolveCandleVenue } from '@gladiator/market-data';
+import { loadSourceCandles, resolveCandleVenue, TIMEFRAME_MS } from '@gladiator/market-data';
 import {
   computeFeatures,
   featureVectorToArray,
@@ -69,12 +69,14 @@ export const mlRouter = router({
 
       if (!signal) return { labeled: false, reason: 'Signal not found' };
 
+      const tfMs = (TIMEFRAME_MS as Record<string, number>)[signal.timeframe] ?? 3_600_000;
       const candles = await loadSourceCandles(ctx.db, {
         symbol: signal.symbol,
         timeframe: signal.timeframe,
         venue: signal.venue,
         limit: 1000,
-        since: new Date(signal.createdAt.getTime() - 3600_000),
+        // 250 Kerzen Vorlauf vor Signal-Erzeugung, damit computeFeatures (≥ 220 Bars) valide Features liefert
+        since: new Date(signal.createdAt.getTime() - 250 * tfMs),
       });
 
       if (candles.length < 10) {
@@ -427,18 +429,16 @@ export const mlRouter = router({
       venue: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
-      const venue = input.venue ?? (await resolveCandleVenue(ctx.db, input.symbol));
-      // Check if we have a recent regime classification (only reuse cache for default Binance venue to avoid cross-venue mixups)
-      const [cached] = venue === 'binance'
-        ? await ctx.db.select()
-            .from(marketRegimes)
-            .where(and(
-              eq(marketRegimes.symbol, input.symbol),
-              eq(marketRegimes.timeframe, input.timeframe),
-            ))
-            .orderBy(desc(marketRegimes.ts))
-            .limit(1)
-        : [undefined];
+      const symbol = input.symbol.trim().toUpperCase();
+      const venue = input.venue ?? (await resolveCandleVenue(ctx.db, symbol));
+      const [cached] = await ctx.db.select()
+        .from(marketRegimes)
+        .where(and(
+          eq(marketRegimes.symbol, symbol),
+          eq(marketRegimes.timeframe, input.timeframe),
+        ))
+        .orderBy(desc(marketRegimes.ts))
+        .limit(1);
 
       // If cached regime is less than 15 min old, return it
       if (cached && (Date.now() - new Date(cached.ts).getTime()) < 15 * 60_000) {
@@ -453,7 +453,7 @@ export const mlRouter = router({
 
       // Compute fresh regime
       const candles = await loadSourceCandles(ctx.db, {
-        symbol: input.symbol,
+        symbol,
         timeframe: input.timeframe,
         venue,
         limit: 400,
@@ -468,7 +468,7 @@ export const mlRouter = router({
       // Persist
       const ts = candles[candles.length - 1]!.ts;
       await ctx.db.insert(marketRegimes).values({
-        symbol: input.symbol,
+        symbol,
         timeframe: input.timeframe,
         ts,
         regime: result.regime,
@@ -493,10 +493,11 @@ export const mlRouter = router({
       limit: z.number().int().min(1).max(500).default(100),
     }))
     .query(async ({ ctx, input }) => {
+      const symbol = input.symbol.trim().toUpperCase();
       const history = await ctx.db.select()
         .from(marketRegimes)
         .where(and(
-          eq(marketRegimes.symbol, input.symbol),
+          eq(marketRegimes.symbol, symbol),
           eq(marketRegimes.timeframe, input.timeframe),
         ))
         .orderBy(desc(marketRegimes.ts))
@@ -549,7 +550,7 @@ export const mlRouter = router({
 
       await ctx.db.update(mlModels)
         .set({ isActive: false })
-        .where(eq(mlModels.isActive, true));
+        .where(and(eq(mlModels.isActive, true), eq(mlModels.modelType, model.modelType)));
 
       await ctx.db.update(mlModels)
         .set({ isActive: true })

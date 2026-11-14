@@ -61,6 +61,10 @@ function CatalogCard({
   const effectiveSymbol = targetSymbol.trim() ? targetSymbol.trim().toUpperCase() : entry.symbol;
   const effectiveTimeframe: DslTimeframe = targetTimeframe || entry.timeframe;
   const isCustomTarget = effectiveSymbol !== entry.symbol || effectiveTimeframe !== entry.timeframe;
+  const activeCustomTarget = entry.activeTargets?.find((at) => at.symbol === effectiveSymbol);
+  const isEffectiveActive = isCustomTarget
+    ? Boolean(activeCustomTarget && activeCustomTarget.timeframe === effectiveTimeframe)
+    : active;
   const rules = entry.ruleSummary;
 
   async function activate() {
@@ -87,11 +91,13 @@ function CatalogCard({
     }
   }
 
-  async function deactivate() {
+  async function deactivate(slugOverride?: string) {
     setBusy(true);
     setMessage(null);
     try {
-      await trpc.catalog.deactivate.mutate({ slug: entry.slug });
+      await trpc.catalog.deactivate.mutate({
+        slug: slugOverride ?? (activeCustomTarget ? activeCustomTarget.slug : entry.slug),
+      });
       onChanged();
     } catch (err) {
       setMessage({ ok: false, text: err instanceof Error ? err.message : t('common.error') });
@@ -127,7 +133,7 @@ function CatalogCard({
               {t(`catalog.preset_${entry.slugKey}_desc`)}
             </p>
           </div>
-          {active && !isCustomTarget && (
+          {isEffectiveActive && (
             <span
               className="label shrink-0 rounded border px-1.5 py-0.5"
               style={{ borderColor: 'rgba(34,197,94,0.45)', color: 'var(--color-pos)' }}
@@ -136,6 +142,29 @@ function CatalogCard({
             </span>
           )}
         </div>
+
+        {entry.activeTargets && entry.activeTargets.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1 text-[10px]">
+            {entry.activeTargets.map((at) => (
+              <span
+                key={at.slug}
+                className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5"
+                style={{ borderColor: 'rgba(34,197,94,0.4)', color: 'var(--color-pos)' }}
+              >
+                {at.symbol} · {at.timeframe}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void deactivate(at.slug)}
+                  className="ml-0.5 opacity-80 hover:opacity-100"
+                  title={t('catalog.deactivate')}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
 
         <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]" style={{ color: 'var(--color-mut)' }}>
           <span
@@ -250,7 +279,7 @@ function CatalogCard({
 
       <div className="mt-3 pt-2">
         <div className="flex flex-wrap items-center gap-2">
-          {active && !isCustomTarget ? (
+          {isEffectiveActive ? (
             <button
               className="rounded-[0.625rem] border px-3 py-1.5 text-xs disabled:opacity-50"
               style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
