@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runBacktest, ZERO_COSTS, type BacktestConfig } from './engine.js';
+import { costModelForVenue, DEFAULT_COSTS, runBacktest, ZERO_COSTS, type BacktestConfig } from './engine.js';
 import type { Candle, SetupCandidate } from '@gladiator/strategy-engine';
 
 function c(ts: number, open: number, high: number, low: number, close: number): Candle {
@@ -454,5 +454,12 @@ describe('Backtest-Engine: TP-Gewichte je Setup + Break-Even-Schalter (DSL)', ()
     const b = runBacktest(tp1ThenCrash, { ...BASE, evaluate: setupAt(2) }).trades[0]!;
     expect(a.netPnl).toBeCloseTo(b.netPnl, 9);
     expect(a.exitReason).toBe(b.exitReason);
+  });
+
+  it('costModelForVenue: Binance behält Perp-Funding, Yahoo/TwelveData zahlen 0 Funding', () => {
+    expect(costModelForVenue('binance')).toEqual(DEFAULT_COSTS);
+    expect(costModelForVenue('yahoo').fundingRatePer8h).toBe(0);
+    expect(costModelForVenue('twelvedata').fundingRatePer8h).toBe(0);
+    expect(costModelForVenue('yahoo').takerFeeRate).toBe(DEFAULT_COSTS.takerFeeRate);
   });
 });

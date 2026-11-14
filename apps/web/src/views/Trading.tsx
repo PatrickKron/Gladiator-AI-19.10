@@ -771,7 +771,7 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
                       {tr.exitTs ? new Date(tr.exitTs).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                     </td>
                     <td className="py-1.5 pr-3">
-                      <a href={buildChartUrl(tr.symbol)} className="hover:underline" style={{ color: 'var(--color-cyan)' }}>{tr.symbol}</a>
+                      <a href={buildChartUrl(tr.symbol, tr.candleVenue)} className="hover:underline" style={{ color: 'var(--color-cyan)' }}>{tr.symbol}</a>
                     </td>
                     <td className="py-1.5 pr-3" style={{ color: tr.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>
                       {tr.direction.toUpperCase()}

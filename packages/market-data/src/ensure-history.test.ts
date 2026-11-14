@@ -7,7 +7,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, schema, type Db } from '@gladiator/db';
 import type pg from 'pg';
-import { coverageRatio, ensureCandleHistory } from './ensure-history.js';
+import { coverageRatio, ensureCandleHistory, requiredCoverage } from './ensure-history.js';
 
 describe('coverageRatio', () => {
   it('Anteil vorhandener Kerzen am erwarteten Raster, gedeckelt bei 1', () => {
@@ -15,6 +15,13 @@ describe('coverageRatio', () => {
     expect(coverageRatio(50, new Date(0), new Date(100 * H), H)).toBeCloseTo(0.5, 9);
     expect(coverageRatio(150, new Date(0), new Date(100 * H), H)).toBe(1);
     expect(coverageRatio(0, new Date(0), new Date(0), H)).toBe(1);
+  });
+
+  it('requiredCoverage unterscheidet 24/7-Krypto und Handelszeiten bei Aktien/Forex', () => {
+    expect(requiredCoverage('binance', '1h')).toBe(0.9);
+    expect(requiredCoverage('yahoo', '1d')).toBe(0.55);
+    expect(requiredCoverage('yahoo', '1h')).toBe(0.12);
+    expect(requiredCoverage('twelvedata', '4h')).toBe(0.12);
   });
 });
 
@@ -79,5 +86,54 @@ describe.skipIf(!process.env.DATABASE_URL)('ensureCandleHistory (echte DB)', () 
         throw new Error('Binance nicht erreichbar');
       }),
     ).rejects.toThrow(/Binance nicht erreichbar/);
+  });
+
+  it('Yahoo 4h zählt und lädt die zugrunde liegende 1h-Reihe auf venue=yahoo', async () => {
+    const Y_SYM = `EHY${process.pid % 10000}`;
+    try {
+      const yRows = Array.from({ length: 20 }, (_, k) => ({
+        venue: 'yahoo',
+        symbol: Y_SYM,
+        timeframe: '1h',
+        ts: new Date(from.getTime() + k * H),
+        open: '150',
+        high: '151',
+        low: '149',
+        close: '150',
+        volume: '100',
+      }));
+      await db.insert(schema.ohlcv).values(yRows).onConflictDoNothing();
+      let calledTf = '';
+      let calledVenue = '';
+      const res = await ensureCandleHistory(
+        db,
+        { venue: 'yahoo', symbol: Y_SYM, timeframe: '4h', from, to },
+        async (_db, o) => {
+          calledVenue = o.venue ?? '';
+          calledTf = o.timeframe;
+        },
+      );
+      expect(res.backfilled).toBe(false);
+      expect(res.before).toBe(20);
+      expect(calledTf).toBe('');
+      expect(calledVenue).toBe('');
+
+      // Bei 0 Kerzen ruft ensureCandleHistory den Backfiller mit venue='yahoo' und sourceTf='1h'
+      await db.execute(sql`DELETE FROM ohlcv WHERE symbol = ${Y_SYM}`);
+      const res2 = await ensureCandleHistory(
+        db,
+        { venue: 'yahoo', symbol: Y_SYM, timeframe: '4h', from, to },
+        async (_db, o) => {
+          calledVenue = o.venue ?? '';
+          calledTf = o.timeframe;
+          await db.insert(schema.ohlcv).values(yRows).onConflictDoNothing();
+        },
+      );
+      expect(calledVenue).toBe('yahoo');
+      expect(calledTf).toBe('1h');
+      expect(res2).toMatchObject({ backfilled: true, before: 0, after: 20 });
+    } finally {
+      await db.execute(sql`DELETE FROM ohlcv WHERE symbol = ${Y_SYM}`);
+    }
   });
 });

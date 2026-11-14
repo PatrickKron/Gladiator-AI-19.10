@@ -301,6 +301,7 @@ export const ASSISTANT_TOOLS: LlmTool[] = [
       type: 'object',
       properties: {
         timeframe: { type: 'string', enum: [...SUPPORTED_TIMEFRAMES] },
+        venue: { type: 'string', enum: ['binance', 'yahoo', 'twelvedata'], description: 'Kerzenquelle (Standard binance)' },
         presetId: { type: 'string' },
         conditions: { type: 'array', items: { type: 'object' } },
         symbols: { type: 'array', items: { type: 'string' }, description: 'Optional: nur diese Symbole' },
@@ -655,7 +656,13 @@ export async function executeTool(ctx: ToolCtx, name: string, input: Record<stri
       }
       const parsed = conditionsSchema.safeParse(conditions);
       if (!parsed.success) throw new Error(`Bedingungen ungültig: ${parsed.error.issues.map((i) => i.message).join('; ')}`);
-      const out = await runScreen(ctx.db, { timeframe, conditions: parsed.data, ...(Array.isArray(input.symbols) ? { symbols: input.symbols.map(String) } : {}) });
+      const venue = input.venue === 'yahoo' || input.venue === 'twelvedata' ? input.venue : undefined;
+      const out = await runScreen(ctx.db, {
+        timeframe,
+        conditions: parsed.data,
+        ...(venue ? { venue } : {}),
+        ...(Array.isArray(input.symbols) ? { symbols: input.symbols.map(String) } : {}),
+      });
       const matched = out.rows.filter((r) => r.matches).map((r) => r.symbol);
       return {
         result: { timeframe, scanned: out.scanned, matched, errors: out.rows.filter((r) => r.error).map((r) => `${r.symbol}: ${r.error}`).slice(0, 10) },

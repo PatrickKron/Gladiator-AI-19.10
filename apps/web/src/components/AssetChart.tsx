@@ -748,13 +748,25 @@ export function AssetChart({
     };
   }, [symbol, tf, replayUntil, venue, reloadKey]);
 
-  // Kerzen auf Abruf (Patricks Mängelliste, Punkt 3): Deep-Link oder Favorit ohne Kerzen → nachladen, dann neu laden.
+  // Kerzen auf Abruf (Patricks Mängelliste, Punkt 3): Deep-Link oder Favorit ohne Kerzen → je Kursquelle nachladen.
   const loadCandlesNow = async () => {
     setLoadingCandles(true);
     setLoadErr(null);
     try {
-      const r = await trpc.market.ensureCandles.mutate({ symbol });
-      if (r.candles1h === 0) throw new Error(r.errors[0] ?? 'keine Kerzen');
+      if (venue === 'yahoo') {
+        const r = await trpc.market.ensureStockCandles.mutate({ symbol });
+        if (r.inserted === 0 && (r.candles['1d'] ?? 0) === 0 && (r.candles['1h'] ?? 0) === 0) {
+          throw new Error(r.errors[0] ?? 'keine Yahoo-Kerzen');
+        }
+      } else if (venue === 'twelvedata') {
+        const r = await trpc.product.addAsset.mutate({ symbol, venue: 'twelvedata' });
+        if (r.inserted === 0 && Object.values(r.candles).every((n) => n === 0)) {
+          throw new Error(r.errors[0] ?? 'keine Twelve-Data-Kerzen');
+        }
+      } else {
+        const r = await trpc.market.ensureCandles.mutate({ symbol });
+        if (r.candles1h === 0) throw new Error(r.errors[0] ?? 'keine Kerzen');
+      }
       setReloadKey((k) => k + 1);
     } catch (e) {
       setLoadErr(t('assetCtx.loadFailed', { symbol, error: String(e instanceof Error ? e.message : e).slice(0, 140) }));

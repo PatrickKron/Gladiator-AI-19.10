@@ -88,9 +88,9 @@ Hinzugefügte Aktien/ETF/Forex/Rohstoffe erscheinen in Chart, Screener, Heatmap,
 - Chart-Kopf: Knopf „Analyse“ doppelt zum Reiter Analyse → einen davon sinnvoll umwidmen (nichts entfernen, was Patrick nutzt; im Zweifel fragen).
 
 ### C · Kleinere technische Punkte
-- `product.addAsset` kennt Binance + Yahoo; Twelve Data nur über Einstellungen (Prüfung bräuchte den Key) → optional ergänzen, wenn ein Key gesetzt ist.
+- ✅ `product.addAsset` kennt neben Binance + Yahoo jetzt auch Twelve Data (Welle 5, PR #103).
 - Auf dem Server prüfen, ob Yahoo 15m mit `range=60d` liefert (sonst greift der 1mo-Fallback) — nach dem ersten hinzugefügten Yahoo-Asset in `ohlcv` nachsehen.
-- `packages/api/src/auth.test.ts` erzeugt unter Last eine „Unhandled Rejection“ (vorbestehend) → Test robust machen.
+- ✅ `packages/api/src/auth.test.ts` („Unhandled Rejection“ unter Last) behoben (Welle 5, PR #103).
 - `TEST_DATABASE_URL` in der Server-`.env` (Server-CI migriert die Live-DB dann erst nach grünen Tests) — **nur nach Patricks OK**, Werte nie ausgeben.
 
 ### D · Braucht Patrick (nicht selbstständig umsetzen)

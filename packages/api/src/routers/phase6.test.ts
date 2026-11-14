@@ -22,7 +22,7 @@ const createCaller = createCallerFactory(appRouter);
 const RUN = `${process.pid}-${Date.now()}`;
 const EMAIL = `phase6-test-${RUN}@test.invalid`;
 
-const { users, strategies, strategyVersions, backtests } = schema;
+const { users, strategies, strategyVersions, backtests, ohlcv } = schema;
 
 describe.skipIf(!hasDb)('Phase-6-Router (Settings, Product, Agents, Promotion)', () => {
   let db: Db;
@@ -217,6 +217,54 @@ describe.skipIf(!hasDb)('Phase-6-Router (Settings, Product, Agents, Promotion)',
       expect(reg.validity.hasBacktest).toBe(false);
     } finally {
       await db.delete(strategies).where(eq(strategies.slug, slug));
+    }
+  });
+
+  it('Multi-Asset 4h-Synthese & 1-Zeichen-Ticker (Yahoo): availableTimeframes, chartData/chartCandles & dslRegister', async () => {
+    const sym = `Y${Date.now() % 9}`; // 2-Zeichen-Ticker < 3 Zeichen
+    const H = 3_600_000;
+    const base = Math.floor(Date.UTC(2026, 5, 1) / (4 * H)) * (4 * H);
+    const rows = Array.from({ length: 16 }, (_, k) => ({
+      venue: 'yahoo',
+      symbol: sym,
+      timeframe: '1h',
+      ts: new Date(base + k * H),
+      open: '50',
+      high: '52',
+      low: '49',
+      close: '51',
+      volume: '100',
+    }));
+    const slug = `dsl-short-${RUN}`;
+    try {
+      await db.insert(ohlcv).values(rows).onConflictDoNothing();
+      const tfs = await caller.market.availableTimeframes({ symbol: sym, venue: 'yahoo' });
+      expect(tfs).toContain('1h');
+      expect(tfs).toContain('4h');
+
+      const candles4h = await caller.market.chartCandles({ symbol: sym, timeframe: '4h', venue: 'yahoo', limit: 50 });
+      expect(candles4h.length).toBeGreaterThanOrEqual(3);
+
+      const chart = await caller.market.chartData({ symbol: sym, timeframe: '4h', venue: 'yahoo', limit: 60 });
+      expect(chart.available).toBe(true);
+      expect(chart.candles.length).toBeGreaterThanOrEqual(3);
+
+      const reg = await caller.strategies.dslRegister({
+        dsl: {
+          id: slug,
+          symbol: sym,
+          timeframe: '1h',
+          direction: 'long',
+          when: { all: [{ trend: 'EMA200_up' }] },
+          entry: 'market',
+          stopLoss: { type: 'pct', pct: 2 },
+          takeProfits: [{ rr: 2 }],
+        },
+      });
+      expect(reg.status).toBe('draft');
+    } finally {
+      await db.delete(strategies).where(eq(strategies.slug, slug));
+      await db.delete(ohlcv).where(eq(ohlcv.symbol, sym));
     }
   });
 });

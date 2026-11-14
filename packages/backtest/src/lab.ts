@@ -3,7 +3,7 @@ import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { getOhlcv, loadSourceCandles, resolveCandleVenue, BARS_PER_YEAR, TIMEFRAME_MS, type SupportedTimeframe } from '@gladiator/market-data';
 import { buildClusterKey, detectStructure, evaluateDslAt, evaluateSmcCoreAt, parseInstructionDsl, SMC_CORE_DEFAULTS, type InstructionDsl, type SmcCoreParams } from '@gladiator/strategy-engine';
-import { DEFAULT_COSTS, runBacktest, type BacktestResult, type CostModel } from './engine.js';
+import { costModelForVenue, runBacktest, type BacktestResult, type CostModel } from './engine.js';
 import { runWalkForward, type WalkForwardResult } from './walkforward.js';
 import { explainRapsChoice, rapsGrid, type RapsResult } from './raps.js';
 import { labStudyRow } from './study-rows.js';
@@ -140,6 +140,7 @@ async function resolveDslStrategy(db: Db, strategyId: string): Promise<{ dsl: In
 export const WF_WARMUP_BARS = 250;
 
 export type LabMarketData = {
+  venue: string;
   candles: Awaited<ReturnType<typeof getOhlcv>>;
   dataQuality: DataQualityReport;
   fundingSeries: FundingPoint[] | null;
@@ -183,13 +184,23 @@ export async function loadLabMarketData(
     dataQuality.ok = false;
   }
 
-  // ── Funding: echte Settlements, falls vollständig vorhanden — sonst flaches Modell ──
+  // ── Funding: echte Settlements nur für Krypto-Perps (Binance) — Aktien/Forex zahlen kein Perp-Funding ──
+  if (venue !== 'binance') {
+    return {
+      venue,
+      candles,
+      dataQuality,
+      fundingSeries: null,
+      fundingSource: 'model',
+    };
+  }
   const funding = await loadFundingSeries(db, opts.symbol, firstTs, lastTs);
   if (funding.warning) {
     dataQuality.warnings.push(funding.warning);
     dataQuality.ok = false;
   }
   return {
+    venue,
     candles,
     dataQuality,
     fundingSeries: funding.series,
@@ -201,7 +212,6 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
   const { defaultVersionId } = await smcCoreIds(db);
   const versionParams = input.versionId ? await resolveVersion(db, input.versionId) : {};
   const params: SmcCoreParams = { ...SMC_CORE_DEFAULTS, ...versionParams, ...input.params };
-  const costModel = input.costModel ?? DEFAULT_COSTS;
   const riskPct = input.riskPctPerTrade ?? 1;
 
   // DSL-Strategie? Symbol/Timeframe/Setup kommen aus der DSL (die Strategie definiert sie).
@@ -210,7 +220,7 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
   const runTimeframe = dslResolved ? dslResolved.dsl.timeframe : input.timeframe;
   const runSetupType = dslResolved ? dslResolved.dsl.setupType : input.setupType;
 
-  const { candles, dataQuality, fundingSeries, fundingSource } = await loadLabMarketData(db, {
+  const { venue, candles, dataQuality, fundingSeries, fundingSource } = await loadLabMarketData(db, {
     symbol: runSymbol,
     timeframe: runTimeframe,
     from: input.from,
@@ -218,6 +228,7 @@ export async function runLabBacktest(db: Db, input: LabRunInput): Promise<LabRun
     minCandles: 250,
     minCandlesMessage: (n) => `Zu wenig echte Kerzen im Zeitraum (${n}) für ${runSymbol}@${runTimeframe} — Backtest wäre nicht belastbar.`,
   });
+  const costModel = costModelForVenue(venue, input.costModel);
 
   const result = runBacktest(candles, {
     evaluate: dslResolved
@@ -346,11 +357,10 @@ export type LabWalkForwardOutput = {
  */
 export async function runLabWalkForward(db: Db, input: LabWalkForwardInput): Promise<LabWalkForwardOutput> {
   const { defaultVersionId } = await smcCoreIds(db);
-  const costModel = input.costModel ?? DEFAULT_COSTS;
   if (input.grid.length === 0 || input.grid.length > 64) {
     throw new Error('Parameter-Grid muss 1–64 Kombinationen haben.');
   }
-  const { candles, dataQuality, fundingSeries, fundingSource } = await loadLabMarketData(db, {
+  const { venue, candles, dataQuality, fundingSeries, fundingSource } = await loadLabMarketData(db, {
     symbol: input.symbol,
     timeframe: input.timeframe,
     from: input.from,
@@ -358,6 +368,7 @@ export async function runLabWalkForward(db: Db, input: LabWalkForwardInput): Pro
     minCandles: input.isBars + input.oosBars,
     minCandlesMessage: (n) => `Zu wenig Kerzen (${n}) für IS ${input.isBars} + OOS ${input.oosBars}.`,
   });
+  const costModel = costModelForVenue(venue, input.costModel);
 
   const wf = runWalkForward(candles, {
     paramGrid: input.grid,

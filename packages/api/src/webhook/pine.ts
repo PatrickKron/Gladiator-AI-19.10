@@ -27,7 +27,7 @@ const { strategies, signals, auditLog } = schema;
 
 export const pinePayloadSchema = z.object({
   strategyId: z.string().uuid(),
-  symbol: z.string().min(3),
+  symbol: z.string().min(1),
   timeframe: z.enum(['15m', '1h', '4h', '1d']).default('1h'),
   direction: z.enum(['long', 'short']),
   setupType: z.enum(['scalp', 'swing', 'position']).default('swing'),

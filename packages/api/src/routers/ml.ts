@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
-import { getOhlcv } from '@gladiator/market-data';
+import { loadSourceCandles, resolveCandleVenue } from '@gladiator/market-data';
 import {
   computeFeatures,
   featureVectorToArray,
@@ -28,13 +28,14 @@ export const mlRouter = router({
     .input(z.object({
       symbol: z.string(),
       timeframe: z.string(),
-      venue: z.string().default('binance'),
+      venue: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
-      const candles = await getOhlcv(ctx.db, {
+      const venue = input.venue ?? (await resolveCandleVenue(ctx.db, input.symbol));
+      const candles = await loadSourceCandles(ctx.db, {
         symbol: input.symbol,
         timeframe: input.timeframe,
-        venue: input.venue,
+        venue,
         limit: 400,
       });
 
@@ -68,7 +69,7 @@ export const mlRouter = router({
 
       if (!signal) return { labeled: false, reason: 'Signal not found' };
 
-      const candles = await getOhlcv(ctx.db, {
+      const candles = await loadSourceCandles(ctx.db, {
         symbol: signal.symbol,
         timeframe: signal.timeframe,
         venue: signal.venue,
@@ -244,7 +245,7 @@ export const mlRouter = router({
       }
 
       // Compute features
-      const candles = await getOhlcv(ctx.db, {
+      const candles = await loadSourceCandles(ctx.db, {
         symbol: signal.symbol,
         timeframe: signal.timeframe,
         venue: signal.venue,
@@ -317,7 +318,7 @@ export const mlRouter = router({
 
       if (!signal) return { result: null, reason: 'Signal not found' };
 
-      const candles = await getOhlcv(ctx.db, {
+      const candles = await loadSourceCandles(ctx.db, {
         symbol: signal.symbol,
         timeframe: signal.timeframe,
         venue: signal.venue,
@@ -423,18 +424,21 @@ export const mlRouter = router({
     .input(z.object({
       symbol: z.string(),
       timeframe: z.string(),
-      venue: z.string().default('binance'),
+      venue: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
-      // Check if we have a recent regime classification
-      const [cached] = await ctx.db.select()
-        .from(marketRegimes)
-        .where(and(
-          eq(marketRegimes.symbol, input.symbol),
-          eq(marketRegimes.timeframe, input.timeframe),
-        ))
-        .orderBy(desc(marketRegimes.ts))
-        .limit(1);
+      const venue = input.venue ?? (await resolveCandleVenue(ctx.db, input.symbol));
+      // Check if we have a recent regime classification (only reuse cache for default Binance venue to avoid cross-venue mixups)
+      const [cached] = venue === 'binance'
+        ? await ctx.db.select()
+            .from(marketRegimes)
+            .where(and(
+              eq(marketRegimes.symbol, input.symbol),
+              eq(marketRegimes.timeframe, input.timeframe),
+            ))
+            .orderBy(desc(marketRegimes.ts))
+            .limit(1)
+        : [undefined];
 
       // If cached regime is less than 15 min old, return it
       if (cached && (Date.now() - new Date(cached.ts).getTime()) < 15 * 60_000) {
@@ -448,10 +452,10 @@ export const mlRouter = router({
       }
 
       // Compute fresh regime
-      const candles = await getOhlcv(ctx.db, {
+      const candles = await loadSourceCandles(ctx.db, {
         symbol: input.symbol,
         timeframe: input.timeframe,
-        venue: input.venue,
+        venue,
         limit: 400,
       });
 

@@ -103,7 +103,7 @@ export const labRouter = router({
   runBacktest: protectedProcedure
     .input(
       z.object({
-        symbol: z.string().min(3), // Universum waechst mit Favoriten — Kerzen-Check schuetzt
+        symbol: z.string().min(1), // Universum waechst mit Favoriten (inkl. 1-2-Zeichen-Ticker wie F/GM) — Kerzen-Check schuetzt
         timeframe: timeframeSchema,
         setupType: setupSchema,
         from: z.string().datetime(),
@@ -184,7 +184,7 @@ export const labRouter = router({
   runWalkForward: protectedProcedure
     .input(
       z.object({
-        symbol: z.string().min(3),
+        symbol: z.string().min(1),
         timeframe: timeframeSchema,
         setupType: setupSchema,
         from: z.string().datetime(),
@@ -242,7 +242,7 @@ export const labRouter = router({
   calibrateRisk: protectedProcedure
     .input(
       z.object({
-        symbol: z.string().min(3),
+        symbol: z.string().min(1),
         timeframe: timeframeSchema,
         setupType: setupSchema,
         from: z.string().datetime(),

@@ -38,6 +38,12 @@ export const DEFAULT_COSTS: CostModel = {
   fundingRatePer8h: 0.0001,
 };
 
+/** Kostenmodell passend zur Kerzenquelle: Börsen-/Spot-Quellen (Yahoo/Twelve Data) zahlen kein Perp-Funding. */
+export function costModelForVenue(venue: string, custom?: CostModel): CostModel {
+  if (custom) return custom;
+  return venue === 'binance' ? DEFAULT_COSTS : { ...DEFAULT_COSTS, fundingRatePer8h: 0 };
+}
+
 /** Nur für Tests/Diagnose — im Labor ist das Kostenmodell Pflicht. */
 export const ZERO_COSTS: CostModel = {
   takerFeeRate: 0,

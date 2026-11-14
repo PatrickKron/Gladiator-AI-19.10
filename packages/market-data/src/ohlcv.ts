@@ -137,13 +137,15 @@ export async function candleUniverse(
   opts: { timeframe: string; venue?: string; minCandles: number; limit: number; now?: Date },
 ): Promise<{ symbol: string; candles: number; lastTs: string }[]> {
   const venue = opts.venue ?? 'binance';
+  const sourceTf = venue !== 'binance' && opts.timeframe === '4h' ? '1h' : opts.timeframe;
+  const minRows = sourceTf !== opts.timeframe ? opts.minCandles * 2 : opts.minCandles;
   const cutoff = freshCutoff(opts.timeframe, venue, opts.now ?? new Date());
   const res = await db.execute(sql`
     SELECT symbol, count(*)::int AS candles, max(ts) AS last_ts
     FROM ohlcv
-    WHERE venue = ${venue} AND timeframe = ${opts.timeframe}
+    WHERE venue = ${venue} AND timeframe = ${sourceTf}
     GROUP BY symbol
-    HAVING count(*) >= ${opts.minCandles} AND max(ts) >= ${cutoff.toISOString()}::timestamptz
+    HAVING count(*) >= ${minRows} AND max(ts) >= ${cutoff.toISOString()}::timestamptz
     ORDER BY symbol
     LIMIT ${opts.limit}
   `);

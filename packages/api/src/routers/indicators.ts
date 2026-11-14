@@ -15,7 +15,7 @@ import {
   type ComputeBar,
   type IndicatorOutput,
 } from '@gladiator/indicators';
-import { getOhlcv, SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
+import { loadSourceCandles, resolveCandleVenue, SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
 import { protectedProcedure, router } from '../trpc.js';
 
 const { chartIndicators } = schema;
@@ -116,16 +116,16 @@ export const indicatorsRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const symbol = input.symbol.toUpperCase();
-      const venue = input.venue ?? 'binance';
+      const venue = input.venue ?? (await resolveCandleVenue(ctx.db, symbol));
       const until = input.until !== undefined ? new Date(input.until * 1000) : undefined;
-      const candles = await getOhlcv(ctx.db, { symbol, timeframe: input.timeframe, limit: input.limit, venue, until });
+      const candles = await loadSourceCandles(ctx.db, { symbol, timeframe: input.timeframe, limit: input.limit, venue, until });
       const bars = applyLiveBar(candlesToBars(candles), until ? undefined : input.liveBar);
       const tickerid = tickerIdOf(venue, symbol);
       const extraCache = new Map<string, ComputeBar[]>();
       const loadExtra = async (tfs: string[]) => {
         const out: Record<string, ComputeBar[]> = {};
         for (const tf of tfs) {
-          if (!extraCache.has(tf)) extraCache.set(tf, candlesToBars(await getOhlcv(ctx.db, { symbol, timeframe: tf, limit: 1000, venue, until })));
+          if (!extraCache.has(tf)) extraCache.set(tf, candlesToBars(await loadSourceCandles(ctx.db, { symbol, timeframe: tf, limit: 1000, venue, until })));
           out[tf] = extraCache.get(tf)!;
         }
         return out;
