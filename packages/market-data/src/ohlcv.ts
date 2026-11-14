@@ -257,14 +257,11 @@ export async function loadSourceCandles(
     });
   }
   const end = p.until ?? p.now ?? new Date();
-  const lookbackMs = p.limit
-    ? Math.min(SOURCE_AGGREGATE_LOOKBACK_MS, Math.max(p.limit * 4 * 3_600_000 * 4, 45 * 86_400_000))
-    : SOURCE_AGGREGATE_LOOKBACK_MS;
   const raw = await getOhlcv(db, {
     venue,
     symbol,
     timeframe: sourceTf,
-    since: p.since ?? new Date(end.getTime() - lookbackMs),
+    since: p.since ?? new Date(end.getTime() - SOURCE_AGGREGATE_LOOKBACK_MS),
     until: end,
   });
   const out = aggregateCandles(closedCandles(raw, sourceTf, end), sourceTf, p.timeframe, end);
