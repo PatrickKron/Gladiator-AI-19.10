@@ -1,11 +1,12 @@
 import ccxt from 'ccxt';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { normalizeWalletAddress, walletAddressKind } from '@gladiator/core/wallet-address';
+import { CcxtLiveVenue, type CcxtLiveClient } from './ccxt-live-venue.js';
 import { decryptCredentials, encryptCredentials } from './vault.js';
 
-const { exchangeConnections } = schema;
+const { exchangeConnections, venueApprovals } = schema;
 
 /**
  * Universelle Börsen-Anbindung über CCXT (100+ Börsen) — Patricks Auftrag:
@@ -498,4 +499,149 @@ export async function loadRoutingConnections(db: Db, userId: string): Promise<Co
     createdAt: r.createdAt,
     marketsSummary: (r.marketsSummary as MarketsSummary | null) ?? null,
   }));
+}
+
+export type CreateLiveClient = (exchangeId: string, creds: StoredCredentials) => CcxtLiveClient;
+
+/** Echter CCXT-Client für den Live-Order-Pfad (injizierbar für Tests ohne Netz). */
+export const defaultCreateLiveClient: CreateLiveClient = (exchangeId, creds) =>
+  defaultCreateClient(exchangeId, creds) as unknown as CcxtLiveClient;
+
+export type LiveVenueResolution =
+  | { ok: true; venue: CcxtLiveVenue; connection: ConnectionForRouting }
+  | { ok: false; reason: 'no_trading_connection' | 'not_approved'; detail: string };
+
+/**
+ * Live-Order-Router (OFFENER_PLAN §2): wählt über pickConnectionForSymbol die
+ * älteste aktive Trading-Börse des Users für das Symbol, prüft die aktive
+ * Live-Freigabe (`venue_approvals`: LIVE-FREIGABE <exchangeId>) und liefert
+ * den `CcxtLiveVenue`-Adapter zurück. Fehlt Verbindung oder Freigabe, wird
+ * ehrlich blockiert (nie still auf Paper zurückgefallen).
+ */
+export async function resolveLiveVenueForSymbol(
+  db: Db,
+  userId: string,
+  symbol: string,
+  opts: { createLiveClient?: CreateLiveClient } = {},
+): Promise<LiveVenueResolution> {
+  const rows = await db.select().from(exchangeConnections).where(eq(exchangeConnections.userId, userId));
+  const routing: ConnectionForRouting[] = rows.map((r) => ({
+    id: r.id,
+    exchangeId: r.exchangeId,
+    mode: r.mode,
+    status: r.status,
+    createdAt: r.createdAt,
+    marketsSummary: (r.marketsSummary as MarketsSummary | null) ?? null,
+  }));
+  const picked = pickConnectionForSymbol(routing, symbol);
+  if (!picked) {
+    return {
+      ok: false,
+      reason: 'no_trading_connection',
+      detail: `Keine aktive Trading-Börse für ${symbol} verbunden — bitte unter Echtes Geld eine Börse verbinden und den Modus auf „Trading“ stellen.`,
+    };
+  }
+
+  const approvals = await db
+    .select({ id: venueApprovals.id })
+    .from(venueApprovals)
+    .where(
+      and(
+        isNull(venueApprovals.revokedAt),
+        inArray(venueApprovals.venueId, [picked.exchangeId, `live:${picked.id}`]),
+      ),
+    )
+    .limit(1);
+  if (approvals.length === 0) {
+    return {
+      ok: false,
+      reason: 'not_approved',
+      detail: `Für ${picked.exchangeId} liegt keine aktive Live-Freigabe vor — bitte zuerst „LIVE-FREIGABE ${picked.exchangeId}“ erteilen.`,
+    };
+  }
+
+  const row = rows.find((r) => r.id === picked.id)!;
+  const creds = decryptCredentials(row.encryptedPayload) as unknown as StoredCredentials;
+  const client = (opts.createLiveClient ?? defaultCreateLiveClient)(row.exchangeId, creds);
+  return {
+    ok: true,
+    venue: new CcxtLiveVenue({ connectionId: row.id, exchangeId: row.exchangeId, client }),
+    connection: picked,
+  };
+}
+
+/**
+ * Löst eine bestehende Live-Positions-Venue-Kennung (`live:<connectionId>`)
+ * in den `CcxtLiveVenue`-Adapter auf (für Monitor, manuellen Schluss, SL/TP-Update, Reconciler).
+ */
+export async function resolveLiveVenueById(
+  db: Db,
+  venueId: string,
+  opts: { createLiveClient?: CreateLiveClient } = {},
+): Promise<CcxtLiveVenue | null> {
+  if (!venueId.startsWith('live:')) return null;
+  const connectionId = venueId.slice(5);
+  if (!connectionId) return null;
+  const [row] = await db
+    .select()
+    .from(exchangeConnections)
+    .where(eq(exchangeConnections.id, connectionId))
+    .limit(1);
+  if (!row || row.status === 'revoked') return null;
+  const creds = decryptCredentials(row.encryptedPayload) as unknown as StoredCredentials;
+  const client = (opts.createLiveClient ?? defaultCreateLiveClient)(row.exchangeId, creds);
+  return new CcxtLiveVenue({ connectionId: row.id, exchangeId: row.exchangeId, client });
+}
+
+/**
+ * Prüft, ob für den User mindestens eine aktive Trading-Börse MIT aktiver
+ * Live-Freigabe (`venue_approvals`) existiert — Vorbedingung für den Wechsel
+ * von Paper-Default auf `trading_settings.mode = 'live'`.
+ */
+export async function hasApprovedLiveVenue(
+  db: Db,
+  userId: string,
+): Promise<{ ok: boolean; approvedExchanges: string[]; detail: string }> {
+  const rows = await db
+    .select()
+    .from(exchangeConnections)
+    .where(
+      and(
+        eq(exchangeConnections.userId, userId),
+        eq(exchangeConnections.status, 'active'),
+        eq(exchangeConnections.mode, 'trading'),
+      ),
+    );
+  if (rows.length === 0) {
+    return {
+      ok: false,
+      approvedExchanges: [],
+      detail: 'Keine aktive Börsen-Verbindung im Modus „Trading“ vorhanden — bitte zuerst eine Börse verbinden und auf „Trading“ schalten.',
+    };
+  }
+  const activeApprovals = await db
+    .select({ venueId: venueApprovals.venueId })
+    .from(venueApprovals)
+    .where(isNull(venueApprovals.revokedAt));
+  const approvedSet = new Set(activeApprovals.map((a) => a.venueId));
+  const approvedExchanges = [
+    ...new Set(
+      rows
+        .filter((r) => approvedSet.has(r.exchangeId) || approvedSet.has(`live:${r.id}`))
+        .map((r) => r.exchangeId),
+    ),
+  ];
+  if (approvedExchanges.length === 0) {
+    const names = [...new Set(rows.map((r) => r.exchangeId))].join(', ');
+    return {
+      ok: false,
+      approvedExchanges: [],
+      detail: `Für die verbundene Trading-Börse (${names}) fehlt noch die Live-Freigabe („LIVE-FREIGABE <venue>“).`,
+    };
+  }
+  return {
+    ok: true,
+    approvedExchanges,
+    detail: `Live-Freigabe aktiv für: ${approvedExchanges.join(', ')}.`,
+  };
 }

@@ -26,7 +26,14 @@ import {
 import { recordPaperStudyTrade } from './study-record.js';
 import { freshnessLimitMs } from '@gladiator/market-data';
 import { candleTimeframeFor, signalExecutionBlock } from './signal-venue.js';
-import { CandleCloseVenue, venueForPosition, venueForSource } from './candle-close-venue.js';
+import { CandleCloseVenue, SourceRoutingVenue, venueForPosition, venueForSource } from './candle-close-venue.js';
+import { CcxtLiveVenue } from './ccxt-live-venue.js';
+import {
+  normalizeSymbol,
+  resolveLiveVenueById,
+  resolveLiveVenueForSymbol,
+  type CreateLiveClient,
+} from './connections.js';
 
 const { signals, strategies, strategyVersions, orders, positions, executedTrades, tradingSettings, riskGates, auditLog, economicEvents, macroSeries, ohlcv, marketRegimes } = schema;
 
@@ -66,16 +73,29 @@ export async function loadExecutionPlan(db: Db, strategyVersionId: string | null
 const TAKER_FEE = 0.0004;
 const FUNDING_PER_8H = 0.0001;
 
-export async function buildAccountState(db: Db, userId: string, now = new Date()) {
-  const openPos = await db.select().from(positions).where(eq(positions.userId, userId));
+export async function buildAccountState(
+  db: Db,
+  userId: string,
+  now = new Date(),
+  opts: { mode?: 'paper' | 'live'; liveEquityUsd?: number | null } = {},
+) {
+  const mode = opts.mode ?? 'paper';
+  const openPos = await db
+    .select()
+    .from(positions)
+    .where(and(eq(positions.userId, userId), eq(positions.mode, mode)));
   const closed = await db
     .select()
     .from(executedTrades)
-    .where(and(eq(executedTrades.userId, userId), eq(executedTrades.mode, 'paper')))
+    .where(and(eq(executedTrades.userId, userId), eq(executedTrades.mode, mode)))
     .orderBy(desc(executedTrades.createdAt))
     .limit(500);
 
-  const equity = PAPER_START_EQUITY + closed.reduce((a, t) => a + Number(t.netPnl ?? 0), 0);
+  const hasLiveEquity =
+    mode === 'live' && typeof opts.liveEquityUsd === 'number' && Number.isFinite(opts.liveEquityUsd) && opts.liveEquityUsd >= 0;
+  const equity = hasLiveEquity
+    ? opts.liveEquityUsd!
+    : (mode === 'paper' ? PAPER_START_EQUITY : 0) + closed.reduce((a, t) => a + Number(t.netPnl ?? 0), 0);
 
   const dayStart = new Date(now);
   dayStart.setUTCHours(0, 0, 0, 0);
@@ -102,7 +122,7 @@ export async function buildAccountState(db: Db, userId: string, now = new Date()
   const denom = (since: Date) => Math.max(1, equity - pnlSince(since));
   return {
     equity,
-    availableMargin: equity, // Paper: keine Fremd-Margin; konservativ = Equity
+    availableMargin: equity, // konservativ = Equity
     openPositions: openPos.length,
     exposureBySymbolPct,
     dailyPnlPct: equity > 0 ? (pnlSince(dayStart) / denom(dayStart)) * 100 : 0,
@@ -128,6 +148,7 @@ export async function loadRiskSettings(db: Db, userId: string) {
     maxConsecutiveLosses: 5,
     pauseAfterLossStreakHours: 4,
     killSwitchActive: settingsRow?.killSwitchActive ?? false,
+    mode: (settingsRow?.mode ?? 'paper') as 'paper' | 'live',
   };
 }
 
@@ -415,24 +436,82 @@ export async function executeConfirmedSignal(
       stopLoss?: number;
       takeProfits?: number[];
     };
+    /** Nur Tests: Live-CCXT-Client-Factory für DB-aufgelöste Live-Venues injizieren. */
+    createLiveClient?: CreateLiveClient;
   },
 ): Promise<ExecutionResult> {
   const [signal] = await db.select().from(signals).where(eq(signals.id, opts.signalId)).limit(1);
   if (!signal) throw new Error('Signal nicht gefunden.');
   if (signal.status !== 'confirmed') throw new Error(`Signal ist ${signal.status}, nicht confirmed.`);
-  const venueBlock = signalExecutionBlock(signal.venue, baseVenue.kind);
-  if (venueBlock) throw new Error(venueBlock);
-  // A2: Yahoo/Twelve Data laufen im Paper-Modus als Schlusskurs-Ausführung (eigene Venue-Kennung
-  // für Orders/Positionen); Binance unverändert über den aktiven Venue.
-  const venue = venueForSource(baseVenue, signal.venue);
-  const closeExecution = venue instanceof CandleCloseVenue;
 
   const settings = await loadRiskSettings(db, opts.userId);
   if (opts.riskPctOverride !== undefined && opts.riskPctOverride > 0) {
     settings.riskPctPerTrade = opts.riskPctOverride;
   }
 
-  const state = await buildAccountState(db, opts.userId);
+  const wantLive = baseVenue.kind === 'live' || settings.mode === 'live';
+  const venueBlock = signalExecutionBlock(signal.venue, wantLive ? 'live' : baseVenue.kind);
+  if (venueBlock) throw new Error(venueBlock);
+
+  let venue: TradingVenue;
+  let liveEquityUsd: number | null = null;
+  if (wantLive) {
+    if (baseVenue.kind === 'live') {
+      venue = baseVenue;
+    } else {
+      const resolved = await resolveLiveVenueForSymbol(db, opts.userId, signal.symbol, {
+        createLiveClient: opts.createLiveClient,
+      });
+      if (!resolved.ok) {
+        const blockedVerdict: RiskVerdict = {
+          allowed: false,
+          reasons: [resolved.detail],
+          checks: [],
+          sizing: null,
+        };
+        await db.insert(auditLog).values({
+          actor: 'system',
+          userId: opts.userId,
+          action: 'order.risk_check.blocked',
+          entityType: 'signal',
+          entityId: signal.id,
+          details: { reasons: [resolved.detail], reasonCode: resolved.reason },
+          ip: opts.ip ?? null,
+        });
+        return { verdict: blockedVerdict, executed: false, detail: `Live-Router blockt: ${resolved.detail}` };
+      }
+      venue = resolved.venue;
+    }
+
+    if (venue instanceof CcxtLiveVenue) {
+      try {
+        liveEquityUsd = await venue.equityUsd();
+      } catch (err) {
+        const msg = `Live-Kontostand auf ${venue.id} nicht abrufbar: ${err instanceof Error ? err.message : String(err)}`;
+        return {
+          verdict: { allowed: false, reasons: [msg], checks: [], sizing: null },
+          executed: false,
+          detail: msg,
+        };
+      }
+      if (liveEquityUsd === null || !(liveEquityUsd > 0)) {
+        const msg = `Kein verfügbares USD(T)-Guthaben auf ${venue.id} — Live-Order sicherheitshalber blockiert.`;
+        return {
+          verdict: { allowed: false, reasons: [msg], checks: [], sizing: null },
+          executed: false,
+          detail: msg,
+        };
+      }
+    }
+  } else {
+    // A2: Yahoo/Twelve Data laufen im Paper-Modus als Schlusskurs-Ausführung (eigene Venue-Kennung
+    // für Orders/Positionen); Binance unverändert über den aktiven Venue.
+    venue = venueForSource(baseVenue, signal.venue);
+  }
+  const closeExecution = venue instanceof CandleCloseVenue;
+  const execMode: 'paper' | 'live' = venue.kind === 'live' ? 'live' : 'paper';
+
+  const state = await buildAccountState(db, opts.userId, new Date(), { mode: execMode, liveEquityUsd });
   const gates = await loadActiveGates(db);
   const rules = await venue.marketRules(signal.symbol);
   // SAFE-004…010: order-spezifische Eingaben aus echten Daten (Live-Mark, Rate, Cooldown …)
@@ -484,6 +563,8 @@ export async function executeConfirmedSignal(
       reasons: verdict.reasons,
       checks: verdict.checks,
       sizing: verdict.sizing,
+      mode: execMode,
+      venue: venue.id,
       // Transparenz: Was hat der User angepasst, was war der Strategie-Vorschlag?
       ...(opts.overrides
         ? {
@@ -517,7 +598,7 @@ export async function executeConfirmedSignal(
         eq(positions.userId, opts.userId),
         eq(positions.venue, venue.id),
         eq(positions.symbol, signal.symbol),
-        eq(positions.mode, 'paper'),
+        eq(positions.mode, execMode),
       ),
     )
     .limit(1);
@@ -554,7 +635,7 @@ export async function executeConfirmedSignal(
     qty: String(verdict.sizing.qty),
     price: String(entryRes.fillPrice),
     status: 'filled',
-    mode: 'paper',
+    mode: execMode,
     // SAFE-006: echte Slippage = Fill vs. Live-Mark direkt vor der Order (Basis der Historie);
     // Schlusskurs-Ausführung (A2) bleibt im Datensatz als solche beschriftet.
     raw:
@@ -587,7 +668,7 @@ export async function executeConfirmedSignal(
       // Trailing-Stop aus der Strategie (DSL trailingStop) übernehmen — der Monitor
       // zieht ihn mit derselben trailStep-Funktion nach wie der Backtest (Start: Fill).
       ...(signal.trailPct !== null ? { trailPct: signal.trailPct, trailPeak: String(entryRes.fillPrice) } : {}),
-      mode: 'paper',
+      mode: execMode,
     })
     .returning();
 
@@ -668,7 +749,7 @@ export async function executeConfirmedSignal(
       price: String(p.trigger),
       reduceOnly: true,
       status: 'open',
-      mode: 'paper',
+      mode: execMode,
     });
   }
 
@@ -680,7 +761,7 @@ export async function executeConfirmedSignal(
     entityType: 'position',
     entityId: position!.id,
     details: {
-      signalId: signal.id, venue: venue.id, qty: verdict.sizing.qty,
+      signalId: signal.id, venue: venue.id, mode: execMode, qty: verdict.sizing.qty,
       entryFill: entryRes.fillPrice, stopLoss: effectiveStopLoss, takeProfits: effectiveTakeProfits,
       leverage: effectiveLeverage,
       // Transparenz: mit welchen Teil-Exit-Anteilen und welcher BE-Regel die Position läuft
@@ -699,14 +780,32 @@ export async function executeConfirmedSignal(
     qty: verdict.sizing.qty,
     detail: closeExecution
       ? `Paper-Schlusskurs-Ausführung @ ${entryRes.fillPrice} (letzter echter Kerzenschluss, ${signal.venue}).`
-      : `Paper-Order ausgeführt @ ${entryRes.fillPrice} (${venue.id}).`,
+      : execMode === 'live'
+        ? `Live-Order ausgeführt @ ${entryRes.fillPrice} (${venue.id}).`
+        : `Paper-Order ausgeführt @ ${entryRes.fillPrice} (${venue.id}).`,
   };
 }
 
 /**
- * PositionMonitor-Tick (06_ §5): prüft offene Paper-Positionen gegen den
- * ECHTEN Live-Preis, füllt Schutz-Orders (SL zuerst — konservativ),
- * setzt nach TP1 den Stop auf Break-Even (außer die DSL der Signal-Version
+ * Löst die Venue für eine spezifische Position auf (inkl. `live:<connectionId>`).
+ */
+async function resolveTargetPositionVenue(
+  db: Db,
+  baseVenue: TradingVenue,
+  venueId: string,
+  createLiveClient?: CreateLiveClient,
+): Promise<TradingVenue | null> {
+  if (baseVenue.id === venueId) return baseVenue;
+  if (venueId.startsWith('live:')) {
+    return resolveLiveVenueById(db, venueId, { createLiveClient });
+  }
+  return venueForPosition(baseVenue, venueId);
+}
+
+/**
+ * PositionMonitor-Tick (06_ §5): prüft offene Paper- und Live-Positionen gegen den
+ * ECHTEN Live-Preis bzw. den Börsen-Orderstatus, füllt Schutz-Orders (SL zuerst —
+ * konservativ), setzt nach TP1 den Stop auf Break-Even (außer die DSL der Signal-Version
  * schaltet es ab: breakEvenAfterTp1 = false), schreibt bei Voll-Schluss
  * executed_trades NETTO (Fees/Funding wie im Backtest-Kostenmodell).
  */
@@ -714,19 +813,30 @@ export async function monitorOpenPositions(
   db: Db,
   baseVenue: TradingVenue,
   /** Nur Tests: Wirkungsbereich auf eigene User begrenzen (Server-CI testet gegen die echte DB). */
-  opts: { userIds?: string[] } = {},
+  opts: { userIds?: string[]; createLiveClient?: CreateLiveClient } = {},
 ): Promise<{ checked: number; fills: number }> {
   const { planFills } = await import('./lifecycle.js');
   const open = await db
     .select()
     .from(positions)
-    .where(and(eq(positions.mode, 'paper'), opts.userIds ? inArray(positions.userId, opts.userIds) : undefined));
+    .where(opts.userIds ? inArray(positions.userId, opts.userIds) : undefined);
   let fills = 0;
 
   for (const pos of open) {
-    // Schlusskurs-Positionen (Yahoo/Twelve Data, A2) gegen ihren Kerzenschluss, sonst der aktive Venue.
-    const venue = venueForPosition(baseVenue, pos.venue);
-    if (!venue) continue; // Schlusskurs-Position, aber Venue ohne Weiche (Tests) → nicht bewerten
+    let venue: TradingVenue | null;
+    if (baseVenue.id === pos.venue) {
+      venue = baseVenue;
+    } else if (pos.venue.startsWith('live:')) {
+      if (baseVenue instanceof SourceRoutingVenue || opts.createLiveClient !== undefined || (opts.userIds && opts.userIds.length > 0)) {
+        venue = await resolveLiveVenueById(db, pos.venue, { createLiveClient: opts.createLiveClient });
+      } else {
+        venue = null;
+      }
+    } else {
+      // Schlusskurs-Positionen (Yahoo/Twelve Data, A2) gegen ihren Kerzenschluss, sonst der aktive Venue.
+      venue = venueForPosition(baseVenue, pos.venue);
+    }
+    if (!venue) continue; // Schlusskurs- oder Live-Position ohne passende Weiche (Tests) → nicht bewerten
     // Fehler-Isolation: eine defekte Position (z. B. Preis nicht verfügbar)
     // darf die Überwachung der anderen NIE verhindern (06_ §7b).
     let price: number;
@@ -760,23 +870,72 @@ export async function monitorOpenPositions(
       if (slIdx >= 0 && moved) prot[slIdx] = moved;
     }
 
-    const planned = planFills(
-      pos.direction,
-      prot.map((o) => ({
-        id: o.id,
-        type: o.type as 'stop_market' | 'take_profit_market',
-        triggerPrice: Number(o.price),
-        qtyFraction: Number(o.qty) / Number(pos.qty),
-      })),
-      price,
-    );
+    let planned: { id: string; type: 'stop_market' | 'take_profit_market'; closesPosition: boolean; fillPrice?: number }[];
+    if (venue.kind === 'live' && venue.fetchOrderState) {
+      // Live-Venue: Börse ist die Wahrheit — Fills werden über fetchOrderState der Trigger-Orders erkannt.
+      const priorExits = await db
+        .select({ qty: orders.qty })
+        .from(orders)
+        .where(
+          and(
+            eq(orders.userId, pos.userId),
+            eq(orders.symbol, pos.symbol),
+            eq(orders.venue, pos.venue),
+            eq(orders.reduceOnly, true),
+            eq(orders.status, 'filled'),
+            gte(orders.createdAt, pos.openedAt),
+          ),
+        );
+      let exitedSoFar = priorExits.reduce((sum, r) => sum + Number(r.qty), 0);
+      const liveFilled: { row: OrderRow; avg: number | null }[] = [];
+      for (const o of prot) {
+        if (!o.exchangeOrderId) continue;
+        try {
+          const st = await venue.fetchOrderState(pos.symbol, o.exchangeOrderId, { trigger: true });
+          if (st.status === 'filled') liveFilled.push({ row: o, avg: st.average });
+        } catch {
+          /* einzelne Abfrage fehlgeschlagen → nächsten Tick abwarten */
+        }
+      }
+      liveFilled.sort((a, b) => (a.row.type === 'stop_market' ? -1 : b.row.type === 'stop_market' ? 1 : 0));
+      planned = [];
+      for (const item of liveFilled) {
+        exitedSoFar += Number(item.row.qty);
+        const closesPosition = item.row.type === 'stop_market' || exitedSoFar >= Number(pos.qty) - 1e-9;
+        planned.push({
+          id: item.row.id,
+          type: item.row.type as 'stop_market' | 'take_profit_market',
+          closesPosition,
+          ...(item.avg !== null && item.avg > 0 ? { fillPrice: item.avg } : {}),
+        });
+        if (closesPosition) break;
+      }
+    } else {
+      planned = planFills(
+        pos.direction,
+        prot.map((o) => ({
+          id: o.id,
+          type: o.type as 'stop_market' | 'take_profit_market',
+          triggerPrice: Number(o.price),
+          qtyFraction: Number(o.qty) / Number(pos.qty),
+        })),
+        price,
+      );
+    }
 
     // BE-Regel der Strategie: erst bei einem TP-Fill nachladen (aus der Signal-Version der TP-Order)
     let breakEvenAfterTp1: boolean | null = null;
 
     for (const fill of planned) {
-      // Paper-Fill zum Trigger-Preis (konservativ; Live-Venue füllt selbst)
-      await db.update(orders).set({ status: 'filled', updatedAt: new Date() }).where(eq(orders.id, fill.id));
+      // Paper-Fill zum Trigger-Preis; Live-Venue übernimmt den echten Durchschnittspreis der Börse
+      await db
+        .update(orders)
+        .set({
+          status: 'filled',
+          ...(fill.fillPrice !== undefined ? { price: String(fill.fillPrice) } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(orders.id, fill.id));
       fills++;
 
       // decker S010: nach dem ersten TP-Fill Stop auf Break-Even (nur verschärfen)
@@ -818,7 +977,14 @@ export async function monitorOpenPositions(
       }
 
       if (fill.closesPosition) {
-        await closePaperPosition(db, venue, pos.id, price, fill.type === 'stop_market' ? 'sl' : 'tp');
+        if (venue.kind === 'live') {
+          for (const rem of prot) {
+            if (rem.id !== fill.id && rem.exchangeOrderId) {
+              await venue.cancelOrder(pos.symbol, rem.exchangeOrderId, { trigger: true }).catch(() => undefined);
+            }
+          }
+        }
+        await closePaperPosition(db, venue, pos.id, fill.fillPrice ?? price, fill.type === 'stop_market' ? 'sl' : 'tp');
       }
     }
   }
@@ -928,7 +1094,7 @@ async function closePaperPosition(
     fundingPaid: String(funding),
     netPnl: String(netPnl),
     rMultiple: riskAmount > 0 ? String(netPnl / riskAmount) : null,
-    mode: 'paper',
+    mode: pos.mode,
   }).returning({ id: executedTrades.id, exitTs: executedTrades.exitTs });
 
   // Verbleibende offene Schutz-Orders dieser Position schließen
@@ -951,7 +1117,7 @@ async function closePaperPosition(
     action: 'position.closed',
     entityType: 'position',
     entityId: positionId,
-    details: { reason, avgExit, grossPnl, fees, funding, netPnl },
+    details: { reason, avgExit, grossPnl, fees, funding, netPnl, mode: pos.mode },
   });
   // VDB1 (13_ §3): Studien-Zeile zum echten Trade — darf den Schluss NIE kippen.
   try {
@@ -976,7 +1142,7 @@ export async function closePositionNow(
 ): Promise<{ closed: boolean; exitPrice?: number }> {
   const [pos] = await db.select().from(positions).where(eq(positions.id, positionId)).limit(1);
   if (!pos) return { closed: false };
-  const venue = venueForPosition(baseVenue, pos.venue) ?? baseVenue;
+  const venue = (await resolveTargetPositionVenue(db, baseVenue, pos.venue)) ?? baseVenue;
   let price: number;
   try {
     price = await venue.markPrice(pos.symbol); // ECHTER Live-Preis
@@ -1049,7 +1215,7 @@ async function replaceProtectionOrder(
         price: String(price),
         reduceOnly: true,
         status: 'open',
-        mode: 'paper',
+        mode: pos.mode,
       })
       .returning();
   }
@@ -1121,7 +1287,7 @@ export async function closePositionManually(
   userId: string,
   positionId: string,
   ip: string | null = null,
-  opts: { qty?: number } = {},
+  opts: { qty?: number; createLiveClient?: CreateLiveClient } = {},
 ): Promise<ManualCloseResult> {
   const [pos] = await db
     .select()
@@ -1130,7 +1296,7 @@ export async function closePositionManually(
     .limit(1);
   if (!pos) return { closed: false, reason: 'not_found' };
   if (opts.qty !== undefined && !(opts.qty > 0)) return { closed: false, reason: 'invalid_qty' };
-  const venue = venueForPosition(baseVenue, pos.venue) ?? baseVenue;
+  const venue = (await resolveTargetPositionVenue(db, baseVenue, pos.venue, opts.createLiveClient)) ?? baseVenue;
 
   const own = await db.select().from(orders).where(positionOrders(pos));
   const exited = own.filter((o) => o.reduceOnly && o.status === 'filled').reduce((n, o) => n + Number(o.qty), 0);
@@ -1164,7 +1330,7 @@ export async function closePositionManually(
       price: String(exitPrice),
       reduceOnly: true,
       status: 'filled',
-      mode: 'paper',
+      mode: pos.mode,
     });
   } else {
     try {
@@ -1229,6 +1395,8 @@ export type ProtectionUpdate = {
   confirmWiden?: boolean;
   /** Trailing-Stop-Abstand in % (0,1–50); null = ausschalten. */
   trailPct?: number | null;
+  /** Nur Tests: Live-CCXT-Client-Factory für DB-aufgelöste Live-Venues injizieren. */
+  createLiveClient?: CreateLiveClient;
 };
 
 export type ProtectionResult = {
@@ -1266,7 +1434,7 @@ export async function updateProtection(
     .where(and(eq(positions.id, positionId), eq(positions.userId, userId)))
     .limit(1);
   if (!pos) return { ok: false, reason: 'not_found' };
-  const venue = venueForPosition(baseVenue, pos.venue) ?? baseVenue;
+  const venue = (await resolveTargetPositionVenue(db, baseVenue, pos.venue, input.createLiveClient)) ?? baseVenue;
 
   let mark: number;
   try {
@@ -1347,6 +1515,12 @@ export async function updateProtection(
   return { ok: true };
 }
 
+function sameUnderlyingSymbol(a: string, b: string): boolean {
+  const cleanA = normalizeSymbol(a.split(':')[0] ?? a);
+  const cleanB = normalizeSymbol(b.split(':')[0] ?? b);
+  return cleanA === cleanB;
+}
+
 /**
  * Absturz-Reconciliation (06_ §7c): Börse = Wahrheit. Für echte Venues werden
  * offene Orders/Positionen mit der DB abgeglichen; verwaiste DB-Positionen
@@ -1378,11 +1552,11 @@ export async function reconcile(db: Db, venue: TradingVenue): Promise<{ ok: bool
   if (venue.kind !== 'paper') {
     const exchangePositions = await venue.fetchPositions();
     for (const ep of exchangePositions) {
-      const known = open.find((p) => p.symbol === ep.symbol && p.direction === ep.direction);
+      const known = open.find((p) => sameUnderlyingSymbol(p.symbol, ep.symbol) && p.direction === ep.direction);
       if (!known) findings.push(`Börse meldet Position ${ep.symbol} ${ep.direction}, DB kennt sie nicht.`);
     }
     for (const p of open) {
-      const onExchange = exchangePositions.find((ep) => ep.symbol === p.symbol && ep.direction === p.direction);
+      const onExchange = exchangePositions.find((ep) => sameUnderlyingSymbol(ep.symbol, p.symbol) && ep.direction === p.direction);
       if (!onExchange) findings.push(`DB-Position ${p.symbol} existiert auf der Börse nicht (mehr).`);
     }
   }

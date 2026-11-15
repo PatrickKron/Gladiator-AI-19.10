@@ -329,11 +329,12 @@ function PerformancePanel() {
 
 type Approval = Awaited<ReturnType<typeof trpc.trading.approvals.query>>[number];
 
-/** Live-Freigabe pro Börse (Phase 7): Phrase, auditiert, widerrufbar — nur Patrick. */
-function LiveApprovals() {
+/** Live-Freigabe pro Börse + Ausführungsmodus-Umschalter (Paper-Default ↔ Live): Phrase, auditiert, widerrufbar — nur Patrick. */
+function LiveApprovals({ currentMode, onModeChanged }: { currentMode: 'paper' | 'live'; onModeChanged: () => void }) {
   const { t } = useTranslation();
   const [approvals, setApprovals] = useState<Approval[] | null>(null);
   const [phrases, setPhrases] = useState<Record<string, string>>({});
+  const [modePhrase, setModePhrase] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -357,6 +358,7 @@ function LiveApprovals() {
       await trpc.trading.approveVenue.mutate({ venueId, confirmation: phrases[venueId] ?? '' });
       setPhrases({ ...phrases, [venueId]: '' });
       await load();
+      onModeChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.error'));
     } finally {
@@ -370,6 +372,24 @@ function LiveApprovals() {
     try {
       await trpc.trading.revokeVenue.mutate({ venueId });
       await load();
+      onModeChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function switchMode(next: 'paper' | 'live') {
+    setBusy('mode');
+    setError(null);
+    try {
+      await trpc.settings.setMode.mutate({
+        mode: next,
+        ...(next === 'live' ? { confirmation: modePhrase } : {}),
+      });
+      setModePhrase('');
+      onModeChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.error'));
     } finally {
@@ -382,6 +402,46 @@ function LiveApprovals() {
       <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
         {t('trading.liveHint')}
       </p>
+      <div
+        className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[0.625rem] border p-4"
+        style={{ borderColor: currentMode === 'live' ? 'rgba(245,158,11,0.55)' : 'var(--color-line)' }}
+      >
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">
+            Ausführungsmodus: {currentMode === 'live' ? 'LIVE (Echte Börsen-Orders via CCXT-Router)' : 'PAPER (Standard — Simulation gegen echte Preise)'}
+          </p>
+          <p className="label mt-1">
+            {currentMode === 'live'
+              ? 'Bestätigte Krypto-Signale werden über die freigegebene Trading-Börse platziert. Jederzeit sofort auf Paper zurückschaltbar.'
+              : 'Paper-Default aktiv. Für Live-Ausführung zuerst Börse unter Echtes Geld auf „Trading“ stellen, unten „LIVE-FREIGABE <venue>“ erteilen und hier aktivieren.'}
+          </p>
+        </div>
+        {currentMode === 'live' ? (
+          <button
+            onClick={() => void switchMode('paper')}
+            disabled={busy !== null}
+            className="btn shrink-0 px-3 py-1.5 text-xs disabled:opacity-50"
+          >
+            Zurück auf Paper-Modus
+          </button>
+        ) : (
+          <span className="flex flex-wrap items-center gap-2">
+            <input
+              value={modePhrase}
+              onChange={(e) => setModePhrase(e.target.value)}
+              placeholder="LIVE-MODUS AKTIVIEREN"
+              className="field w-64 max-w-full px-2.5 py-1.5 text-xs"
+            />
+            <button
+              onClick={() => void switchMode('live')}
+              disabled={busy !== null || modePhrase !== 'LIVE-MODUS AKTIVIEREN'}
+              className="btn-primary shrink-0 px-3 py-1.5 text-xs disabled:opacity-50"
+            >
+              Live-Modus aktivieren
+            </button>
+          </span>
+        )}
+      </div>
       {error && (
         <p className="mt-3 text-xs" style={{ color: 'var(--color-neg)' }}>
           {error}
@@ -810,7 +870,7 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
       {tab === 'risiko' && <SizingCalc />}
       {tab === 'alerts' && <AlertsPanel />}
       {tab === 'performance' && <PerformancePanel />}
-      {tab === 'risiko' && <LiveApprovals />}
+      {tab === 'risiko' && <LiveApprovals currentMode={settings?.mode ?? 'paper'} onModeChanged={() => void load()} />}
     </div>
   );
 }

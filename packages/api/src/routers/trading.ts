@@ -5,10 +5,13 @@ import { schema } from '@gladiator/db';
 import {
   buildAccountState,
   closePositionManually,
+  isSupportedExchange,
+  listConnections,
   loadActiveGates,
   loadRiskContext,
   loadRiskSettings,
   PAPER_START_EQUITY,
+  resolveLiveVenueById,
   updateProtection,
   venueForPosition,
   venueForSource,
@@ -22,16 +25,21 @@ import { buildTradesCsv } from '../export/trades-csv.js';
 
 const { positions, orders, executedTrades, venueApprovals, auditLog, priceAlerts, tradeNotes } = schema;
 
-/** Venues, für die eine Live-Freigabe überhaupt beantragbar ist. */
+/** Fest verdrahtete Testnet-Venues + jede unterstützte CCXT-Börse ist freigabefähig. */
 const APPROVABLE_VENUES = ['binance-testnet', 'hyperliquid-testnet'] as const;
+
+function isApprovableVenueId(venueId: string): boolean {
+  return (APPROVABLE_VENUES as readonly string[]).includes(venueId) || isSupportedExchange(venueId);
+}
 
 /** Trading-Seite (09_ §3.9): Konto, offene Positionen, Schutz-Orders, Historie — alles echt. */
 export const tradingRouter = router({
   account: protectedProcedure.query(async ({ ctx }) => {
-    const state = await buildAccountState(ctx.db, ctx.user.id);
+    const settings = await loadRiskSettings(ctx.db, ctx.user.id);
+    const state = await buildAccountState(ctx.db, ctx.user.id, new Date(), { mode: settings.mode });
     const venueStatus = ctx.venue ? await ctx.venue.validate() : { ok: false, detail: 'Kein Venue aktiv.' };
     return {
-      mode: 'paper' as const,
+      mode: settings.mode,
       startEquity: PAPER_START_EQUITY,
       equity: state.equity,
       dailyPnlPct: state.dailyPnlPct,
@@ -42,11 +50,19 @@ export const tradingRouter = router({
     };
   }),
 
-  /** Venue-Liste (09_ §3.9): was ist konfiguriert, was aktiv — Zugänge legt nur Patrick an. */
-  venues: protectedProcedure.query(({ ctx }) => {
+  /** Venue-Liste (09_ §3.9): was ist konfiguriert, was aktiv — inkl. verbundener CCXT-Trading-Börsen. */
+  venues: protectedProcedure.query(async ({ ctx }) => {
     const active = ctx.venue?.id ?? 'none';
-    return [
-      { id: 'paper-internal', kind: 'paper' as const, configured: true, active: active === 'paper-internal' },
+    const settings = await loadRiskSettings(ctx.db, ctx.user.id);
+    const connections = await listConnections(ctx.db, ctx.user.id);
+    const activeApprovals = await ctx.db
+      .select({ venueId: venueApprovals.venueId })
+      .from(venueApprovals)
+      .where(isNull(venueApprovals.revokedAt));
+    const approvedSet = new Set(activeApprovals.map((a) => a.venueId));
+
+    const base = [
+      { id: 'paper-internal', kind: 'paper' as const, configured: true, active: settings.mode === 'paper' && active === 'paper-internal' },
       {
         id: 'binance-testnet',
         kind: 'testnet' as const,
@@ -60,6 +76,18 @@ export const tradingRouter = router({
         active: active === 'hyperliquid-testnet',
       },
     ];
+    const liveVenues = connections
+      .filter((c) => c.mode === 'trading')
+      .map((c) => ({
+        id: `live:${c.id}`,
+        kind: 'live' as const,
+        configured: c.status === 'active',
+        active:
+          settings.mode === 'live' &&
+          c.status === 'active' &&
+          (approvedSet.has(c.exchangeId) || approvedSet.has(`live:${c.id}`)),
+      }));
+    return [...base, ...liveVenues];
   }),
 
   positions: protectedProcedure.query(async ({ ctx }) => {
@@ -82,8 +110,13 @@ export const tradingRouter = router({
     for (const p of rows) {
       let mark: number | null = null;
       try {
-        // Schlusskurs-Positionen (Yahoo/Twelve Data, A2) gegen ihren frischen Kerzenschluss.
-        const posVenue = ctx.venue ? venueForPosition(ctx.venue, p.venue) : null;
+        // Schlusskurs-Positionen (Yahoo/Twelve Data, A2) gegen ihren frischen Kerzenschluss; Live-Positionen gegen ihre Börse.
+        const posVenue =
+          p.venue.startsWith('live:') && ctx.venue?.id !== p.venue
+            ? await resolveLiveVenueById(ctx.db, p.venue)
+            : ctx.venue
+              ? venueForPosition(ctx.venue, p.venue)
+              : null;
         mark = posVenue ? await posVenue.markPrice(p.symbol) : null;
       } catch {
         mark = null; // ehrlich: Preis gerade nicht verfügbar
@@ -100,6 +133,8 @@ export const tradingRouter = router({
       out.push({
         id: p.id,
         symbol: p.symbol,
+        venue: p.venue,
+        mode: p.mode,
         /** Kursquelle der Position (A3): Schlusskurs-Positionen `paper-close:<quelle>`, sonst Binance. */
         candleVenue: candleCloseSourceOf(p.venue) ?? 'binance',
         direction: p.direction,
@@ -228,15 +263,21 @@ export const tradingRouter = router({
     }),
 
   /**
-   * Live-Freigaben pro Börse (11_ Phase 7 / 10_ §5) — NUR Patrick, Mensch im
-   * Loop. WICHTIG: Eine Freigabe hier schaltet NICHTS automatisch live —
-   * es existiert bewusst kein Live-Order-Pfad; sie ist die dokumentierte,
-   * auditierte Voraussetzung dafür, dass ein künftiger Live-Adapter für
-   * dieses Venue überhaupt gebaut/aktiviert werden darf.
+   * Live-Freigaben pro Börse (11_ Phase 7 / 10_ §5 / OFFENER_PLAN §2) — NUR Patrick,
+   * Mensch im Loop. Enthält die fest verdrahteten Testnet-Venues plus alle
+   * verbundenen CCXT-Börsen des Users.
    */
   approvals: protectedProcedure.query(async ({ ctx }) => {
     const rows = await ctx.db.select().from(venueApprovals).orderBy(desc(venueApprovals.approvedAt));
-    return APPROVABLE_VENUES.map((venueId) => {
+    const connections = await listConnections(ctx.db, ctx.user.id);
+    const venueIds = [
+      ...new Set([
+        ...APPROVABLE_VENUES,
+        ...connections.map((c) => c.exchangeId),
+        ...rows.map((r) => r.venueId),
+      ]),
+    ];
+    return venueIds.map((venueId) => {
       const active = rows.find((r) => r.venueId === venueId && r.revokedAt === null);
       const last = rows.find((r) => r.venueId === venueId);
       return {
@@ -252,14 +293,21 @@ export const tradingRouter = router({
   approveVenue: protectedProcedure
     .input(
       z.object({
-        venueId: z.enum(APPROVABLE_VENUES),
+        venueId: z.string().trim().min(2).max(60),
         /** Exakte Bestätigungsphrase — verhindert versehentliche Klicks. */
         confirmation: z.string(),
         note: z.string().max(500).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const expected = `LIVE-FREIGABE ${input.venueId}`;
+      const venueId = input.venueId.toLowerCase();
+      if (!isApprovableVenueId(venueId)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Venue "${venueId}" ist keine unterstützte Börse.`,
+        });
+      }
+      const expected = `LIVE-FREIGABE ${venueId}`;
       if (input.confirmation !== expected) {
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
@@ -269,14 +317,14 @@ export const tradingRouter = router({
       const [existing] = await ctx.db
         .select()
         .from(venueApprovals)
-        .where(and(eq(venueApprovals.venueId, input.venueId), isNull(venueApprovals.revokedAt)))
+        .where(and(eq(venueApprovals.venueId, venueId), isNull(venueApprovals.revokedAt)))
         .limit(1);
       if (existing) {
         throw new TRPCError({ code: 'CONFLICT', message: 'Für dieses Venue existiert bereits eine aktive Freigabe.' });
       }
       const [row] = await ctx.db
         .insert(venueApprovals)
-        .values({ venueId: input.venueId, approvedBy: ctx.user.id, note: input.note ?? null })
+        .values({ venueId, approvedBy: ctx.user.id, note: input.note ?? null })
         .returning();
       await ctx.db.insert(auditLog).values({
         actor: 'user',
@@ -284,7 +332,7 @@ export const tradingRouter = router({
         action: 'venue.live_approval.granted',
         entityType: 'venue_approval',
         entityId: row!.id,
-        details: { venueId: input.venueId, note: input.note ?? null },
+        details: { venueId, note: input.note ?? null },
         ip: ctx.ip,
       });
       return row!;
@@ -460,12 +508,16 @@ export const tradingRouter = router({
   }),
 
   revokeVenue: protectedProcedure
-    .input(z.object({ venueId: z.enum(APPROVABLE_VENUES) }))
+    .input(z.object({ venueId: z.string().trim().min(2).max(60) }))
     .mutation(async ({ ctx, input }) => {
+      const venueId = input.venueId.toLowerCase();
+      if (!isApprovableVenueId(venueId)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `Venue "${venueId}" ist keine unterstützte Börse.` });
+      }
       const [existing] = await ctx.db
         .select()
         .from(venueApprovals)
-        .where(and(eq(venueApprovals.venueId, input.venueId), isNull(venueApprovals.revokedAt)))
+        .where(and(eq(venueApprovals.venueId, venueId), isNull(venueApprovals.revokedAt)))
         .limit(1);
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Keine aktive Freigabe für dieses Venue.' });
       const [row] = await ctx.db
@@ -479,7 +531,7 @@ export const tradingRouter = router({
         action: 'venue.live_approval.revoked',
         entityType: 'venue_approval',
         entityId: existing.id,
-        details: { venueId: input.venueId },
+        details: { venueId },
         ip: ctx.ip,
       });
       return row!;

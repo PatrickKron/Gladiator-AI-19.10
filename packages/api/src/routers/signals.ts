@@ -6,6 +6,7 @@ import {
   buildAccountState,
   executeConfirmedSignal,
   isCandleCloseSource,
+  resolveLiveVenueForSymbol,
   signalExecutionBlock,
   venueForSource,
   loadActiveGates,
@@ -215,12 +216,36 @@ export const signalsRouter = router({
       }
       const [signal] = await ctx.db.select().from(signals).where(eq(signals.id, input.id)).limit(1);
       if (!signal) throw new TRPCError({ code: 'NOT_FOUND', message: 'Signal nicht gefunden.' });
-      const venueBlock = signalExecutionBlock(signal.venue, ctx.venue.kind);
-      if (venueBlock) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: venueBlock });
-      const execVenue = executionVenueOrThrow(ctx.venue, signal.venue);
 
       const settings = await loadRiskSettings(ctx.db, ctx.user.id);
-      const state = await buildAccountState(ctx.db, ctx.user.id);
+      const wantLive = ctx.venue.kind === 'live' || settings.mode === 'live';
+      const venueBlock = signalExecutionBlock(signal.venue, wantLive ? 'live' : ctx.venue.kind);
+      if (venueBlock) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: venueBlock });
+
+      let execVenue: TradingVenue = executionVenueOrThrow(ctx.venue, signal.venue);
+      let liveEquityUsd: number | null = null;
+      let liveBlockReason: string | null = null;
+      let liveSourceName = signal.venue;
+      if (wantLive && !isCandleCloseSource(signal.venue)) {
+        if (ctx.venue.kind === 'live') {
+          execVenue = ctx.venue;
+          liveSourceName = ctx.venue.id;
+        } else {
+          const resolved = await resolveLiveVenueForSymbol(ctx.db, ctx.user.id, signal.symbol);
+          if (resolved.ok) {
+            execVenue = resolved.venue;
+            liveSourceName = resolved.connection.exchangeId;
+            liveEquityUsd = await resolved.venue.equityUsd().catch(() => null);
+          } else {
+            liveBlockReason = resolved.detail;
+          }
+        }
+      }
+
+      const state = await buildAccountState(ctx.db, ctx.user.id, new Date(), {
+        mode: wantLive ? 'live' : 'paper',
+        liveEquityUsd,
+      });
       const rules = await execVenue.marketRules(signal.symbol);
       const gates = await loadActiveGates(ctx.db);
       const verdict = evaluateRisk(
@@ -270,9 +295,20 @@ export const signalsRouter = router({
         console.warn(`[executionPreview] Erfahrungs-Vorschlag nicht ladbar: ${String(err)}`);
         experience = { available: false, reason: 'error', tradeCount: 0, minTrades: MIN_TRADES_PER_CLUSTER };
       }
+      const gateReasons = [
+        ...(liveBlockReason ? [liveBlockReason] : []),
+        ...(verdict.allowed ? [] : verdict.reasons),
+      ];
       return {
-        /** A2: Yahoo/Twelve Data füllen zum letzten echten Kerzenschluss (Paper) — die UI sagt es dazu. */
-        execution: { mode: isCandleCloseSource(signal.venue) ? ('candle_close' as const) : ('venue' as const), source: signal.venue },
+        /** A2: Yahoo/Twelve Data füllen zum letzten echten Kerzenschluss (Paper); im Live-Modus über CCXT-Router. */
+        execution: {
+          mode: isCandleCloseSource(signal.venue)
+            ? ('candle_close' as const)
+            : wantLive
+              ? ('live' as const)
+              : ('venue' as const),
+          source: wantLive ? liveSourceName : signal.venue,
+        },
         // Strategie-Vorschlag (Referenz fürs Ticket)
         suggested: {
           notionalUsd: suggestedNotionalUsd,
@@ -295,7 +331,7 @@ export const signalsRouter = router({
         },
         /** Echter EUR/USD-Kurs; null = Quelle nicht erreichbar (UI zeigt USD). */
         eurUsdRate: eurUsd,
-        gateReasons: verdict.allowed ? [] : verdict.reasons,
+        gateReasons,
         /**
          * Erklärung, falls Risiko% und Exposure-Limit kollidieren (enger Stop):
          * Rechnung + größter erlaubter Betrag. Ändert nichts, nur Hinweis.
@@ -317,7 +353,7 @@ export const signalsRouter = router({
       };
     }),
 
-  /** Bestätigen (Mensch im Loop): Risk-Gate → Paper-Order. Nur aus Status 'new'.
+  /** Bestätigen (Mensch im Loop): Risk-Gate → Paper- oder Live-Order. Nur aus Status 'new'.
    *  Optional mit User-Anpassungen (Betrag in €, Hebel, SL, TP) — der
    *  Strategie-Vorschlag bleibt als Referenz in Signal + Audit erhalten. */
   confirm: protectedProcedure
@@ -338,11 +374,13 @@ export const signalsRouter = router({
       if (!ctx.venue) {
         throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Kein Trading-Venue aktiv — Ausführung nicht möglich.' });
       }
+      const settings = await loadRiskSettings(ctx.db, ctx.user.id);
+      const wantLive = ctx.venue.kind === 'live' || settings.mode === 'live';
       // Kursquelle vor jeder Statusänderung prüfen (A2: Yahoo/Twelve Data = Paper-Schlusskurs, nie live).
       const [target] = await ctx.db.select({ venue: signals.venue }).from(signals).where(eq(signals.id, input.id)).limit(1);
-      const venueBlock = target ? signalExecutionBlock(target.venue, ctx.venue.kind) : null;
+      const venueBlock = target ? signalExecutionBlock(target.venue, wantLive ? 'live' : ctx.venue.kind) : null;
       if (venueBlock) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: venueBlock });
-      if (target) executionVenueOrThrow(ctx.venue, target.venue);
+      if (target && !wantLive) executionVenueOrThrow(ctx.venue, target.venue);
 
       // €-Betrag mit ECHTEM Kurs nach USD umrechnen — kein Kurs, kein Trade in €.
       let notionalUsd: number | undefined;
