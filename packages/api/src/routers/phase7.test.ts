@@ -23,23 +23,29 @@ if (hasDb && !process.env.JWT_SECRET) {
 const createCaller = createCallerFactory(appRouter);
 const RUN = `${process.pid}-${Date.now()}`;
 const EMAIL = `phase7-test-${RUN}@test.invalid`;
-const { users, venueApprovals, briefings } = schema;
+const { users, venueApprovals, briefings, exchangeConnections } = schema;
 
 describe.skipIf(!hasDb)('Phase 7: Live-Freigabe + Nacht-Pipeline', () => {
   let db: Db;
   let pool: pg.Pool;
   let caller: ReturnType<typeof createCaller>;
+  let userId: string;
 
   beforeAll(async () => {
     ({ db, pool } = createDb());
     const res = await register(db, { email: EMAIL, password: 'sehr-sicheres-passwort-123', name: 'Phase7' });
+    userId = res.user.id;
     caller = createCaller(await buildContext({ db, authorizationHeader: `Bearer ${res.accessToken}` }));
     // Saubere Ausgangslage für das Test-Venue
     await db.delete(venueApprovals).where(eq(venueApprovals.venueId, 'hyperliquid-testnet'));
+    await db.delete(venueApprovals).where(eq(venueApprovals.venueId, 'okx'));
   });
 
   afterAll(async () => {
+    await db.delete(exchangeConnections).where(eq(exchangeConnections.userId, userId));
     await db.delete(venueApprovals).where(eq(venueApprovals.venueId, 'hyperliquid-testnet'));
+    await db.delete(venueApprovals).where(eq(venueApprovals.venueId, 'okx'));
+    await db.execute(sql`DELETE FROM trading_settings WHERE user_id = ${userId}`);
     await db.execute(sql`DELETE FROM audit_log WHERE user_id IN (SELECT id FROM users WHERE email = ${EMAIL})`);
     await db.delete(users).where(eq(users.email, EMAIL));
     await pool.end();
@@ -76,6 +82,54 @@ describe.skipIf(!hasDb)('Phase 7: Live-Freigabe + Nacht-Pipeline', () => {
     const entry = list.find((a) => a.venueId === 'hyperliquid-testnet')!;
     expect(entry.approved).toBe(false);
     expect(entry.lastRevokedAt).not.toBeNull();
+  });
+
+  it('Live-Modus-Umschalter (settings.setMode): Paper-Default, Wechsel auf Live verlangt Phrase + freigegebene Trading-Börse', async () => {
+    const initial = await caller.settings.get();
+    expect(initial.mode).toBe('paper');
+
+    // Falsche Phrase → abgelehnt
+    await expect(
+      caller.settings.setMode({ mode: 'live', confirmation: 'bitte live' }),
+    ).rejects.toThrow(/Bestätigungsphrase/);
+
+    // Richtige Phrase, aber keine freigegebene Trading-Börse → abgelehnt
+    await expect(
+      caller.settings.setMode({ mode: 'live', confirmation: 'LIVE-MODUS AKTIVIEREN' }),
+    ).rejects.toThrow(/Trading/);
+
+    // Aktive Trading-Verbindung (okx) + LIVE-FREIGABE okx anlegen
+    await db.insert(exchangeConnections).values({
+      userId,
+      exchangeId: 'okx',
+      exchangeName: 'OKX',
+      encryptedPayload: 'test-cipher',
+      keyLast4: '9999',
+      mode: 'trading',
+      status: 'active',
+      marketsSummary: {
+        symbolCount: 1,
+        symbols: ['BTC/USDT:USDT'],
+        quoteCurrencies: ['USDT'],
+        baseAssets: ['BTC'],
+        hasFutures: true,
+        maxLeverage: 50,
+      },
+    });
+    await caller.trading.approveVenue({
+      venueId: 'okx',
+      confirmation: 'LIVE-FREIGABE okx',
+      note: 'OKX Live-Test',
+    });
+
+    const switched = await caller.settings.setMode({
+      mode: 'live',
+      confirmation: 'LIVE-MODUS AKTIVIEREN',
+    });
+    expect(switched.mode).toBe('live');
+
+    const backToPaper = await caller.settings.setMode({ mode: 'paper' });
+    expect(backToPaper.mode).toBe('paper');
   });
 
   it('Nacht-Pipeline: EIN Briefing pro Tag (idempotent), Inhalt aus echten Daten', async () => {

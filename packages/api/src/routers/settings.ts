@@ -1,6 +1,8 @@
+import { TRPCError } from '@trpc/server';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema, type Db } from '@gladiator/db';
+import { hasApprovedLiveVenue } from '@gladiator/exchange';
 import { formatKillSwitchAlert, notifySafe, telegramHtmlToText } from '@gladiator/jobs';
 import { SETTINGS_BOUNDS } from '@gladiator/core/trading-settings';
 import { protectedProcedure, router } from '../trpc.js';
@@ -106,6 +108,46 @@ export const settingsRouter = router({
 
   /** Kill-Switch (SAFE): sofortiger Order-Stopp — jede Änderung auditiert. */
   setKillSwitch: protectedProcedure.input(z.object({ active: z.boolean() })).mutation(({ ctx, input }) => applyKillSwitch(ctx.db, ctx.user, input.active, ctx.ip)),
+
+  /**
+   * Ausführungsmodus umschalten (Paper bleibt Default).
+   * Wechsel auf 'live' verlangt:
+   * 1. Exakte Bestätigungsphrase 'LIVE-MODUS AKTIVIEREN'
+   * 2. Mindestens eine aktive Trading-Börse mit unrevokter Live-Freigabe (`venue_approvals`).
+   */
+  setMode: protectedProcedure
+    .input(z.object({ mode: z.enum(['paper', 'live']), confirmation: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      await ensureRow(ctx);
+      if (input.mode === 'live') {
+        const expected = 'LIVE-MODUS AKTIVIEREN';
+        if (input.confirmation !== expected) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: `Bestätigungsphrase falsch — exakt "${expected}" eingeben.`,
+          });
+        }
+        const check = await hasApprovedLiveVenue(ctx.db, ctx.user.id);
+        if (!check.ok) {
+          throw new TRPCError({ code: 'PRECONDITION_FAILED', message: check.detail });
+        }
+      }
+      const [updated] = await ctx.db
+        .update(tradingSettings)
+        .set({ mode: input.mode, updatedAt: new Date() })
+        .where(eq(tradingSettings.userId, ctx.user.id))
+        .returning();
+      await ctx.db.insert(auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: input.mode === 'live' ? 'settings.mode.live' : 'settings.mode.paper',
+        entityType: 'trading_settings',
+        entityId: updated!.id,
+        details: { mode: input.mode },
+        ip: ctx.ip,
+      });
+      return { mode: updated!.mode };
+    }),
 });
 
 /** Trading-Einstellungen des Nutzers (legt die Standard-Zeile an, falls sie fehlt) — für Asset-Analyse und Chat. */

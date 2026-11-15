@@ -1,4 +1,5 @@
 import { TRPCError } from '@trpc/server';
+import { and, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
 import {
@@ -8,6 +9,7 @@ import {
   listConnections,
   listSupportedExchanges,
   loadPreferredExchanges,
+  loadRiskSettings,
   loadRoutingConnections,
   pickConnectionForSymbol,
   refreshConnectionMarkets,
@@ -17,7 +19,7 @@ import {
 } from '@gladiator/exchange';
 import { protectedProcedure, router } from '../trpc.js';
 
-const { auditLog } = schema;
+const { auditLog, venueApprovals } = schema;
 
 /**
  * Universelle Börsen-Anbindung (System → „Börse verbinden"):
@@ -170,14 +172,29 @@ export const exchangesRouter = router({
       return { ok: true };
     }),
 
-  /** Order-Router-Vorschau: welche verbundene Börse würde dieses Asset ausführen? */
+  /** Order-Router-Vorschau: welche verbundene Börse führt dieses Asset aus, und ist sie live freigegeben? */
   routePreview: protectedProcedure
     .input(z.object({ symbol: z.string().min(3).max(30) }))
     .query(async ({ ctx, input }) => {
       const connections = await loadRoutingConnections(ctx.db, ctx.user.id);
       const picked = pickConnectionForSymbol(connections, input.symbol);
-      return picked
-        ? { connectionId: picked.id, exchangeId: picked.exchangeId }
-        : null;
+      if (!picked) return null;
+      const settings = await loadRiskSettings(ctx.db, ctx.user.id);
+      const approvals = await ctx.db
+        .select({ id: venueApprovals.id })
+        .from(venueApprovals)
+        .where(
+          and(
+            isNull(venueApprovals.revokedAt),
+            inArray(venueApprovals.venueId, [picked.exchangeId, `live:${picked.id}`]),
+          ),
+        )
+        .limit(1);
+      return {
+        connectionId: picked.id,
+        exchangeId: picked.exchangeId,
+        approved: approvals.length > 0,
+        tradingMode: settings.mode,
+      };
     }),
 });
