@@ -22,9 +22,11 @@ import {
 } from './connections.js';
 import {
   buildAccountState,
+  closePositionNow,
   executeConfirmedSignal,
   monitorOpenPositions,
   reconcile,
+  reconcileAllVenues,
 } from './executor.js';
 import { PaperVenue } from './paper-venue.js';
 
@@ -346,5 +348,46 @@ describe.skipIf(!hasDb)('Live-Order-Pfad über CCXT-Router + Freigabe-Gate', () 
 
     const liveState = await buildAccountState(db, userId, new Date(), { mode: 'live', liveEquityUsd: 5080 });
     expect(liveState.equity).toBe(5080);
+
+    // 4. modeOverride: 'paper' (Paper-Sub-Agent) führt trotz aktivem Live-Modus strikt auf Paper aus
+    fakeClient.open = [];
+    const paperAgentSig = await createConfirmedSignal();
+    const paperRes = await executeConfirmedSignal(db, basePaperVenue, {
+      signalId: paperAgentSig.id,
+      userId,
+      riskContext: NEUTRAL_CTX,
+      modeOverride: 'paper',
+      createLiveClient: () => fakeClient,
+    });
+    expect(paperRes.executed).toBe(true);
+    expect(paperRes.detail).toMatch(/Paper-Order ausgeführt/);
+    expect(fakeClient.open).toHaveLength(0); // keine einzige echte Order an der Börse!
+    const [paperPos] = await db.select().from(positions).where(eq(positions.id, paperRes.positionId!));
+    expect(paperPos!.mode).toBe('paper');
+    expect(paperPos!.venue).toBe('paper-internal');
+    await closePositionNow(db, basePaperVenue, paperPos!.id, 'agent');
+
+    // 5. closePositionNow auf einer Live-Position platziert echte reduceOnly-Market-Order + storniert Trigger
+    const liveSig2 = await createConfirmedSignal();
+    const liveRes2 = await executeConfirmedSignal(db, basePaperVenue, {
+      signalId: liveSig2.id,
+      userId,
+      riskContext: NEUTRAL_CTX,
+      createLiveClient: () => fakeClient,
+    });
+    expect(liveRes2.executed).toBe(true);
+    expect(fakeClient.open).toHaveLength(4); // SL + 3 TPs an der Börse offen
+
+    fakeClient.livePositions = [
+      { symbol: 'ETH/USDT:USDT', side: 'long', contracts: 0.5, contractSize: 1, entryPrice: 2000 },
+    ];
+    const recAll = await reconcileAllVenues(db, basePaperVenue, { createLiveClient: () => fakeClient });
+    expect(recAll.ok).toBe(true);
+
+    const closedNow = await closePositionNow(db, basePaperVenue, liveRes2.positionId!, 'agent', {
+      createLiveClient: () => fakeClient,
+    });
+    expect(closedNow.closed).toBe(true);
+    expect(fakeClient.open).toHaveLength(0); // alle Trigger-Orders an der Börse storniert
   });
 });

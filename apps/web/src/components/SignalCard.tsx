@@ -662,6 +662,11 @@ function AdjustTicket({
           {t('ticket.closeExecution', { source: preview.execution.source === 'twelvedata' ? 'Twelve Data' : 'Yahoo' })}
         </p>
       )}
+      {preview.execution.mode === 'live' && (
+        <p className="mt-2 rounded border px-2 py-1 text-[11px] font-medium" style={{ borderColor: 'rgba(245,158,11,0.5)', color: 'var(--color-warn)', background: 'rgba(245,158,11,0.08)' }}>
+          ⚡ Live-Ausführung über {preview.execution.source.toUpperCase()} — echte Börsen-Order mit echtem Geld (Risk-Gate + Schutz-Orders aktiv).
+        </p>
+      )}
 
       {preview.gateReasons.length > 0 && (
         <p className="mt-2 text-[11px]" style={{ color: 'var(--color-warn)' }}>

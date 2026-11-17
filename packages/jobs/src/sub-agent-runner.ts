@@ -361,13 +361,14 @@ export async function runSubAgents(
         runRow.signalsCreated++;
         summary.signalsCreated++;
 
-        // Paper: autonom durch das HARTE Risk-Gate. Live: Mensch im Loop (bleibt 'new').
+        // Paper: autonom durch das HARTE Risk-Gate (zwingend modeOverride: 'paper', nie ungefragt live). Live: Mensch im Loop (bleibt 'new').
         if (agent.mode === 'paper') {
           await db.update(signals).set({ status: 'confirmed', updatedAt: now }).where(eq(signals.id, sig!.id));
           const exec = await executeConfirmedSignal(db, venue, {
             signalId: sig!.id,
             userId: agent.userId,
             riskPctOverride: spec.riskParams.riskPctPerTrade,
+            modeOverride: 'paper',
           });
           if (exec.emergency) {
             const html = formatEmergencyAlert(sig!.symbol, exec.detail, exec.emergency.closed);

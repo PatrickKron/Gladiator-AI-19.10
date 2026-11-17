@@ -1170,7 +1170,7 @@ export const de = {
     statusMode: "Modus: {{mode}}",
     cex: "Börse verbinden (CEX)",
     cexWhat: "Binance, Bybit, Kraken und 100+ weitere per API-Key. Dein echtes Guthaben erscheint im Vermögen als „echt“ und zählt in der großen Zahl.",
-    cexNot: "Kein Withdraw-Recht nötig — und der Agent kann nie auszahlen oder transferieren. Live-Orders über die Börse sind noch nicht verdrahtet: Das kommt erst nach deiner ausdrücklichen Freigabe je Börse (Phrase LIVE-FREIGABE), bis dahin läuft alles auf Paper.",
+    cexNot: "Kein Withdraw-Recht nötig — und der Agent kann nie auszahlen oder transferieren. Paper bleibt Standard: Live-Orders über den CCXT-Router laufen erst nach deiner ausdrücklichen Freigabe je Börse (Phrase LIVE-FREIGABE) und Aktivierung des Live-Modus.",
     cexStep1: "API-Key an der Börse erzeugen — nur Lesen (und später Handeln), nie Auszahlen.",
     cexStep2: "Unter Einstellungen → Börsen eintragen; die Verbindung wird gegen die echte Börse geprüft.",
     cexStep3: "Vermögen zeigt dein echtes Guthaben; der Rest bleibt Paper, bis du freigibst.",

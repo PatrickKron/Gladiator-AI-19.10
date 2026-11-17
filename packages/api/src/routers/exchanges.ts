@@ -5,6 +5,7 @@ import { schema } from '@gladiator/db';
 import {
   connectExchange,
   connectWallet,
+  ensureLiveModeStillValid,
   fetchConnectionBalances,
   listConnections,
   listSupportedExchanges,
@@ -149,6 +150,9 @@ export const exchangesRouter = router({
         details: { mode: input.mode },
         ip: ctx.ip,
       });
+      if (input.mode === 'read_only') {
+        await ensureLiveModeStillValid(ctx.db, ctx.user.id, `exchange_read_only:${input.connectionId}`, ctx.ip);
+      }
       return dto;
     }),
 
@@ -169,6 +173,7 @@ export const exchangesRouter = router({
         details: {},
         ip: ctx.ip,
       });
+      await ensureLiveModeStillValid(ctx.db, ctx.user.id, `exchange_disconnected:${input.connectionId}`, ctx.ip);
       return { ok: true };
     }),
 

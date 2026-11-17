@@ -1171,7 +1171,7 @@ export const it: Catalog = {
     statusMode: "Modalità: {{mode}}",
     cex: "Collega un exchange (CEX)",
     cexWhat: "Binance, Bybit, Kraken and 100+ more via API key. Your real balance shows up in Wealth as “real” and counts in the big number.",
-    cexNot: "No withdrawal permission needed — and the agent can never withdraw or transfer. Live orders through the exchange are not wired yet: that only comes after your explicit approval per exchange (phrase LIVE-FREIGABE); until then everything runs on paper.",
+    cexNot: "No withdrawal permission needed — and the agent can never withdraw or transfer. Paper stays the default: live orders via the CCXT router only run after your explicit approval per exchange (phrase LIVE-FREIGABE) and live mode activation.",
     cexStep1: "Create an API key at the exchange — read only (trading later), never withdraw.",
     cexStep2: "Enter it under Settings → Exchanges; the connection is verified against the real exchange.",
     cexStep3: "Wealth shows your real balance; the rest stays paper until you approve.",

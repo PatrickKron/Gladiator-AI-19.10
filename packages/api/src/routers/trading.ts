@@ -5,6 +5,8 @@ import { schema } from '@gladiator/db';
 import {
   buildAccountState,
   closePositionManually,
+  ensureLiveModeStillValid,
+  isCandleCloseSource,
   isSupportedExchange,
   listConnections,
   loadActiveGates,
@@ -12,6 +14,8 @@ import {
   loadRiskSettings,
   PAPER_START_EQUITY,
   resolveLiveVenueById,
+  resolveLiveVenueForSymbol,
+  resolvePrimaryApprovedLiveVenue,
   updateProtection,
   venueForPosition,
   venueForSource,
@@ -36,7 +40,30 @@ function isApprovableVenueId(venueId: string): boolean {
 export const tradingRouter = router({
   account: protectedProcedure.query(async ({ ctx }) => {
     const settings = await loadRiskSettings(ctx.db, ctx.user.id);
-    const state = await buildAccountState(ctx.db, ctx.user.id, new Date(), { mode: settings.mode });
+    let liveEquityUsd: number | null = null;
+    let activeVenueInfo: { id: string; kind: string; ok: boolean; detail: string } | null = null;
+
+    if (settings.mode === 'live') {
+      const primary = await resolvePrimaryApprovedLiveVenue(ctx.db, ctx.user.id);
+      if (primary) {
+        const val = await primary.venue.validate().catch((err: unknown) => ({
+          ok: false,
+          detail: err instanceof Error ? err.message : String(err),
+        }));
+        liveEquityUsd = await primary.venue.equityUsd().catch(() => null);
+        activeVenueInfo = {
+          id: primary.venue.id,
+          kind: 'live',
+          ok: val.ok,
+          detail: `${primary.exchangeName} (${primary.exchangeId}): ${val.detail}`,
+        };
+      }
+    }
+
+    const state = await buildAccountState(ctx.db, ctx.user.id, new Date(), {
+      mode: settings.mode,
+      liveEquityUsd,
+    });
     const venueStatus = ctx.venue ? await ctx.venue.validate() : { ok: false, detail: 'Kein Venue aktiv.' };
     return {
       mode: settings.mode,
@@ -46,7 +73,7 @@ export const tradingRouter = router({
       weeklyPnlPct: state.weeklyPnlPct,
       openPositions: state.openPositions,
       consecutiveLosses: state.consecutiveLosses,
-      venue: { id: ctx.venue?.id ?? 'none', kind: ctx.venue?.kind ?? 'none', ...venueStatus },
+      venue: activeVenueInfo ?? { id: ctx.venue?.id ?? 'none', kind: ctx.venue?.kind ?? 'none', ...venueStatus },
     };
   }),
 
@@ -359,12 +386,24 @@ export const tradingRouter = router({
       const symbol = input.symbol.toUpperCase();
       const sourceVenue = input.venue ?? (await resolveCandleVenue(ctx.db, symbol));
       const settings = await loadRiskSettings(ctx.db, ctx.user.id);
-      const state = await buildAccountState(ctx.db, ctx.user.id);
+      const wantLive = settings.mode === 'live' && !isCandleCloseSource(sourceVenue);
+      let liveEquityUsd: number | null = null;
       const gates = await loadActiveGates(ctx.db);
       let rules;
       try {
-        const execVenue = venueForSource(ctx.venue, sourceVenue);
-        rules = await execVenue.marketRules(symbol);
+        if (wantLive) {
+          const resolved = await resolveLiveVenueForSymbol(ctx.db, ctx.user.id, symbol);
+          if (resolved.ok) {
+            rules = await resolved.venue.marketRules(symbol);
+            liveEquityUsd = await resolved.venue.equityUsd().catch(() => null);
+          } else {
+            const execVenue = venueForSource(ctx.venue, sourceVenue);
+            rules = await execVenue.marketRules(symbol);
+          }
+        } else {
+          const execVenue = venueForSource(ctx.venue, sourceVenue);
+          rules = await execVenue.marketRules(symbol);
+        }
       } catch (err) {
         return {
           available: false as const,
@@ -373,6 +412,10 @@ export const tradingRouter = router({
             : `Keine Marktregeln fuer ${symbol} (${sourceVenue}).`,
         };
       }
+      const state = await buildAccountState(ctx.db, ctx.user.id, new Date(), {
+        mode: wantLive ? 'live' : 'paper',
+        liveEquityUsd,
+      });
       const verdict = evaluateRisk(
         {
           symbol,
@@ -534,6 +577,7 @@ export const tradingRouter = router({
         details: { venueId },
         ip: ctx.ip,
       });
+      await ensureLiveModeStillValid(ctx.db, ctx.user.id, `venue_revoked:${venueId}`, ctx.ip);
       return row!;
     }),
 });

@@ -6,7 +6,7 @@ import { normalizeWalletAddress, walletAddressKind } from '@gladiator/core/walle
 import { CcxtLiveVenue, type CcxtLiveClient } from './ccxt-live-venue.js';
 import { decryptCredentials, encryptCredentials } from './vault.js';
 
-const { exchangeConnections, venueApprovals } = schema;
+const { exchangeConnections, venueApprovals, tradingSettings, auditLog } = schema;
 
 /**
  * Universelle Börsen-Anbindung über CCXT (100+ Börsen) — Patricks Auftrag:
@@ -644,4 +644,85 @@ export async function hasApprovedLiveVenue(
     approvedExchanges,
     detail: `Live-Freigabe aktiv für: ${approvedExchanges.join(', ')}.`,
   };
+}
+
+/**
+ * Löst die primäre (älteste) aktive + freigegebene Trading-Börse des Users in
+ * eine `CcxtLiveVenue` auf — für Konto-Übersicht (`trading.account`),
+ * Position-Sizing-Rechner (`trading.sizePreview`) und Reconciliation.
+ */
+export async function resolvePrimaryApprovedLiveVenue(
+  db: Db,
+  userId: string,
+  opts: { createLiveClient?: CreateLiveClient } = {},
+): Promise<{ venue: CcxtLiveVenue; exchangeId: string; exchangeName: string; connectionId: string } | null> {
+  const rows = await db
+    .select()
+    .from(exchangeConnections)
+    .where(
+      and(
+        eq(exchangeConnections.userId, userId),
+        eq(exchangeConnections.status, 'active'),
+        eq(exchangeConnections.mode, 'trading'),
+      ),
+    );
+  if (rows.length === 0) return null;
+
+  const activeApprovals = await db
+    .select({ venueId: venueApprovals.venueId })
+    .from(venueApprovals)
+    .where(isNull(venueApprovals.revokedAt));
+  const approvedSet = new Set(activeApprovals.map((a) => a.venueId));
+
+  const candidates = rows
+    .filter((r) => approvedSet.has(r.exchangeId) || approvedSet.has(`live:${r.id}`))
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  const picked = candidates[0];
+  if (!picked) return null;
+
+  const creds = decryptCredentials(picked.encryptedPayload) as unknown as StoredCredentials;
+  const client = (opts.createLiveClient ?? defaultCreateLiveClient)(picked.exchangeId, creds);
+  return {
+    venue: new CcxtLiveVenue({ connectionId: picked.id, exchangeId: picked.exchangeId, client }),
+    exchangeId: picked.exchangeId,
+    exchangeName: picked.exchangeName,
+    connectionId: picked.id,
+  };
+}
+
+/**
+ * Sicherheits-Invariante: Wird die letzte Live-Freigabe widerrufen oder die
+ * letzte Trading-Börse getrennt / auf `read_only` geschaltet, fällt
+ * `trading_settings.mode` automatisch und auditiert auf `'paper'` zurück.
+ */
+export async function ensureLiveModeStillValid(
+  db: Db,
+  userId: string,
+  reason: string,
+  ip: string | null = null,
+): Promise<{ revertedToPaper: boolean }> {
+  const [settingsRow] = await db
+    .select({ mode: tradingSettings.mode })
+    .from(tradingSettings)
+    .where(eq(tradingSettings.userId, userId))
+    .limit(1);
+  if (settingsRow?.mode !== 'live') return { revertedToPaper: false };
+
+  const check = await hasApprovedLiveVenue(db, userId);
+  if (check.ok) return { revertedToPaper: false };
+
+  await db
+    .update(tradingSettings)
+    .set({ mode: 'paper', updatedAt: new Date() })
+    .where(eq(tradingSettings.userId, userId));
+  await db.insert(auditLog).values({
+    actor: 'system',
+    userId,
+    action: 'settings.mode.auto_paper',
+    entityType: 'trading_settings',
+    entityId: userId,
+    details: { mode: 'paper', reason, detail: check.detail },
+    ip,
+  });
+  return { revertedToPaper: true };
 }
