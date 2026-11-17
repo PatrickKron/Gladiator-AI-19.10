@@ -138,7 +138,7 @@ describe.skipIf(!hasDb)('Live-Order-Pfad über CCXT-Router + Freigabe-Gate', () 
   const RUN = `${process.pid}-${Date.now()}`;
   const NEUTRAL_CTX = { noTrade: null, vix: null };
   const fakeClient = new ScriptedLiveClient();
-  const basePaperVenue = new PaperVenue();
+  const basePaperVenue = new PaperVenue(async () => fakeClient.last);
 
   async function createConfirmedSignal(symbol = 'ETH/USDT', venue = 'binance') {
     const [sig] = await db
@@ -351,6 +351,7 @@ describe.skipIf(!hasDb)('Live-Order-Pfad über CCXT-Router + Freigabe-Gate', () 
 
     // 4. modeOverride: 'paper' (Paper-Sub-Agent) führt trotz aktivem Live-Modus strikt auf Paper aus
     fakeClient.open = [];
+    fakeClient.last = 2000;
     const paperAgentSig = await createConfirmedSignal();
     const paperRes = await executeConfirmedSignal(db, basePaperVenue, {
       signalId: paperAgentSig.id,
