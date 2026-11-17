@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import {
@@ -35,7 +35,7 @@ import {
   type CreateLiveClient,
 } from './connections.js';
 
-const { signals, strategies, strategyVersions, orders, positions, executedTrades, tradingSettings, riskGates, auditLog, economicEvents, macroSeries, ohlcv, marketRegimes } = schema;
+const { signals, strategies, strategyVersions, orders, positions, executedTrades, tradingSettings, riskGates, auditLog, economicEvents, macroSeries, ohlcv, marketRegimes, exchangeConnections, venueApprovals } = schema;
 
 /**
  * Order-Lifecycle (06_ §5): bestätigtes Signal → Risk-Gate (statisch + adaptiv)
@@ -436,6 +436,11 @@ export async function executeConfirmedSignal(
       stopLoss?: number;
       takeProfits?: number[];
     };
+    /**
+     * Expliziter Ausführungsmodus-Override (z. B. `modeOverride: 'paper'` für
+     * autonome Paper-Sub-Agenten, die niemals ungefragt Live-Orders platzieren dürfen).
+     */
+    modeOverride?: 'paper' | 'live';
     /** Nur Tests: Live-CCXT-Client-Factory für DB-aufgelöste Live-Venues injizieren. */
     createLiveClient?: CreateLiveClient;
   },
@@ -449,7 +454,8 @@ export async function executeConfirmedSignal(
     settings.riskPctPerTrade = opts.riskPctOverride;
   }
 
-  const wantLive = baseVenue.kind === 'live' || settings.mode === 'live';
+  const targetMode = opts.modeOverride ?? settings.mode;
+  const wantLive = opts.modeOverride ? opts.modeOverride === 'live' : baseVenue.kind === 'live' || targetMode === 'live';
   const venueBlock = signalExecutionBlock(signal.venue, wantLive ? 'live' : baseVenue.kind);
   if (venueBlock) throw new Error(venueBlock);
 
@@ -1139,10 +1145,19 @@ export async function closePositionNow(
   baseVenue: TradingVenue,
   positionId: string,
   reason: 'agent' | 'manual' = 'agent',
+  opts: { createLiveClient?: CreateLiveClient } = {},
 ): Promise<{ closed: boolean; exitPrice?: number }> {
   const [pos] = await db.select().from(positions).where(eq(positions.id, positionId)).limit(1);
   if (!pos) return { closed: false };
-  const venue = (await resolveTargetPositionVenue(db, baseVenue, pos.venue)) ?? baseVenue;
+  const venue = (await resolveTargetPositionVenue(db, baseVenue, pos.venue, opts.createLiveClient)) ?? baseVenue;
+  // Auf echten/Testnet-Venues MUSS eine echte reduceOnly-Gegen-Order platziert
+  // und offene Trigger-Orders an der Börse storniert werden (sonst bliebe die Position an der Börse offen).
+  if (venue.kind !== 'paper') {
+    const manual = await closePositionManually(db, baseVenue, pos.userId, positionId, null, {
+      createLiveClient: opts.createLiveClient,
+    });
+    return { closed: manual.closed, exitPrice: manual.exitPrice };
+  }
   let price: number;
   try {
     price = await venue.markPrice(pos.symbol); // ECHTER Live-Preis
@@ -1571,4 +1586,80 @@ export async function reconcile(db: Db, venue: TradingVenue): Promise<{ ok: bool
     });
   }
   return { ok: findings.length === 0, findings };
+}
+
+/**
+ * Gesamte Absturz-Reconciliation über den Basis-Venue, alle Schlusskurs-Positionen
+ * (`paper-close:*`) sowie alle aktiven, freigegebenen Live-Börsen (`live:<id>`).
+ * Fehlerisoliert je Venue: ist eine Börse beim Start nicht erreichbar, landet das
+ * als Befund in `findings` + Audit-Log, ohne den Worker-Start abzubrechen.
+ */
+export async function reconcileAllVenues(
+  db: Db,
+  baseVenue: TradingVenue,
+  opts: { createLiveClient?: CreateLiveClient } = {},
+): Promise<{ ok: boolean; findings: string[] }> {
+  const allFindings: string[] = [];
+
+  const baseRes = await reconcile(db, baseVenue);
+  allFindings.push(...baseRes.findings);
+
+  const openPositions = await db.select({ venue: positions.venue }).from(positions);
+  const openVenueIds = new Set(openPositions.map((p) => p.venue));
+
+  // Schlusskurs-Venues (paper-close:yahoo / paper-close:twelvedata) prüfen, falls Positionen offen sind
+  for (const vid of openVenueIds) {
+    if (vid === baseVenue.id || vid.startsWith('live:')) continue;
+    const v = venueForPosition(baseVenue, vid);
+    if (!v) continue;
+    const r = await reconcile(db, v);
+    allFindings.push(...r.findings);
+  }
+
+  // Aktive + freigegebene Live-Trading-Verbindungen UND offene live:<id>-Positionen prüfen
+  const activeConns = await db
+    .select({ id: exchangeConnections.id, exchangeId: exchangeConnections.exchangeId })
+    .from(exchangeConnections)
+    .where(and(eq(exchangeConnections.status, 'active'), eq(exchangeConnections.mode, 'trading')));
+  const approvals = await db
+    .select({ venueId: venueApprovals.venueId })
+    .from(venueApprovals)
+    .where(isNull(venueApprovals.revokedAt));
+  const approvedSet = new Set(approvals.map((a) => a.venueId));
+
+  const liveVenueIds = new Set<string>();
+  for (const vid of openVenueIds) {
+    if (vid.startsWith('live:')) liveVenueIds.add(vid);
+  }
+  for (const c of activeConns) {
+    if (approvedSet.has(c.exchangeId) || approvedSet.has(`live:${c.id}`)) {
+      liveVenueIds.add(`live:${c.id}`);
+    }
+  }
+
+  for (const liveId of liveVenueIds) {
+    try {
+      const liveVenue = await resolveLiveVenueById(db, liveId, { createLiveClient: opts.createLiveClient });
+      if (!liveVenue) {
+        if (openVenueIds.has(liveId)) {
+          allFindings.push(`Live-Venue ${liveId} hat offene DB-Positionen, ist aber getrennt/nicht auflösbar.`);
+        }
+        continue;
+      }
+      const r = await reconcile(db, liveVenue);
+      allFindings.push(...r.findings);
+    } catch (err) {
+      const msg = `Reconciliation für ${liveId} fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`;
+      allFindings.push(msg);
+      await db.insert(auditLog).values({
+        actor: 'system',
+        action: 'reconciliation.findings',
+        entityType: 'venue',
+        entityId: liveId,
+        details: { findings: [msg] },
+      });
+    }
+  }
+
+  return { ok: allFindings.length === 0, findings: allFindings };
 }

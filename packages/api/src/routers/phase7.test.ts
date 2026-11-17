@@ -128,8 +128,10 @@ describe.skipIf(!hasDb)('Phase 7: Live-Freigabe + Nacht-Pipeline', () => {
     });
     expect(switched.mode).toBe('live');
 
-    const backToPaper = await caller.settings.setMode({ mode: 'paper' });
-    expect(backToPaper.mode).toBe('paper');
+    // Widerruf der letzten Live-Freigabe schaltet automatisch + auditiert auf 'paper' zurück
+    await caller.trading.revokeVenue({ venueId: 'okx' });
+    const afterRevoke = await caller.settings.get();
+    expect(afterRevoke.mode).toBe('paper');
   });
 
   it('Nacht-Pipeline: EIN Briefing pro Tag (idempotent), Inhalt aus echten Daten', async () => {

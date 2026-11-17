@@ -238,9 +238,9 @@ function AlertsPanel() {
                   {a.active
                     ? t('trading.alertActive')
                     : t('trading.alertTriggeredAt', {
-                        time: a.triggeredAt ? new Date(a.triggeredAt).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' }) : '',
-                        price: a.triggeredPrice ? fmtP(a.triggeredPrice) : '',
-                      })}
+                      time: a.triggeredAt ? new Date(a.triggeredAt).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' }) : '',
+                      price: a.triggeredPrice ? fmtP(a.triggeredPrice) : '',
+                    })}
                 </span>
                 <button
                   onClick={() => void trpc.trading.deleteAlert.mutate({ id: a.id }).then(() => load())}
@@ -611,10 +611,19 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
       {/* Konto-Kacheln */}
       <section className="grid gap-3 md:grid-cols-4">
         <Panel stagger={1} className="!p-4">
-          <p className="label">{t('trading.accountTitle')}</p>
+          <p className="label flex items-center justify-between gap-2">
+            <span>{account?.mode === 'live' ? 'Live-Konto' : t('trading.accountTitle')}</span>
+            {account?.mode === 'live' && (
+              <span className="rounded border px-1.5 py-0.5 text-[10px] font-semibold" style={{ borderColor: 'rgba(245,158,11,0.5)', color: 'var(--color-warn)' }}>
+                LIVE
+              </span>
+            )}
+          </p>
           <p className="num mt-1.5 text-2xl font-semibold">{fmt(account?.equity)} $</p>
           <p className="label mt-1">
-            {t('trading.startEquity')} {fmt(account?.startEquity, 0)} $
+            {account?.mode === 'live'
+              ? account.venue.detail
+              : `${t('trading.startEquity')} ${fmt(account?.startEquity, 0)} $`}
           </p>
         </Panel>
         <Panel stagger={2} className="!p-4">
@@ -673,135 +682,135 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
 
       {/* Venues + Risk-Cockpit */}
       {tab === 'risiko' && (
-      <section className="mt-5 grid gap-5 lg:grid-cols-2">
-        <Panel label={t('trading.venuesTitle')} stagger={5}>
-          <ul className="mt-4 space-y-3">
-            {venues.map((v) => (
-              <li
-                key={v.id}
-                className="flex items-center justify-between gap-3 rounded-[0.625rem] border p-3"
-                style={{
-                  borderColor: v.active ? 'rgba(96,165,250,0.4)' : 'var(--color-line)',
-                  boxShadow: v.active ? '0 0 20px rgba(59,130,246,0.15)' : 'none',
-                }}
-              >
-                <div className="min-w-0">
-                  <p className="flex items-center gap-2 text-sm font-medium">
-                    <StatusDot on={v.configured} />
-                    {t(VENUE_LABEL_KEY[v.id] ?? v.id)}
-                  </p>
-                  <p className="label mt-1">
-                    {v.id} · {v.kind}
-                    {!v.configured && ` · ${t('trading.venueNotConfigured')}`}
-                  </p>
-                </div>
-                {v.active && (
-                  <span className="label shrink-0 rounded border px-1.5 py-0.5" style={{ borderColor: 'rgba(96,165,250,0.4)', color: 'var(--color-cyan)' }}>
-                    {t('trading.venueActive')}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-          <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
-            {account?.venue.detail}
-          </p>
-        </Panel>
+        <section className="mt-5 grid gap-5 lg:grid-cols-2">
+          <Panel label={t('trading.venuesTitle')} stagger={5}>
+            <ul className="mt-4 space-y-3">
+              {venues.map((v) => (
+                <li
+                  key={v.id}
+                  className="flex items-center justify-between gap-3 rounded-[0.625rem] border p-3"
+                  style={{
+                    borderColor: v.active ? 'rgba(96,165,250,0.4)' : 'var(--color-line)',
+                    boxShadow: v.active ? '0 0 20px rgba(59,130,246,0.15)' : 'none',
+                  }}
+                >
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-2 text-sm font-medium">
+                      <StatusDot on={v.configured} />
+                      {t(VENUE_LABEL_KEY[v.id] ?? v.id)}
+                    </p>
+                    <p className="label mt-1">
+                      {v.id} · {v.kind}
+                      {!v.configured && ` · ${t('trading.venueNotConfigured')}`}
+                    </p>
+                  </div>
+                  {v.active && (
+                    <span className="label shrink-0 rounded border px-1.5 py-0.5" style={{ borderColor: 'rgba(96,165,250,0.4)', color: 'var(--color-cyan)' }}>
+                      {t('trading.venueActive')}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+              {account?.venue.detail}
+            </p>
+          </Panel>
 
-        <Panel label={t('trading.riskCockpit')} stagger={6}>
-          {settings ? (
-            <>
-              <p className="label mt-4">{t('trading.limitsNow')}</p>
-              <ul className="num mt-2 grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                <li className="flex justify-between gap-2">
-                  <span style={{ color: 'var(--color-mut)' }}>{t('trading.riskPerTrade')}</span>
-                  <span>{fmt(settings.riskPctPerTrade)} %</span>
-                </li>
-                <li className="flex justify-between gap-2">
-                  <span style={{ color: 'var(--color-mut)' }}>{t('trading.maxLeverage')}</span>
-                  <span>{fmt(settings.maxLeverage, 0)}×</span>
-                </li>
-                <li className="flex justify-between gap-2">
-                  <span style={{ color: 'var(--color-mut)' }}>{t('trading.maxPositions')}</span>
-                  <span>{settings.maxOpenPositions}</span>
-                </li>
-                <li className="flex justify-between gap-2">
-                  <span style={{ color: 'var(--color-mut)' }}>{t('trading.exposurePerAsset')}</span>
-                  <span>{fmt(settings.maxExposurePctPerAsset, 0)} %</span>
-                </li>
-                <li className="flex justify-between gap-2">
-                  <span style={{ color: 'var(--color-mut)' }}>{t('trading.dailyLimit')}</span>
-                  <span>−{fmt(settings.dailyLossLimitPct, 0)} %</span>
-                </li>
-                <li className="flex justify-between gap-2">
-                  <span style={{ color: 'var(--color-mut)' }}>{t('trading.weeklyLimit')}</span>
-                  <span>−{fmt(settings.weeklyLossLimitPct, 0)} %</span>
-                </li>
-              </ul>
-              <p
-                className="mt-4 rounded-[0.625rem] border p-3 text-xs leading-relaxed"
-                style={
-                  settings.killSwitchActive
-                    ? { borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }
-                    : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
-                }
-              >
-                {settings.killSwitchActive ? t('trading.killSwitchOn') : t('trading.killSwitchOff')}
-              </p>
-              <a href="#/einstellungen" className="mt-3 inline-block text-xs" style={{ color: 'var(--color-cyan)' }}>
-                → {t('settings.title')}
-              </a>
-            </>
-          ) : (
-            <Loading />
-          )}
-        </Panel>
-      </section>
+          <Panel label={t('trading.riskCockpit')} stagger={6}>
+            {settings ? (
+              <>
+                <p className="label mt-4">{t('trading.limitsNow')}</p>
+                <ul className="num mt-2 grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                  <li className="flex justify-between gap-2">
+                    <span style={{ color: 'var(--color-mut)' }}>{t('trading.riskPerTrade')}</span>
+                    <span>{fmt(settings.riskPctPerTrade)} %</span>
+                  </li>
+                  <li className="flex justify-between gap-2">
+                    <span style={{ color: 'var(--color-mut)' }}>{t('trading.maxLeverage')}</span>
+                    <span>{fmt(settings.maxLeverage, 0)}×</span>
+                  </li>
+                  <li className="flex justify-between gap-2">
+                    <span style={{ color: 'var(--color-mut)' }}>{t('trading.maxPositions')}</span>
+                    <span>{settings.maxOpenPositions}</span>
+                  </li>
+                  <li className="flex justify-between gap-2">
+                    <span style={{ color: 'var(--color-mut)' }}>{t('trading.exposurePerAsset')}</span>
+                    <span>{fmt(settings.maxExposurePctPerAsset, 0)} %</span>
+                  </li>
+                  <li className="flex justify-between gap-2">
+                    <span style={{ color: 'var(--color-mut)' }}>{t('trading.dailyLimit')}</span>
+                    <span>−{fmt(settings.dailyLossLimitPct, 0)} %</span>
+                  </li>
+                  <li className="flex justify-between gap-2">
+                    <span style={{ color: 'var(--color-mut)' }}>{t('trading.weeklyLimit')}</span>
+                    <span>−{fmt(settings.weeklyLossLimitPct, 0)} %</span>
+                  </li>
+                </ul>
+                <p
+                  className="mt-4 rounded-[0.625rem] border p-3 text-xs leading-relaxed"
+                  style={
+                    settings.killSwitchActive
+                      ? { borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }
+                      : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
+                  }
+                >
+                  {settings.killSwitchActive ? t('trading.killSwitchOn') : t('trading.killSwitchOff')}
+                </p>
+                <a href="#/einstellungen" className="mt-3 inline-block text-xs" style={{ color: 'var(--color-cyan)' }}>
+                  → {t('settings.title')}
+                </a>
+              </>
+            ) : (
+              <Loading />
+            )}
+          </Panel>
+        </section>
       )}
 
       {/* Offene Positionen */}
       {tab === 'positionen' && (
-      <Panel label={t('trading.positionsTitle')} stagger={7} className="mt-5">
-        <PaperPositions positions={positions} onChanged={() => void load()} />
-      </Panel>
+        <Panel label={t('trading.positionsTitle')} stagger={7} className="mt-5">
+          <PaperPositions positions={positions} onChanged={() => void load()} />
+        </Panel>
       )}
 
       {/* Schutz-Orders */}
       {tab === 'positionen' && (
-      <Panel label={t('trading.protection')} stagger={8} className="mt-5">
-        {prot.length === 0 ? (
-          <Empty text={t('common.empty')} />
-        ) : (
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="label text-left">
-                  <th className="py-1.5 pr-3 font-normal">{t('dashboard.symbol')}</th>
-                  <th className="py-1.5 pr-3 font-normal">Typ</th>
-                  <th className="py-1.5 pr-3 text-right font-normal">Trigger</th>
-                  <th className="py-1.5 pr-3 text-right font-normal">{t('signals.qty')}</th>
-                  <th className="py-1.5 font-normal">clientOrderId</th>
-                </tr>
-              </thead>
-              <tbody className="num">
-                {prot.map((o) => (
-                  <tr key={o.id} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
-                    <td className="py-1.5 pr-3">{o.symbol}</td>
-                    <td className="py-1.5 pr-3" style={{ color: o.type === 'stop_market' ? 'var(--color-neg)' : 'var(--color-pos)' }}>
-                      {o.type === 'stop_market' ? 'SL' : 'TP'}
-                    </td>
-                    <td className="py-1.5 pr-3 text-right">{fmt(Number(o.price))}</td>
-                    <td className="py-1.5 pr-3 text-right">{fmt(Number(o.qty), 6)}</td>
-                    <td className="py-1.5 text-xs" style={{ color: 'var(--color-mut)' }}>
-                      {o.clientOrderId}
-                    </td>
+        <Panel label={t('trading.protection')} stagger={8} className="mt-5">
+          {prot.length === 0 ? (
+            <Empty text={t('common.empty')} />
+          ) : (
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="label text-left">
+                    <th className="py-1.5 pr-3 font-normal">{t('dashboard.symbol')}</th>
+                    <th className="py-1.5 pr-3 font-normal">Typ</th>
+                    <th className="py-1.5 pr-3 text-right font-normal">Trigger</th>
+                    <th className="py-1.5 pr-3 text-right font-normal">{t('signals.qty')}</th>
+                    <th className="py-1.5 font-normal">clientOrderId</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+                </thead>
+                <tbody className="num">
+                  {prot.map((o) => (
+                    <tr key={o.id} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
+                      <td className="py-1.5 pr-3">{o.symbol}</td>
+                      <td className="py-1.5 pr-3" style={{ color: o.type === 'stop_market' ? 'var(--color-neg)' : 'var(--color-pos)' }}>
+                        {o.type === 'stop_market' ? 'SL' : 'TP'}
+                      </td>
+                      <td className="py-1.5 pr-3 text-right">{fmt(Number(o.price))}</td>
+                      <td className="py-1.5 pr-3 text-right">{fmt(Number(o.qty), 6)}</td>
+                      <td className="py-1.5 text-xs" style={{ color: 'var(--color-mut)' }}>
+                        {o.clientOrderId}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
       )}
 
       {/* Historie (netto) */}
@@ -832,6 +841,11 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
                     </td>
                     <td className="py-1.5 pr-3">
                       <a href={buildChartUrl(tr.symbol, tr.candleVenue)} className="hover:underline" style={{ color: 'var(--color-cyan)' }}>{tr.symbol}</a>
+                      {tr.mode === 'live' && (
+                        <span className="ml-1.5 rounded border px-1 py-0.5 text-[10px]" style={{ borderColor: 'rgba(245,158,11,0.5)', color: 'var(--color-warn)' }}>
+                          LIVE
+                        </span>
+                      )}
                     </td>
                     <td className="py-1.5 pr-3" style={{ color: tr.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>
                       {tr.direction.toUpperCase()}

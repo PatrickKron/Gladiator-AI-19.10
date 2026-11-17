@@ -1,7 +1,7 @@
 import { Queue, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { requireEnv, type Db } from '@gladiator/db';
-import { demoBookSource, monitorDemoTick, monitorOpenPositions, reconcile, type TradingVenue } from '@gladiator/exchange';
+import { demoBookSource, monitorDemoTick, monitorOpenPositions, reconcileAllVenues, type TradingVenue } from '@gladiator/exchange';
 import { failStuckSwapOrders, runDcaOrders, runSwapOrders } from './swap-orders.js';
 import { runWalletCopy } from './wallet-copy.js';
 import { resolvePendingSwaps } from './swap-pending.js';
@@ -209,8 +209,8 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
   await queue.upsertJobScheduler(PERF_SNAPSHOT_JOB + '-weekly', { pattern: PERF_SNAPSHOT_WEEKLY_CRON }, { name: PERF_SNAPSHOT_JOB, data: { type: 'weekly' } });
   await queue.upsertJobScheduler(PERF_SNAPSHOT_JOB + '-monthly', { pattern: PERF_SNAPSHOT_MONTHLY_CRON }, { name: PERF_SNAPSHOT_JOB, data: { type: 'monthly' } });
 
-  // Absturz-Reconciliation beim Start (06_ §7c): Befunde landen im Audit-Log.
-  const rec = await reconcile(db, venue);
+  // Absturz-Reconciliation beim Start (06_ §7c): prüft Paper-, Schlusskurs- und freigegebene Live-Venues; Befunde landen im Audit-Log.
+  const rec = await reconcileAllVenues(db, venue);
   if (!rec.ok) console.warn('[reconciliation] Befunde:', rec.findings.join(' | '));
   else console.log('[reconciliation] sauber — Positionen und Schutz-Orders konsistent.');
 
