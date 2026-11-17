@@ -138,7 +138,15 @@ describe.skipIf(!hasDb)('Live-Order-Pfad über CCXT-Router + Freigabe-Gate', () 
   const RUN = `${process.pid}-${Date.now()}`;
   const NEUTRAL_CTX = { noTrade: null, vix: null };
   const fakeClient = new ScriptedLiveClient();
-  const basePaperVenue = new PaperVenue(async () => fakeClient.last);
+  class ScriptedPaperVenue extends PaperVenue {
+    override async markPrice() {
+      return fakeClient.last;
+    }
+    override async marketRules() {
+      return { tickSize: 0.01, lotSize: 0.001, minNotional: 5 };
+    }
+  }
+  const basePaperVenue = new ScriptedPaperVenue();
 
   async function createConfirmedSignal(symbol = 'ETH/USDT', venue = 'binance') {
     const [sig] = await db
