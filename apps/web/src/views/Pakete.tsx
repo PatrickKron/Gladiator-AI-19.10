@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Empty, EmptyState, ErrorBox, Loading, PageHeader } from '../components/ui.js';
+import { AddMarketPicker } from '../components/AddMarketPicker.js';
 import { FavStar } from '../components/FavStar.js';
 import { getLatest, onTick } from '../lib/prices.js';
 import { feedSymbol } from '../lib/pairs.js';
@@ -269,17 +270,30 @@ export function Pakete() {
   const [query, setQuery] = useState('');
   const [klass, setKlass] = useState<ClassFilter>('all');
   const [onlyFavs, setOnlyFavs] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
 
-  // Grunddaten: Pakete + ALLE 221 Assets (eine Quelle für Suche, Favoriten und „Meine Auswahl")
-  useEffect(() => {
+  const reloadCatalog = () => {
     trpc.product.packages
       .query()
       .then(setPkgs)
       .catch((err: unknown) => setError(err instanceof Error ? err.message : t('common.error')));
     trpc.product.allAssets
       .query()
-      .then(setCatalog)
+      .then((rows) => {
+        setCatalog(rows);
+        if (rows.length > 0) {
+          void trpc.market.assetQuotes
+            .query({ assetIds: rows.map((a) => a.id) })
+            .then(setQuotes)
+            .catch(() => undefined);
+        }
+      })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : t('common.error')));
+  };
+
+  // Grunddaten: Pakete + ALLE 221 Assets (eine Quelle für Suche, Favoriten und „Meine Auswahl")
+  useEffect(() => {
+    reloadCatalog();
     // Krypto-Echtzeit: Live-Feed übersteuert REST-Quotes (Preis UND 24h-Änderung)
     return onTick((x) => setLive((prev) => new Map(prev).set(x.symbol, { price: x.price, changePct: x.changePct24h })));
   }, []);
@@ -346,9 +360,21 @@ export function Pakete() {
       <PageHeader
         title={t('discover.title')}
         subtitle={t('discover.subtitle', { packages: pkgs?.length ?? '…', assets: totalAssets || '…' })}
-        right={<a href="#/heatmap" className="btn shrink-0 px-3.5 py-1.5 text-sm">{t('ia.page_heatmap')} →</a>}
+        right={
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAddOpen((o) => !o)}
+              className="btn-primary shrink-0 px-3.5 py-1.5 text-sm"
+            >
+              {t('dashboard.addMarket')}
+            </button>
+            <a href="#/heatmap" className="btn shrink-0 px-3.5 py-1.5 text-sm">{t('ia.page_heatmap')} →</a>
+          </div>
+        }
       />
       {error && <ErrorBox message={error} />}
+      {addOpen && <AddMarketPicker onClose={() => setAddOpen(false)} onChanged={reloadCatalog} />}
       <p className="mb-5 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
         {t('packages.livePrice')}
       </p>

@@ -45,7 +45,15 @@ function typeColor(assetType: string): string {
 const rowClass =
   'flex w-full items-center gap-2.5 rounded-[0.625rem] px-2 py-2 text-left transition-colors hover:bg-[rgba(59,130,246,0.12)] disabled:opacity-60';
 
-export function AddMarketPicker({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
+export function AddMarketPicker({
+  onClose,
+  onChanged,
+  onAdded,
+}: {
+  onClose: () => void;
+  onChanged: () => void;
+  onAdded?: (asset: { symbol: string; venue: 'binance' | 'yahoo' }) => void;
+}) {
   const { t } = useTranslation();
   // undefined = lädt noch, null = Laden fehlgeschlagen — ehrlich zeigen, kein leerer Fake
   const [assets, setAssets] = useState<PickerAsset[] | null | undefined>(undefined);
@@ -130,6 +138,7 @@ export function AddMarketPicker({ onClose, onChanged }: { onClose: () => void; o
       setMessage({ ok: true, text: t('dashboard.addMarketAdded', { symbol: r.symbol }) });
       await loadCatalog();
       onChanged();
+      onAdded?.({ symbol: r.symbol, venue });
     } catch (e) {
       setMessage({ ok: false, text: t('dashboard.addMarketFailed', { symbol, error: String(e instanceof Error ? e.message : e).slice(0, 160) }) });
     } finally {

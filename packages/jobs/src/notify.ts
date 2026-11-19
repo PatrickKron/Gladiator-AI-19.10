@@ -2,9 +2,10 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import webpush from 'web-push';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
+import { decryptSecret, setSecret } from '@gladiator/exchange';
 import { sendTelegram as sendTelegramDefault } from './telegram.js';
 
-const { users, notifications, pushSubscriptions } = schema;
+const { users, notifications, pushSubscriptions, appSecrets } = schema;
 
 /**
  * Benachrichtigungen (Vision-Punkt 3): EINE Funktion für alle Ereignisse.
@@ -75,6 +76,46 @@ export function pushConfig(): { publicKey: string; privateKey: string; subject: 
   return { publicKey, privateKey, subject: process.env.VAPID_SUBJECT?.trim() || 'mailto:admin@localhost' };
 }
 
+/**
+ * Lädt in der DB (`app_secrets`) gespeicherte VAPID-Schlüssel nach `process.env`,
+ * falls sie im aktuellen Prozess (z. B. Worker nach 1-Klick-Setup im Web) noch fehlen.
+ */
+export async function loadVapidFromDbIfMissing(db: Db): Promise<{ publicKey: string; privateKey: string; subject: string } | null> {
+  const existing = pushConfig();
+  if (existing) return existing;
+  if (!process.env.ENCRYPTION_KEY) return null;
+  try {
+    const rows = await db
+      .select()
+      .from(appSecrets)
+      .where(inArray(appSecrets.key, ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY']));
+    const pubRow = rows.find((r) => r.key === 'VAPID_PUBLIC_KEY');
+    const privRow = rows.find((r) => r.key === 'VAPID_PRIVATE_KEY');
+    if (!pubRow || !privRow) return null;
+    process.env.VAPID_PUBLIC_KEY = decryptSecret(pubRow.ciphertext);
+    process.env.VAPID_PRIVATE_KEY = decryptSecret(privRow.ciphertext);
+    return pushConfig();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 1-Klick-Web-Push-Einrichtung ohne SSH: erzeugt ein neues VAPID-Schlüsselpaar
+ * (sofern noch keines gesetzt ist) und speichert es Vault-verschlüsselt in `app_secrets`.
+ */
+export async function generateAndSaveVapidKeys(
+  db: Db,
+  userId: string | null = null,
+): Promise<{ publicKey: string; created: boolean }> {
+  const existing = await loadVapidFromDbIfMissing(db);
+  if (existing) return { publicKey: existing.publicKey, created: false };
+  const keys = webpush.generateVAPIDKeys();
+  await setSecret(db, 'VAPID_PUBLIC_KEY', keys.publicKey, userId);
+  await setSecret(db, 'VAPID_PRIVATE_KEY', keys.privateKey, userId);
+  return { publicKey: keys.publicKey, created: true };
+}
+
 const defaultSendPush: PushSender = async (sub, payload) => {
   const cfg = pushConfig();
   if (!cfg) throw new Error('Web-Push nicht eingerichtet (VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY fehlen).');
@@ -94,6 +135,9 @@ export async function notify(
   ev: NotifyEvent,
   deps: NotifyDeps = {},
 ): Promise<{ created: number; pushed: number; pushFailed: number; removed: number; telegram: boolean | null }> {
+  if (deps.pushConfigured === undefined && pushConfig() === null) {
+    await loadVapidFromDbIfMissing(db);
+  }
   const sendPush = deps.sendPush ?? defaultSendPush;
   const pushOn = deps.pushConfigured ?? pushConfig() !== null;
 

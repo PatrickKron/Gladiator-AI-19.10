@@ -130,6 +130,21 @@ export function NotificationBell() {
     }
   }
 
+  async function setupAndEnablePush() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await trpc.notifications.setupPush.mutate();
+      const r = await enablePush(res.publicKey);
+      setMsg(t(`notif.push_${r}`));
+      await load();
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="relative" ref={boxRef}>
       <button
@@ -200,7 +215,17 @@ export function NotificationBell() {
             {!pushSupported() ? (
               <p style={{ color: 'var(--color-mut)' }}>{t('notif.pushUnsupported')}</p>
             ) : push && !push.configured ? (
-              <p style={{ color: 'var(--color-mut)' }}>{t('notif.pushNotConfigured')}</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p style={{ color: 'var(--color-mut)' }}>{t('notif.pushNotConfigured')}</p>
+                <button
+                  type="button"
+                  className="btn-primary px-2.5 py-1 text-xs"
+                  disabled={busy}
+                  onClick={() => void setupAndEnablePush()}
+                >
+                  {busy ? t('common.loading') : 'Web-Push jetzt einrichten & aktivieren'}
+                </button>
+              </div>
             ) : (
               <div className="flex flex-wrap items-center gap-2">
                 <button type="button" className="btn px-2.5 py-1 text-xs" disabled={busy || !push} onClick={() => void togglePush()}>

@@ -12,6 +12,7 @@ import { MlInsights } from '../components/MlInsights.js';
 import { MacroPanels } from '../components/MacroPanels.js';
 import { RiskPanels } from '../components/RiskPanels.js';
 import { FavStarSymbol } from '../components/FavStar.js';
+import { AddMarketPicker } from '../components/AddMarketPicker.js';
 import { ASSET_TABS, buildAssetUrl, parseChartHash, type AssetTab, type ChartVenue } from '../lib/chart-url.js';
 import { loadTf } from '../lib/chart-tf.js';
 import { parseTab } from '../lib/tab-hash.js';
@@ -94,6 +95,7 @@ export function AssetDetail() {
   const [bookOpen, setBookOpen] = useState(bookDockOpen);
   // Mängelliste 12: Schnell-Ticket direkt im Chart — dasselbe Demo-Ticket, Symbol/Quelle vom Chart.
   const [ticketOpen, setTicketOpen] = useState(false);
+  const [addMarketOpen, setAddMarketOpen] = useState(false);
   const ticketRef = useRef<HTMLDivElement>(null);
   function openTicket() {
     if (tab !== 'chart') changeTab('chart');
@@ -146,6 +148,14 @@ export function AssetDetail() {
         <div className="flex min-w-0 max-w-full items-center gap-2">
           <AssetSelect value={asset} venue={venue} onChange={changeAsset} />
           <FavStarSymbol symbol={asset} />
+          <button
+            type="button"
+            onClick={() => setAddMarketOpen((o) => !o)}
+            className="tbtn shrink-0"
+            title={t('dashboard.addMarket')}
+          >
+            {t('dashboard.addMarket')}
+          </button>
         </div>
         {price != null && (
           <span className="num flex items-center gap-2 text-sm font-semibold">
@@ -218,6 +228,16 @@ export function AssetDetail() {
           </button>
         </div>
       </div>
+      {addMarketOpen && (
+        <AddMarketPicker
+          onClose={() => setAddMarketOpen(false)}
+          onChanged={() => undefined}
+          onAdded={({ symbol: sym, venue: v }) => {
+            changeAsset(sym, v);
+            setAddMarketOpen(false);
+          }}
+        />
+      )}
 
       {tab === 'chart' && (
         // Markt-Bühne (UI-Welle 4): Watchlist links, Chart mittig, Schnell-Ticket rechts gedockt (auf großen Bildschirmen)

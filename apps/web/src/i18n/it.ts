@@ -2201,6 +2201,8 @@ export const it: Catalog = {
     desc_FRED_API_KEY: 'Opzionale: chiave API FRED per serie macro aggiuntive (fred.stlouisfed.org).',
     desc_TWELVE_DATA_API_KEY: 'Candele azioni/ETF/forex (tutti i timeframe) via Twelve Data — 800 chiamate/giorno gratis (twelvedata.com).',
     desc_COINGLASS_API_KEY: 'Opzionale: chiave API CoinGlass per heatmap e cluster di liquidazione cripto nel grafico (coinglass.com).',
+    desc_VAPID_PUBLIC_KEY: 'Chiave pubblica VAPID Web-Push (generata automaticamente con 1 clic nella campanella).',
+    desc_VAPID_PRIVATE_KEY: 'Chiave privata VAPID Web-Push (generata automaticamente con 1 clic nella campanella).',
   },
   ml: {
     title: 'Modelli ML',

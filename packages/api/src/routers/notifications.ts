@@ -1,10 +1,10 @@
 import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
-import { notify, pushConfig } from '@gladiator/jobs';
+import { generateAndSaveVapidKeys, loadVapidFromDbIfMissing, notify, pushConfig } from '@gladiator/jobs';
 import { protectedProcedure, router } from '../trpc.js';
 
-const { notifications, pushSubscriptions } = schema;
+const { notifications, pushSubscriptions, auditLog } = schema;
 
 /**
  * Benachrichtigungen (Vision-Punkt 3): Glocke in der App + Web-Push je Gerät.
@@ -57,12 +57,32 @@ export const notificationsRouter = router({
 
   /** Push-Status: eingerichtet (VAPID gesetzt)? öffentlicher Schlüssel fürs Abo, Anzahl aktiver Geräte. */
   pushStatus: protectedProcedure.query(async ({ ctx }) => {
-    const cfg = pushConfig();
+    const cfg = pushConfig() ?? (await loadVapidFromDbIfMissing(ctx.db));
     const [row] = await ctx.db
       .select({ n: count() })
       .from(pushSubscriptions)
       .where(and(eq(pushSubscriptions.userId, ctx.user.id), isNull(pushSubscriptions.revokedAt)));
     return { configured: cfg !== null, publicKey: cfg?.publicKey ?? null, devices: Number(row?.n ?? 0) };
+  }),
+
+  /**
+   * 1-Klick-Web-Push-Einrichtung aus der Glocke (ohne SSH): erzeugt VAPID-Schlüssel,
+   * speichert sie Vault-verschlüsselt in `app_secrets` und aktiviert sie sofort.
+   */
+  setupPush: protectedProcedure.mutation(async ({ ctx }) => {
+    const res = await generateAndSaveVapidKeys(ctx.db, ctx.user.id);
+    if (res.created) {
+      await ctx.db.insert(auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: 'notifications.vapid.generated',
+        entityType: 'app_secrets',
+        entityId: 'VAPID_PUBLIC_KEY',
+        details: { publicKeyLast8: res.publicKey.slice(-8) },
+        ip: ctx.ip,
+      });
+    }
+    return { configured: true as const, publicKey: res.publicKey, created: res.created };
   }),
 
   subscribe: protectedProcedure

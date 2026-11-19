@@ -34,7 +34,9 @@ export type SecretKey =
   | 'HEALTHCHECKS_URL'
   | 'FRED_API_KEY'
   | 'TWELVE_DATA_API_KEY'
-  | 'COINGLASS_API_KEY';
+  | 'COINGLASS_API_KEY'
+  | 'VAPID_PUBLIC_KEY'
+  | 'VAPID_PRIVATE_KEY';
 
 export type SecretDef = {
   key: SecretKey;
@@ -132,6 +134,18 @@ export const SECRET_KEYS: SecretDef[] = [
     immediate: true,
     testable: true,
     validate: (v) => (/^[A-Za-z0-9_-]{16,64}$/.test(v) ? null : 'Format ungültig — CoinGlass-API-Keys sind 16–64 Zeichen (alphanumerisch).'),
+  },
+  {
+    key: 'VAPID_PUBLIC_KEY',
+    immediate: true,
+    testable: false,
+    validate: (v) => (/^[A-Za-z0-9_-]{60,120}$/.test(v) ? null : 'Format ungültig — VAPID Public Key ist Base64url (ca. 87 Zeichen).'),
+  },
+  {
+    key: 'VAPID_PRIVATE_KEY',
+    immediate: true,
+    testable: false,
+    validate: (v) => (/^[A-Za-z0-9_-]{32,80}$/.test(v) ? null : 'Format ungültig — VAPID Private Key ist Base64url (ca. 43 Zeichen).'),
   },
 ];
 
