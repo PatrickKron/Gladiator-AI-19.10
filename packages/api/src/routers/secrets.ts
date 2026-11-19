@@ -35,6 +35,8 @@ const KEY_ENUM = z.enum([
   'FRED_API_KEY',
   'TWELVE_DATA_API_KEY',
   'COINGLASS_API_KEY',
+  'VAPID_PUBLIC_KEY',
+  'VAPID_PRIVATE_KEY',
 ]);
 
 type TestResult = { ok: boolean; detail: string };
@@ -113,8 +115,10 @@ async function testSecret(key: SecretKey): Promise<TestResult> {
         };
       }
       case 'PINE_WEBHOOK_SECRET':
-        // Ehrlich: kein externer Test möglich — das Secret prüft eingehende Alerts.
-        return { ok: true, detail: 'Format ok. Externer Test nicht möglich — TradingView-Alert senden, um den Webhook zu prüfen.' };
+      case 'VAPID_PUBLIC_KEY':
+      case 'VAPID_PRIVATE_KEY':
+        // Ehrlich: kein externer Test möglich — das Secret prüft eingehende Alerts bzw. Web-Push wird in der Glocke getestet.
+        return { ok: true, detail: 'Format ok. Externer Test über die Glocke (Test-Benachrichtigung) bzw. TradingView-Alert.' };
       case 'COINGLASS_API_KEY': {
         const res = await fetch('https://open-api-v3.coinglass.com/api/futures/supported-coins', {
           headers: { 'CG-API-KEY': value, accept: 'application/json' },

@@ -2200,6 +2200,8 @@ export const de = {
     desc_FRED_API_KEY: 'Optional: FRED-API-Key für Zusatz-Makroserien (fred.stlouisfed.org).',
     desc_TWELVE_DATA_API_KEY: 'Aktien-/ETF-/Forex-Kerzen (alle Timeframes) via Twelve Data — 800 Calls/Tag gratis (twelvedata.com).',
     desc_COINGLASS_API_KEY: 'Optional: CoinGlass-API-Key für externe Krypto-Liquidations-Heatmaps & Cluster im Chart (coinglass.com).',
+    desc_VAPID_PUBLIC_KEY: 'Web-Push VAPID Public Key (wird automatisch per 1-Klick in der Glocke erzeugt).',
+    desc_VAPID_PRIVATE_KEY: 'Web-Push VAPID Private Key (wird automatisch per 1-Klick in der Glocke erzeugt).',
   },
   ml: {
     title: 'ML-Modelle',

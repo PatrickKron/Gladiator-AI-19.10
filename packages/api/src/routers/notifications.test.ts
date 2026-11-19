@@ -94,4 +94,23 @@ describe.skipIf(!hasDb)('Benachrichtigungen: Glocke, Scoping, Push-Abo', () => {
     expect(r).toMatchObject({ created: 1, pushed: 0 });
     expect(own(await a.notifications.list({ unreadOnly: true }), 'Gladiator: Test-Benachrichtigung')).toHaveLength(1);
   });
+
+  it('1-Klick-Web-Push-Setup (notifications.setupPush): erzeugt VAPID-Schlüssel im Vault und aktiviert pushStatus', async () => {
+    if (!process.env.ENCRYPTION_KEY) {
+      process.env.ENCRYPTION_KEY = 'a'.repeat(64);
+    }
+    try {
+      const setup = await a.notifications.setupPush();
+      expect(setup.configured).toBe(true);
+      expect(setup.publicKey.length).toBeGreaterThan(60);
+
+      const status = await a.notifications.pushStatus();
+      expect(status.configured).toBe(true);
+      expect(status.publicKey).toBe(setup.publicKey);
+    } finally {
+      delete process.env.VAPID_PUBLIC_KEY;
+      delete process.env.VAPID_PRIVATE_KEY;
+      await db.execute(sql`DELETE FROM app_secrets WHERE key IN ('VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY')`);
+    }
+  });
 });
