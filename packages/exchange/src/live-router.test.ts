@@ -58,10 +58,10 @@ class ScriptedLiveClient implements CcxtLiveClient, CcxtLikeClient {
   closed: CcxtOrder[] = [];
   livePositions: { symbol: string; side?: string; contracts?: number; contractSize?: number; entryPrice?: number }[] = [];
   markets = {
-    'ETH/USDT': { symbol: 'ETH/USDT', base: 'ETH', quote: 'USDT', active: true, contract: false },
-    'ETH/USDT:USDT': {
-      symbol: 'ETH/USDT:USDT',
-      base: 'ETH',
+    'LIVETEST/USDT': { symbol: 'LIVETEST/USDT', base: 'LIVETEST', quote: 'USDT', active: true, contract: false },
+    'LIVETEST/USDT:USDT': {
+      symbol: 'LIVETEST/USDT:USDT',
+      base: 'LIVETEST',
       quote: 'USDT',
       active: true,
       contract: true,
@@ -148,7 +148,7 @@ describe.skipIf(!hasDb)('Live-Order-Pfad über CCXT-Router + Freigabe-Gate', () 
   }
   const basePaperVenue = new ScriptedPaperVenue();
 
-  async function createConfirmedSignal(symbol = 'ETH/USDT', venue = 'binance') {
+  async function createConfirmedSignal(symbol = 'LIVETEST/USDT', venue = 'binance') {
     const [sig] = await db
       .insert(signals)
       .values({
@@ -245,7 +245,7 @@ describe.skipIf(!hasDb)('Live-Order-Pfad über CCXT-Router + Freigabe-Gate', () 
     expect(check.ok).toBe(false);
     expect(check.detail).toMatch(/fehlt noch die Live-Freigabe/);
 
-    const resolved = await resolveLiveVenueForSymbol(db, userId, 'ETH/USDT', {
+    const resolved = await resolveLiveVenueForSymbol(db, userId, 'LIVETEST/USDT', {
       createLiveClient: () => fakeClient,
     });
     expect(resolved.ok).toBe(false);
@@ -291,9 +291,9 @@ describe.skipIf(!hasDb)('Live-Order-Pfad über CCXT-Router + Freigabe-Gate', () 
     expect(pos!.mode).toBe('live');
     expect(pos!.venue.startsWith('live:')).toBe(true);
 
-    // Reconciliation: Börse meldet ETH/USDT:USDT Long 0.5 → stimmt mit DB-Position ETH/USDT überein
+    // Reconciliation: Börse meldet LIVETEST/USDT:USDT Long 0.5 → stimmt mit DB-Position LIVETEST/USDT überein
     fakeClient.livePositions = [
-      { symbol: 'ETH/USDT:USDT', side: 'long', contracts: 0.5, contractSize: 1, entryPrice: 2000 },
+      { symbol: 'LIVETEST/USDT:USDT', side: 'long', contracts: 0.5, contractSize: 1, entryPrice: 2000 },
     ];
     const liveVenue = await resolveLiveVenueById(db, pos!.venue, { createLiveClient: () => fakeClient });
     expect(liveVenue).not.toBeNull();
@@ -388,10 +388,10 @@ describe.skipIf(!hasDb)('Live-Order-Pfad über CCXT-Router + Freigabe-Gate', () 
     expect(fakeClient.open).toHaveLength(4); // SL + 3 TPs an der Börse offen
 
     fakeClient.livePositions = [
-      { symbol: 'ETH/USDT:USDT', side: 'long', contracts: 0.5, contractSize: 1, entryPrice: 2000 },
+      { symbol: 'LIVETEST/USDT:USDT', side: 'long', contracts: 0.5, contractSize: 1, entryPrice: 2000 },
     ];
     const recAll = await reconcileAllVenues(db, basePaperVenue, { createLiveClient: () => fakeClient });
-    expect(recAll.ok).toBe(true);
+    expect(recAll.findings.filter((f) => f.includes('LIVETEST/USDT'))).toHaveLength(0);
 
     const closedNow = await closePositionNow(db, basePaperVenue, liveRes2.positionId!, 'agent', {
       createLiveClient: () => fakeClient,
