@@ -250,11 +250,12 @@ export function OrderTicket({ onPlaced, symbol: fixedSymbol, venue: fixedVenue, 
   const [tpPct, setTpPct] = useState(0); // 0 = kein Gewinnziel
   const [leverage, setLeverage] = useState(1);
   // Börse, gegen deren echtes Orderbuch ausgeführt wird (Vision-Punkt 2)
-  const [venue, setVenue] = useState<DemoVenue>('binance');
+  const [venue, setVenue] = useState<DemoVenue>(() => (fixedVenue && isStockVenue(fixedVenue) ? fixedVenue : 'binance'));
   // Obergrenze aus den Trading-Einstellungen (Einstellungen › Trading) — dort frei anpassbar
   const [maxLeverage, setMaxLeverage] = useState<number | null>(null);
   const [eurUsd, setEurUsd] = useState<number | null>(null);
   const [livePrice, setLivePrice] = useState<number | null>(null);
+  const [quoteCurrency, setQuoteCurrency] = useState<string>('USD');
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -289,22 +290,49 @@ export function OrderTicket({ onPlaced, symbol: fixedSymbol, venue: fixedVenue, 
     };
   }, []);
 
-  // Echter Live-Preis fürs Symbol (SSE-Feed) — Grundlage der €→Stück-Umrechnung.
+  // Echter Live-Preis fürs Symbol (SSE-Feed für Krypto; für Aktien/ETFs/Forex oder nicht gestreamte Symbole über assetContext).
   useEffect(() => {
-    setLivePrice(getLatest().find((tick) => tick.symbol === symbol)?.price ?? null);
-    return onTick((tick) => {
+    let cancelled = false;
+    const isStock = isStockVenue(venue);
+    const ssePrice = !isStock ? (getLatest().find((tick) => tick.symbol === symbol)?.price ?? null) : null;
+    setLivePrice(ssePrice);
+    setQuoteCurrency('USD');
+
+    if (isStock || ssePrice === null) {
+      const ctxVenue = isStock ? venue : 'binance';
+      void trpc.market.assetContext
+        .query({ symbol, venue: ctxVenue })
+        .then((ctx) => {
+          if (cancelled || !ctx.available) return;
+          if (typeof ctx.price === 'number' && ctx.price > 0) setLivePrice(ctx.price);
+          if (ctx.quoteCurrency) setQuoteCurrency(ctx.quoteCurrency.toUpperCase());
+        })
+        .catch(() => undefined);
+    }
+
+    if (isStock) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    const off = onTick((tick) => {
       if (tick.symbol === symbol) setLivePrice(tick.price);
     });
-  }, [symbol]);
+    return () => {
+      cancelled = true;
+      off();
+    };
+  }, [symbol, venue]);
 
-  // €-Modus: der Betrag ist der EINSATZ (Margin); Position = Einsatz × Hebel → Stückzahl
-  // = Einsatz × Hebel × Kurs ÷ Preis (nur echte Zahlen, sonst null).
+  // €-Modus: der Betrag ist der EINSATZ (Margin); Position = Einsatz × Hebel → Stückzahl.
+  // Bei EUR-Notierung (z. B. RHM.DE, SAP.DE) wird 1:1 gerechnet; bei USD/USDT mit echtem EUR/USD-Kurs.
   const previewFill = preview && preview.ok ? preview.estFillPrice : null;
   const refPrice = type === 'limit' && num(limitPrice) > 0 ? num(limitPrice) : (livePrice ?? previewFill);
   const eurAmount = num(amountEur);
+  const fxFactor = quoteCurrency === 'EUR' ? 1 : quoteCurrency === 'USD' || quoteCurrency === 'USDT' ? eurUsd : null;
   const derivedQty =
-    amountMode === 'eur' && eurUsd !== null && refPrice !== null && typeof refPrice === 'number' && refPrice > 0 && eurAmount > 0
-      ? (eurAmount * eurUsd * leverage) / refPrice
+    amountMode === 'eur' && fxFactor !== null && refPrice !== null && typeof refPrice === 'number' && refPrice > 0 && eurAmount > 0
+      ? (eurAmount * fxFactor * leverage) / refPrice
       : null;
   const effQty = amountMode === 'eur' ? (derivedQty ?? 0) : num(qty);
 
@@ -340,6 +368,7 @@ export function OrderTicket({ onPlaced, symbol: fixedSymbol, venue: fixedVenue, 
 
   // Live-Vorschau (debounced): jede Eingabe-Änderung rechnet gegen das echte Buch
   useEffect(() => {
+    let cancelled = false;
     setPreview(null);
     setSuccess(null);
     if (!valid) return;
@@ -348,17 +377,23 @@ export function OrderTicket({ onPlaced, symbol: fixedSymbol, venue: fixedVenue, 
       setPreviewing(true);
       trpc.demo.preview
         .mutate(buildInput())
-        .then((p) => setPreview(p))
-        .catch(() => setPreview(null))
-        .finally(() => setPreviewing(false));
+        .then((p) => {
+          if (!cancelled) setPreview(p);
+        })
+        .catch(() => {
+          if (!cancelled) setPreview(null);
+        })
+        .finally(() => {
+          if (!cancelled) setPreviewing(false);
+        });
     }, 600);
     return () => {
+      cancelled = true;
       if (debounce.current !== null) window.clearTimeout(debounce.current);
     };
     // buildInput/valid sind aus denselben Feldern abgeleitet — Felder sind die Wahrheit.
-    // livePrice ist bewusst KEINE Dependency: jeder Tick würde sonst das echte
-    // Orderbuch neu abfragen; die Platzierung rechnet ohnehin zum Klick-Zeitpunkt.
-  }, [symbol, direction, type, amountMode, amountEur, qty, limitPrice, slPct, tpPct, eurUsd, leverage, venue]);
+    // livePrice ist bewusst KEINE Dependency bei Krypto-SSE; bei Stock-Venue triggert erst der geladene refPrice.
+  }, [symbol, direction, type, amountMode, amountEur, qty, limitPrice, slPct, tpPct, eurUsd, quoteCurrency, leverage, venue, valid]);
 
   async function place() {
     setBusy(true);

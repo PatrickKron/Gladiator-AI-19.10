@@ -44,6 +44,8 @@ export const productRouter = router({
           exchange: assets.exchange,
           assetType: assets.assetType,
           tradingPair: assets.tradingPair,
+          candleVenue: assets.candleVenue,
+          dataSymbol: assets.dataSymbol,
         })
         .from(assets)
         .where(eq(assets.packageId, input.packageId))
@@ -53,7 +55,10 @@ export const productRouter = router({
         .from(assetFavorites)
         .where(eq(assetFavorites.userId, ctx.user.id));
       const favSet = new Set(favs.map((f) => f.assetId));
-      return rows.map((r) => ({ ...r, isFavorite: favSet.has(r.id) }));
+      return rows.map((r) => {
+        const src = assetSource(r);
+        return { ...r, symbol: src.venue ? src.symbol : null, venue: src.venue, isFavorite: favSet.has(r.id) };
+      });
     }),
 
   /**
@@ -126,13 +131,15 @@ export const productRouter = router({
     }),
 
   favorites: protectedProcedure.query(async ({ ctx }) => {
-    return ctx.db
+    const rows = await ctx.db
       .select({
         assetId: assets.id,
         ticker: assets.ticker,
         name: assets.name,
         assetType: assets.assetType,
         tradingPair: assets.tradingPair,
+        candleVenue: assets.candleVenue,
+        dataSymbol: assets.dataSymbol,
         packageName: packages.name,
       })
       .from(assetFavorites)
@@ -140,6 +147,10 @@ export const productRouter = router({
       .innerJoin(packages, eq(packages.id, assets.packageId))
       .where(eq(assetFavorites.userId, ctx.user.id))
       .orderBy(asc(assets.ticker));
+    return rows.map((r) => {
+      const src = assetSource(r);
+      return { ...r, symbol: src.venue ? src.symbol : null, venue: src.venue };
+    });
   }),
 
   /**

@@ -533,7 +533,11 @@ export function Einstellungen() {
               ))}
               <label className="flex flex-col gap-1.5">
                 <span className="label">{t('settings.mode')}</span>
-                <input value={`${mode.toUpperCase()} — ${t('settings.modePaperOnly')}`} disabled className="field px-3 py-2 text-sm opacity-60" />
+                <input
+                  value={mode === 'live' ? 'LIVE — CCXT-Live-Router aktiv (umschaltbar unter Traden → Risiko)' : `${mode.toUpperCase()} — ${t('settings.modePaperOnly')}`}
+                  disabled
+                  className="field px-3 py-2 text-sm opacity-70"
+                />
               </label>
             </div>
             <div className="mt-6 flex items-center gap-4">

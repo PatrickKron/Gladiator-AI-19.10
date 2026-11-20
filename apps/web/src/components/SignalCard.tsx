@@ -792,7 +792,7 @@ export function SignalCard({
         <div className="flex flex-wrap items-center gap-2.5">
           <span className={`chip ${long ? 'chip--pos' : 'chip--neg'}`}>{long ? 'Long' : 'Short'}</span>
           <span className="flex items-center gap-1 font-medium">
-            <FavStarSymbol symbol={signal.symbol} initialFavorite={signal.isFavorite} />
+            <FavStarSymbol symbol={signal.symbol} venue={signal.venue} initialFavorite={signal.isFavorite} />
             <a href={buildChartUrl(signal.symbol, signal.timeframe, signal.venue)} className="hover:underline" title={t('chart.title')}>
               {signal.symbol.replace('/USDT', '')}
             </a>

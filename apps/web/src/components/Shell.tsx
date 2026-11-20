@@ -427,7 +427,7 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
           </div>
         )}
 
-        <main className="mx-auto max-w-6xl px-4 pt-5 pb-6 md:px-6">
+        <main className={`mx-auto px-4 pt-5 pb-6 md:px-6 ${activeHash === '#/charts' ? 'max-w-[1840px]' : 'max-w-6xl'}`}>
           <Breadcrumb route={activeHash} />
           {children}
         </main>

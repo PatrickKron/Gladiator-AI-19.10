@@ -120,7 +120,7 @@ export const signalsRouter = router({
           ),
         )
         .orderBy(desc(signals.createdAt))
-        .limit(input.limit);
+        .limit(input.favoritesOnly ? Math.max(input.limit * 5, 500) : input.limit);
 
       // Favoriten (Stern-System) mit Kursquelle (A2): Krypto-Paare, Aktien, ETF, Forex, Rohstoffe —
       // dieselbe Quellen-Auflösung wie product.favoriteSymbols; Katalog-Asset ohne Quelle per Symbol.
@@ -149,7 +149,7 @@ export const signalsRouter = router({
           isFavorite: isFavoriteSignal(r),
         };
       });
-      if (input.favoritesOnly) filtered = filtered.filter((r) => r.isFavorite);
+      if (input.favoritesOnly) filtered = filtered.filter((r) => r.isFavorite).slice(0, input.limit);
       // Favoriten zuerst, dann Zeit
       filtered.sort((a, b) => Number(b.isFavorite) - Number(a.isFavorite) || b.createdAt.getTime() - a.createdAt.getTime());
       const rowsOut = filtered;
@@ -248,6 +248,7 @@ export const signalsRouter = router({
       });
       const rules = await execVenue.marketRules(signal.symbol);
       const gates = await loadActiveGates(ctx.db);
+      const suggestedLev = Math.max(1, Math.min(settings.maxLeverage, Number(signal.leverageSuggested ?? 1) || 1));
       const verdict = evaluateRisk(
         {
           symbol: signal.symbol,
@@ -255,7 +256,7 @@ export const signalsRouter = router({
           direction: signal.direction,
           entry: Number(signal.entry),
           stopLoss: Number(signal.stopLoss),
-          leverage: 1,
+          leverage: suggestedLev,
           session: signal.session,
           emaRegime: signal.emaRegime as 'above' | 'below',
           marketPhase: signal.marketPhase as 'bull' | 'bear',
@@ -313,7 +314,7 @@ export const signalsRouter = router({
         suggested: {
           notionalUsd: suggestedNotionalUsd,
           notionalEur: suggestedNotionalUsd !== null && eurUsd ? suggestedNotionalUsd / eurUsd : null,
-          leverage: Number(signal.leverageSuggested ?? 1) || 1,
+          leverage: suggestedLev,
           stopLoss: Number(signal.stopLoss),
           takeProfits: signal.takeProfits.map((tp) => Number(tp)),
           entry: Number(signal.entry),

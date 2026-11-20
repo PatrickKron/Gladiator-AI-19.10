@@ -10,7 +10,8 @@ import { AddMarketPicker } from '../components/AddMarketPicker.js';
 import { FavStar, FavStarSymbol } from '../components/FavStar.js';
 import { getFeedState, getLatest, onFeedState, onTick, type FeedState, type TickWithDirection } from '../lib/prices.js';
 import { setPendingTradeSymbol } from '../lib/trade-symbol.js';
-import { buildChartUrl } from '../lib/chart-url.js';
+import { buildChartUrl, isChartVenue, type ChartVenue } from '../lib/chart-url.js';
+import { onFavoritesChange } from '../lib/favorites-bus.js';
 import { loadTf } from '../lib/chart-tf.js';
 import { feedSymbol } from '../lib/pairs.js';
 import { normalizeRegime, REGIME_COLORS, REGIME_ICONS, type RegimeData } from '../lib/regime.js';
@@ -22,7 +23,7 @@ import { TodayList } from '../components/TodayList.js';
 import { PlexusHero } from '../components/PlexusHero.js';
 import { WealthCurve } from '../components/WealthCurve.js';
 import { rangeChange, rangeFilter, wealthCurve } from '../lib/wealth.js';
-import { getSelectedAsset } from '../components/AssetSelect.js';
+import { getSelectedAsset, getSelectedVenue } from '../components/AssetSelect.js';
 
 /** Dashboard (09_ §3.1): Begrüßung, Live-Markt, offene Setups, Konto, System — alles echt. */
 
@@ -250,7 +251,7 @@ const SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
 
 /** source 'candles' = letzter Schluss der eigenen, frischen Kerzen (Register-Assets von Yahoo/Twelve Data). */
 type FavQuote = { price: number; changePct: number | null; currency: string | null; source?: string } | null;
-type QuoteFav = { assetId: number; ticker: string; name: string };
+type QuoteFav = { assetId: number; ticker: string; name: string; symbol: string | null; venue: ChartVenue | null };
 
 /** Kurs mit Quell-Währung (Auslandsbörsen liefern EUR/JPY/HKD/…); null = ohne Suffix (Renditen/Indizes). */
 function fmtFavQuote(price: number, currency: string | null): string {
@@ -387,7 +388,7 @@ function HeroWealth({ account, signalCount }: { account: Account | null; signalC
           <span className="text-sm font-semibold">{t('dashboard.actionTrade')}</span>
           <span className="text-xs opacity-80">{t('dashboard.actionTradeSub')}</span>
         </a>
-        <a href={buildChartUrl(getSelectedAsset(), loadTf(getSelectedAsset()) ?? '1h')} className="btn flex flex-col gap-0.5 px-4 py-3 text-left">
+        <a href={buildChartUrl(getSelectedAsset(), loadTf(getSelectedAsset()) ?? '1h', getSelectedVenue())} className="btn flex flex-col gap-0.5 px-4 py-3 text-left">
           <span className="text-sm font-semibold">{t('dashboard.actionChart')}</span>
           <span className="num text-xs" style={{ color: 'var(--color-mut)' }}>{getSelectedAsset()}</span>
         </a>
@@ -411,7 +412,13 @@ function QuoteFavCard({ fav, quote, stagger, onRemoved }: { fav: QuoteFav; quote
   return (
     <div className="glass glass-hover reveal p-6" style={{ '--stagger': stagger } as React.CSSProperties}>
       <div className="flex items-baseline justify-between">
-        <h2 className="text-[15px] font-medium">{fav.ticker}</h2>
+        {fav.symbol && fav.venue ? (
+          <a href={buildChartUrl(fav.symbol, loadTf(fav.symbol) ?? '1d', fav.venue)} className="text-[15px] font-medium hover:underline" style={{ color: 'var(--color-cyan)' }}>
+            {fav.ticker}
+          </a>
+        ) : (
+          <h2 className="text-[15px] font-medium">{fav.ticker}</h2>
+        )}
         <span className="flex items-center gap-1">
           <FavStar assetId={fav.assetId} isFavorite onToggled={(_id, isFav) => { if (!isFav) onRemoved(); }} />
           <span className="label max-w-[140px] truncate">{fav.name}</span>
@@ -657,7 +664,13 @@ export function Dashboard() {
       setWatchIsFav(uniq.length > 0);
       const nonCrypto = favs
         .filter((f) => !feedSymbol(f.tradingPair))
-        .map((f) => ({ assetId: f.assetId, ticker: f.ticker, name: f.name }))
+        .map((f) => ({
+          assetId: f.assetId,
+          ticker: f.ticker,
+          name: f.name,
+          symbol: f.symbol ?? null,
+          venue: f.venue && isChartVenue(f.venue) ? f.venue : null,
+        }))
         .slice(0, 12);
       setQuoteFavs(nonCrypto);
     } catch {
@@ -669,6 +682,7 @@ export function Dashboard() {
 
   useEffect(() => {
     void loadWatch();
+    return onFavoritesChange(() => void loadWatch());
   }, [loadWatch]);
 
   // Quotes der Nicht-Krypto-Favoriten (60-s-Refresh, ehrlich null bei toter Quelle).

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { FavStarSymbol } from './FavStar.js';
+import { onFavoritesChange } from '../lib/favorites-bus.js';
 import { rankAssets } from '../lib/asset-search.js';
 import { buildChartUrl } from '../lib/chart-url.js';
 import { loadTf } from '../lib/chart-tf.js';
@@ -32,7 +33,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Assets einmalig laden, sobald die Palette zum ersten Mal geöffnet wird.
+  // Assets laden beim Öffnen (und neu laden, wenn zwischendurch Favoriten/Märkte geändert wurden).
+  useEffect(() => onFavoritesChange(() => setAssets(null)), []);
   useEffect(() => {
     if (!open || assets !== null) return;
     void trpc.product.allAssets.query().then(setAssets).catch(() => setAssets([]));
@@ -161,7 +163,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                     <span className="min-w-0 flex-1 truncate text-sm" style={{ color: 'var(--color-mut)' }}>{entry.asset.name}</span>
                     <span
                       className="label shrink-0 rounded border px-1.5 py-0.5"
-                      style={{ borderColor: 'var(--color-line)', color: TYPE_COLOR[entry.asset.assetType] ?? 'var(--color-mut)' }}
+                      style={{ borderColor: 'var(--color-line)', color: TYPE_COLOR[entry.asset.assetType.toLowerCase()] ?? 'var(--color-mut)' }}
                     >
                       {entry.asset.assetType}
                     </span>

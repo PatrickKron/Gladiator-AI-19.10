@@ -139,7 +139,7 @@ export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDeci
           </span>
           <span className="flex items-center gap-0.5 text-base font-semibold tracking-tight">
             {signal.symbol.replace('/USDT', '')}
-            <FavStarSymbol symbol={signal.symbol} initialFavorite={signal.isFavorite} />
+            <FavStarSymbol symbol={signal.symbol} venue={signal.venue} initialFavorite={signal.isFavorite} />
           </span>
           <span className="label">{signal.timeframe} · {signal.setupType}</span>
 

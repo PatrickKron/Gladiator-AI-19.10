@@ -6,6 +6,7 @@ import { AddMarketPicker } from '../components/AddMarketPicker.js';
 import { FavStar } from '../components/FavStar.js';
 import { getLatest, onTick } from '../lib/prices.js';
 import { feedSymbol } from '../lib/pairs.js';
+import { buildChartUrl, type ChartVenue } from '../lib/chart-url.js';
 import { setPendingTradeSymbol } from '../lib/trade-symbol.js';
 import {
   ASSET_CLASSES,
@@ -41,7 +42,7 @@ type PkgAsset = Awaited<ReturnType<typeof trpc.product.assets.query>>[number];
 
 type Quote = { price: number; changePct: number | null; currency: string | null } | null;
 type LiveTick = { price: number; changePct: number | null };
-type RowAsset = { id: number; ticker: string; name: string; assetType: string; pair: string | null };
+type RowAsset = { id: number; ticker: string; name: string; assetType: string; pair: string | null; venue?: ChartVenue | null };
 
 /**
  * „Traden"-Sprung (gleiche Konvention wie im Heute-Bereich, geteilter Helfer
@@ -85,6 +86,7 @@ function AssetRow({
   const currency = live !== undefined ? 'USD' : (quote?.currency ?? null);
   const changePct = live?.changePct ?? quote?.changePct ?? null;
   const pair = a.pair;
+  const chartHref = pair ? buildChartUrl(pair, null, a.venue ?? 'binance') : null;
   const canTrade = a.assetType.toUpperCase() === 'CRYPTO' && pair !== null;
 
   return (
@@ -92,7 +94,13 @@ function AssetRow({
       <FavStar assetId={a.id} isFavorite={isFavorite} onToggled={onFavToggled} />
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-2">
-          <span className="num text-lg leading-tight font-semibold">{a.ticker}</span>
+          {chartHref ? (
+            <a href={chartHref} className="num text-lg leading-tight font-semibold hover:underline" style={{ color: 'var(--color-cyan)' }}>
+              {a.ticker}
+            </a>
+          ) : (
+            <span className="num text-lg leading-tight font-semibold">{a.ticker}</span>
+          )}
           <span className="rounded-full border px-2 py-0.5 text-[11px] font-medium" style={badge}>
             {classKey ? t(classKey) : a.assetType}
           </span>
@@ -122,6 +130,11 @@ function AssetRow({
           </p>
         )}
       </div>
+      {chartHref && (
+        <a href={chartHref} className="btn shrink-0 px-3 py-1.5 text-xs">
+          Chart
+        </a>
+      )}
       {canTrade && pair !== null ? (
         <button onClick={() => startDemoTrade(pair)} title={t('discover.tradeHint')} className="btn-primary shrink-0 px-3.5 py-1.5 text-xs">
           {t('discover.trade')}
@@ -236,11 +249,11 @@ function PackageCard({
           ) : (
             <ul>
               {assets.map((a) => {
-                const pair = feedSymbol(a.tradingPair);
+                const pair = a.symbol ?? feedSymbol(a.tradingPair);
                 return (
                   <AssetRow
                     key={a.id}
-                    a={{ id: a.id, ticker: a.ticker, name: a.name, assetType: a.assetType, pair }}
+                    a={{ id: a.id, ticker: a.ticker, name: a.name, assetType: a.assetType, pair, venue: a.venue }}
                     // Favoriten-Wahrheit ist der globale Katalog (eine Quelle); solange er lädt, gilt der Server-Wert der Paket-Abfrage
                     isFavorite={catalogReady ? favIds.has(a.id) : a.isFavorite}
                     quote={quotes?.[a.ticker]}
@@ -301,9 +314,9 @@ export function Pakete() {
   // Kurse für ALLE Assets in EINEM Call (Server bündelt Binance/TradingView/CBOE).
   // Abhängigkeit bewusst `catalog === null`: Favoriten-Toggles erzeugen neue
   // Katalog-Referenzen, sollen aber KEINE neue Kurs-Abfrage auslösen.
-  const catalogLoaded = catalog !== null;
+  const catalogIdsKey = useMemo(() => (catalog ? catalog.map((a) => a.id).join(',') : ''), [catalog]);
   useEffect(() => {
-    if (catalog === null || catalog.length === 0) return;
+    if (!catalog || catalog.length === 0) return;
     let cancelled = false;
     const ids = catalog.map((a) => a.id);
     const load = () => {
@@ -323,7 +336,7 @@ export function Pakete() {
       cancelled = true;
       clearVisibleInterval(timer);
     };
-  }, [catalogLoaded]);
+  }, [catalogIdsKey]);
 
   /** Ein Stern-Klick aktualisiert NUR den globalen Katalog — daraus leitet sich alles ab. */
   const onFavToggled = (assetId: number, fav: boolean) =>
@@ -353,7 +366,7 @@ export function Pakete() {
   const totalAssets = useMemo(() => (pkgs ?? []).reduce((a, p) => a + p.assetCount, 0), [pkgs]);
   const quotesReady = quotes !== null;
 
-  const rowFor = (a: CatalogAsset): RowAsset => ({ id: a.id, ticker: a.ticker, name: a.name, assetType: a.assetType, pair: a.symbol });
+  const rowFor = (a: CatalogAsset): RowAsset => ({ id: a.id, ticker: a.ticker, name: a.name, assetType: a.assetType, pair: a.symbol, venue: a.venue });
 
   return (
     <div>

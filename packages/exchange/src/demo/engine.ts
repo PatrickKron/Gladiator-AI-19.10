@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import {
@@ -317,11 +317,12 @@ async function applyEntryFill(
     });
   }
 
-  await db
+  const [updatedAcc] = await db
     .update(demoAccounts)
-    .set({ balance: String(Number(account.balance) - fill.fee) })
-    .where(eq(demoAccounts.id, account.id));
-  account.balance = String(Number(account.balance) - fill.fee);
+    .set({ balance: sql`${demoAccounts.balance} - ${fill.fee}` })
+    .where(eq(demoAccounts.id, account.id))
+    .returning({ balance: demoAccounts.balance });
+  if (updatedAcc) account.balance = updatedAcc.balance;
 }
 
 export type PlaceDemoOrderResult =
@@ -495,96 +496,118 @@ export async function closeDemoPositionNow(
   positionId: string,
   opts: { qty?: number; reason?: 'sl' | 'tp' | 'manual' | 'liquidation' } = {},
 ): Promise<{ closed: boolean; reason?: string; exitPrice?: number; closedQty?: number; netPnl?: number }> {
-  const [pos] = await db
+  const [previewPos] = await db
     .select()
     .from(demoPositions)
     .where(and(eq(demoPositions.id, positionId), eq(demoPositions.userId, userId)))
     .limit(1);
-  if (!pos) return { closed: false, reason: 'not_found' };
+  if (!previewPos) return { closed: false, reason: 'not_found' };
 
   let book;
   try {
-    book = await source.fetchBook(pos.symbol, pos.venue);
+    book = await source.fetchBook(previewPos.symbol, previewPos.venue);
   } catch {
     return { closed: false, reason: 'no_orderbook' };
   }
 
-  const posQty = Number(pos.qty);
-  const requested = Math.min(opts.qty ?? posQty, posQty);
-  if (requested <= 0) return { closed: false, reason: 'qty_below_lot' };
+  return db.transaction(async (tx) => {
+    const [pos] = await tx
+      .select()
+      .from(demoPositions)
+      .where(and(eq(demoPositions.id, positionId), eq(demoPositions.userId, userId)))
+      .for('update')
+      .limit(1);
+    if (!pos) return { closed: false, reason: 'not_found' };
 
-  const closeSide: 'buy' | 'sell' = pos.direction === 'long' ? 'sell' : 'buy';
-  const fill = simulateMarketFill(book, closeSide, requested);
-  if (!fill) return { closed: false, reason: 'no_orderbook' };
+    const posQty = Number(pos.qty);
+    const requested = Math.min(opts.qty ?? posQty, posQty);
+    if (requested <= 0) return { closed: false, reason: 'qty_below_lot' };
 
-  const fraction = fill.filledQty / posQty;
-  const entryFeeShare = Number(pos.entryFee) * fraction;
-  const entrySlippageShare = Number(pos.entrySlippage) * fraction;
-  const hoursHeld = Math.max(0, (Date.now() - pos.openedAt.getTime()) / 3_600_000);
-  const n = computeCloseNumbers({
-    direction: pos.direction,
-    qty: fill.filledQty,
-    entryPrice: Number(pos.entryPrice),
-    exitPrice: fill.avgPrice,
-    entryFee: entryFeeShare,
-    exitFee: fill.fee,
-    hoursHeld,
+    const closeSide: 'buy' | 'sell' = pos.direction === 'long' ? 'sell' : 'buy';
+    const fill = simulateMarketFill(book, closeSide, requested);
+    if (!fill) return { closed: false, reason: 'no_orderbook' };
+
+    const fraction = fill.filledQty / posQty;
+    const entryFeeShare = Number(pos.entryFee) * fraction;
+    const entrySlippageShare = Number(pos.entrySlippage) * fraction;
+    const hoursHeld = Math.max(0, (Date.now() - pos.openedAt.getTime()) / 3_600_000);
+    // Kein Krypto-Perp-Funding auf Aktien/ETFs/Forex (Yahoo / Twelve Data) — analog zu executor.ts
+    const isNonPerpVenue = pos.venue === 'yahoo' || pos.venue === 'twelvedata';
+    const n = computeCloseNumbers({
+      direction: pos.direction,
+      qty: fill.filledQty,
+      entryPrice: Number(pos.entryPrice),
+      exitPrice: fill.avgPrice,
+      entryFee: entryFeeShare,
+      exitFee: fill.fee,
+      hoursHeld: isNonPerpVenue ? 0 : hoursHeld,
+    });
+    let balanceDelta = n.grossPnl - fill.fee - n.funding;
+    if (opts.reason === 'liquidation') {
+      // Isolated: mehr als die eingesetzte Margin (abzgl. bereits abgebuchter Entry-Fee) kann eine Liquidation nicht kosten
+      const margin = marginFor(Number(pos.entryPrice) * fill.filledQty, Number(pos.leverage));
+      const capped = capLiquidationLoss(n.grossPnl, margin);
+      n.netPnl += capped - n.grossPnl;
+      n.grossPnl = capped;
+      const maxRemainingLoss = Math.max(0, margin - entryFeeShare);
+      balanceDelta = Math.max(-maxRemainingLoss, n.grossPnl - fill.fee - n.funding);
+      if (n.netPnl < -margin) n.netPnl = -margin;
+    }
+
+    // R-Multiple nur, wenn ein Stop gesetzt war (ehrlich: sonst kein definiertes Risiko)
+    const riskPerUnit = pos.stopLoss !== null ? Math.abs(Number(pos.entryPrice) - Number(pos.stopLoss)) : null;
+    const riskAmount = riskPerUnit !== null ? riskPerUnit * fill.filledQty : null;
+
+    await tx.insert(demoTrades).values({
+      userId,
+      accountId: pos.accountId,
+      symbol: pos.symbol,
+      direction: pos.direction,
+      entryTs: pos.openedAt,
+      exitTs: new Date(),
+      entryPrice: pos.entryPrice,
+      exitPrice: String(fill.avgPrice),
+      qty: String(fill.filledQty),
+      grossPnl: String(n.grossPnl),
+      fees: String(entryFeeShare + fill.fee),
+      slippage: String(entrySlippageShare + fill.slippageVsMid),
+      fundingPaid: String(n.funding),
+      netPnl: String(n.netPnl),
+      rMultiple: riskAmount !== null && riskAmount > 0 ? String(n.netPnl / riskAmount) : null,
+      reason: opts.reason ?? 'manual',
+      venue: pos.venue,
+    });
+
+    // Balance atomar realisieren: Entry-Fee wurde bereits beim Entry abgezogen
+    const [account] = await tx
+      .select()
+      .from(demoAccounts)
+      .where(eq(demoAccounts.id, pos.accountId))
+      .for('update')
+      .limit(1);
+    const nextBalance = Math.max(0, Number(account!.balance) + balanceDelta);
+    await tx
+      .update(demoAccounts)
+      .set({ balance: String(nextBalance) })
+      .where(eq(demoAccounts.id, pos.accountId));
+
+    const remaining = posQty - fill.filledQty;
+    if (remaining <= EPS) {
+      await tx.delete(demoPositions).where(eq(demoPositions.id, pos.id));
+    } else {
+      await tx
+        .update(demoPositions)
+        .set({
+          qty: String(remaining),
+          entryFee: String(Number(pos.entryFee) - entryFeeShare),
+          entrySlippage: String(Number(pos.entrySlippage) - entrySlippageShare),
+          updatedAt: new Date(),
+        })
+        .where(eq(demoPositions.id, pos.id));
+    }
+
+    return { closed: true, exitPrice: fill.avgPrice, closedQty: fill.filledQty, netPnl: n.netPnl };
   });
-  if (opts.reason === 'liquidation') {
-    // Isolated: mehr als die eingesetzte Margin kann eine Liquidation nicht kosten
-    const margin = marginFor(Number(pos.entryPrice) * fill.filledQty, Number(pos.leverage));
-    const capped = capLiquidationLoss(n.grossPnl, margin);
-    n.netPnl += capped - n.grossPnl;
-    n.grossPnl = capped;
-  }
-
-  // R-Multiple nur, wenn ein Stop gesetzt war (ehrlich: sonst kein definiertes Risiko)
-  const riskPerUnit = pos.stopLoss !== null ? Math.abs(Number(pos.entryPrice) - Number(pos.stopLoss)) : null;
-  const riskAmount = riskPerUnit !== null ? riskPerUnit * fill.filledQty : null;
-
-  await db.insert(demoTrades).values({
-    userId,
-    accountId: pos.accountId,
-    symbol: pos.symbol,
-    direction: pos.direction,
-    entryTs: pos.openedAt,
-    exitTs: new Date(),
-    entryPrice: pos.entryPrice,
-    exitPrice: String(fill.avgPrice),
-    qty: String(fill.filledQty),
-    grossPnl: String(n.grossPnl),
-    fees: String(entryFeeShare + fill.fee),
-    slippage: String(entrySlippageShare + fill.slippageVsMid),
-    fundingPaid: String(n.funding),
-    netPnl: String(n.netPnl),
-    rMultiple: riskAmount !== null && riskAmount > 0 ? String(n.netPnl / riskAmount) : null,
-    reason: opts.reason ?? 'manual',
-    venue: pos.venue,
-  });
-
-  // Balance realisieren: Entry-Fee wurde bereits beim Entry abgezogen
-  const [account] = await db.select().from(demoAccounts).where(eq(demoAccounts.id, pos.accountId)).limit(1);
-  await db
-    .update(demoAccounts)
-    .set({ balance: String(Number(account!.balance) + n.grossPnl - fill.fee - n.funding) })
-    .where(eq(demoAccounts.id, pos.accountId));
-
-  const remaining = posQty - fill.filledQty;
-  if (remaining <= EPS) {
-    await db.delete(demoPositions).where(eq(demoPositions.id, pos.id));
-  } else {
-    await db
-      .update(demoPositions)
-      .set({
-        qty: String(remaining),
-        entryFee: String(Number(pos.entryFee) - entryFeeShare),
-        entrySlippage: String(Number(pos.entrySlippage) - entrySlippageShare),
-        updatedAt: new Date(),
-      })
-      .where(eq(demoPositions.id, pos.id));
-  }
-
-  return { closed: true, exitPrice: fill.avgPrice, closedQty: fill.filledQty, netPnl: n.netPnl };
 }
 
 /** Demo zurücksetzen: alle Demo-Daten des Users löschen, Startguthaben neu, auditiert. */

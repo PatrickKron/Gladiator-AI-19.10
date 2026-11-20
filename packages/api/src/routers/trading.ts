@@ -1,5 +1,5 @@
 import { TRPCError } from '@trpc/server';
-import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
 import {
@@ -118,19 +118,27 @@ export const tradingRouter = router({
   }),
 
   positions: protectedProcedure.query(async ({ ctx }) => {
+    const settings = await loadRiskSettings(ctx.db, ctx.user.id);
     const rows = await ctx.db
       .select()
       .from(positions)
-      .where(eq(positions.userId, ctx.user.id))
+      .where(and(eq(positions.userId, ctx.user.id), eq(positions.mode, settings.mode)))
       .orderBy(desc(positions.openedAt));
     if (rows.length === 0) return [];
 
     // Orders dieser Positionen (offene Schutz-Orders + gefüllte Ausstiege) in EINER Abfrage;
-    // Zuordnung je Position wie im Executor: gleiches Symbol/Venue, erstellt ab Eröffnung.
+    // Zuordnung je Position wie im Executor: gleiches Symbol/Venue/Modus, erstellt ab Eröffnung.
     const userOrders = await ctx.db
       .select()
       .from(orders)
-      .where(and(eq(orders.userId, ctx.user.id), inArray(orders.status, ['open', 'filled']), eq(orders.reduceOnly, true)));
+      .where(
+        and(
+          eq(orders.userId, ctx.user.id),
+          eq(orders.mode, settings.mode),
+          inArray(orders.status, ['open', 'filled']),
+          eq(orders.reduceOnly, true),
+        ),
+      );
 
     // Unrealisierter PnL gegen den ECHTEN Live-Preis (kein Cache-Fake)
     const out = [];
@@ -224,6 +232,7 @@ export const tradingRouter = router({
     }),
 
   protectionOrders: protectedProcedure.query(async ({ ctx }) => {
+    const settings = await loadRiskSettings(ctx.db, ctx.user.id);
     return ctx.db
       .select({
         id: orders.id,
@@ -237,7 +246,14 @@ export const tradingRouter = router({
         createdAt: orders.createdAt,
       })
       .from(orders)
-      .where(and(eq(orders.userId, ctx.user.id), eq(orders.status, 'open'), inArray(orders.type, ['stop_market', 'take_profit_market'])))
+      .where(
+        and(
+          eq(orders.userId, ctx.user.id),
+          eq(orders.mode, settings.mode),
+          eq(orders.status, 'open'),
+          inArray(orders.type, ['stop_market', 'take_profit_market']),
+        ),
+      )
       .orderBy(desc(orders.createdAt))
       .limit(50);
   }),
@@ -245,11 +261,12 @@ export const tradingRouter = router({
   history: protectedProcedure
     .input(z.object({ limit: z.number().int().min(1).max(100).default(25) }))
     .query(async ({ ctx, input }) => {
+      const settings = await loadRiskSettings(ctx.db, ctx.user.id);
       const rows = await ctx.db
         .select()
         .from(executedTrades)
-        .where(eq(executedTrades.userId, ctx.user.id))
-        .orderBy(desc(executedTrades.createdAt))
+        .where(and(eq(executedTrades.userId, ctx.user.id), eq(executedTrades.mode, settings.mode)))
+        .orderBy(desc(executedTrades.exitTs), desc(executedTrades.createdAt))
         .limit(input.limit);
       return rows.map((r) => ({ ...r, candleVenue: candleCloseSourceOf(r.venue) ?? 'binance' }));
     }),
@@ -445,14 +462,20 @@ export const tradingRouter = router({
       };
     }),
 
-  /** Performance-Tracking (Luecke 7): echte Kennzahlen aus geschlossenen Trades. */
+  /** Performance-Tracking (Luecke 7): echte Kennzahlen aus geschlossenen Trades des aktiven Modus. */
   performance: protectedProcedure.query(async ({ ctx }) => {
-    const trades = await ctx.db
+    const settings = await loadRiskSettings(ctx.db, ctx.user.id);
+    const closed = await ctx.db
       .select()
       .from(executedTrades)
-      .where(eq(executedTrades.userId, ctx.user.id))
-      .orderBy(executedTrades.createdAt);
-    const closed = trades.filter((t) => t.exitTs !== null);
+      .where(
+        and(
+          eq(executedTrades.userId, ctx.user.id),
+          eq(executedTrades.mode, settings.mode),
+          isNotNull(executedTrades.exitTs),
+        ),
+      )
+      .orderBy(asc(executedTrades.exitTs), asc(executedTrades.createdAt));
     if (closed.length === 0) return { trades: 0 as const };
 
     const pnls = closed.map((t) => Number(t.netPnl ?? 0));
@@ -471,7 +494,8 @@ export const tradingRouter = router({
       bySymbol.set(t.symbol, e);
     }
 
-    let equity = PAPER_START_EQUITY;
+    // Im Paper-Modus startet die Kurve bei PAPER_START_EQUITY; im Live-Modus kumulative Netto-PnL ab 0 (kein erfundenes 10.000-$-Startkapital).
+    let equity = settings.mode === 'paper' ? PAPER_START_EQUITY : 0;
     const curve = closed.map((t) => {
       equity += Number(t.netPnl ?? 0);
       return { ts: (t.exitTs ?? t.createdAt).toISOString(), equity: Math.round(equity * 100) / 100 };
@@ -510,7 +534,11 @@ export const tradingRouter = router({
     }),
 
   tradeNotes: protectedProcedure.query(async ({ ctx }) => {
-    const rows = await ctx.db.select().from(tradeNotes);
+    const rows = await ctx.db
+      .select({ tradeId: tradeNotes.tradeId, note: tradeNotes.note })
+      .from(tradeNotes)
+      .innerJoin(executedTrades, eq(executedTrades.id, tradeNotes.tradeId))
+      .where(eq(executedTrades.userId, ctx.user.id));
     return Object.fromEntries(rows.map((r) => [r.tradeId, r.note]));
   }),
 

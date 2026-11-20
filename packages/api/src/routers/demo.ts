@@ -249,6 +249,8 @@ export const demoRouter = router({
       dailyEquity,
       { barsPerYear: 365 },
     );
+    const rs = rows.map((t) => (t.rMultiple === null ? null : Number(t.rMultiple))).filter((v): v is number => v !== null);
+    const expectancyR = rs.length > 0 ? rs.reduce((a, b) => a + b, 0) / rs.length : null;
 
     const bySymbol = new Map<string, { trades: number; netPnl: number; wins: number }>();
     for (const t of rows) {
@@ -268,7 +270,7 @@ export const demoRouter = router({
       netPnl: metrics.netPnl,
       winRate: metrics.winRate,
       profitFactor: metrics.profitFactor,
-      expectancyR: metrics.expectancy,
+      expectancyR,
       sharpe: metrics.sharpe,
       sortino: metrics.sortino,
       maxDrawdownPct: metrics.maxDrawdownPct,

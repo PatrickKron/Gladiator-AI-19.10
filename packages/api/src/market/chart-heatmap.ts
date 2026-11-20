@@ -69,6 +69,13 @@ type RawBook = {
 const BOOK_CACHE_TTL_MS = 8_000;
 const MAX_HISTORY_SLICES = 90;
 const MIN_SLICE_INTERVAL_SEC = 30;
+const MAX_CACHE_KEYS = 150;
+
+function capMapSize<K, V>(map: Map<K, V>, max = MAX_CACHE_KEYS): void {
+  if (map.size <= max) return;
+  const oldest = map.keys().next().value;
+  if (oldest !== undefined) map.delete(oldest);
+}
 
 const bookCache = new Map<string, { at: number; book: RawBook }>();
 const bookHistory = new Map<string, RecordedOrderbookSlice[]>();
@@ -221,6 +228,7 @@ async function fetchCoinGlassLevels(symbol: string): Promise<{
     const url = `https://open-api-v3.coinglass.com/api/futures/liquidation/order?symbol=${encodeURIComponent(baseCoin)}&exName=Binance`;
     const res = await fetch(url, {
       headers: { 'CG-API-KEY': apiKey, accept: 'application/json' },
+      signal: AbortSignal.timeout(8_000),
     });
     const json = (await res.json()) as {
       code?: string;
@@ -230,6 +238,7 @@ async function fetchCoinGlassLevels(symbol: string): Promise<{
     if (!res.ok || (json.code && json.code !== '0')) {
       const reason = json.msg ?? `HTTP ${res.status}`;
       coinglassCache.set(baseCoin, { at: Date.now(), levels: [], connected: false, reason });
+      capMapSize(coinglassCache);
       return { configured: true, connected: false, reason, levels: [] };
     }
 
@@ -249,6 +258,7 @@ async function fetchCoinGlassLevels(symbol: string): Promise<{
       intensity: maxUsd > 0 ? Math.min(1, p.usd / maxUsd) : 0,
     }));
     coinglassCache.set(baseCoin, { at: Date.now(), levels, connected: true });
+    capMapSize(coinglassCache);
     return { configured: true, connected: true, levels };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
@@ -300,6 +310,7 @@ export async function loadLiveChartHeatmap(symbol: string, venue = 'binance'): P
         },
       };
       bookCache.set(normSymbol, cached);
+      capMapSize(bookCache);
     }
 
     const agg = aggregateOrderbookWalls(cached.book.bids, cached.book.asks, 32);
@@ -320,6 +331,7 @@ export async function loadLiveChartHeatmap(symbol: string, venue = 'binance'): P
       });
       if (hist.length > MAX_HISTORY_SLICES) hist.shift();
       bookHistory.set(normSymbol, hist);
+      capMapSize(bookHistory);
     }
 
     return {
