@@ -431,7 +431,8 @@ describe('echte Daten: Aggregatoren bauen für eine leere Wallet (nichts wird ge
   it('KyberSwap: 0,01 ETH → USDC auf Base liefert eine echte Route (Angebot aus dem Live-Pfad)', async () => {
     const q = await realKyberQuote();
     expect(Number(q.outAmount)).toBeGreaterThan(1);
-    expect(q.priceImpactPct).toBeLessThan(5);
+    // KyberSwap liefert amountInUsd gelegentlich leer/0 (externes Preis-Orakel) → NaN = unbekannt, Route bleibt echt.
+    if (Number.isFinite(q.priceImpactPct)) expect(q.priceImpactPct).toBeLessThan(5);
     expect(q.route.length).toBeGreaterThan(0);
   }, KYBER_WAIT_TIMEOUT);
 
