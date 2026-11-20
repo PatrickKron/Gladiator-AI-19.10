@@ -46,6 +46,8 @@ export const VIEW_PREFERENCE_KEYS = [
   'gladiator.tradeAccount',
   'gladiator.tradeAccount.v2',
   'gladiator.chartBookDock',
+  'gladiator.chartWatchlist',
+  'gladiator.chartSize',
   'gladiator.selectedAsset',
   'gladiator.demoMode',
   'gladiator.effects',

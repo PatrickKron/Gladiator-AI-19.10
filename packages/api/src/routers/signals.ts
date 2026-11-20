@@ -1,5 +1,5 @@
 import { TRPCError } from '@trpc/server';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
 import {
@@ -53,6 +53,15 @@ function executionVenueOrThrow(venue: TradingVenue, source: string): TradingVenu
 }
 
 export const signalsRouter = router({
+  /** Echte Anzahl offener Signale (`status = 'new'`) — ungekürzt durch Listen-Limits. */
+  openCount: protectedProcedure.query(async ({ ctx }) => {
+    const [row] = await ctx.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(signals)
+      .where(eq(signals.status, 'new'));
+    return { count: Number(row?.count ?? 0) };
+  }),
+
   /**
    * „Was wäre passiert": abgelaufene Signale mit derselben Backtest-Engine auf
    * den echten Kerzen danach nachgerechnet (netto, hypothetisch gekennzeichnet).

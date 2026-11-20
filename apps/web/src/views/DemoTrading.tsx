@@ -226,7 +226,20 @@ export function DemoTrading() {
  * eingebettet im Chart (Mängelliste 12: Schnell-Ticket ohne Seitenwechsel — `embedded`
  * mit festem `symbol`/`venue` vom Chart). Beide Wege laufen über dieselbe Demo-Engine.
  */
-export function OrderTicket({ onPlaced, symbol: fixedSymbol, venue: fixedVenue, embedded = false }: { onPlaced: () => void; symbol?: string; venue?: string; embedded?: boolean }) {
+export function OrderTicket({
+  onPlaced,
+  symbol: fixedSymbol,
+  venue: fixedVenue,
+  embedded = false,
+  prefill = null,
+}: {
+  onPlaced: () => void;
+  symbol?: string;
+  venue?: string;
+  embedded?: boolean;
+  /** Ein-Klick-Vorbelegung aus dem Chart (Limit-Preis oder Stop-Loss-Niveau). */
+  prefill?: { price: number; kind: 'limit' | 'sl'; seq: number } | null;
+}) {
   const { t } = useTranslation();
   // Vorbelegung vom Dashboard-„Traden"-Button: peek (pur) im Initialisierer,
   // clear erst im Effect — StrictMode ruft Initialisierer doppelt auf, ein
@@ -262,6 +275,27 @@ export function OrderTicket({ onPlaced, symbol: fixedSymbol, venue: fixedVenue, 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const debounce = useRef<number | null>(null);
+  const lastPrefillSeq = useRef<number>(0);
+
+  // Ein-Klick-Preisübernahme aus dem Chart (Limit-Kurs oder Stop-Loss in % vom Referenzpreis).
+  useEffect(() => {
+    if (!prefill || prefill.seq === lastPrefillSeq.current) return;
+    const decimals = prefill.price >= 1000 ? 2 : prefill.price >= 1 ? 4 : 6;
+    if (prefill.kind === 'limit') {
+      lastPrefillSeq.current = prefill.seq;
+      setType('limit');
+      setLimitPrice(String(Number(prefill.price.toFixed(decimals))));
+      return;
+    }
+    const base = (type === 'limit' && num(limitPrice) > 0 ? num(limitPrice) : livePrice) ?? null;
+    if (base && base > 0) {
+      lastPrefillSeq.current = prefill.seq;
+      if (prefill.price < base) setDirection('long');
+      else if (prefill.price > base) setDirection('short');
+      const pct = Math.min(50, Math.max(0.1, (Math.abs(base - prefill.price) / base) * 100));
+      setSlPct(Math.round(pct * 100) / 100);
+    }
+  }, [prefill, livePrice, type, limitPrice]);
 
   useEffect(() => {
     trpc.settings.get

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { and, eq, inArray, sql } from 'drizzle-orm';
+import { TtlLruCache } from '@gladiator/core';
 import { schema } from '@gladiator/db';
 import {
   fredConfigured,
@@ -75,9 +76,12 @@ import { registerOrThrow } from '../market/register.js';
  */
 const timeframeEnum = z.enum(SUPPORTED_TIMEFRAMES);
 
-/** Börsen-Vergleich: 15-s-Cache je Symbol (öffentliche Endpunkte, ratelimit-freundlich). */
+/** Börsen-Vergleich: 15-s-LRU-Cache je Symbol (öffentliche Endpunkte, ratelimit-freundlich). */
 const VENUE_QUOTE_TTL_MS = 15_000;
-const venueQuoteCache = new Map<string, { at: number; quotes: VenueQuote[] }>();
+const venueQuoteCache = new TtlLruCache<string, { at: number; quotes: VenueQuote[] }>({
+  maxSize: 200,
+  ttlMs: VENUE_QUOTE_TTL_MS,
+});
 
 /**
  * Kosten-Wächter für die News-Zusammenfassung — gleiche Budget-Logik wie im
@@ -459,7 +463,7 @@ export const marketRouter = router({
     .query(async ({ ctx, input }) => {
       const symbol = input.symbol.toUpperCase();
       let cached = venueQuoteCache.get(symbol);
-      if (!cached || Date.now() - cached.at > VENUE_QUOTE_TTL_MS) {
+      if (!cached) {
         cached = { at: Date.now(), quotes: await fetchVenueQuotes(symbol, COMPARE_VENUES) };
         venueQuoteCache.set(symbol, cached);
       }

@@ -214,6 +214,7 @@ export function UiModeToggle({ className = '' }: { className?: string }) {
 export function Shell({ route, children }: { route: string; children: ReactNode }) {
   const { t } = useTranslation();
   const [killSwitch, setKillSwitch] = useState(false);
+  const [tradingMode, setTradingMode] = useState<'paper' | 'live'>('paper');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatPrefill, setChatPrefill] = useState<string | null>(null);
@@ -275,15 +276,21 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
     const load = async () => {
       try {
         const s = await trpc.settings.get.query();
-        if (!cancelled) setKillSwitch(s.killSwitchActive);
+        if (!cancelled) {
+          setKillSwitch(s.killSwitchActive);
+          setTradingMode(s.mode === 'live' ? 'live' : 'paper');
+        }
       } catch {
         /* unkritisch — Anzeige-Only */
       }
     };
     void load();
+    const onModeEvent = () => void load();
+    window.addEventListener('gladiator:trading-mode', onModeEvent);
     const timer = setVisibleInterval(() => void load(), 60_000);
     return () => {
       cancelled = true;
+      window.removeEventListener('gladiator:trading-mode', onModeEvent);
       clearVisibleInterval(timer);
     };
   }, [route]);
@@ -336,7 +343,15 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
           ))}
         </nav>
         <div className="mt-auto flex flex-col gap-3 px-3">
-          <span className="chip chip--acc w-fit">{t('common.paper')}</span>
+          {tradingMode === 'live' ? (
+            <a href="#/traden?tab=risiko" className="chip chip--neg w-fit animate-pulse font-semibold" title="Echtgeld-Modus aktiv — Klick zum Prüfen/Zurückschalten auf Paper">
+              ● LIVE · ECHTGELD
+            </a>
+          ) : (
+            <a href="#/traden?tab=risiko" className="chip chip--acc w-fit" title="Paper-Modus (Standard — Simulation gegen echte Kurse)">
+              {t('common.paper')}
+            </a>
+          )}
           <p className="label">v2 · {t('nav.calm')}</p>
         </div>
       </aside>
@@ -348,7 +363,13 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
             <a href="#/" className="wordmark text-sm lg:hidden">
               GLADIATOR
             </a>
-            <span className="chip chip--acc lg:hidden">{t('common.paper')}</span>
+            {tradingMode === 'live' ? (
+              <a href="#/traden?tab=risiko" className="chip chip--neg animate-pulse font-semibold" title="Echtgeld-Modus aktiv — Klick zum Prüfen/Zurückschalten auf Paper">
+                ● LIVE · ECHTGELD
+              </a>
+            ) : (
+              <span className="chip chip--acc lg:hidden">{t('common.paper')}</span>
+            )}
             {demoMode && (
               <a href="#/traden?tab=demo" className="chip chip--warn" title={t('demo.badgeHint')}>
                 {t('demo.badge')}

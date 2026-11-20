@@ -258,19 +258,68 @@ function AlertsPanel() {
   );
 }
 
-/** Performance (Patrick-Luecke 7): echte Netto-Kennzahlen + Equity-Verlauf. */
+type TradeModeFilter = 'active' | 'paper' | 'live' | 'all';
+
+const MODE_FILTER_OPTIONS: { id: TradeModeFilter; label: string }[] = [
+  { id: 'active', label: 'Aktiv' },
+  { id: 'paper', label: 'Paper' },
+  { id: 'live', label: 'Live' },
+  { id: 'all', label: 'Alle' },
+];
+
+function ModeFilterBar({ value, onChange }: { value: TradeModeFilter; onChange: (m: TradeModeFilter) => void }) {
+  return (
+    <div className="inline-flex gap-0.5 rounded-lg p-0.5" style={{ background: 'var(--color-bg3)' }} role="group" aria-label="Modus-Filter">
+      {MODE_FILTER_OPTIONS.map((opt) => (
+        <button
+          key={opt.id}
+          type="button"
+          onClick={() => onChange(opt.id)}
+          aria-pressed={value === opt.id}
+          className="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+          style={value === opt.id ? { background: 'rgba(59,130,246,0.22)', color: 'var(--color-ink)' } : { color: 'var(--color-mut)' }}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Performance (Patrick-Luecke 7): echte Netto-Kennzahlen + Equity-Verlauf (filterbar: Aktiv/Paper/Live/Alle). */
 function PerformancePanel() {
   const { t } = useTranslation();
   const [perf, setPerf] = useState<Performance | null>(null);
+  const [modeFilter, setModeFilter] = useState<TradeModeFilter>('active');
 
   useEffect(() => {
-    void trpc.trading.performance.query().then(setPerf).catch(() => setPerf({ trades: 0 } as Performance));
-  }, []);
+    let cancelled = false;
+    setPerf(null);
+    void trpc.trading.performance
+      .query({ mode: modeFilter })
+      .then((res) => {
+        if (!cancelled) setPerf(res);
+      })
+      .catch(() => {
+        if (!cancelled) setPerf({ trades: 0 } as Performance);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [modeFilter]);
 
   const fmtN = (n: number | null | undefined, d = 2) => (n == null ? '\u2014' : n.toLocaleString(appLocale(), { maximumFractionDigits: d }));
 
   return (
     <Panel label={t('trading.perfTitle')} stagger={9} className="mt-5">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <ModeFilterBar value={modeFilter} onChange={setModeFilter} />
+        {perf && 'mode' in perf && (
+          <span className="label">
+            Ansicht: {perf.mode === 'all' ? 'Paper + Live (kum. PnL)' : perf.mode === 'live' ? 'Live (kum. PnL)' : 'Paper'}
+          </span>
+        )}
+      </div>
       {perf === null ? (
         <Loading />
       ) : !('netPnl' in perf) ? (
@@ -358,6 +407,7 @@ function LiveApprovals({ currentMode, onModeChanged }: { currentMode: 'paper' | 
       await trpc.trading.approveVenue.mutate({ venueId, confirmation: phrases[venueId] ?? '' });
       setPhrases({ ...phrases, [venueId]: '' });
       await load();
+      window.dispatchEvent(new Event('gladiator:trading-mode'));
       onModeChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.error'));
@@ -372,6 +422,7 @@ function LiveApprovals({ currentMode, onModeChanged }: { currentMode: 'paper' | 
     try {
       await trpc.trading.revokeVenue.mutate({ venueId });
       await load();
+      window.dispatchEvent(new Event('gladiator:trading-mode'));
       onModeChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.error'));
@@ -389,6 +440,7 @@ function LiveApprovals({ currentMode, onModeChanged }: { currentMode: 'paper' | 
         ...(next === 'live' ? { confirmation: modePhrase } : {}),
       });
       setModePhrase('');
+      window.dispatchEvent(new Event('gladiator:trading-mode'));
       onModeChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.error'));
@@ -522,6 +574,7 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
+  const [historyMode, setHistoryMode] = useState<TradeModeFilter>('active');
   const [tab, changeTab] = useHashTab('#/traden', TABS, 'positionen');
 
   async function saveNote(tradeId: string) {
@@ -533,14 +586,14 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
     }
   }
 
-  async function load() {
+  async function load(hMode: TradeModeFilter = historyMode) {
     try {
       const [a, v, p, o, h, s] = await Promise.all([
         trpc.trading.account.query(),
         trpc.trading.venues.query(),
         trpc.trading.positions.query(),
         trpc.trading.protectionOrders.query(),
-        trpc.trading.history.query({ limit: 25 }),
+        trpc.trading.history.query({ limit: 50, mode: hMode }),
         trpc.settings.get.query(),
       ]);
       setNotes(await trpc.trading.tradeNotes.query());
@@ -558,10 +611,10 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
 
   useEffect(() => {
     if (demo) return; // Demo-Konto lädt seine eigenen Daten (DemoTrading)
-    void load();
-    const timer = setVisibleInterval(() => void load(), 20_000);
+    void load(historyMode);
+    const timer = setVisibleInterval(() => void load(historyMode), 20_000);
     return () => clearVisibleInterval(timer);
-  }, [demo]);
+  }, [demo, historyMode]);
 
   async function toggleKillSwitch() {
     if (!settings) return;
@@ -809,7 +862,10 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
       {/* Historie (netto) */}
       {tab === 'historie' && (
       <Panel label={t('trading.historyTitle')} stagger={9} className="mt-5">
-        <TradeExport />
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <ModeFilterBar value={historyMode} onChange={setHistoryMode} />
+          <TradeExport />
+        </div>
         {history.length === 0 ? (
           <Empty text={t('trading.noHistory')} />
         ) : (

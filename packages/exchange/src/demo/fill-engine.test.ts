@@ -5,6 +5,7 @@ import {
   DEMO_TAKER_FEE,
   addToPosition,
   availableBalance,
+  blendPositionLeverage,
   checkTrigger,
   computeCloseNumbers,
   DEMO_MAINTENANCE_MARGIN,
@@ -257,5 +258,24 @@ describe('Hebel (Isolated Margin, wie Perps)', () => {
     expect(capLiquidationLoss(-1_500, 1_000)).toBe(-1_000);
     expect(capLiquidationLoss(-800, 1_000)).toBe(-800);
     expect(capLiquidationLoss(50, 1_000)).toBe(50);
+  });
+
+  it('blendPositionLeverage erhält die exakte gebundene Margin bei abweichendem Order-Hebel', () => {
+    // 1 @ 100 mit 5× (Margin 20) + 1 @ 100 mit 10× (Margin 10) → Notional 200 / Margin 30 = 6.6667×
+    const r = blendPositionLeverage(
+      { qty: 1, entryPrice: 100, leverage: 5 },
+      { qty: 1, price: 100, leverage: 10 },
+    );
+    expect(r.mismatched).toBe(true);
+    expect(r.leverage).toBeCloseTo(200 / 30, 3);
+    expect(marginFor(200, r.leverage)).toBeCloseTo(30, 3);
+
+    // Identischer Hebel → kein Mismatch
+    const same = blendPositionLeverage(
+      { qty: 2, entryPrice: 50, leverage: 5 },
+      { qty: 1, price: 60, leverage: 5 },
+    );
+    expect(same.mismatched).toBe(false);
+    expect(same.leverage).toBe(5);
   });
 });

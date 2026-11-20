@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
 import { and, desc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { TtlLruCache } from '@gladiator/core';
 import { schema, type Db } from '@gladiator/db';
 import {
   cachedTokenInfo,
@@ -81,8 +82,8 @@ const { swapWallets, swapTrades, swapOrders, auditLog, watchedWallets, watchedWa
 export { setSwapFetchForTests, setLiveSwapExecutorForTests } from '@gladiator/jobs';
 
 const CANDLE_TTL_MS = 60_000;
-const candleCache = new Map<string, { at: number; candles: TokenCandle[] }>();
-const discoveryCache = new Map<string, { at: number; tokens: DiscoveredToken[] }>();
+const candleCache = new TtlLruCache<string, TokenCandle[]>({ maxSize: 200, ttlMs: CANDLE_TTL_MS });
+const discoveryCache = new TtlLruCache<string, DiscoveredToken[]>({ maxSize: 64, ttlMs: CANDLE_TTL_MS });
 
 /** SwapError des Dienstes → tRPC-Fehler (gleicher Code, gleiche Meldung). */
 function asTrpc(err: unknown): never {
@@ -693,10 +694,10 @@ export const swapsRouter = router({
     .query(async ({ input }) => {
       const key = `${input.chain}:${input.pool}:${input.tf}`;
       const hit = candleCache.get(key);
-      if (hit && Date.now() - hit.at < CANDLE_TTL_MS) return hit.candles;
+      if (hit) return hit;
       try {
         const candles = await fetchTokenCandles(input.chain, input.pool, input.tf, swapNet());
-        candleCache.set(key, { at: Date.now(), candles });
+        candleCache.set(key, candles);
         return candles;
       } catch (err) {
         return asTrpc(netError(err));
@@ -707,10 +708,10 @@ export const swapsRouter = router({
   discover: protectedProcedure.input(z.object({ chain: chainSchema, kind: z.enum(DISCOVERY_KINDS) })).query(async ({ input }) => {
     const key = `${input.chain}:${input.kind}`;
     const hit = discoveryCache.get(key);
-    if (hit && Date.now() - hit.at < CANDLE_TTL_MS) return hit.tokens;
+    if (hit) return hit;
     try {
       const tokens = await fetchTokenDiscovery(input.chain, input.kind, swapNet());
-      discoveryCache.set(key, { at: Date.now(), tokens });
+      discoveryCache.set(key, tokens);
       return tokens;
     } catch (err) {
       return asTrpc(netError(err));
