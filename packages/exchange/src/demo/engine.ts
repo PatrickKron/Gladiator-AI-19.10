@@ -6,6 +6,7 @@ import {
   DEMO_TAKER_FEE,
   addToPosition,
   availableBalance,
+  blendPositionLeverage,
   capLiquidationLoss,
   checkTrigger,
   computeCloseNumbers,
@@ -149,15 +150,15 @@ async function validateDemoOrder(
 ): Promise<
   | Rejection
   | {
-      ok: true;
-      qty: number;
-      limitPrice?: number;
-      book: Awaited<ReturnType<DemoBookSource['fetchBook']>>;
-      estNotional: number;
-      available: number;
-      leverage: number;
-      margin: number;
-    }
+    ok: true;
+    qty: number;
+    limitPrice?: number;
+    book: Awaited<ReturnType<DemoBookSource['fetchBook']>>;
+    estNotional: number;
+    available: number;
+    leverage: number;
+    margin: number;
+  }
 > {
   const leverage = input.leverage ?? 1;
   if (!Number.isFinite(leverage) || leverage < 1) return { ok: false, reason: 'invalid_leverage' };
@@ -263,13 +264,31 @@ export async function previewDemoOrder(db: Db, source: DemoBookSource, userId: s
   };
 }
 
-/** Entry-Fill auf Konto + Position anwenden (Fee sofort, Entry volumengewichtet). */
+type EntryFillOutcome = {
+  leverageAdjusted?: { prevLeverage: number; orderLeverage: number; blendedLeverage: number };
+};
+
+/** Hängt einen strukturierten Vermerk sauber an eine bestehende Order-Notiz an. */
+function appendOrderNote(existingNote: string | null, extra: Record<string, unknown>): string {
+  if (!existingNote) return JSON.stringify(extra);
+  try {
+    const parsed = JSON.parse(existingNote) as Record<string, unknown>;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return JSON.stringify({ ...parsed, ...extra });
+    }
+  } catch {
+    return JSON.stringify({ note: existingNote, ...extra });
+  }
+  return JSON.stringify({ note: existingNote, ...extra });
+}
+
+/** Entry-Fill auf Konto + Position anwenden (Fee sofort, Entry volumengewichtet, Misch-Hebel bei Abweichung). */
 async function applyEntryFill(
   db: Db,
   account: DemoAccount,
   input: { symbol: string; direction: 'long' | 'short'; stopLoss?: number; takeProfit?: number; leverage?: number; venue?: string },
   fill: FillResult,
-): Promise<void> {
+): Promise<EntryFillOutcome> {
   const [existing] = await db
     .select()
     .from(demoPositions)
@@ -283,16 +302,30 @@ async function applyEntryFill(
     )
     .limit(1);
 
+  let outcome: EntryFillOutcome = {};
   if (existing) {
     const merged = addToPosition(
       { qty: Number(existing.qty), entryPrice: Number(existing.entryPrice) },
       { qty: fill.filledQty, price: fill.avgPrice },
     );
+    const prevLev = Number(existing.leverage);
+    const orderLev = input.leverage ?? prevLev;
+    const blended = blendPositionLeverage(
+      { qty: Number(existing.qty), entryPrice: Number(existing.entryPrice), leverage: prevLev },
+      { qty: fill.filledQty, price: fill.avgPrice, leverage: orderLev },
+      DEMO_MAX_LEVERAGE,
+    );
+    if (blended.mismatched) {
+      outcome = {
+        leverageAdjusted: { prevLeverage: prevLev, orderLeverage: orderLev, blendedLeverage: blended.leverage },
+      };
+    }
     await db
       .update(demoPositions)
       .set({
         qty: String(merged.qty),
         entryPrice: String(merged.entryPrice),
+        leverage: String(blended.leverage),
         entryFee: String(Number(existing.entryFee) + fill.fee),
         entrySlippage: String(Number(existing.entrySlippage) + fill.slippageVsMid),
         stopLoss: input.stopLoss !== undefined ? String(input.stopLoss) : existing.stopLoss,
@@ -323,20 +356,21 @@ async function applyEntryFill(
     .where(eq(demoAccounts.id, account.id))
     .returning({ balance: demoAccounts.balance });
   if (updatedAcc) account.balance = updatedAcc.balance;
+  return outcome;
 }
 
 export type PlaceDemoOrderResult =
   | { placed: false; reason: string }
   | {
-      placed: true;
-      orderId: string;
-      status: 'filled' | 'open' | 'partially_filled';
-      filledQty: number;
-      avgFillPrice: number | null;
-      fee: number;
-      slippage: number;
-      restingQty: number;
-    };
+    placed: true;
+    orderId: string;
+    status: 'filled' | 'open' | 'partially_filled';
+    filledQty: number;
+    avgFillPrice: number | null;
+    fee: number;
+    slippage: number;
+    restingQty: number;
+  };
 
 export async function placeDemoOrder(
   db: Db,
@@ -353,8 +387,10 @@ export async function placeDemoOrder(
   if (input.type === 'market') {
     const fill = simulateMarketFill(v.book, side, v.qty);
     if (!fill) return { placed: false, reason: 'no_orderbook' };
-    await applyEntryFill(db, account, { ...input, leverage: v.leverage }, fill);
+    const outcome = await applyEntryFill(db, account, { ...input, leverage: v.leverage }, fill);
     const partial = fill.filledQty < v.qty - EPS;
+    const baseNote = partial ? 'partial_book_depth' : null;
+    const note = outcome.leverageAdjusted ? appendOrderNote(baseNote, { leverageAdjusted: outcome.leverageAdjusted }) : baseNote;
     const [row] = await db
       .insert(demoOrders)
       .values({
@@ -371,7 +407,7 @@ export async function placeDemoOrder(
         status: 'filled',
         leverage: String(v.leverage),
         venue: input.venue ?? DEMO_DEFAULT_VENUE,
-        note: partial ? 'partial_book_depth' : null,
+        note,
       })
       .returning();
     return {
@@ -388,9 +424,16 @@ export async function placeDemoOrder(
 
   // Limit: sofortiger Taker-Anteil (falls das Buch kreuzt) + ruhender Rest
   const r = simulateLimitPlacement(v.book, side, v.qty, v.limitPrice!);
-  if (r.fill) await applyEntryFill(db, account, { ...input, leverage: v.leverage }, r.fill);
+  const limitOutcome = r.fill ? await applyEntryFill(db, account, { ...input, leverage: v.leverage }, r.fill) : {};
   const status: 'filled' | 'open' | 'partially_filled' =
     r.restingQty <= EPS ? 'filled' : r.fill ? 'partially_filled' : 'open';
+  const baseLimitNote =
+    input.stopLoss !== undefined || input.takeProfit !== undefined
+      ? JSON.stringify({ stopLoss: input.stopLoss ?? null, takeProfit: input.takeProfit ?? null })
+      : null;
+  const limitNote = limitOutcome.leverageAdjusted
+    ? appendOrderNote(baseLimitNote, { leverageAdjusted: limitOutcome.leverageAdjusted })
+    : baseLimitNote;
   const [row] = await db
     .insert(demoOrders)
     .values({
@@ -409,10 +452,7 @@ export async function placeDemoOrder(
       leverage: String(v.leverage),
       venue: input.venue ?? DEMO_DEFAULT_VENUE,
       // SL/TP der ruhenden Order: beim späteren Fill an die Position anheften
-      note:
-        input.stopLoss !== undefined || input.takeProfit !== undefined
-          ? JSON.stringify({ stopLoss: input.stopLoss ?? null, takeProfit: input.takeProfit ?? null })
-          : null,
+      note: limitNote,
     })
     .returning();
   return {
@@ -702,7 +742,7 @@ export async function monitorDemoTick(
     }
 
     const direction: 'long' | 'short' = order.side === 'buy' ? 'long' : 'short';
-    await applyEntryFill(
+    const outcome = await applyEntryFill(
       db,
       account,
       { symbol: order.symbol, direction, ...protection, leverage: Number(order.leverage), venue: order.venue },
@@ -713,6 +753,9 @@ export async function monitorDemoTick(
     const prevNotional = Number(order.filledQty) * Number(order.avgFillPrice ?? 0);
     const newAvg = (prevNotional + fill.notional) / newFilled;
     const done = newFilled >= Number(order.qty) - EPS;
+    const nextNote = outcome.leverageAdjusted
+      ? appendOrderNote(order.note, { leverageAdjusted: outcome.leverageAdjusted })
+      : order.note;
     await db
       .update(demoOrders)
       .set({
@@ -721,6 +764,7 @@ export async function monitorDemoTick(
         feePaid: String(Number(order.feePaid) + fill.fee),
         slippagePaid: String(Number(order.slippagePaid) + fill.slippageVsMid),
         status: done ? 'filled' : 'partially_filled',
+        note: nextNote,
         updatedAt: new Date(),
       })
       .where(eq(demoOrders.id, order.id));

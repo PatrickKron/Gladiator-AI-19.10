@@ -37,14 +37,27 @@ type IngestRow = { symbol: string; timeframe: string; candles: number; from_ts: 
 type Account = Awaited<ReturnType<typeof trpc.trading.account.query>>;
 type Briefing = Awaited<ReturnType<typeof trpc.system.briefing.query>>;
 
-/** Favoriten-Briefing (Patrick-Luecke 5/6): live Asset-Kontext je Stern-Favorit, 60-s-Refresh. */
-function FavoriteBriefingCard({ symbol }: { symbol: string }) {
+/** Favoriten-Briefing (Patrick-Luecke 5/6): live Asset-Kontext je Stern-Favorit (Krypto, Aktien, ETF, Forex), 60-s-Refresh. */
+function FavoriteBriefingCard({ symbol, venue, label }: { symbol: string; venue: ChartVenue; label: string }) {
   const { t } = useTranslation();
-  const ctx = useAssetContext(symbol, 60_000);
+  const ctx = useAssetContext(symbol, 60_000, venue);
+  const venueTag = venue === 'yahoo' ? 'YH' : venue === 'twelvedata' ? 'TD' : null;
   return (
     <div className="rounded-[0.625rem] border p-4" style={{ borderColor: 'rgba(245,158,11,0.3)' }}>
-      <p className="flex items-center gap-1.5 text-sm font-medium">
-        <span style={{ color: 'var(--color-warn)' }}>{'\u2605'}</span> {symbol}
+      <p className="flex items-center justify-between gap-1.5 text-sm font-medium">
+        <a
+          href={buildChartUrl(symbol, loadTf(symbol) ?? (venue === 'binance' ? '1h' : '1d'), venue)}
+          className="flex min-w-0 items-center gap-1.5 hover:underline"
+          style={{ color: 'var(--color-ink)' }}
+        >
+          <span style={{ color: 'var(--color-warn)' }}>{'\u2605'}</span>
+          <span className="truncate">{label}</span>
+        </a>
+        {venueTag && (
+          <span className="rounded px-1 text-[10px]" style={{ background: 'rgba(148,163,184,0.16)', color: 'var(--color-mut)' }}>
+            {venueTag}
+          </span>
+        )}
       </p>
       <AssetContextBody ctx={ctx} compact />
       <p className="label mt-2">{t('dashboard.favBriefingUpdated', { time: new Date().toLocaleTimeString(appLocale(), { hour: '2-digit', minute: '2-digit' }) })}</p>
@@ -52,28 +65,42 @@ function FavoriteBriefingCard({ symbol }: { symbol: string }) {
   );
 }
 
+type BriefingTarget = { symbol: string; venue: ChartVenue; label: string };
+
 function FavoritesBriefing() {
   const { t } = useTranslation();
-  const [symbols, setSymbols] = useState<string[] | null>(null);
+  const [targets, setTargets] = useState<BriefingTarget[] | null>(null);
 
-  useEffect(() => {
+  const loadBriefing = useCallback(() => {
     void trpc.product.favorites
       .query()
       .then((favs) => {
-        const pairs = favs
-          .map((f) => f.tradingPair?.toUpperCase().replaceAll('/', ''))
-          .filter((x): x is string => Boolean(x))
-          .map((x) => (x.endsWith('USDT') ? x.slice(0, -4) + '/USDT' : x.endsWith('USDC') ? x.slice(0, -4) + '/USDC' : x));
-        setSymbols([...new Set(pairs)].slice(0, 9));
+        const out: BriefingTarget[] = [];
+        const seen = new Set<string>();
+        for (const f of favs) {
+          const v: ChartVenue | null = f.venue && isChartVenue(f.venue) ? f.venue : f.tradingPair ? 'binance' : null;
+          const sym = f.symbol ?? (f.tradingPair ? feedSymbol(f.tradingPair) : null);
+          if (!v || !sym) continue;
+          const key = `${v}:${sym}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push({ symbol: sym, venue: v, label: v === 'binance' ? sym : `${f.ticker} (${f.name})` });
+        }
+        setTargets(out.slice(0, 9));
       })
-      .catch(() => setSymbols([]));
+      .catch(() => setTargets([]));
   }, []);
+
+  useEffect(() => {
+    loadBriefing();
+    return onFavoritesChange(loadBriefing);
+  }, [loadBriefing]);
 
   return (
     <Panel label={t('dashboard.favBriefingTitle')} stagger={5} className="mt-5">
-      {symbols === null ? (
+      {targets === null ? (
         <Loading />
-      ) : symbols.length === 0 ? (
+      ) : targets.length === 0 ? (
         <div className="mt-4 text-sm leading-relaxed" style={{ color: 'var(--color-mut)' }}>
           <p>{t('dashboard.favBriefingEmpty')}</p>
           <p className="mt-2">
@@ -88,8 +115,8 @@ function FavoritesBriefing() {
         </div>
       ) : (
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {symbols.map((sym) => (
-            <FavoriteBriefingCard key={sym} symbol={sym} />
+          {targets.map((item) => (
+            <FavoriteBriefingCard key={`${item.venue}:${item.symbol}`} symbol={item.symbol} venue={item.venue} label={item.label} />
           ))}
         </div>
       )}
@@ -606,15 +633,23 @@ export function Dashboard() {
 
   useEffect(() => onUiModeChange(() => setUiModeState(getUiMode())), []);
   const [signalRows, setSignalRows] = useState<SignalRow[] | null>(null);
+  const [openSignalCount, setOpenSignalCount] = useState<number | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function loadSignals() {
     try {
-      const rows = await trpc.signals.list.query({ status: ['new'], limit: 6 });
+      const [rows, cnt] = await Promise.all([
+        trpc.signals.list.query({ status: ['new'], limit: 6 }),
+        trpc.signals.openCount.query(),
+      ]);
       setSignalRows(rows as SignalRow[]);
+      setOpenSignalCount(cnt.count);
     } catch (err) {
-      if (!isUnauthorized(err)) setSignalRows((prev) => prev ?? []);
+      if (!isUnauthorized(err)) {
+        setSignalRows((prev) => prev ?? []);
+        setOpenSignalCount((prev) => prev ?? 0);
+      }
     }
   }
 
@@ -751,7 +786,7 @@ export function Dashboard() {
       {error && <ErrorBox message={error} />}
 
       {/* Heute-Hero: Gesamtvermögen (Demo + Paper) — die EINE große Zahl, Kurve, drei Aktionen */}
-      <HeroWealth account={account} signalCount={signalRows === null ? null : signalRows.length} />
+      <HeroWealth account={account} signalCount={openSignalCount} />
 
       {/* Dein Start (Welle F): Einrichtungs-Fortschritt aus echten Zuständen — verschwindet auf Wunsch */}
       <SetupProgress />

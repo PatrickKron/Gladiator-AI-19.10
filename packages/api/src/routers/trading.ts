@@ -259,13 +259,26 @@ export const tradingRouter = router({
   }),
 
   history: protectedProcedure
-    .input(z.object({ limit: z.number().int().min(1).max(100).default(25) }))
+    .input(
+      z
+        .object({
+          limit: z.number().int().min(1).max(100).default(25),
+          mode: z.enum(['active', 'paper', 'live', 'all']).default('active'),
+        })
+        .default({ limit: 25, mode: 'active' }),
+    )
     .query(async ({ ctx, input }) => {
       const settings = await loadRiskSettings(ctx.db, ctx.user.id);
+      const effectiveMode = input.mode === 'active' ? settings.mode : input.mode;
       const rows = await ctx.db
         .select()
         .from(executedTrades)
-        .where(and(eq(executedTrades.userId, ctx.user.id), eq(executedTrades.mode, settings.mode)))
+        .where(
+          and(
+            eq(executedTrades.userId, ctx.user.id),
+            effectiveMode === 'all' ? undefined : eq(executedTrades.mode, effectiveMode),
+          ),
+        )
         .orderBy(desc(executedTrades.exitTs), desc(executedTrades.createdAt))
         .limit(input.limit);
       return rows.map((r) => ({ ...r, candleVenue: candleCloseSourceOf(r.venue) ?? 'binance' }));
@@ -462,55 +475,60 @@ export const tradingRouter = router({
       };
     }),
 
-  /** Performance-Tracking (Luecke 7): echte Kennzahlen aus geschlossenen Trades des aktiven Modus. */
-  performance: protectedProcedure.query(async ({ ctx }) => {
-    const settings = await loadRiskSettings(ctx.db, ctx.user.id);
-    const closed = await ctx.db
-      .select()
-      .from(executedTrades)
-      .where(
-        and(
-          eq(executedTrades.userId, ctx.user.id),
-          eq(executedTrades.mode, settings.mode),
-          isNotNull(executedTrades.exitTs),
-        ),
-      )
-      .orderBy(asc(executedTrades.exitTs), asc(executedTrades.createdAt));
-    if (closed.length === 0) return { trades: 0 as const };
+  /** Performance-Tracking (Luecke 7): echte Kennzahlen aus geschlossenen Trades (filterbar: aktiv/paper/live/alle). */
+  performance: protectedProcedure
+    .input(z.object({ mode: z.enum(['active', 'paper', 'live', 'all']).default('active') }).optional())
+    .query(async ({ ctx, input }) => {
+      const settings = await loadRiskSettings(ctx.db, ctx.user.id);
+      const reqMode = input?.mode ?? 'active';
+      const effectiveMode = reqMode === 'active' ? settings.mode : reqMode;
+      const closed = await ctx.db
+        .select()
+        .from(executedTrades)
+        .where(
+          and(
+            eq(executedTrades.userId, ctx.user.id),
+            effectiveMode === 'all' ? undefined : eq(executedTrades.mode, effectiveMode),
+            isNotNull(executedTrades.exitTs),
+          ),
+        )
+        .orderBy(asc(executedTrades.exitTs), asc(executedTrades.createdAt));
+      if (closed.length === 0) return { trades: 0 as const, mode: effectiveMode };
 
-    const pnls = closed.map((t) => Number(t.netPnl ?? 0));
-    const wins = pnls.filter((v) => v > 0);
-    const losses = pnls.filter((v) => v < 0);
-    const rs = closed.map((t) => (t.rMultiple ? Number(t.rMultiple) : null)).filter((v): v is number => v !== null);
-    const grossWin = wins.reduce((a, b) => a + b, 0);
-    const grossLoss = Math.abs(losses.reduce((a, b) => a + b, 0));
+      const pnls = closed.map((t) => Number(t.netPnl ?? 0));
+      const wins = pnls.filter((v) => v > 0);
+      const losses = pnls.filter((v) => v < 0);
+      const rs = closed.map((t) => (t.rMultiple ? Number(t.rMultiple) : null)).filter((v): v is number => v !== null);
+      const grossWin = wins.reduce((a, b) => a + b, 0);
+      const grossLoss = Math.abs(losses.reduce((a, b) => a + b, 0));
 
-    const bySymbol = new Map<string, { trades: number; netPnl: number; wins: number }>();
-    for (const t of closed) {
-      const e = bySymbol.get(t.symbol) ?? { trades: 0, netPnl: 0, wins: 0 };
-      e.trades++;
-      e.netPnl += Number(t.netPnl ?? 0);
-      if (Number(t.netPnl ?? 0) > 0) e.wins++;
-      bySymbol.set(t.symbol, e);
-    }
+      const bySymbol = new Map<string, { trades: number; netPnl: number; wins: number }>();
+      for (const t of closed) {
+        const e = bySymbol.get(t.symbol) ?? { trades: 0, netPnl: 0, wins: 0 };
+        e.trades++;
+        e.netPnl += Number(t.netPnl ?? 0);
+        if (Number(t.netPnl ?? 0) > 0) e.wins++;
+        bySymbol.set(t.symbol, e);
+      }
 
-    // Im Paper-Modus startet die Kurve bei PAPER_START_EQUITY; im Live-Modus kumulative Netto-PnL ab 0 (kein erfundenes 10.000-$-Startkapital).
-    let equity = settings.mode === 'paper' ? PAPER_START_EQUITY : 0;
-    const curve = closed.map((t) => {
-      equity += Number(t.netPnl ?? 0);
-      return { ts: (t.exitTs ?? t.createdAt).toISOString(), equity: Math.round(equity * 100) / 100 };
-    });
+      // Im Paper-Modus startet die Kurve bei PAPER_START_EQUITY; im Live- oder Alle-Modus kumulative Netto-PnL ab 0.
+      let equity = effectiveMode === 'paper' ? PAPER_START_EQUITY : 0;
+      const curve = closed.map((t) => {
+        equity += Number(t.netPnl ?? 0);
+        return { ts: (t.exitTs ?? t.createdAt).toISOString(), equity: Math.round(equity * 100) / 100 };
+      });
 
-    return {
-      trades: closed.length,
-      netPnl: pnls.reduce((a, b) => a + b, 0),
-      winRate: wins.length / closed.length,
-      profitFactor: grossLoss > 0 ? grossWin / grossLoss : null,
-      expectancyR: rs.length > 0 ? rs.reduce((a, b) => a + b, 0) / rs.length : null,
-      bySymbol: [...bySymbol.entries()].map(([symbol, v]) => ({ symbol, ...v })),
-      equityCurve: curve,
-    };
-  }),
+      return {
+        mode: effectiveMode,
+        trades: closed.length,
+        netPnl: pnls.reduce((a, b) => a + b, 0),
+        winRate: wins.length / closed.length,
+        profitFactor: grossLoss > 0 ? grossWin / grossLoss : null,
+        expectancyR: rs.length > 0 ? rs.reduce((a, b) => a + b, 0) / rs.length : null,
+        bySymbol: [...bySymbol.entries()].map(([symbol, v]) => ({ symbol, ...v })),
+        equityCurve: curve,
+      };
+    }),
 
   /** Trade-Journal (Luecke 7): Notiz je geschlossenem Trade. */
   setTradeNote: protectedProcedure

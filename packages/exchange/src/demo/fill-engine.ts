@@ -221,6 +221,30 @@ export function addToPosition(
   return { qty, entryPrice: (existing.qty * existing.entryPrice + fill.qty * fill.price) / qty };
 }
 
+/**
+ * Effektiver Misch-Hebel beim Aufstocken einer offenen Position mit abweichendem
+ * Order-Hebel (z. B. ruhende Limit-Order): erhält exakt die Summe aus bestehender
+ * und neu gebundener Margin (`totalNotional / (existingMargin + fillMargin)`).
+ */
+export function blendPositionLeverage(
+  existing: { qty: number; entryPrice: number; leverage: number },
+  fill: { qty: number; price: number; leverage: number },
+  maxLeverage = 125,
+): { leverage: number; mismatched: boolean } {
+  const prevLev = Math.max(1, existing.leverage);
+  const nextLev = Math.max(1, fill.leverage);
+  if (Math.abs(prevLev - nextLev) < 1e-6) {
+    return { leverage: prevLev, mismatched: false };
+  }
+  const existingNotional = existing.qty * existing.entryPrice;
+  const fillNotional = fill.qty * fill.price;
+  const totalMargin = marginFor(existingNotional, prevLev) + marginFor(fillNotional, nextLev);
+  if (totalMargin <= 0) return { leverage: prevLev, mismatched: false };
+  const raw = (existingNotional + fillNotional) / totalMargin;
+  const clamped = Math.min(maxLeverage, Math.max(1, raw));
+  return { leverage: Math.round(clamped * 10_000) / 10_000, mismatched: true };
+}
+
 /** Rundet ABWÄRTS auf die Schrittweite (lotSize/tickSize) — nie mehr als erlaubt. */
 export function roundToStep(value: number, step: number): number {
   if (step <= 0) return value;

@@ -17,6 +17,7 @@ import { ASSET_TABS, buildAssetUrl, parseChartHash, type AssetTab, type ChartVen
 import { loadTf } from '../lib/chart-tf.js';
 import { parseTab } from '../lib/tab-hash.js';
 import { Watchlist } from '../components/Watchlist.js';
+import { isTypingTarget } from '../lib/watchlist.js';
 import { CHART_LAYOUTS, layoutGridClass, loadChartLayout, normalizeCells, saveChartLayout, type ChartCell, type ChartLayout } from '../lib/chart-layout.js';
 import { appLocale } from '../lib/locale.js';
 import { priceUnit } from '../lib/asset-tabs.js';
@@ -120,6 +121,7 @@ export function AssetDetail() {
   const [viewportH, setViewportH] = useState(() => (typeof window !== 'undefined' ? window.innerHeight : 900));
   // Mängelliste 12: Schnell-Ticket direkt im Chart — dasselbe Demo-Ticket, Symbol/Quelle vom Chart.
   const [ticketOpen, setTicketOpen] = useState(false);
+  const [ticketPrefill, setTicketPrefill] = useState<{ price: number; kind: 'limit' | 'sl'; seq: number } | null>(null);
   const [addMarketOpen, setAddMarketOpen] = useState(false);
   const ticketRef = useRef<HTMLDivElement>(null);
 
@@ -128,6 +130,31 @@ export function AssetDetail() {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  // Chart-Tastenkürzel: F = Vollbild, W = Watchlist ein/aus (respektiert Eingabefelder und g+w).
+  useEffect(() => {
+    if (tab !== 'chart') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target as HTMLElement | null)) return;
+      const k = e.key.toLowerCase();
+      if (k === 'f') {
+        e.preventDefault();
+        setFullscreen((f) => !f);
+      } else if (k === 'w') {
+        e.preventDefault();
+        setWatchlistOpen((o) => {
+          try {
+            localStorage.setItem(WATCHLIST_KEY, o ? '0' : '1');
+          } catch {
+            /* ignore */
+          }
+          return !o;
+        });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [tab]);
 
   useEffect(() => {
     if (!fullscreen) return;
@@ -258,10 +285,10 @@ export function AssetDetail() {
                 style={
                   isActive
                     ? {
-                        background: 'rgba(59, 130, 246, 0.22)',
-                        color: 'var(--color-ink)',
-                        boxShadow: 'inset 0 0 0 1px rgba(59, 130, 246, 0.45)',
-                      }
+                      background: 'rgba(59, 130, 246, 0.22)',
+                      color: 'var(--color-ink)',
+                      boxShadow: 'inset 0 0 0 1px rgba(59, 130, 246, 0.45)',
+                    }
                     : { color: 'var(--color-mut)' }
                 }
               >
@@ -279,7 +306,7 @@ export function AssetDetail() {
                 type="button"
                 onClick={toggleWatchlist}
                 aria-pressed={watchlistOpen}
-                title="Watchlist links ein-/ausblenden"
+                title="Watchlist links ein-/ausblenden (Taste W)"
                 className="tbtn hidden xl:inline-flex"
               >
                 {watchlistOpen ? '◧ Watchlist' : '▭ Vollbreite'}
@@ -305,7 +332,7 @@ export function AssetDetail() {
                 type="button"
                 onClick={() => setFullscreen((f) => !f)}
                 aria-pressed={fullscreen}
-                title="Chart im Vollbild darstellen (Esc beendet)"
+                title="Chart im Vollbild darstellen (Taste F, Esc beendet)"
                 className="tbtn"
               >
                 ⛶ Vollbild
@@ -404,6 +431,12 @@ export function AssetDetail() {
                     timeframeOverride={linked.tf ?? undefined}
                     mainHeight={layout === 1 ? singleChartHeight : Math.max(360, Math.round(viewportH * 0.42))}
                     syncGroup={layout === 1 ? undefined : 'chart-cells'}
+                    enableHotkeys
+                    onPickPrice={({ price: p, kind }) => {
+                      setTicketPrefill((prev) => ({ price: p, kind, seq: (prev?.seq ?? 0) + 1 }));
+                      if (fullscreen) setFullscreen(false);
+                      openTicket();
+                    }}
                   />
                 </section>
                 {cells.map((cell, i) => (
@@ -417,7 +450,7 @@ export function AssetDetail() {
               </div>
               {ticketOpen && layout > 1 && (
                 <div ref={ticketRef} className="mt-3">
-                  <OrderTicket symbol={asset} venue={venue} embedded onPlaced={() => undefined} />
+                  <OrderTicket symbol={asset} venue={venue} embedded prefill={ticketPrefill} onPlaced={() => undefined} />
                 </div>
               )}
               {venue === 'binance' ? (
@@ -433,7 +466,7 @@ export function AssetDetail() {
             </div>
             {ticketOpen && layout === 1 && (
               <div ref={ticketRef} className="min-w-0">
-                <OrderTicket symbol={asset} venue={venue} embedded onPlaced={() => undefined} />
+                <OrderTicket symbol={asset} venue={venue} embedded prefill={ticketPrefill} onPlaced={() => undefined} />
               </div>
             )}
           </div>

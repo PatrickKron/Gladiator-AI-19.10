@@ -32,6 +32,7 @@ import { IndicatorSettings } from './IndicatorSettings.js';
 import { applyTick, liveBarSeconds, type Bar } from '../lib/live-candle.js';
 import { ensurePriceStream, onTick } from '../lib/prices.js';
 import { getUiMode, onUiModeChange } from '../lib/ui-mode.js';
+import { isTypingTarget } from '../lib/watchlist.js';
 import { barIndexAt, joinSyncGroup } from '../lib/chart-sync.js';
 import { replayLevels, summarizeReplayTrades, type ReplayDirection, type ReplaySummary, type ReplayTrade } from '../lib/replay-trades.js';
 import { applyDrawingClick, pickDrawing, pointFromChart, translatePoints, type DrawingTool } from '../lib/chart-drawings.js';
@@ -186,6 +187,8 @@ export function AssetChart({
   venue = 'binance',
   mainHeight = DEFAULT_MAIN_HEIGHT,
   syncGroup,
+  enableHotkeys = false,
+  onPickPrice,
 }: {
   symbol: string;
   /** Kerzenquelle: 'binance' (Krypto, Live-Ticks) oder 'twelvedata'/'yahoo' (Aktien/ETF/Forex, nur DB-Kerzen). */
@@ -202,6 +205,10 @@ export function AssetChart({
   mainHeight?: number;
   /** Mehrfach-Charts: Fadenkreuz und sichtbarer Zeitbereich laufen mit allen Zellen derselben Gruppe mit. */
   syncGroup?: string;
+  /** Tastenkürzel 1–6 für Timeframes im Hauptchart. */
+  enableHotkeys?: boolean;
+  /** Klick auf ein Preisniveau im Chart → Ein-Klick-Übergabe als Limit oder Stop-Loss ins Ticket. */
+  onPickPrice?: (pick: { price: number; kind: 'limit' | 'sl' }) => void;
 }) {
   const { t } = useTranslation();
   // Timeframe pro Asset gemerkt (P0.2): Query-Override > gemerkt > Default.
@@ -250,6 +257,31 @@ export function AssetChart({
     };
   }, [symbol, venue, rememberTf]);
   const shownTfs = CHART_TFS.filter((f) => availableTfs.includes(f) || f === tf);
+  const [pickedPrice, setPickedPrice] = useState<number | null>(null);
+  const onPickPriceRef = useRef(onPickPrice);
+  onPickPriceRef.current = onPickPrice;
+
+  // Symbol-/Quellenwechsel räumt ein altes Preis-Auswahl-Banner auf.
+  useEffect(() => {
+    setPickedPrice(null);
+  }, [symbol, venue]);
+
+  // Tastenkürzel 1–6 schalten direkt durch die angezeigten Timeframes (analog TradingView).
+  useEffect(() => {
+    if (!enableHotkeys) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target as HTMLElement | null)) return;
+      if (e.key >= '1' && e.key <= '6') {
+        const target = shownTfs[Number(e.key) - 1];
+        if (target && target !== tf) {
+          e.preventDefault();
+          changeTf(target);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [enableHotkeys, shownTfs, tf]);
   const [toggles, setTogglesState] = useState<Toggles>(loadToggles);
   const setToggle = (key: ToggleKey, on: boolean) =>
     setTogglesState((prev) => {
@@ -1173,6 +1205,10 @@ export function AssetChart({
       pointFromChart(barTimes, price.timeScale().coordinateToLogical(pt.x), candle.coordinateToPrice(pt.y));
     const onDrawClick = (param: Parameters<Parameters<typeof price.subscribeClick>[0]>[0]) => {
       if (!param.point || (param.paneIndex ?? 0) > 0) return; // Zeichnen nur im Kursfenster
+      if (toolRef.current === 'none' && onPickPriceRef.current) {
+        const pr = candle.coordinateToPrice(param.point.y);
+        if (pr !== null && Number.isFinite(pr) && pr > 0) setPickedPrice(pr);
+      }
       handleChartClickRef.current(param.point, chartPointAt(param.point));
     };
     price.subscribeClick(onDrawClick);
@@ -1660,11 +1696,12 @@ export function AssetChart({
       {/* EINE Werkzeugzeile (Welle C): Zeitrahmen · Ein-Klick-Chips (wie v2) · Ansicht ▾ · Smart Money · Bibliothek · Zeichnen ▾ · Replay */}
       <div className="toolbar mb-2" role="toolbar" aria-label={t('chart.view')}>
         <div className="flex gap-0.5 rounded-lg p-0.5" style={{ background: 'var(--color-bg3)' }}>
-          {shownTfs.map((f) => (
+          {shownTfs.map((f, idx) => (
             <button
               key={f}
               onClick={() => changeTf(f)}
               aria-pressed={tf === f}
+              title={enableHotkeys && idx < 6 ? `${f} (Taste ${idx + 1})` : f}
               className="num rounded-md px-2 py-0.5 text-[11px] font-semibold transition-colors"
               style={tf === f ? { background: 'rgba(59,130,246,0.2)', color: 'var(--color-ink)' } : { color: 'var(--color-mut)' }}
             >
@@ -1708,6 +1745,48 @@ export function AssetChart({
         )}
       </div>
 
+      {pickedPrice !== null && onPickPrice && (
+        <div
+          className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs"
+          style={{ borderColor: 'rgba(96,165,250,0.4)', background: 'rgba(59,130,246,0.08)' }}
+          role="region"
+          aria-label="Schnell-Order am Kurs"
+        >
+          <span className="num font-medium" style={{ color: 'var(--color-ink)' }}>
+            Kurs: {pickedPrice.toLocaleString(appLocale(), { maximumFractionDigits: pickedPrice >= 1000 ? 1 : 4 })}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              onPickPrice({ price: pickedPrice, kind: 'limit' });
+              setPickedPrice(null);
+            }}
+            className="btn-primary px-2.5 py-0.5 text-[11px]"
+          >
+            Limit hier setzen
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onPickPrice({ price: pickedPrice, kind: 'sl' });
+              setPickedPrice(null);
+            }}
+            className="tbtn px-2.5 py-0.5 text-[11px]"
+            style={{ color: 'var(--color-neg)', borderColor: 'rgba(239,68,68,0.45)' }}
+          >
+            Stop-Loss hier setzen
+          </button>
+          <button
+            type="button"
+            onClick={() => setPickedPrice(null)}
+            className="ml-auto text-xs"
+            style={{ color: 'var(--color-mut)' }}
+            aria-label="Schließen"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       {replayMsg && (
         <p className="label mb-1.5 px-2" style={{ color: 'var(--color-warn)' }}>
           {replayMsg}

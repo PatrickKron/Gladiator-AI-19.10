@@ -1,4 +1,5 @@
 import { withBinancePublic } from '@gladiator/market-data';
+import { TtlLruCache } from '@gladiator/core';
 
 /**
  * Echte Orderbuch-Tiefe (Level-2 DOM wie Bookmap/TradingLite) + optionale
@@ -67,19 +68,17 @@ type RawBook = {
 };
 
 const BOOK_CACHE_TTL_MS = 8_000;
+const COINGLASS_CACHE_TTL_MS = 60_000;
 const MAX_HISTORY_SLICES = 90;
 const MIN_SLICE_INTERVAL_SEC = 30;
 const MAX_CACHE_KEYS = 150;
 
-function capMapSize<K, V>(map: Map<K, V>, max = MAX_CACHE_KEYS): void {
-  if (map.size <= max) return;
-  const oldest = map.keys().next().value;
-  if (oldest !== undefined) map.delete(oldest);
-}
-
-const bookCache = new Map<string, { at: number; book: RawBook }>();
-const bookHistory = new Map<string, RecordedOrderbookSlice[]>();
-const coinglassCache = new Map<string, { at: number; levels: CoinglassLiquidationLevel[]; connected: boolean; reason?: string }>();
+const bookCache = new TtlLruCache<string, RawBook>({ maxSize: MAX_CACHE_KEYS, ttlMs: BOOK_CACHE_TTL_MS });
+const bookHistory = new TtlLruCache<string, RecordedOrderbookSlice[]>({ maxSize: MAX_CACHE_KEYS, ttlMs: 0 });
+const coinglassCache = new TtlLruCache<string, { levels: CoinglassLiquidationLevel[]; connected: boolean; reason?: string }>({
+  maxSize: MAX_CACHE_KEYS,
+  ttlMs: COINGLASS_CACHE_TTL_MS,
+});
 
 /**
  * Aggregiert ein echtes Level-2-Orderbuch (`bids`, `asks` als `[price, qty]`)
@@ -215,7 +214,7 @@ async function fetchCoinGlassLevels(symbol: string): Promise<{
 
   const baseCoin = (symbol.split('/')[0] ?? symbol).replace(/USDT$/i, '').toUpperCase();
   const cached = coinglassCache.get(baseCoin);
-  if (cached && Date.now() - cached.at < 60_000) {
+  if (cached) {
     return {
       configured: true,
       connected: cached.connected,
@@ -237,8 +236,7 @@ async function fetchCoinGlassLevels(symbol: string): Promise<{
     };
     if (!res.ok || (json.code && json.code !== '0')) {
       const reason = json.msg ?? `HTTP ${res.status}`;
-      coinglassCache.set(baseCoin, { at: Date.now(), levels: [], connected: false, reason });
-      capMapSize(coinglassCache);
+      coinglassCache.set(baseCoin, { levels: [], connected: false, reason });
       return { configured: true, connected: false, reason, levels: [] };
     }
 
@@ -257,8 +255,7 @@ async function fetchCoinGlassLevels(symbol: string): Promise<{
       ...p,
       intensity: maxUsd > 0 ? Math.min(1, p.usd / maxUsd) : 0,
     }));
-    coinglassCache.set(baseCoin, { at: Date.now(), levels, connected: true });
-    capMapSize(coinglassCache);
+    coinglassCache.set(baseCoin, { levels, connected: true });
     return { configured: true, connected: true, levels };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
@@ -294,27 +291,23 @@ export async function loadLiveChartHeatmap(symbol: string, venue = 'binance'): P
   }
 
   try {
-    let cached = bookCache.get(normSymbol);
-    if (!cached || Date.now() - cached.at > BOOK_CACHE_TTL_MS) {
+    let book = bookCache.get(normSymbol);
+    if (!book) {
       const ob = await withBinancePublic((ex) =>
         (ex as unknown as {
           fetchOrderBook(sym: string, limit?: number): Promise<{ timestamp?: number; bids: [number, number][]; asks: [number, number][] }>;
         }).fetchOrderBook(normSymbol, 500),
       );
-      cached = {
-        at: Date.now(),
-        book: {
-          ts: ob.timestamp ?? Date.now(),
-          bids: ob.bids.map(([p, q]) => [Number(p), Number(q)] as [number, number]),
-          asks: ob.asks.map(([p, q]) => [Number(p), Number(q)] as [number, number]),
-        },
+      book = {
+        ts: ob.timestamp ?? Date.now(),
+        bids: ob.bids.map(([p, q]) => [Number(p), Number(q)] as [number, number]),
+        asks: ob.asks.map(([p, q]) => [Number(p), Number(q)] as [number, number]),
       };
-      bookCache.set(normSymbol, cached);
-      capMapSize(bookCache);
+      bookCache.set(normSymbol, book);
     }
 
-    const agg = aggregateOrderbookWalls(cached.book.bids, cached.book.asks, 32);
-    const nowSec = Math.floor(cached.book.ts / 1000);
+    const agg = aggregateOrderbookWalls(book.bids, book.asks, 32);
+    const nowSec = Math.floor(book.ts / 1000);
     const hist = bookHistory.get(normSymbol) ?? [];
     const lastSlice = hist[hist.length - 1];
     if (!lastSlice || nowSec - lastSlice.time >= MIN_SLICE_INTERVAL_SEC) {
@@ -331,7 +324,6 @@ export async function loadLiveChartHeatmap(symbol: string, venue = 'binance'): P
       });
       if (hist.length > MAX_HISTORY_SLICES) hist.shift();
       bookHistory.set(normSymbol, hist);
-      capMapSize(bookHistory);
     }
 
     return {
@@ -339,7 +331,7 @@ export async function loadLiveChartHeatmap(symbol: string, venue = 'binance'): P
       venue,
       orderbook: {
         connected: agg.walls.length > 0,
-        ts: cached.book.ts,
+        ts: book.ts,
         midPrice: agg.midPrice,
         totalBidUsd: agg.totalBidUsd,
         totalAskUsd: agg.totalAskUsd,
