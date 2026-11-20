@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isUnauthorized, trpc } from '../api.js';
 import type { SignalRow } from '../components/SignalCard.js';
@@ -58,10 +58,12 @@ export function Signals() {
   const [universe, setUniverse] = useState<string[]>([]);
   const [rows, setRows] = useState<SignalRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const reqSeqRef = useRef(0);
 
   const set = (patch: Partial<SignalFilters>) => setFilters((f) => ({ ...f, ...patch }));
 
   async function load(f: SignalFilters) {
+    const seq = ++reqSeqRef.current;
     try {
       const res = await trpc.signals.list.query({
         status: f.status === 'all' ? ALL_STATUSES : [f.status as SignalStatus],
@@ -73,9 +75,11 @@ export function Signals() {
         source: f.source === 'all' ? undefined : (f.source as SignalRow['source']),
         favoritesOnly: f.favoritesOnly,
       });
+      if (seq !== reqSeqRef.current) return;
       setRows(res as SignalRow[]);
       setError(null);
     } catch (err) {
+      if (seq !== reqSeqRef.current) return;
       if (!isUnauthorized(err)) setError(err instanceof Error ? err.message : t('common.error'));
     }
   }
@@ -96,8 +100,9 @@ export function Signals() {
 
   const symbols = useMemo(() => {
     const fromRows = (rows ?? []).map((r) => r.symbol);
-    return [...new Set([...universe, ...fromRows])].sort();
-  }, [rows, universe]);
+    const activeSym = filters.symbol !== 'all' ? [filters.symbol] : [];
+    return [...new Set([...universe, ...fromRows, ...activeSym])].sort();
+  }, [rows, universe, filters.symbol]);
 
   // Sortierung laut Vorgabe: neueste zuerst, Abgelaufene gedimmt ans Ende.
   const { active, expired } = useMemo(() => splitByExpiry(rows ?? []), [rows]);

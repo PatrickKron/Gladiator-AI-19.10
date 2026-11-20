@@ -460,7 +460,11 @@ export const swapsRouter = router({
       };
     });
     const trades = await ctx.db.select().from(swapTrades).where(eq(swapTrades.walletId, w.id)).orderBy(desc(swapTrades.createdAt)).limit(50);
-    const realized = trades.reduce((s, t) => s + Number(t.realizedPnlUsd ?? 0), 0);
+    const [realizedRow] = await ctx.db
+      .select({ total: sql<string>`coalesce(sum(${swapTrades.realizedPnlUsd}), 0)` })
+      .from(swapTrades)
+      .where(eq(swapTrades.walletId, w.id));
+    const realized = Number(realizedRow?.total ?? 0);
     return {
       wallet: walletView(w),
       pricesOk,

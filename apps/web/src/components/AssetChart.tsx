@@ -135,7 +135,7 @@ const baseChartOptions = (timeframe: Timeframe, height: number) => ({
   layout: { background: { color: 'transparent' }, textColor: C.mut, fontSize: 10, attributionLogo: false },
   grid: { vertLines: { color: 'rgba(148,163,184,0.05)' }, horzLines: { color: 'rgba(148,163,184,0.05)' } },
   crosshair: { mode: CrosshairMode.Normal },
-  panes: { separatorColor: 'rgba(148,163,184,0.18)', separatorHoverColor: 'rgba(96,165,250,0.35)', enableResize: false },
+  panes: { separatorColor: 'rgba(148,163,184,0.18)', separatorHoverColor: 'rgba(96,165,250,0.35)', enableResize: true },
   rightPriceScale: { borderColor: 'rgba(148,163,184,0.18)' },
   timeScale: {
     borderColor: 'rgba(148,163,184,0.18)',
@@ -233,13 +233,22 @@ export function AssetChart({
     void trpc.market.availableTimeframes
       .query({ symbol, venue })
       .then((tfs) => {
-        if (!cancelled && tfs.length > 0) setAvailableTfs(tfs as Timeframe[]);
+        if (!cancelled && tfs.length > 0) {
+          const valid = tfs as Timeframe[];
+          setAvailableTfs(valid);
+          setTf((cur) => {
+            if (valid.includes(cur)) return cur;
+            const fallback: Timeframe = valid.includes('1h') ? '1h' : valid.includes('1d') ? '1d' : valid[0]!;
+            if (rememberTf) saveTf(symbol, fallback);
+            return fallback;
+          });
+        }
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [symbol, venue]);
+  }, [symbol, venue, rememberTf]);
   const shownTfs = CHART_TFS.filter((f) => availableTfs.includes(f) || f === tf);
   const [toggles, setTogglesState] = useState<Toggles>(loadToggles);
   const setToggle = (key: ToggleKey, on: boolean) =>
@@ -334,7 +343,9 @@ export function AssetChart({
     let cancelled = false;
     void Promise.all(open.map((x) => evaluateReplayTrade(x, cur.until).catch(() => x))).then((rows) => {
       if (cancelled) return;
-      setReplayTrades((prev) => prev.map((x) => rows.find((r) => r.id === x.id) ?? x));
+      setReplayTrades((prev) =>
+        prev.map((x) => (x.status === 'open' ? (rows.find((r) => r.id === x.id) ?? x) : x)),
+      );
     });
     return () => {
       cancelled = true;
@@ -351,10 +362,11 @@ export function AssetChart({
     const atEnd = next === cur.until;
     setReplay({ ...cur, until: next, playing: atEnd ? false : cur.playing });
   };
+  const replayLoadingRef = useRef(false);
   useEffect(() => {
     if (!replay?.playing) return;
     const id = window.setInterval(() => {
-      if (stateRef.current !== 'ready') return; // vorigen Schritt erst fertig laden
+      if (stateRef.current !== 'ready' || replayLoadingRef.current) return; // vorigen Schritt erst fertig laden
       replayStep(1);
     }, 1000 / replay.speed);
     return () => window.clearInterval(id);
@@ -370,6 +382,7 @@ export function AssetChart({
   const toolRef = useRef<DrawingTool>('none');
   const pendingRef = useRef<DrawingPoint | null>(null);
   const primitiveRef = useRef<DrawingsPrimitive | null>(null);
+  const smcPrimRef = useRef<SmcBoxesPrimitive | null>(null);
   const symbolRef = useRef(symbol);
   symbolRef.current = symbol;
 
@@ -725,6 +738,8 @@ export function AssetChart({
     if (replayUntil === null) {
       setState('loading');
       setData(null);
+    } else {
+      replayLoadingRef.current = true;
     }
     liveBarRef.current = null;
     liveDirtyRef.current = false;
@@ -732,6 +747,7 @@ export function AssetChart({
       .query({ symbol, timeframe: tf, limit: 400, venue, ...(replayUntil !== null ? { until: replayUntil } : {}) })
       .then((res) => {
         if (cancelled) return;
+        replayLoadingRef.current = false;
         if (!res.available || res.candles.length === 0) {
           setState('empty');
           return;
@@ -741,10 +757,14 @@ export function AssetChart({
         setState('ready');
       })
       .catch(() => {
-        if (!cancelled) setState('empty');
+        if (!cancelled) {
+          replayLoadingRef.current = false;
+          setState('empty');
+        }
       });
     return () => {
       cancelled = true;
+      replayLoadingRef.current = false;
     };
   }, [symbol, tf, replayUntil, venue, reloadKey]);
 
@@ -774,11 +794,11 @@ export function AssetChart({
       setLoadingCandles(false);
     }
   };
-  // Symbol-/TF-Wechsel beendet ein laufendes Replay (der Zeitstrahl gehört zum alten Fenster).
+  // Symbol-/TF-/Venue-Wechsel beendet ein laufendes Replay (der Zeitstrahl gehört zum alten Fenster).
   useEffect(() => {
     setReplay(null);
     setReplayTrades([]);
-  }, [symbol, tf]);
+  }, [symbol, tf, venue]);
 
   // Signale dieses Symbols (Feature 2): offen + Historie, als Chart-Marker
   useEffect(() => {
@@ -839,6 +859,157 @@ export function AssetChart({
 
   /** Signale der im Menü gewählten Pine-/DSL-Strategien (für Entry-Marker). */
   const strategySignals = useMemo(() => (strategySlugs.length === 0 ? [] : signals.filter((s) => strategySlugs.includes(s.strategySlug))), [signals, strategySlugs]);
+
+  /**
+   * Smart-Money-Flächen, 2D-Heatmap, DOM-Orderbuch-Wände & Vol-Profil als
+   * separates Memo + Ref — damit der 15-s-Heatmap-Refresh nur das Primitive
+   * aktualisiert und NICHT den gesamten Chart zerstört (Zoom/Pan bleiben stabil).
+   */
+  const smcItems = useMemo<SmcItem[]>(() => {
+    if (!data) return [];
+    const items: SmcItem[] = [];
+    if (toggles.heatmap && heatmap2d) {
+      for (const cell of heatmap2d.cells) {
+        items.push({
+          kind: 'heatmap_2d_cell',
+          fromTime: cell.fromTime,
+          toTime: cell.toTime,
+          top: cell.top,
+          bottom: cell.bottom,
+          intensity: cell.intensity,
+        });
+      }
+      const firstTime = data.candles[0]?.time as number | undefined;
+      if (firstTime !== undefined && heatmap2d.magnetAbove) {
+        items.push({
+          kind: 'line',
+          fromTime: firstTime,
+          toTime: null,
+          price: heatmap2d.magnetAbove.price,
+          color: '#facc15',
+          width: 1,
+          dash: [4, 3],
+          label: `Magnet ↑ ${fmtPx(heatmap2d.magnetAbove.price)}`,
+        });
+      }
+      if (firstTime !== undefined && heatmap2d.magnetBelow) {
+        items.push({
+          kind: 'line',
+          fromTime: firstTime,
+          toTime: null,
+          price: heatmap2d.magnetBelow.price,
+          color: '#22d3ee',
+          width: 1,
+          dash: [4, 3],
+          label: `Magnet ↓ ${fmtPx(heatmap2d.magnetBelow.price)}`,
+        });
+      }
+      if (liveHeatmap?.orderbook.connected) {
+        const topBidP = liveHeatmap.orderbook.topBidWall?.price;
+        const topAskP = liveHeatmap.orderbook.topAskWall?.price;
+        for (const w of liveHeatmap.orderbook.walls) {
+          if (w.intensity < 0.2) continue;
+          const isTopBid = topBidP !== undefined && Math.abs(w.mid - topBidP) <= (w.top - w.bottom) * 0.6;
+          const isTopAsk = topAskP !== undefined && Math.abs(w.mid - topAskP) <= (w.top - w.bottom) * 0.6;
+          const usdK = w.totalUsd >= 1_000_000 ? `${(w.totalUsd / 1_000_000).toFixed(1)}M $` : `${Math.round(w.totalUsd / 1_000)}k $`;
+          items.push({
+            kind: 'orderbook_wall',
+            top: w.top,
+            bottom: w.bottom,
+            intensity: w.intensity,
+            side: w.dominantSide === 'ask' ? 'ask' : 'bid',
+            ...(isTopBid ? { label: `DOM Bid ${usdK}` } : isTopAsk ? { label: `DOM Ask ${usdK}` } : {}),
+          });
+        }
+      }
+      if (liveHeatmap?.coinglass.connected && liveHeatmap.coinglass.levels.length > 0) {
+        const step = (heatmap2d.maxPrice - heatmap2d.minPrice) / Math.max(24, heatmap2d.rowCount);
+        for (const lv of liveHeatmap.coinglass.levels) {
+          if (lv.intensity < 0.25) continue;
+          items.push({
+            kind: 'orderbook_wall',
+            top: lv.price + step * 0.35,
+            bottom: lv.price - step * 0.35,
+            intensity: lv.intensity,
+            side: 'coinglass',
+            ...(lv.intensity >= 0.85 ? { label: `CG Liq ${Math.round(lv.usd / 1_000)}k $` } : {}),
+          });
+        }
+      }
+    }
+    if (toggles.zones) {
+      for (const z of activeZones) {
+        const bull = z.kind.startsWith('bullish');
+        const isFvg = z.kind.endsWith('fvg');
+        items.push({
+          kind: 'box',
+          fromTime: z.fromTime,
+          toTime: z.active ? null : z.toTime,
+          top: z.top,
+          bottom: z.bottom,
+          fill: bull ? 'rgba(34,197,94,0.10)' : 'rgba(239,68,68,0.10)',
+          stroke: bull ? 'rgba(34,197,94,0.45)' : 'rgba(239,68,68,0.45)',
+          label: `${isFvg ? 'FVG' : 'OB'} ${bull ? '↑' : '↓'}`,
+        });
+      }
+    }
+    if (toggles.liquidity) {
+      for (const lv of data.liquidity.levels) {
+        const eqh = lv.kind === 'eqh';
+        items.push({
+          kind: 'line',
+          fromTime: lv.fromTime,
+          toTime: lv.active ? null : lv.toTime,
+          price: lv.price,
+          color: eqh ? C.amber : C.cyan,
+          width: 1,
+          ...(lv.active ? {} : { dash: [3, 3] }),
+          label: `${eqh ? 'EQH' : 'EQL'}${lv.active ? '' : ' ✓'}`,
+        });
+      }
+    }
+    if (toggles.pd && data.range) {
+      const r = data.range;
+      items.push({ kind: 'box', fromTime: r.fromTime, toTime: null, top: r.high, bottom: r.equilibrium, fill: 'rgba(239,68,68,0.06)', label: 'Premium', labelColor: 'rgba(239,68,68,0.8)' });
+      items.push({ kind: 'box', fromTime: r.fromTime, toTime: null, top: r.equilibrium, bottom: r.low, fill: 'rgba(34,197,94,0.06)', label: 'Discount', labelColor: 'rgba(34,197,94,0.8)' });
+      items.push({ kind: 'line', fromTime: r.fromTime, toTime: null, price: r.equilibrium, color: C.faint, dash: [4, 4], label: 'EQ' });
+    }
+    if (toggles.volProfile && volProfile) {
+      for (const b of volProfile.buckets) {
+        items.push({
+          kind: 'heatmap_band',
+          top: b.top,
+          bottom: b.bottom,
+          intensity: b.intensity,
+          buyRatio: b.buyRatio,
+          isPoc: b.isPoc,
+          inValueArea: b.inValueArea,
+          ...(b.isPoc ? { label: `POC ${fmtPx(volProfile.pocPrice)}` } : {}),
+        });
+      }
+      items.push({
+        kind: 'line',
+        fromTime: volProfile.fromTime,
+        toTime: null,
+        price: volProfile.vahPrice,
+        color: 'rgba(56,189,248,0.45)',
+        dash: [3, 3],
+        label: 'VAH',
+      });
+      items.push({
+        kind: 'line',
+        fromTime: volProfile.fromTime,
+        toTime: null,
+        price: volProfile.valPrice,
+        color: 'rgba(56,189,248,0.45)',
+        dash: [3, 3],
+        label: 'VAL',
+      });
+    }
+    return items;
+  }, [data, toggles.heatmap, toggles.zones, toggles.liquidity, toggles.pd, toggles.volProfile, heatmap2d, liveHeatmap, activeZones, volProfile]);
+  const smcItemsRef = useRef<SmcItem[]>(smcItems);
+  smcItemsRef.current = smcItems;
 
 
   /**
@@ -987,13 +1158,16 @@ export function AssetChart({
     drawPrim.setDrawings(drawingsRef.current);
     candle.attachPrimitive(drawPrim);
     primitiveRef.current = drawPrim;
-    // Smart-Money-Flächen (Zonen, Liquidität, Premium/Discount) — Inhalte weiter unten
+    // Smart-Money-Flächen (Zonen, Liquidität, Premium/Discount, Heatmap) — inkrementell via smcPrimRef
     const smcPrim = new SmcBoxesPrimitive();
     smcPrim.setTimes(barTimes);
+    smcPrim.setItems(smcItemsRef.current);
     candle.attachPrimitive(smcPrim);
+    smcPrimRef.current = smcPrim;
     pendingRef.current = null;
     cleanups.push(() => {
       if (primitiveRef.current === drawPrim) primitiveRef.current = null;
+      if (smcPrimRef.current === smcPrim) smcPrimRef.current = null;
     });
     const chartPointAt = (pt: { x: number; y: number }): DrawingPoint | null =>
       pointFromChart(barTimes, price.timeScale().coordinateToLogical(pt.x), candle.coordinateToPrice(pt.y));
@@ -1270,149 +1444,6 @@ export function AssetChart({
       createSeriesMarkers(candle, markers);
     }
 
-    // Smart-Money-Flächen & Originale 2D-Heatmap:
-    // Zuerst die 2D-Heatmap-Zellen (damit Zonen, Linien und Kerzen scharf darüber liegen).
-    const smcItems: SmcItem[] = [];
-    if (toggles.heatmap && heatmap2d) {
-      for (const cell of heatmap2d.cells) {
-        smcItems.push({
-          kind: 'heatmap_2d_cell',
-          fromTime: cell.fromTime,
-          toTime: cell.toTime,
-          top: cell.top,
-          bottom: cell.bottom,
-          intensity: cell.intensity,
-        });
-      }
-      const firstTime = data.candles[0]?.time as number | undefined;
-      if (firstTime !== undefined && heatmap2d.magnetAbove) {
-        smcItems.push({
-          kind: 'line',
-          fromTime: firstTime,
-          toTime: null,
-          price: heatmap2d.magnetAbove.price,
-          color: '#facc15',
-          width: 1,
-          dash: [4, 3],
-          label: `Magnet ↑ ${fmtPx(heatmap2d.magnetAbove.price)}`,
-        });
-      }
-      if (firstTime !== undefined && heatmap2d.magnetBelow) {
-        smcItems.push({
-          kind: 'line',
-          fromTime: firstTime,
-          toTime: null,
-          price: heatmap2d.magnetBelow.price,
-          color: '#22d3ee',
-          width: 1,
-          dash: [4, 3],
-          label: `Magnet ↓ ${fmtPx(heatmap2d.magnetBelow.price)}`,
-        });
-      }
-      if (liveHeatmap?.orderbook.connected) {
-        const topBidP = liveHeatmap.orderbook.topBidWall?.price;
-        const topAskP = liveHeatmap.orderbook.topAskWall?.price;
-        for (const w of liveHeatmap.orderbook.walls) {
-          if (w.intensity < 0.2) continue;
-          const isTopBid = topBidP !== undefined && Math.abs(w.mid - topBidP) <= (w.top - w.bottom) * 0.6;
-          const isTopAsk = topAskP !== undefined && Math.abs(w.mid - topAskP) <= (w.top - w.bottom) * 0.6;
-          const usdK = w.totalUsd >= 1_000_000 ? `${(w.totalUsd / 1_000_000).toFixed(1)}M $` : `${Math.round(w.totalUsd / 1_000)}k $`;
-          smcItems.push({
-            kind: 'orderbook_wall',
-            top: w.top,
-            bottom: w.bottom,
-            intensity: w.intensity,
-            side: w.dominantSide === 'ask' ? 'ask' : 'bid',
-            ...(isTopBid ? { label: `DOM Bid ${usdK}` } : isTopAsk ? { label: `DOM Ask ${usdK}` } : {}),
-          });
-        }
-      }
-      if (liveHeatmap?.coinglass.connected && liveHeatmap.coinglass.levels.length > 0) {
-        const step = (heatmap2d.maxPrice - heatmap2d.minPrice) / Math.max(24, heatmap2d.rowCount);
-        for (const lv of liveHeatmap.coinglass.levels) {
-          if (lv.intensity < 0.25) continue;
-          smcItems.push({
-            kind: 'orderbook_wall',
-            top: lv.price + step * 0.35,
-            bottom: lv.price - step * 0.35,
-            intensity: lv.intensity,
-            side: 'coinglass',
-            ...(lv.intensity >= 0.85 ? { label: `CG Liq ${Math.round(lv.usd / 1_000)}k $` } : {}),
-          });
-        }
-      }
-    }
-    if (toggles.zones) {
-      for (const z of activeZones) {
-        const bull = z.kind.startsWith('bullish');
-        const isFvg = z.kind.endsWith('fvg');
-        smcItems.push({
-          kind: 'box',
-          fromTime: z.fromTime,
-          toTime: z.active ? null : z.toTime,
-          top: z.top,
-          bottom: z.bottom,
-          fill: bull ? 'rgba(34,197,94,0.10)' : 'rgba(239,68,68,0.10)',
-          stroke: bull ? 'rgba(34,197,94,0.45)' : 'rgba(239,68,68,0.45)',
-          label: `${isFvg ? 'FVG' : 'OB'} ${bull ? '↑' : '↓'}`,
-        });
-      }
-    }
-    if (toggles.liquidity) {
-      for (const lv of data.liquidity.levels) {
-        const eqh = lv.kind === 'eqh';
-        smcItems.push({
-          kind: 'line',
-          fromTime: lv.fromTime,
-          toTime: lv.active ? null : lv.toTime,
-          price: lv.price,
-          color: eqh ? C.amber : C.cyan,
-          width: 1,
-          ...(lv.active ? {} : { dash: [3, 3] }),
-          label: `${eqh ? 'EQH' : 'EQL'}${lv.active ? '' : ' ✓'}`,
-        });
-      }
-    }
-    if (toggles.pd && data.range) {
-      const r = data.range;
-      smcItems.push({ kind: 'box', fromTime: r.fromTime, toTime: null, top: r.high, bottom: r.equilibrium, fill: 'rgba(239,68,68,0.06)', label: 'Premium', labelColor: 'rgba(239,68,68,0.8)' });
-      smcItems.push({ kind: 'box', fromTime: r.fromTime, toTime: null, top: r.equilibrium, bottom: r.low, fill: 'rgba(34,197,94,0.06)', label: 'Discount', labelColor: 'rgba(34,197,94,0.8)' });
-      smcItems.push({ kind: 'line', fromTime: r.fromTime, toTime: null, price: r.equilibrium, color: C.faint, dash: [4, 4], label: 'EQ' });
-    }
-    if (toggles.volProfile && volProfile) {
-      for (const b of volProfile.buckets) {
-        smcItems.push({
-          kind: 'heatmap_band',
-          top: b.top,
-          bottom: b.bottom,
-          intensity: b.intensity,
-          buyRatio: b.buyRatio,
-          isPoc: b.isPoc,
-          inValueArea: b.inValueArea,
-          ...(b.isPoc ? { label: `POC ${fmtPx(volProfile.pocPrice)}` } : {}),
-        });
-      }
-      smcItems.push({
-        kind: 'line',
-        fromTime: volProfile.fromTime,
-        toTime: null,
-        price: volProfile.vahPrice,
-        color: 'rgba(56,189,248,0.45)',
-        dash: [3, 3],
-        label: 'VAH',
-      });
-      smcItems.push({
-        kind: 'line',
-        fromTime: volProfile.fromTime,
-        toTime: null,
-        price: volProfile.valPrice,
-        color: 'rgba(56,189,248,0.45)',
-        dash: [3, 3],
-        label: 'VAL',
-      });
-    }
-    smcPrim.setItems(smcItems);
-
     // Signal-Level (nur bei Einbettung in Signal-Karten)
     if (levels) {
       candle.createPriceLine({ price: levels.entry, color: C.cyan, lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'Entry' });
@@ -1486,7 +1517,9 @@ export function AssetChart({
 
     price.timeScale().fitContent();
 
-    const observer = new ResizeObserver(() => price.applyOptions({ width: priceEl.clientWidth }));
+    const observer = new ResizeObserver(() => {
+      if (priceEl.clientWidth > 0) price.applyOptions({ width: priceEl.clientWidth });
+    });
     observer.observe(priceEl);
     cleanups.push(() => observer.disconnect());
 
@@ -1501,7 +1534,12 @@ export function AssetChart({
         /* schon entsorgt — ignorieren */
       }
     };
-  }, [state, data, toggles, tf, levels, activeZones, heatmap2d, liveHeatmap, volProfile, signals, warmupInfo, t, strategySignals, strategySlugs, symbol, panes, venue, syncGroup, replayTrades]);
+  }, [state, data, toggles.ema, toggles.bollinger, toggles.volume, toggles.structure, toggles.liquidity, toggles.signals, toggles.rsi, toggles.macd, toggles.atr, tf, levels, signals, warmupInfo, t, strategySignals, strategySlugs, symbol, panes, venue, syncGroup, replayTrades]);
+
+  // Heatmap, DOM-Orderbuch-Wände, Zonen, Liquidität & Vol-Profil inkrementell nachzeichnen (kein Chart-Rebuild, Zoom/Pan bleiben stabil).
+  useEffect(() => {
+    smcPrimRef.current?.setItems(smcItems);
+  }, [smcItems]);
 
   // Neue Ergebnisse oder Stil-Änderungen zeichnen, ohne den Chart neu zu bauen.
   useEffect(() => {
@@ -1817,11 +1855,9 @@ export function AssetChart({
       {state === 'empty' && (
         <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded border p-4 text-center text-sm leading-relaxed" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
           <span>{loadErr ?? t('chart.noData', { symbol })}</span>
-          {venue === 'binance' && (
-            <button type="button" className="btn" disabled={loadingCandles} onClick={() => void loadCandlesNow()}>
-              {loadingCandles ? t('assetCtx.loadingCandles', { symbol }) : t('assetCtx.tapToLoad')}
-            </button>
-          )}
+          <button type="button" className="btn" disabled={loadingCandles} onClick={() => void loadCandlesNow()}>
+            {loadingCandles ? t('assetCtx.loadingCandles', { symbol }) : t('assetCtx.tapToLoad')}
+          </button>
         </div>
       )}
 

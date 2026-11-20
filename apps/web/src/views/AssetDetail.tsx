@@ -29,11 +29,32 @@ const TAB_ICONS: Record<AssetTab, string> = {
 };
 
 const DOCK_KEY = 'gladiator.chartBookDock';
+const WATCHLIST_KEY = 'gladiator.chartWatchlist';
+const SIZE_KEY = 'gladiator.chartSize';
+type ChartSize = 'm' | 'l' | 'xl';
+
 function bookDockOpen(): boolean {
   try {
     return localStorage.getItem(DOCK_KEY) !== '0';
   } catch {
     return true;
+  }
+}
+
+function loadWatchlistOpen(): boolean {
+  try {
+    return localStorage.getItem(WATCHLIST_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+
+function loadChartSize(): ChartSize {
+  try {
+    const v = localStorage.getItem(SIZE_KEY);
+    return v === 'm' || v === 'l' || v === 'xl' ? v : 'l';
+  } catch {
+    return 'l';
   }
 }
 
@@ -93,10 +114,62 @@ export function AssetDetail() {
     });
   };
   const [bookOpen, setBookOpen] = useState(bookDockOpen);
+  const [watchlistOpen, setWatchlistOpen] = useState(loadWatchlistOpen);
+  const [chartSize, setChartSize] = useState<ChartSize>(loadChartSize);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [viewportH, setViewportH] = useState(() => (typeof window !== 'undefined' ? window.innerHeight : 900));
   // Mängelliste 12: Schnell-Ticket direkt im Chart — dasselbe Demo-Ticket, Symbol/Quelle vom Chart.
   const [ticketOpen, setTicketOpen] = useState(false);
   const [addMarketOpen, setAddMarketOpen] = useState(false);
   const ticketRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onResize = () => setViewportH(window.innerHeight);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFullscreen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [fullscreen]);
+
+  function toggleWatchlist() {
+    setWatchlistOpen((o) => {
+      try {
+        localStorage.setItem(WATCHLIST_KEY, o ? '0' : '1');
+      } catch {
+        /* ignore */
+      }
+      return !o;
+    });
+  }
+
+  function changeChartSize(next: ChartSize) {
+    setChartSize(next);
+    try {
+      localStorage.setItem(SIZE_KEY, next);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const singleChartHeight = fullscreen
+    ? Math.max(460, viewportH - 180)
+    : chartSize === 'm'
+      ? 540
+      : chartSize === 'l'
+        ? 700
+        : Math.max(760, Math.round(viewportH * 0.78));
   function openTicket() {
     if (tab !== 'chart') changeTab('chart');
     setTicketOpen(true);
@@ -147,7 +220,7 @@ export function AssetDetail() {
       <div className="glass mb-4 flex flex-wrap items-center gap-x-3 gap-y-2.5 p-3">
         <div className="flex min-w-0 max-w-full items-center gap-2">
           <AssetSelect value={asset} venue={venue} onChange={changeAsset} />
-          <FavStarSymbol symbol={asset} />
+          <FavStarSymbol symbol={asset} venue={venue} />
           <button
             type="button"
             onClick={() => setAddMarketOpen((o) => !o)}
@@ -199,7 +272,46 @@ export function AssetDetail() {
           })}
         </div>
 
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          {tab === 'chart' && (
+            <>
+              <button
+                type="button"
+                onClick={toggleWatchlist}
+                aria-pressed={watchlistOpen}
+                title="Watchlist links ein-/ausblenden"
+                className="tbtn hidden xl:inline-flex"
+              >
+                {watchlistOpen ? '◧ Watchlist' : '▭ Vollbreite'}
+              </button>
+              {layout === 1 && (
+                <div className="flex gap-0.5 rounded-lg p-0.5" style={{ background: 'var(--color-bg3)' }} role="group" aria-label="Chart-Größe">
+                  {(['m', 'l', 'xl'] as const).map((sz) => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => changeChartSize(sz)}
+                      aria-pressed={chartSize === sz}
+                      title={sz === 'm' ? 'Standard-Höhe (540 px)' : sz === 'l' ? 'Groß (700 px)' : 'Extra Groß (Viewport)'}
+                      className="rounded-md px-2 py-0.5 text-[11px] font-medium uppercase transition-colors"
+                      style={chartSize === sz ? { background: 'rgba(59,130,246,0.22)', color: 'var(--color-ink)' } : { color: 'var(--color-mut)' }}
+                    >
+                      {sz}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setFullscreen((f) => !f)}
+                aria-pressed={fullscreen}
+                title="Chart im Vollbild darstellen (Esc beendet)"
+                className="tbtn"
+              >
+                ⛶ Vollbild
+              </button>
+            </>
+          )}
           <div className="flex gap-0.5 rounded-lg p-0.5" style={{ background: 'var(--color-bg3)' }} role="group" aria-label={t('asset.layout')}>
             {CHART_LAYOUTS.map((l) => (
               <button
@@ -240,21 +352,59 @@ export function AssetDetail() {
       )}
 
       {tab === 'chart' && (
-        // Markt-Bühne (UI-Welle 4): Watchlist links, Chart mittig, Schnell-Ticket rechts gedockt (auf großen Bildschirmen)
-        <div className="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
-          <div className="hidden xl:block">
-            <Watchlist value={asset} onSelect={changeAsset} />
-          </div>
+        // Markt-Bühne (UI-Welle 4 + Welle 12 Groß-/Vollbild): Watchlist links (ausblendbar), Chart mittig, Schnell-Ticket rechts gedockt
+        <div className={watchlistOpen ? 'grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]' : 'block'}>
+          {watchlistOpen && (
+            <div className="hidden xl:block">
+              <Watchlist value={asset} venue={venue} onSelect={changeAsset} />
+            </div>
+          )}
           <div className={`min-w-0 ${ticketOpen && layout === 1 ? 'grid gap-4 lg:grid-cols-[minmax(0,1fr)_350px] lg:items-start' : ''}`}>
             <div className="min-w-0">
               <div className={`grid gap-4 ${layoutGridClass(layout)}`}>
-                <section className="glass reveal p-3" style={{ '--stagger': 1 } as React.CSSProperties}>
-                  {(venue !== 'binance' || layout > 1) && (
+                <section
+                  className={
+                    fullscreen
+                      ? 'fixed inset-0 z-50 flex flex-col overflow-y-auto p-3 sm:p-4'
+                      : 'glass reveal p-3'
+                  }
+                  style={
+                    fullscreen
+                      ? { background: 'var(--color-bg)' }
+                      : ({ '--stagger': 1 } as React.CSSProperties)
+                  }
+                >
+                  {fullscreen && (
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b pb-2" style={{ borderColor: 'var(--color-line)' }}>
+                      <div className="flex items-center gap-3">
+                        <span className="num text-base font-semibold" style={{ color: 'var(--color-cyan)' }}>
+                          {asset}{venue !== 'binance' ? ` · ${venue === 'twelvedata' ? 'Twelve Data' : 'Yahoo'}` : ''}
+                        </span>
+                        {price != null && (
+                          <span className="num flex items-center gap-2 text-sm font-semibold">
+                            {price.toLocaleString(appLocale(), { maximumFractionDigits: price >= 1000 ? 0 : 4 })}
+                            {unit ? ` ${unit}` : ''}
+                            {change != null && <span className={`chip ${change >= 0 ? 'chip--pos' : 'chip--neg'}`}>{change >= 0 ? '▲' : '▼'} {Math.abs(change).toFixed(2)} %</span>}
+                          </span>
+                        )}
+                      </div>
+                      <button type="button" onClick={() => setFullscreen(false)} className="btn px-3 py-1 text-xs">
+                        ✕ Vollbild beenden (Esc)
+                      </button>
+                    </div>
+                  )}
+                  {!fullscreen && (venue !== 'binance' || layout > 1) && (
                     <p className="label mb-1 px-1">
                       {`${asset}${venue !== 'binance' ? ` · ${venue === 'twelvedata' ? 'Twelve Data' : 'Yahoo'}` : ''}`}
                     </p>
                   )}
-                  <AssetChart symbol={asset} venue={venue} timeframeOverride={linked.tf ?? undefined} mainHeight={layout === 1 ? 540 : 340} syncGroup={layout === 1 ? undefined : 'chart-cells'} />
+                  <AssetChart
+                    symbol={asset}
+                    venue={venue}
+                    timeframeOverride={linked.tf ?? undefined}
+                    mainHeight={layout === 1 ? singleChartHeight : Math.max(360, Math.round(viewportH * 0.42))}
+                    syncGroup={layout === 1 ? undefined : 'chart-cells'}
+                  />
                 </section>
                 {cells.map((cell, i) => (
                   <Panel key={i} label={`${cell.symbol} · ${cell.tf}`} stagger={1}>

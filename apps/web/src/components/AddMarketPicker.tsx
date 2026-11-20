@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { rankAssets } from '../lib/asset-search.js';
+import { notifyFavoritesChanged } from '../lib/favorites-bus.js';
 import { VENUE_LABEL } from './AssetSelect.js';
 
 /**
@@ -123,6 +124,7 @@ export function AddMarketPicker({
       // Lokalen Stern-Zustand nachziehen, damit die Liste sofort die Server-Wahrheit zeigt
       setAssets((prev) => (Array.isArray(prev) ? prev.map((a) => (a.id === asset.id ? { ...a, isFavorite: res.favorite } : a)) : prev));
       onChanged();
+      notifyFavoritesChanged();
     } catch {
       // Toggle fehlgeschlagen → Zustand unverändert lassen (kein falscher Stern)
     } finally {
@@ -138,6 +140,7 @@ export function AddMarketPicker({
       setMessage({ ok: true, text: t('dashboard.addMarketAdded', { symbol: r.symbol }) });
       await loadCatalog();
       onChanged();
+      notifyFavoritesChanged();
       onAdded?.({ symbol: r.symbol, venue });
     } catch (e) {
       setMessage({ ok: false, text: t('dashboard.addMarketFailed', { symbol, error: String(e instanceof Error ? e.message : e).slice(0, 160) }) });

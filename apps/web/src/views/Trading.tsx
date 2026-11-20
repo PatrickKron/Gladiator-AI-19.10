@@ -4,7 +4,7 @@ import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel, StatusDot } from '../components/ui.js';
 import { SizingCalc } from '../components/SizingCalc.js';
 import { Sparkline } from '../components/Sparkline.js';
-import { buildTabHash, parseTab } from '../lib/tab-hash.js';
+import { useHashTab } from '../lib/use-hash-tab.js';
 import { buildChartUrl, isChartVenue, type ChartVenue } from '../lib/chart-url.js';
 import { AssetSelect, VENUE_LABEL, getSelectedAsset, getSelectedVenue } from '../components/AssetSelect.js';
 import { isDemoMode, setDemoMode } from '../lib/demo-mode.js';
@@ -522,14 +522,7 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
-  const [tab, setTab] = useState<string>(() => parseTab(window.location.hash, TABS, 'positionen'));
-
-  function changeTab(tb: string) {
-    setTab(tb);
-    window.history.replaceState(null, '', buildTabHash('#/traden', tb));
-    // Brotkrumen (Shell) hören auf hashchange — replaceState feuert keinen.
-    window.dispatchEvent(new HashChangeEvent('hashchange'));
-  }
+  const [tab, changeTab] = useHashTab('#/traden', TABS, 'positionen');
 
   async function saveNote(tradeId: string) {
     try {
@@ -840,7 +833,7 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
                       {tr.exitTs ? new Date(tr.exitTs).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                     </td>
                     <td className="py-1.5 pr-3">
-                      <a href={buildChartUrl(tr.symbol, tr.candleVenue)} className="hover:underline" style={{ color: 'var(--color-cyan)' }}>{tr.symbol}</a>
+                      <a href={buildChartUrl(tr.symbol, null, tr.candleVenue)} className="hover:underline" style={{ color: 'var(--color-cyan)' }}>{tr.symbol}</a>
                       {tr.mode === 'live' && (
                         <span className="ml-1.5 rounded border px-1 py-0.5 text-[10px]" style={{ borderColor: 'rgba(245,158,11,0.5)', color: 'var(--color-warn)' }}>
                           LIVE
@@ -848,37 +841,37 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
                       )}
                     </td>
                     <td className="py-1.5 pr-3" style={{ color: tr.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>
-                      {tr.direction.toUpperCase()}
-                    </td>
-                    <td className="py-1.5 pr-3 text-right">
-                      {fmt(Number(tr.entryPrice))} → {tr.exitPrice ? fmt(Number(tr.exitPrice)) : '—'}
-                    </td>
-                    <td className="py-1.5 pr-3 text-right" style={{ color: Number(tr.netPnl ?? 0) >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
-                      {fmt(Number(tr.netPnl ?? 0))}
-                    </td>
-                    <td className="py-1.5 pr-3 text-right">{tr.rMultiple ? fmt(Number(tr.rMultiple)) : '—'}</td>
-                    <td className="py-1.5">
-                      <span className="flex items-center gap-1">
-                        <input
-                          value={noteDrafts[tr.id] ?? notes[tr.id] ?? ''}
-                          onChange={(e) => setNoteDrafts((d) => ({ ...d, [tr.id]: e.target.value }))}
-                          placeholder={t('trading.journalNote')}
-                          className="field w-40 px-2 py-1 text-xs"
-                        />
-                        {(noteDrafts[tr.id] ?? '') !== (notes[tr.id] ?? '') && noteDrafts[tr.id] !== undefined && (
-                          <button onClick={() => void saveNote(tr.id)} className="text-xs" style={{ color: 'var(--color-cyan)' }}>
-                            {t('trading.journalSave')}
-                          </button>
-                        )}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+                        {tr.direction.toUpperCase()}
+                      </td>
+                      <td className="py-1.5 pr-3 text-right">
+                        {fmt(Number(tr.entryPrice))} → {tr.exitPrice ? fmt(Number(tr.exitPrice)) : '—'}
+                      </td>
+                      <td className="py-1.5 pr-3 text-right" style={{ color: Number(tr.netPnl ?? 0) >= 0 ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+                        {fmt(Number(tr.netPnl ?? 0))}
+                      </td>
+                      <td className="py-1.5 pr-3 text-right">{tr.rMultiple ? fmt(Number(tr.rMultiple)) : '—'}</td>
+                      <td className="py-1.5">
+                        <span className="flex items-center gap-1">
+                          <input
+                            value={noteDrafts[tr.id] ?? notes[tr.id] ?? ''}
+                            onChange={(e) => setNoteDrafts((d) => ({ ...d, [tr.id]: e.target.value }))}
+                            placeholder={t('trading.journalNote')}
+                            className="field w-40 px-2 py-1 text-xs"
+                          />
+                          {(noteDrafts[tr.id] ?? '') !== (notes[tr.id] ?? '') && noteDrafts[tr.id] !== undefined && (
+                            <button onClick={() => void saveNote(tr.id)} className="text-xs" style={{ color: 'var(--color-cyan)' }}>
+                              {t('trading.journalSave')}
+                            </button>
+                          )}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
       )}
 
       {tab === 'risiko' && <SizingCalc />}

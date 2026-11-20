@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { feedSymbol } from '../lib/pairs.js';
 import { isChartVenue, type ChartVenue } from '../lib/chart-url.js';
+import { notifyFavoritesChanged } from '../lib/favorites-bus.js';
 
 /**
  * Stern-Favoriten (P0.3) — zwei Varianten, ein Verhalten:
@@ -39,7 +40,10 @@ export function FavStar({
         setBusy(true);
         trpc.product.toggleFavorite
           .mutate({ assetId })
-          .then((res) => onToggled(assetId, res.favorite))
+          .then((res) => {
+            onToggled(assetId, res.favorite);
+            notifyFavoritesChanged();
+          })
           .catch(() => undefined)
           .finally(() => setBusy(false));
       }}
@@ -111,6 +115,7 @@ export function FavStarSymbol({
               setFav(res.favorite);
               setNoAsset(false);
               onToggled?.(res.favorite);
+              notifyFavoritesChanged();
             } else {
               setNoAsset(true);
             }

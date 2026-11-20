@@ -89,10 +89,12 @@ export async function checkPriceAlerts(
     result.checked++;
     if (!alertTriggered(alert.condition, Number(alert.price), price)) continue;
 
-    await db
+    const updated = await db
       .update(priceAlerts)
       .set({ active: false, triggeredAt: new Date(), triggeredPrice: String(price) })
-      .where(and(eq(priceAlerts.id, alert.id), eq(priceAlerts.active, true)));
+      .where(and(eq(priceAlerts.id, alert.id), eq(priceAlerts.active, true)))
+      .returning({ id: priceAlerts.id });
+    if (updated.length === 0) continue;
     result.triggered++;
 
     const alertHtml =

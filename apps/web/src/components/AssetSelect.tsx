@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { isChartVenue, type ChartVenue } from '../lib/chart-url.js';
+import { onFavoritesChange } from '../lib/favorites-bus.js';
 
 /**
  * Asset-Selektor. Seit Patricks Mängelliste (2026-10-22, Punkt 3) ein Suchfeld statt
@@ -88,6 +89,9 @@ export function AssetSelect({
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const [favRev, setFavRev] = useState(0);
+  useEffect(() => onFavoritesChange(() => setFavRev((r) => r + 1)), []);
+
   useEffect(() => {
     void trpc.market.scanUniverse
       .query()
@@ -101,8 +105,7 @@ export function AssetSelect({
       .query()
       .then(setStocks)
       .catch(() => setStocks('error'));
-    // nur beim Einhängen laden (das Universum ändert sich nicht mit der Auswahl)
-  }, []);
+  }, [favRev]);
 
   // Offen: Fokus ins Suchfeld, Klick außerhalb schließt.
   useEffect(() => {
