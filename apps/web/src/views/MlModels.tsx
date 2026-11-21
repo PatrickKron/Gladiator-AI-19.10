@@ -114,7 +114,7 @@ export function MlModels({ embedded = false }: { embedded?: boolean }) {
             </div>
           </div>
           {(stats.byDirection.long.total > 0 || stats.byDirection.short.total > 0) && (
-            <div className="mt-4 flex gap-6 text-sm">
+            <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-1.5 text-sm">
               <p className="label shrink-0">{t('ml.byDirection')}:</p>
               {stats.byDirection.long.total > 0 && (
                 <span className="num">
@@ -158,7 +158,7 @@ export function MlModels({ embedded = false }: { embedded?: boolean }) {
                     onClick={() => setExpanded(isExpanded ? null : m.id)}
                     className="flex w-full items-center justify-between gap-3 text-left"
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
                       <span className="num font-medium">{m.name}</span>
                       <span className="label">v{m.version}</span>
                       <span
