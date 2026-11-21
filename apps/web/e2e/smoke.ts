@@ -35,18 +35,21 @@ function overflowDetail(): string {
   const vw = window.innerWidth;
   const sw = document.documentElement.scrollWidth;
   if (sw <= vw + 1) return '';
-  const inScroller = (el: Element): boolean => {
-    for (let a = el.parentElement; a; a = a.parentElement) {
-      const o = getComputedStyle(a).overflowX;
-      if ((o === 'auto' || o === 'scroll') && a.getBoundingClientRect().right <= vw + 1) return true;
-    }
-    return false;
-  };
   const hits: { right: number; text: string }[] = [];
   for (const el of Array.from(document.querySelectorAll('body *'))) {
     const r = el.getBoundingClientRect();
     if (r.width === 0 || r.right <= vw + 1) continue;
-    if (getComputedStyle(el).position === 'fixed' || inScroller(el)) continue;
+    if (getComputedStyle(el).position === 'fixed') continue;
+    // Inline-Schleife statt lokaler Arrow-Funktion, damit tsx/esbuild kein __name(...) injiziert (würde in page.evaluate werfen).
+    let inScroller = false;
+    for (let a = el.parentElement; a; a = a.parentElement) {
+      const o = getComputedStyle(a).overflowX;
+      if ((o === 'auto' || o === 'scroll') && a.getBoundingClientRect().right <= vw + 1) {
+        inScroller = true;
+        break;
+      }
+    }
+    if (inScroller) continue;
     const cls = typeof el.className === 'string' ? el.className.trim().split(/\s+/).slice(0, 3).join('.') : '';
     const txt = (el.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 40);
     hits.push({ right: r.right, text: `${el.tagName.toLowerCase()}${cls ? '.' + cls : ''} rechts=${Math.round(r.right)} breit=${Math.round(r.width)}${txt ? ` „${txt}“` : ''}` });

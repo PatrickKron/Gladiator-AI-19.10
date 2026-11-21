@@ -10,7 +10,7 @@ const { newsItems } = schema;
  */
 
 export const NEWS_FEEDS: { source: string; url: string }[] = [
-  { source: 'coindesk', url: 'https://www.coindesk.com/arc/outboundfeeds/rss/' },
+  { source: 'coindesk', url: 'https://www.coindesk.com/arc/outboundfeeds/rss' },
   { source: 'cointelegraph', url: 'https://cointelegraph.com/rss' },
   // Patricks Mängelliste 2026-10-22, Punkt 7: mehr Quellen — alle öffentliche, offizielle RSS-Feeds.
   { source: 'decrypt', url: 'https://decrypt.co/feed' },
@@ -70,7 +70,13 @@ export async function syncNews(db: Db): Promise<NewsSyncResult> {
   const result: NewsSyncResult = { fetched: 0, inserted: 0, errors: [] };
   for (const feed of NEWS_FEEDS) {
     try {
-      const res = await fetch(feed.url, { headers: { Accept: 'application/rss+xml, application/xml, text/xml' } });
+      const res = await fetch(feed.url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; GladiatorRSS/2.0)',
+          Accept: 'application/rss+xml, application/xml, text/xml',
+        },
+        signal: AbortSignal.timeout(15_000),
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const items = parseRssFeed(await res.text(), feed.source);
       result.fetched += items.length;
