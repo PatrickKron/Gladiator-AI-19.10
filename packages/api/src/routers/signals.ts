@@ -14,7 +14,7 @@ import {
   loadRiskSettings,
   type TradingVenue,
 } from '@gladiator/exchange';
-import { evaluateRisk, exposureFit } from '@gladiator/risk';
+import { evaluateRisk, exposureFit, safeCappedNotional } from '@gladiator/risk';
 import { leverageUpgradeSchema, reentrySchema } from '@gladiator/core';
 import { formatEmergencyAlert, notifySafe, telegramHtmlToText } from '@gladiator/jobs';
 import { getEurUsdRate } from '@gladiator/market-data';
@@ -173,9 +173,9 @@ export const signalsRouter = router({
         expiredIds.length === 0
           ? []
           : await ctx.db
-              .select({ entityId: auditLog.entityId, ts: auditLog.ts, details: auditLog.details })
-              .from(auditLog)
-              .where(and(eq(auditLog.action, 'signal.auto_killed'), inArray(auditLog.entityId, expiredIds)));
+            .select({ entityId: auditLog.entityId, ts: auditLog.ts, details: auditLog.details })
+            .from(auditLog)
+            .where(and(eq(auditLog.action, 'signal.auto_killed'), inArray(auditLog.entityId, expiredIds)));
       const killBySignal = new Map<string, AutoKillDto>();
       for (const k of killRows) {
         const d = (k.details ?? {}) as { reason?: string; score?: number; rescored?: number | null };
@@ -258,6 +258,18 @@ export const signalsRouter = router({
       const rules = await execVenue.marketRules(signal.symbol);
       const gates = await loadActiveGates(ctx.db);
       const suggestedLev = Math.max(1, Math.min(settings.maxLeverage, Number(signal.leverageSuggested ?? 1) || 1));
+      const existingExpPct = state.exposureBySymbolPct[signal.symbol] ?? 0;
+      const autoCap = safeCappedNotional({
+        equity: state.equity,
+        availableMargin: state.availableMargin,
+        leverage: suggestedLev,
+        riskPct: settings.riskPctPerTrade,
+        entry: Number(signal.entry),
+        stopLoss: Number(signal.stopLoss),
+        maxExposurePct: settings.maxExposurePctPerAsset,
+        existingExposurePct: existingExpPct,
+        minNotional: rules.minNotional,
+      });
       const verdict = evaluateRisk(
         {
           symbol: signal.symbol,
@@ -269,6 +281,7 @@ export const signalsRouter = router({
           session: signal.session,
           emaRegime: signal.emaRegime as 'above' | 'below',
           marketPhase: signal.marketPhase as 'bull' | 'bear',
+          ...(autoCap.capped && autoCap.notional !== null ? { requestedNotional: autoCap.notional } : {}),
         },
         settings,
         state,
@@ -277,7 +290,7 @@ export const signalsRouter = router({
         await loadRiskContext(ctx.db),
       );
       const eurUsd = await getEurUsdRate();
-      const suggestedNotionalUsd = verdict.sizing?.notional ?? null;
+      const suggestedNotionalUsd = verdict.sizing?.notional ?? autoCap.notional ?? null;
 
       // Vorschlag aus Erfahrung (13_ §7): VDB2-Cluster des Signals, gedeckelt
       // durch die Risk-Settings. Nur Vorschlag — angewendet wird nichts
@@ -319,7 +332,7 @@ export const signalsRouter = router({
               : ('venue' as const),
           source: wantLive ? liveSourceName : signal.venue,
         },
-        // Strategie-Vorschlag (Referenz fürs Ticket)
+        // Strategie-Vorschlag (Referenz fürs Ticket — bei engen Stops konservativ auf Exposure/Margin gedeckelt)
         suggested: {
           notionalUsd: suggestedNotionalUsd,
           notionalEur: suggestedNotionalUsd !== null && eurUsd ? suggestedNotionalUsd / eurUsd : null,
@@ -328,13 +341,18 @@ export const signalsRouter = router({
           takeProfits: signal.takeProfits.map((tp) => Number(tp)),
           entry: Number(signal.entry),
           riskAmountUsd: verdict.sizing?.riskAmount ?? null,
+          autoCapped: autoCap.capped,
+          effectiveRiskPct: autoCap.effectiveRiskPct,
         },
         // Grenzen für die Schieberegler
         limits: {
           maxLeverage: settings.maxLeverage,
-          maxNotionalUsd: Math.min(
-            state.availableMargin * settings.maxLeverage,
-            state.equity * (settings.maxExposurePctPerAsset / 100),
+          maxNotionalUsd: Math.max(
+            0,
+            Math.min(
+              state.availableMargin * settings.maxLeverage,
+              state.equity * (Math.max(0, settings.maxExposurePctPerAsset - existingExpPct) / 100),
+            ),
           ),
           minNotionalUsd: rules.minNotional,
           equityUsd: state.equity,
@@ -350,12 +368,12 @@ export const signalsRouter = router({
           riskPct: settings.riskPctPerTrade,
           limitPct: settings.maxExposurePctPerAsset,
           ...exposureFit({
-          equity: state.equity,
-          riskPct: settings.riskPctPerTrade,
-          entry: Number(signal.entry),
-          stopLoss: Number(signal.stopLoss),
-          maxExposurePct: settings.maxExposurePctPerAsset,
-          existingExposurePct: state.exposureBySymbolPct[signal.symbol] ?? 0,
+            equity: state.equity,
+            riskPct: settings.riskPctPerTrade,
+            entry: Number(signal.entry),
+            stopLoss: Number(signal.stopLoss),
+            maxExposurePct: settings.maxExposurePctPerAsset,
+            existingExposurePct: state.exposureBySymbolPct[signal.symbol] ?? 0,
           }),
         },
         /** Optionaler Vorschlag aus echten Trades (Labor + Paper); null-Fall mit Grund. */
@@ -447,11 +465,11 @@ export const signalsRouter = router({
       let execution: Awaited<ReturnType<typeof executeConfirmedSignal>>;
       try {
         execution = await executeConfirmedSignal(ctx.db, ctx.venue, {
-        signalId: updated.id,
-        userId: ctx.user.id,
-        ip: ctx.ip,
-        ...(hasOverrides
-          ? {
+          signalId: updated.id,
+          userId: ctx.user.id,
+          ip: ctx.ip,
+          ...(hasOverrides
+            ? {
               overrides: {
                 ...(notionalUsd !== undefined ? { notionalUsd } : {}),
                 ...(input.overrides?.leverage !== undefined ? { leverage: input.overrides.leverage } : {}),
@@ -459,7 +477,7 @@ export const signalsRouter = router({
                 ...(input.overrides?.takeProfits?.length ? { takeProfits: input.overrides.takeProfits } : {}),
               },
             }
-          : {}),
+            : {}),
         });
       } catch (err) {
         await resetToNew();

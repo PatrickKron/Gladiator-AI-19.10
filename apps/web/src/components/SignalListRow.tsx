@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { SignalCard, type SignalRow } from './SignalCard.js';
 import { FavStarSymbol } from './FavStar.js';
+import { buildChartUrl } from '../lib/chart-url.js';
+import { setPendingTradeSymbol } from '../lib/trade-symbol.js';
 import { ageText, expiryLeftMs, formatDuration, swarmVerdict, TTL_HOURS } from '../lib/signal-list.js';
 import { appLocale } from '../lib/locale.js';
 
@@ -240,7 +242,20 @@ export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDeci
               </button>
             </span>
           )}
-          <span className="text-[11px]" style={{ color: 'var(--color-mut)', marginLeft: isNew ? undefined : 'auto' }}>
+          {!isNew && (
+            <span className="ml-auto flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+              <a
+                href={buildChartUrl(signal.symbol, signal.timeframe, signal.venue)}
+                onClick={() => setPendingTradeSymbol(signal.symbol)}
+                className="rounded-[0.625rem] border px-2 py-0.5 text-[11px] transition-colors hover:border-[var(--color-cyan)]"
+                style={{ borderColor: 'rgba(6,182,212,0.4)', color: 'var(--color-cyan)' }}
+                title="Symbol im Chart mit Demo-Ticket öffnen"
+              >
+                📈 Chart & Traden
+              </a>
+            </span>
+          )}
+          <span className="text-[11px]" style={{ color: 'var(--color-mut)' }}>
             {open ? '▾' : '▸'} {open ? t('signals.collapseRow') : t('signals.expandRow')}
           </span>
         </div>

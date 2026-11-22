@@ -23,7 +23,14 @@ export {
   timeframeToMs,
   type OhlcLike,
 } from './safe.js';
-export { exposureFit, type ExposureFit, type ExposureFitInput } from './exposure-fit.js';
+export {
+  exposureFit,
+  safeCappedNotional,
+  type ExposureFit,
+  type ExposureFitInput,
+  type SafeCappedInput,
+  type SafeCappedResult,
+} from './exposure-fit.js';
 export {
   judgeSwap,
   SWAP_LIMIT_BOUNDS,

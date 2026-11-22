@@ -7,6 +7,7 @@ import {
   intradayMovePct,
   noTradeWindowFor,
   returnZScore,
+  safeCappedNotional,
   SAFE_006_WINDOW_MS,
   timeframeToMs,
   type AdaptiveGate,
@@ -539,6 +540,26 @@ export async function executeConfirmedSignal(
   // Ohne Override bleibt es bei konservativ 1× (Paper-Phase, Hebel-Anwendung mit VDB2-Promotion).
   const effectiveLeverage = opts.overrides?.leverage ?? 1;
 
+  // Bei engen Stops (z. B. 0,5–2 % SL) würde 1-%-Risiko-Sizing das Exposure-/Margin-Limit sprengen.
+  // Wenn der Nutzer KEINEN expliziten Wunschbetrag angibt, deckeln wir konservativ auf das
+  // erlaubte Budget (Risiko wird kleiner, alle harten Risk-Gates bleiben unverändert scharf).
+  const autoCap =
+    opts.overrides?.notionalUsd === undefined
+      ? safeCappedNotional({
+          equity: state.equity,
+          availableMargin: state.availableMargin,
+          leverage: effectiveLeverage,
+          riskPct: settings.riskPctPerTrade,
+          entry: Number(signal.entry),
+          stopLoss: effectiveStopLoss,
+          maxExposurePct: settings.maxExposurePctPerAsset,
+          existingExposurePct: state.exposureBySymbolPct[signal.symbol] ?? 0,
+          minNotional: rules.minNotional,
+        })
+      : null;
+  const effectiveRequestedNotional =
+    opts.overrides?.notionalUsd ?? (autoCap?.capped && autoCap.notional !== null ? autoCap.notional : undefined);
+
   const verdict = evaluateRisk(
     {
       symbol: signal.symbol,
@@ -550,7 +571,7 @@ export async function executeConfirmedSignal(
       session: signal.session,
       emaRegime: signal.emaRegime as 'above' | 'below',
       marketPhase: signal.marketPhase as 'bull' | 'bear',
-      requestedNotional: opts.overrides?.notionalUsd,
+      requestedNotional: effectiveRequestedNotional,
     },
     settings,
     state,
@@ -574,9 +595,9 @@ export async function executeConfirmedSignal(
       // Transparenz: Was hat der User angepasst, was war der Strategie-Vorschlag?
       ...(opts.overrides
         ? {
-            overrides: opts.overrides,
-            suggested: { stopLoss: signal.stopLoss, takeProfits: signal.takeProfits, leverage: 1 },
-          }
+          overrides: opts.overrides,
+          suggested: { stopLoss: signal.stopLoss, takeProfits: signal.takeProfits, leverage: 1 },
+        }
         : {}),
     },
     ip: opts.ip ?? null,
@@ -647,14 +668,14 @@ export async function executeConfirmedSignal(
     raw:
       typeof orderRiskInputs.markPrice === 'number' || closeExecution
         ? {
-            ...(closeExecution ? { execution: 'candle_close', source: signal.venue } : {}),
-            ...(typeof orderRiskInputs.markPrice === 'number'
-              ? {
-                  expectedPrice: orderRiskInputs.markPrice,
-                  slippagePct: (Math.abs(entryRes.fillPrice - orderRiskInputs.markPrice) / orderRiskInputs.markPrice) * 100,
-                }
-              : {}),
-          }
+          ...(closeExecution ? { execution: 'candle_close', source: signal.venue } : {}),
+          ...(typeof orderRiskInputs.markPrice === 'number'
+            ? {
+              expectedPrice: orderRiskInputs.markPrice,
+              slippagePct: (Math.abs(entryRes.fillPrice - orderRiskInputs.markPrice) / orderRiskInputs.markPrice) * 100,
+            }
+            : {}),
+        }
         : null,
   });
 
@@ -1417,15 +1438,15 @@ export type ProtectionUpdate = {
 export type ProtectionResult = {
   ok: boolean;
   reason?:
-    | 'not_found'
-    | 'no_price'
-    | 'no_stop'
-    | 'order_not_found'
-    | 'invalid_stop'
-    | 'invalid_take_profit'
-    | 'invalid_trail'
-    | 'widen_requires_confirm'
-    | 'rejected';
+  | 'not_found'
+  | 'no_price'
+  | 'no_stop'
+  | 'order_not_found'
+  | 'invalid_stop'
+  | 'invalid_take_profit'
+  | 'invalid_trail'
+  | 'widen_requires_confirm'
+  | 'rejected';
 };
 
 /**

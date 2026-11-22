@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { exposureFit } from './exposure-fit.js';
+import { exposureFit, safeCappedNotional } from './exposure-fit.js';
 
 /**
  * Warum blockt das Exposure-Limit? 1 % Risiko bei Stop s % ⇒ Position = 1/s des
@@ -45,5 +45,40 @@ describe('exposureFit', () => {
       expect(f.fits).toBe(false);
       expect(Number.isFinite(f.maxNotional)).toBe(true);
     }
+  });
+});
+
+describe('safeCappedNotional', () => {
+  const base = {
+    equity: 10_000,
+    availableMargin: 10_000,
+    leverage: 1,
+    riskPct: 1,
+    entry: 64_000,
+    maxExposurePct: 20,
+    existingExposurePct: 0,
+    minNotional: 10,
+  };
+
+  it('deckelt enge Krypto-Stops (0,5 %) konservativ auf das 20-%-Exposure-Limit mit kleinerem Risiko', () => {
+    const res = safeCappedNotional({ ...base, stopLoss: 63_680 }); // 0,5 % SL → roh 20.000 $ (200 %)
+    expect(res.capped).toBe(true);
+    expect(res.notional).not.toBeNull();
+    expect(res.notional!).toBeLessThanOrEqual(2_000);
+    expect(res.notional!).toBeGreaterThan(1_990);
+    expect(res.effectiveRiskPct).toBeCloseTo(0.1, 2);
+  });
+
+  it('verändert normale weite Stops (≥ 5 %) nicht', () => {
+    const res = safeCappedNotional({ ...base, stopLoss: 60_800 }); // 5 % SL → 2.000 $ passt
+    expect(res.capped).toBe(false);
+    expect(res.notional).toBeCloseTo(2_000, 2);
+    expect(res.effectiveRiskPct).toBe(1);
+  });
+
+  it('liefert null wenn Exposure-Budget bereits ausgeschöpft ist (Gate blockt weiter hart)', () => {
+    const res = safeCappedNotional({ ...base, stopLoss: 63_680, existingExposurePct: 20 });
+    expect(res.capped).toBe(false);
+    expect(res.notional).toBeNull();
   });
 });

@@ -45,3 +45,50 @@ export function exposureFit(i: ExposureFitInput): ExposureFit {
     minStopPctForFullRisk: room > 0 ? (i.riskPct / room) * 100 : null,
   };
 }
+
+export type SafeCappedInput = ExposureFitInput & {
+  availableMargin: number;
+  leverage: number;
+  minNotional: number;
+};
+
+export type SafeCappedResult = {
+  /** true = Risiko%-Sizing war größer als Exposure-/Margin-Budget und wurde konservativ gedeckelt. */
+  capped: boolean;
+  /** Sicherer Positionswert (USD) innerhalb von Exposure-Limit UND Margin; null wenn Budget < minNotional. */
+  notional: number | null;
+  /** Tatsächliches Risiko in % der Equity beim gedeckelten Betrag (immer ≤ riskPct). */
+  effectiveRiskPct: number;
+};
+
+/**
+ * Konservative automatische Deckelung fürs Standard-Sizing bei engen Stops:
+ * Risiko% ÷ Stop% liefert bei 0,5–2 % Stop oft > 50 % Exposure und wurde bisher
+ * pauschal abgelehnt. Diese Funktion deckelt den Vorschlag auf das kleinere aus
+ * Exposure-Spielraum und verfügbarer Margin × Hebel — das Risiko wird dadurch
+ * KLEINER (nie größer), alle harten Risk-Gates bleiben unverändert aktiv.
+ */
+export function safeCappedNotional(i: SafeCappedInput): SafeCappedResult {
+  const fit = exposureFit(i);
+  if (!(i.equity > 0) || !(fit.stopPct > 0) || !(i.leverage > 0) || !(i.availableMargin > 0)) {
+    return { capped: false, notional: null, effectiveRiskPct: 0 };
+  }
+  const riskNotional = (i.equity * (i.riskPct / 100)) / (fit.stopPct / 100);
+  const marginBudget = i.availableMargin * i.leverage;
+  const budgetCap = Math.min(fit.maxNotional, marginBudget);
+
+  if (riskNotional <= budgetCap + 1e-9) {
+    return {
+      capped: false,
+      notional: riskNotional >= i.minNotional ? riskNotional : null,
+      effectiveRiskPct: i.riskPct,
+    };
+  }
+  // 0,1 % Rundungspuffer, damit Lot-Abrundung / Gleitkomma nie minimal über dem Limit landet.
+  const safeMax = Math.floor(budgetCap * 0.999 * 100) / 100;
+  if (safeMax < i.minNotional) {
+    return { capped: false, notional: null, effectiveRiskPct: 0 };
+  }
+  const effectiveRiskPct = Math.round(((safeMax * (fit.stopPct / 100)) / i.equity) * 10_000) / 100;
+  return { capped: true, notional: safeMax, effectiveRiskPct };
+}
