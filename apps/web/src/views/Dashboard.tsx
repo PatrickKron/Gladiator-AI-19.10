@@ -467,23 +467,30 @@ function QuoteFavCard({ fav, quote, stagger, onRemoved }: { fav: QuoteFav; quote
           <p className="label mt-3">{quote.source === 'candles' ? t('dashboard.quoteSourceCandles') : t('dashboard.quoteSource')}</p>
         </>
       )}
-      {/* Ehrlich deaktiviert: Demo-Fills laufen gegen ECHTE Binance-Orderbücher — die gibt
-          es nur für Krypto. Tooltip auf dem Wrapper, weil deaktivierte Buttons nicht überall
-          hovern; die sichtbare Kurzzeile deckt Mobile ab (dort gibt es keine Tooltips). */}
-      <span className="mt-4 block cursor-not-allowed" title={t('dashboard.tradeCryptoOnly')}>
-        <button
-          disabled
-          aria-disabled="true"
-          title={t('dashboard.tradeCryptoOnly')}
-          className="w-full rounded-[0.625rem] border px-3 py-2 text-sm opacity-50"
-          style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
+      {fav.symbol && fav.venue ? (
+        <a
+          href={buildChartUrl(fav.symbol, loadTf(fav.symbol) ?? '1d', fav.venue)}
+          className="btn-primary mt-4 block w-full px-3 py-2 text-center text-sm"
+          title={`Chart & Demo-Ticket für ${fav.ticker} öffnen`}
         >
-          {t('dashboard.trade')}
-        </button>
-        <span className="mt-1.5 block text-center text-xs" style={{ color: 'var(--color-mut)' }}>
-          {t('dashboard.tradeCryptoOnlyShort')}
+          Chart & Demo-Traden
+        </a>
+      ) : (
+        <span className="mt-4 block cursor-not-allowed" title={t('dashboard.tradeCryptoOnly')}>
+          <button
+            disabled
+            aria-disabled="true"
+            title={t('dashboard.tradeCryptoOnly')}
+            className="w-full rounded-[0.625rem] border px-3 py-2 text-sm opacity-50"
+            style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
+          >
+            {t('dashboard.trade')}
+          </button>
+          <span className="mt-1.5 block text-center text-xs" style={{ color: 'var(--color-mut)' }}>
+            {t('dashboard.tradeCryptoOnlyShort')}
+          </span>
         </span>
-      </span>
+      )}
     </div>
   );
 }
@@ -693,12 +700,19 @@ export function Dashboard() {
   const loadWatch = useCallback(async () => {
     try {
       const favs = await trpc.product.favorites.query();
-      const pairs = favs.map((f) => feedSymbol(f.tradingPair)).filter((x): x is string => Boolean(x));
+      // Nur echte Binance-Krypto-Paare (USDT/USDC) in die Binance-Watchlist — Rohstoffe/Forex wie XAU/USD gehören in QuoteFavCard!
+      const isBinanceCrypto = (f: (typeof favs)[number]): boolean => {
+        if (f.venue === 'binance') return Boolean(feedSymbol(f.tradingPair ?? f.symbol));
+        if (f.venue) return false;
+        const p = feedSymbol(f.tradingPair);
+        return Boolean(p && (p.endsWith('/USDT') || p.endsWith('/USDC')) && f.assetType.toUpperCase() === 'CRYPTO');
+      };
+      const pairs = favs.filter(isBinanceCrypto).map((f) => feedSymbol(f.tradingPair ?? f.symbol)).filter((x): x is string => Boolean(x));
       const uniq = [...new Set(pairs)].slice(0, 8);
       setWatch(uniq.length > 0 ? uniq : SYMBOLS);
       setWatchIsFav(uniq.length > 0);
       const nonCrypto = favs
-        .filter((f) => !feedSymbol(f.tradingPair))
+        .filter((f) => !isBinanceCrypto(f))
         .map((f) => ({
           assetId: f.assetId,
           ticker: f.ticker,

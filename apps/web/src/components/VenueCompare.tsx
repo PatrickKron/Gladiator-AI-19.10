@@ -93,7 +93,8 @@ export function VenueCompare({
                 <th className="py-1 pr-2 text-right font-normal">{t('venues.effective')}</th>
                 <th className="py-1 pr-2 text-right font-normal">{t('venues.diff')}</th>
                 <th className="py-1 pr-2 text-right font-normal">{t('venues.funding')}</th>
-                <th className="py-1 text-right font-normal">{t('venues.maxLev')}</th>
+                <th className="py-1 pr-2 text-right font-normal">{t('venues.maxLev')}</th>
+                <th className="py-1 text-right font-normal">Latenz</th>
               </tr>
             </thead>
             <tbody className="num">
@@ -131,10 +132,25 @@ export function VenueCompare({
                           {v.best ? t('venues.best') : `+${fmtNum(v.diffBps ?? 0, 1)} bps`}
                         </td>
                         <td className="py-1 pr-2 text-right">{pct(v.fundingRate, 4)}</td>
-                        <td className="py-1 text-right">{v.maxLeverage !== null ? `${v.maxLeverage}×` : '—'}</td>
+                        <td className="py-1 pr-2 text-right">{v.maxLeverage !== null ? `${v.maxLeverage}×` : '—'}</td>
+                        <td
+                          className="py-1 text-right"
+                          style={{
+                            color:
+                              v.latencyMs == null
+                                ? 'var(--color-mut)'
+                                : v.latencyMs < 150
+                                  ? 'var(--color-pos)'
+                                  : v.latencyMs < 400
+                                    ? 'var(--color-warn)'
+                                    : 'var(--color-neg)',
+                          }}
+                        >
+                          {v.latencyMs !== null ? `${v.latencyMs} ms` : '—'}
+                        </td>
                       </>
                     ) : (
-                      <td colSpan={6} className="py-1 text-right" style={{ color: 'var(--color-mut)' }}>
+                      <td colSpan={7} className="py-1 text-right" style={{ color: 'var(--color-mut)' }}>
                         {v.status === 'not_listed' ? t('venues.notListed') : t('venues.unavailable')}
                       </td>
                     )}

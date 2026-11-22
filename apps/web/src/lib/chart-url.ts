@@ -9,7 +9,7 @@
  * sich mit SUPPORTED_TIMEFRAMES im Backend. Deep-Links (`?tf=`) akzeptieren jeden
  * davon; die Buttons zeigen je Asset nur die mit echten Kerzen (availableTimeframes).
  */
-export const CHART_TFS = ['5m', '15m', '30m', '1h', '2h', '4h', '12h', '1d', '1w', '1M'] as const;
+export const CHART_TFS = ['1m', '2m', '3m', '5m', '10m', '15m', '30m', '1h', '2h', '4h', '12h', '1d', '1w', '1M'] as const;
 export type ChartTf = (typeof CHART_TFS)[number];
 
 export function isChartTf(v: string | null | undefined): v is ChartTf {

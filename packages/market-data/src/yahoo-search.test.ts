@@ -16,6 +16,7 @@ describe('parseYahooSearch', () => {
     };
     expect(parseYahooSearch(json)).toEqual([
       { symbol: 'AAPL', name: 'Apple Inc.', type: 'EQUITY', exchange: 'NASDAQ' },
+      { symbol: 'BTC-USD', name: 'Bitcoin USD', type: 'CRYPTOCURRENCY', exchange: '' },
       { symbol: 'EURUSD=X', name: 'EUR/USD', type: 'CURRENCY', exchange: 'CCY' },
       { symbol: 'SPY', name: 'SPDR S&P 500 ETF Trust', type: 'ETF', exchange: 'NYSEArca' },
     ]);

@@ -24,6 +24,8 @@ const UA =
  * Wochenkerzen heißen in der App '1w' (früher fälschlich als '1wk' gespeichert — Migration 0043).
  */
 const YAHOO_INTERVAL: Record<string, string> = {
+  '1m': '1m',
+  '2m': '2m',
   '5m': '5m',
   '15m': '15m',
   '30m': '30m',
@@ -40,8 +42,6 @@ export function yahooIntervalFor(timeframe: string): string {
 /**
  * Erstladung eines Yahoo-Assets (Asset-Register): Tageskerzen 5 Jahre, Stundenkerzen 1 Jahr
  * (Yahoo-Grenze für 60m: 730 Tage), 15-min-Kerzen 60 Tage (Yahoo-Grenze für Intraday).
- * 4h gibt es bei Yahoo nicht, und eine Aggregation aus 1h gibt es im Code (noch) nicht —
- * deshalb ehrlich kein 4h statt erfundener Bündelung.
  */
 export const YAHOO_LOAD_PLAN: { timeframe: string; range: string }[] = [
   { timeframe: '1d', range: '5y' },
@@ -49,14 +49,31 @@ export const YAHOO_LOAD_PLAN: { timeframe: string; range: string }[] = [
   { timeframe: '15m', range: '60d' },
 ];
 
-const RANGE_DAYS: Record<string, number> = { '1d': 1, '5d': 5, '1mo': 31, '60d': 60, '3mo': 92, '6mo': 183, '1y': 366, '2y': 731, '5y': 1827 };
+const RANGE_DAYS: Record<string, number> = {
+  '1d': 1,
+  '5d': 5,
+  '7d': 7,
+  '1mo': 31,
+  '60d': 60,
+  '3mo': 92,
+  '6mo': 183,
+  '1y': 366,
+  '2y': 731,
+  '5y': 1827,
+  '10y': 3652,
+  max: 7300,
+};
 /** Erlaubte Fenster je Zeitrahmen, klein → groß (das größte = Yahoo-Grenze bzw. Erstladung). */
 const REFRESH_LADDER: Record<string, string[]> = {
+  '1m': ['1d', '5d', '7d'],
+  '2m': ['1d', '5d', '1mo', '60d'],
   '5m': ['1d', '5d', '1mo', '60d'],
   '15m': ['1d', '5d', '1mo', '60d'],
   '30m': ['1d', '5d', '1mo', '60d'],
   '1h': ['5d', '1mo', '3mo', '6mo', '1y'],
   '1d': ['1mo', '3mo', '6mo', '1y', '2y', '5y'],
+  '1w': ['6mo', '1y', '2y', '5y', '10y'],
+  '1M': ['2y', '5y', '10y', 'max'],
 };
 
 /**
@@ -69,15 +86,23 @@ export function yahooRefreshRange(timeframe: string, lastTs: Date | null, now: D
   const largest = ladder[ladder.length - 1]!;
   if (!lastTs) return largest;
   const intervalMs =
-    timeframe === '5m'
-      ? 300_000
-      : timeframe === '15m'
-        ? 900_000
-        : timeframe === '30m'
-          ? 1_800_000
-          : timeframe === '1h'
-            ? 3_600_000
-            : 86_400_000;
+    timeframe === '1m'
+      ? 60_000
+      : timeframe === '2m'
+        ? 120_000
+        : timeframe === '5m'
+          ? 300_000
+          : timeframe === '15m'
+            ? 900_000
+            : timeframe === '30m'
+              ? 1_800_000
+              : timeframe === '1h'
+                ? 3_600_000
+                : timeframe === '1w'
+                  ? 604_800_000
+                  : timeframe === '1M'
+                    ? 2_592_000_000
+                    : 86_400_000;
   const needDays = (now.getTime() - lastTs.getTime() + intervalMs) / 86_400_000;
   return ladder.find((r) => RANGE_DAYS[r]! >= needDays) ?? largest;
 }

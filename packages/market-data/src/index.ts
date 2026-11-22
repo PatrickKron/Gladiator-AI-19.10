@@ -7,6 +7,7 @@ export {
   loadSourceCandles,
   resolveCandleTarget,
   resolveCandleVenue,
+  sourceTimeframeFor,
   LATEST_CLOSE_TIMEFRAMES,
   type BackfillResult,
 } from './ohlcv.js';

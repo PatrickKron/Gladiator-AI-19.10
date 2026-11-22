@@ -25,6 +25,8 @@ export type VenueQuote = {
   /** Funding je Periode (Perps), sonst null. */
   fundingRate: number | null;
   maxLeverage: number | null;
+  /** Gemessene Antwortzeit der Börse in Millisekunden (echte RTT, sonst null). */
+  latencyMs?: number | null;
   error: string | null;
 };
 
@@ -82,17 +84,24 @@ export function rankVenueQuotes(quotes: VenueQuote[], side: 'buy' | 'sell'): Ran
 
 export type VenueQuoteFetcher = (venue: string, symbol: string) => Promise<RawVenueQuote | null>;
 
-/** Alle Börsen parallel; Fehler je Börse isoliert und ehrlich ausgewiesen. */
+/** Alle Börsen parallel; Fehler je Börse isoliert und ehrlich ausgewiesen (inkl. echter Latenz in ms). */
 export async function fetchVenueQuotes(symbol: string, venues: readonly string[], fetcher: VenueQuoteFetcher = ccxtVenueQuote): Promise<VenueQuote[]> {
-  const settled = await Promise.allSettled(venues.map((v) => fetcher(v, symbol)));
+  const settled = await Promise.allSettled(
+    venues.map(async (v) => {
+      const t0 = performance.now();
+      const value = await fetcher(v, symbol);
+      const latencyMs = Math.max(1, Math.round(performance.now() - t0));
+      return { value, latencyMs };
+    }),
+  );
   return settled.map((r, i): VenueQuote => {
     const venue = venues[i]!;
-    const empty = { venue, marketSymbol: null, marketType: null, bid: null, ask: null, takerFee: null, fundingRate: null, maxLeverage: null };
+    const empty = { venue, marketSymbol: null, marketType: null, bid: null, ask: null, takerFee: null, fundingRate: null, maxLeverage: null, latencyMs: null };
     if (r.status === 'rejected') {
       return { ...empty, status: 'unavailable', error: r.reason instanceof Error ? r.reason.message : String(r.reason) };
     }
-    if (r.value === null) return { ...empty, status: 'not_listed', error: null };
-    return { venue, status: 'ok', error: null, ...r.value };
+    if (r.value.value === null) return { ...empty, latencyMs: r.value.latencyMs, status: 'not_listed', error: null };
+    return { venue, status: 'ok', error: null, latencyMs: r.value.latencyMs, ...r.value.value };
   });
 }
 

@@ -6,7 +6,7 @@
  * (market.availableTimeframes) — nichts wird erfunden.
  */
 
-export const SUPPORTED_TIMEFRAMES = ['5m', '15m', '30m', '1h', '2h', '4h', '12h', '1d', '1w', '1M'] as const;
+export const SUPPORTED_TIMEFRAMES = ['1m', '2m', '3m', '5m', '10m', '15m', '30m', '1h', '2h', '4h', '12h', '1d', '1w', '1M'] as const;
 export type SupportedTimeframe = (typeof SUPPORTED_TIMEFRAMES)[number];
 
 /** Ist ein String einer der unterstützten Timeframes? */
@@ -19,7 +19,11 @@ export function isSupportedTimeframe(v: string | null | undefined): v is Support
  * Monats-Kerze als 30-Tage-Näherung (nur Heuristik, nie als Kerzen-Zeitstempel).
  */
 export const TIMEFRAME_MS: Record<SupportedTimeframe, number> = {
+  '1m': 60_000,
+  '2m': 120_000,
+  '3m': 180_000,
   '5m': 300_000,
+  '10m': 600_000,
   '15m': 900_000,
   '30m': 1_800_000,
   '1h': 3_600_000,
@@ -36,7 +40,11 @@ export const TIMEFRAME_MS: Record<SupportedTimeframe, number> = {
  * Backtest. Kalendarische Näherung (365 T/Jahr), konsistent mit den Bar-Längen.
  */
 export const BARS_PER_YEAR: Record<SupportedTimeframe, number> = {
+  '1m': 525_600,
+  '2m': 262_800,
+  '3m': 175_200,
   '5m': 105_120,
+  '10m': 52_560,
   '15m': 35_040,
   '30m': 17_520,
   '1h': 8_760,

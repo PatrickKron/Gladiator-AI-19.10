@@ -5,11 +5,11 @@
  * Treffer; Krypto bleibt draußen (dafür gibt es Binance), Optionen ebenso.
  */
 
-export type StockHitType = 'EQUITY' | 'ETF' | 'CURRENCY' | 'INDEX' | 'FUTURE' | 'MUTUALFUND';
+export type StockHitType = 'EQUITY' | 'ETF' | 'CURRENCY' | 'INDEX' | 'FUTURE' | 'MUTUALFUND' | 'CRYPTOCURRENCY';
 
 export type StockHit = { symbol: string; name: string; type: StockHitType; exchange: string };
 
-const TYPES = new Set<string>(['EQUITY', 'ETF', 'CURRENCY', 'INDEX', 'FUTURE', 'MUTUALFUND']);
+const TYPES = new Set<string>(['EQUITY', 'ETF', 'CURRENCY', 'INDEX', 'FUTURE', 'MUTUALFUND', 'CRYPTOCURRENCY']);
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36';
 
@@ -49,6 +49,13 @@ export async function searchYahoo(query: string, limit = 10, fetchFn: typeof fet
     const fx = await queryYahoo(`${q.toUpperCase()}=X`, 3, fetchFn).catch(() => [] as StockHit[]);
     const seen = new Set(hits.map((h) => h.symbol));
     hits = [...fx.filter((h) => h.type === 'CURRENCY' && !seen.has(h.symbol)), ...hits].slice(0, limit);
+  }
+  // Kurze Krypto-Ticker (z. B. „ANT“, „QNT“, „KAS“, „HYPE“ — auch delistete/Nicht-Binance-Coins): Yahoo führt sie als `<TICKER>-USD`.
+  if (/^[a-z0-9]{2,4}$/i.test(q) && !hits.some((h) => h.type === 'CRYPTOCURRENCY')) {
+    const cr = await queryYahoo(`${q.toUpperCase()}-USD`, 3, fetchFn).catch(() => [] as StockHit[]);
+    const seen = new Set(hits.map((h) => h.symbol));
+    const cryptoHits = cr.filter((h) => h.type === 'CRYPTOCURRENCY' && !seen.has(h.symbol));
+    if (cryptoHits.length > 0) hits = [...cryptoHits, ...hits].slice(0, limit);
   }
   cache.set(key, { at: Date.now(), hits });
   return hits;

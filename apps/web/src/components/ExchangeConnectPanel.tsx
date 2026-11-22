@@ -37,11 +37,27 @@ export function ExchangeConnectPanel() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [balances, setBalances] = useState<Record<string, Balances | 'loading' | string>>({});
+  const [latencies, setLatencies] = useState<Record<string, { ok: boolean; latencyMs: number | null; error: string | null }>>({});
+  const [pinging, setPinging] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState<string | null>(null);
+
+  async function measureLatency() {
+    setPinging(true);
+    try {
+      const rows = await trpc.exchanges.pingAll.query();
+      setLatencies(Object.fromEntries(rows.map((r) => [r.connectionId, { ok: r.ok, latencyMs: r.latencyMs, error: r.error }])));
+    } catch {
+      /* unkritisch */
+    } finally {
+      setPinging(false);
+    }
+  }
 
   async function load() {
     try {
-      setConnections(await trpc.exchanges.list.query());
+      const list = await trpc.exchanges.list.query();
+      setConnections(list);
+      if (list.length > 0) void measureLatency();
     } catch {
       setConnections([]);
     }
@@ -289,18 +305,56 @@ export function ExchangeConnectPanel() {
 
       {/* Bestehende Verbindungen */}
       {connections !== null && connections.length > 0 && (
-        <ul className="mt-6 space-y-3">
+        <div className="mt-6">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="label">Verbundene Börsen ({connections.length})</span>
+            <button
+              type="button"
+              onClick={() => void measureLatency()}
+              disabled={pinging}
+              className="rounded border px-2 py-0.5 text-xs disabled:opacity-50"
+              style={{ borderColor: 'var(--color-line)', color: 'var(--color-cyan)' }}
+            >
+              {pinging ? 'Messe Latenz …' : '↻ Latenz messen'}
+            </button>
+          </div>
+          <ul className="space-y-3">
           {connections.map((conn) => {
             const bal = balances[conn.id];
+            const lat = latencies[conn.id];
             return (
               <li key={conn.id} className="rounded border p-3" style={{ borderColor: 'var(--color-line)' }}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="text-sm font-medium">
-                      {conn.label || conn.exchangeName}{' '}
+                    <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                      <span>{conn.label || conn.exchangeName}</span>
                       <span className="num text-xs" style={{ color: 'var(--color-mut)' }}>
                         {conn.keyMasked}
                       </span>
+                      {lat && (
+                        <span
+                          className="num rounded border px-1.5 py-0.5 text-[11px]"
+                          style={{
+                            borderColor: !lat.ok
+                              ? 'rgba(239,68,68,0.45)'
+                              : (lat.latencyMs ?? 999) < 150
+                                ? 'rgba(34,197,94,0.45)'
+                                : (lat.latencyMs ?? 999) < 400
+                                  ? 'rgba(245,158,11,0.45)'
+                                  : 'rgba(239,68,68,0.45)',
+                            color: !lat.ok
+                              ? 'var(--color-neg)'
+                              : (lat.latencyMs ?? 999) < 150
+                                ? 'var(--color-pos)'
+                                : (lat.latencyMs ?? 999) < 400
+                                  ? 'var(--color-warn)'
+                                  : 'var(--color-neg)',
+                          }}
+                          title={lat.error ?? 'Gemessene Round-Trip-Latenz zur Börse'}
+                        >
+                          {lat.ok && lat.latencyMs !== null ? `● ${lat.latencyMs} ms` : '○ Timeout/Fehler'}
+                        </span>
+                      )}
                     </p>
                     <p className="text-xs" style={{ color: 'var(--color-mut)' }}>
                       {conn.marketsSummary
@@ -363,7 +417,8 @@ export function ExchangeConnectPanel() {
               </li>
             );
           })}
-        </ul>
+          </ul>
+        </div>
       )}
     </Panel>
   );

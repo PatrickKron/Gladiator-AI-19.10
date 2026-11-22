@@ -8,6 +8,8 @@
  * Kein Fake: Was wir nicht sicher erkennen, bleibt null/leer statt geraten.
  */
 
+import type { DslTimeframe } from './dsl.js';
+
 export type PineInput = {
   name: string;
   kind: string; // int, float, bool, string, timeframe, source, ... oder 'legacy'
@@ -172,7 +174,7 @@ export function synthesizeDslFromPineScript(
   opts: {
     id?: string;
     symbol?: string;
-    timeframe?: '5m' | '15m' | '30m' | '1h' | '2h' | '4h' | '12h' | '1d' | '1w' | '1M';
+    timeframe?: DslTimeframe;
   } = {},
 ) {
   const analysis = analyzePineScript(code);

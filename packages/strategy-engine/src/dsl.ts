@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { atr, bollinger, ema, macd, rsi, sma } from './indicators.js';
 import { adx, stochastic, supertrend } from './indicators-extra.js';
+import { detectDivergences } from './divergences.js';
 import { detectStructure } from './structure.js';
 import { riskClassOf, type RiskClass, type TradingSession } from './scoring.js';
 import { sessionOf } from './session.js';
@@ -127,12 +128,24 @@ const conditionSchema = z.union([
         .strict(),
     })
     .strict(),
+  z
+    .object({
+      divergence: z
+        .object({
+          indicator: z.enum(['rsi', 'macd']).default('rsi'),
+          kind: z.enum(['bullish', 'bearish', 'hidden_bullish', 'hidden_bearish']),
+          /** Bestätigte Divergenz innerhalb der letzten N Bars (look-ahead-frei ab confirmedAt). */
+          withinBars: z.number().int().min(1).max(30).default(6),
+        })
+        .strict(),
+    })
+    .strict(),
 ]);
 
 export type DslCondition = z.infer<typeof conditionSchema>;
 
 /** Alle im System unterstützten Timeframes (deckungsgleich mit market-data SUPPORTED_TIMEFRAMES). */
-export const DSL_TIMEFRAMES = ['5m', '15m', '30m', '1h', '2h', '4h', '12h', '1d', '1w', '1M'] as const;
+export const DSL_TIMEFRAMES = ['1m', '2m', '3m', '5m', '10m', '15m', '30m', '1h', '2h', '4h', '12h', '1d', '1w', '1M'] as const;
 export type DslTimeframe = (typeof DSL_TIMEFRAMES)[number];
 
 export const instructionDslSchema = z
@@ -389,6 +402,12 @@ function evaluateCondition(cond: DslCondition, ctx: CondContext): string | null 
     if (point == null) return null;
     if (point.direction !== c.direction) return null;
     return `dsl:supertrend:${c.direction}`;
+  } else if ('divergence' in cond) {
+    const c = cond.divergence;
+    const divs = detectDivergences(candles, { indicator: c.indicator });
+    const hit = divs.some((d) => d.kind === c.kind && d.confirmedAt <= i && i - d.confirmedAt < c.withinBars);
+    if (!hit) return null;
+    return `dsl:divergence:${c.indicator}:${c.kind}`;
   } else {
     const up = bar.close >= ema200;
     if (cond.trend === 'EMA200_up' && !up) return null;

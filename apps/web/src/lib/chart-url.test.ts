@@ -57,10 +57,15 @@ describe('Tabs der Chart-Seite (wie v2: Chart · Analyse · Makro · Risiko)', (
 
 describe('isChartTf', () => {
   it('akzeptiert nur bekannte Timeframes', () => {
+    expect(isChartTf('1m')).toBe(true);
+    expect(isChartTf('2m')).toBe(true);
+    expect(isChartTf('3m')).toBe(true);
+    expect(isChartTf('10m')).toBe(true);
     expect(isChartTf('15m')).toBe(true);
     expect(isChartTf('1h')).toBe(true);
     expect(isChartTf('2h')).toBe(true); // Feature A: jetzt unterstützt
     expect(isChartTf('12h')).toBe(true);
+    expect(isChartTf('1w')).toBe(true);
     expect(isChartTf('1M')).toBe(true);
     expect(isChartTf('3d')).toBe(false); // nicht angeboten
     expect(isChartTf(null)).toBe(false);

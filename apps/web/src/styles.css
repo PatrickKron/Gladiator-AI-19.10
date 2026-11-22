@@ -395,7 +395,7 @@ html {
   .popover label { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.4rem; border-radius: 0.5rem; font-size: 0.8125rem; cursor: pointer; }
   .popover label:hover { background: rgba(120, 140, 255, 0.08); }
   .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
-  .toolbar > * { flex: 0 0 auto; }
+  .toolbar > * { flex: 0 1 auto; max-width: 100%; }
   .chat-panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 45; display: flex; flex-direction: column; width: 100%; background: rgba(8, 10, 30, 0.97); backdrop-filter: blur(14px); border-left: 1px solid var(--color-line2); box-shadow: -12px 0 40px rgba(46, 124, 246, 0.18); padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
   @media (min-width: 640px) { .chat-panel { width: 26rem; } }
   .tbtn { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.3rem 0.6rem; border-radius: 0.5rem; border: 1px solid var(--color-line); font-size: 0.75rem; font-weight: 500; color: var(--color-mut); background: rgba(120, 140, 255, 0.04); white-space: nowrap; }

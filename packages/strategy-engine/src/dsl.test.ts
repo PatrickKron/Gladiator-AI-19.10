@@ -195,14 +195,14 @@ function flatThenMove(nFlat: number, nMove: number, direction: 'up' | 'down'): C
   return candles;
 }
 
-describe('DSL-Erweiterung: Schema (neue Bedingungen, 10 Timeframes)', () => {
-  it('alle 10 System-Timeframes sind zulässig; unbekannte nicht', () => {
-    expect(DSL_TIMEFRAMES).toHaveLength(10);
+describe('DSL-Erweiterung: Schema (neue Bedingungen, 14 Timeframes)', () => {
+  it('alle 14 System-Timeframes sind zulässig; unbekannte nicht', () => {
+    expect(DSL_TIMEFRAMES).toHaveLength(14);
     for (const tf of DSL_TIMEFRAMES) {
       const r = parseInstructionDsl({ ...BLUEPRINT_EXAMPLE, timeframe: tf });
       expect(r.ok, `Timeframe ${tf} muss valide sein`).toBe(true);
     }
-    expect(parseInstructionDsl({ ...BLUEPRINT_EXAMPLE, timeframe: '3m' }).ok).toBe(false);
+    expect(parseInstructionDsl({ ...BLUEPRINT_EXAMPLE, timeframe: '3d' }).ok).toBe(false);
   });
 
   it('maCross: Defaults (EMA, withinBars 1) + fast<slow-Pflicht', () => {
@@ -232,7 +232,7 @@ describe('DSL-Erweiterung: Schema (neue Bedingungen, 10 Timeframes)', () => {
   });
 
   it('DSL_SCHEMA_DOC erwähnt jeden Bedingungs-Schlüssel (Prompt bleibt synchron)', () => {
-    for (const key of ['signal', 'indicator', 'trend', 'maCross', 'priceVs', 'macd', 'bollinger', 'stochastic', 'adx', 'supertrend']) {
+    for (const key of ['signal', 'indicator', 'trend', 'maCross', 'priceVs', 'macd', 'bollinger', 'stochastic', 'adx', 'supertrend', 'divergence']) {
       expect(DSL_SCHEMA_DOC).toContain(key);
     }
     for (const tf of DSL_TIMEFRAMES) expect(DSL_SCHEMA_DOC).toContain(`"${tf}"`);

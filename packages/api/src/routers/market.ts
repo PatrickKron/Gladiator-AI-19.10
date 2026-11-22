@@ -17,9 +17,11 @@ import {
   getAssetQuotes,
   getEurUsdRate,
   getOhlcv,
+  backfillOhlcv,
   loadSourceCandles,
   resolveCandleTarget,
   resolveCandleVenue,
+  sourceTimeframeFor,
   latestFreshClose,
   ingestTwelveData,
   twelveDataConfigured,
@@ -27,6 +29,7 @@ import {
   TWELVE_DATA_INTERVALS,
   TWELVEDATA_VENUE,
   ingestYahooChart,
+  yahooRefreshRange,
   YAHOO_VENUE,
   SUPPORTED_TIMEFRAMES,
   TIMEFRAME_MS,
@@ -52,6 +55,7 @@ import {
   atr,
   bollinger,
   dealingRangeAt,
+  detectAllDivergences,
   detectFvgs,
   detectLiquidity,
   detectOrderBlocks,
@@ -893,6 +897,17 @@ export const marketRouter = router({
         level: e.brokenLevel,
       }));
 
+      // Divergenzen (RSI & MACD, regulär & versteckt, look-ahead-frei)
+      const divergences = detectAllDivergences(candles)
+        .slice(-30)
+        .map((d) => ({
+          time: times[d.index]!,
+          indicator: d.indicator,
+          kind: d.kind,
+          price: d.price,
+          indValue: d.indValue,
+        }));
+
       // Zonen: Order Blocks + FVG; Zeitspanne von Entstehung bis Mitigation/Füllung
       // (aktive Zonen laufen bis zur letzten Kerze). Cap: die 12 jüngsten, damit
       // der Chart lesbar bleibt (ehrlich protokolliert im Feld `zonesTotal`).
@@ -935,13 +950,13 @@ export const marketRouter = router({
       const dr = dealingRangeAt(candles, liq.swings, candles.length - 1);
       const range = dr
         ? {
-            high: dr.high,
-            low: dr.low,
-            equilibrium: dr.equilibrium,
-            fromTime: times[Math.min(dr.highIndex, dr.lowIndex)]!,
-            position: dr.position,
-            zone: dr.zone,
-          }
+          high: dr.high,
+          low: dr.low,
+          equilibrium: dr.equilibrium,
+          fromTime: times[Math.min(dr.highIndex, dr.lowIndex)]!,
+          position: dr.position,
+          zone: dr.zone,
+        }
         : null;
 
       return {
@@ -978,11 +993,66 @@ export const marketRouter = router({
         },
         atr: toTimed(times, atr(candles, 14)),
         structure,
+        divergences,
         zones,
         zonesTotal: allZones.length,
         liquidity,
         range,
       };
+    }),
+
+  /**
+   * On-Demand-Laden eines beliebigen Chart-Timeframes (1m, 2m, 3m, 5m, 10m, 15m, 30m, 1h, 2h, 4h, 12h, 1d, 1w, 1M):
+   * lädt echte Kerzen der passenden Quell-Auflösung (Binance, Yahoo oder Twelve Data), damit alle
+   * Kurz- und Langfrist-Horizonte sofort im Chart verfügbar sind.
+   */
+  ensureTimeframe: protectedProcedure
+    .input(
+      z.object({
+        symbol: z.string().min(1).max(32),
+        timeframe: timeframeEnum,
+        venue: z.enum(['binance', 'yahoo', 'twelvedata']).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const target = await resolveCandleTarget(ctx.db, input.symbol, input.venue);
+      const sourceTf = sourceTimeframeFor(target.venue, input.timeframe);
+      const now = new Date();
+
+      if (target.venue === 'binance') {
+        const lookbackDays: Record<string, number> = {
+          '1m': 3,
+          '3m': 7,
+          '5m': 14,
+          '15m': 45,
+          '30m': 90,
+          '1h': 180,
+          '2h': 365,
+          '4h': 540,
+          '12h': 730,
+          '1d': 1825,
+          '1w': 3650,
+          '1M': 3650,
+        };
+        const days = lookbackDays[sourceTf] ?? 90;
+        const since = new Date(now.getTime() - days * 86_400_000);
+        const r = await backfillOhlcv(ctx.db, { symbol: target.symbol, timeframe: sourceTf, since, until: now });
+        return { ok: true, venue: target.venue, symbol: target.symbol, timeframe: input.timeframe, sourceTf, inserted: r.inserted, fetched: r.fetched };
+      }
+
+      if (target.venue === YAHOO_VENUE) {
+        const range = yahooRefreshRange(sourceTf, null, now);
+        let r = await ingestYahooChart(ctx.db, { symbol: target.symbol, timeframe: sourceTf, range });
+        if (r.error && range === '60d') r = await ingestYahooChart(ctx.db, { symbol: target.symbol, timeframe: sourceTf, range: '1mo' });
+        if (r.error && range === '7d') r = await ingestYahooChart(ctx.db, { symbol: target.symbol, timeframe: sourceTf, range: '5d' });
+        return { ok: !r.error, venue: target.venue, symbol: target.symbol, timeframe: input.timeframe, sourceTf, inserted: r.inserted, fetched: r.fetched, error: r.error };
+      }
+
+      if (!twelveDataConfigured()) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'TWELVE_DATA_API_KEY fehlt — in Einstellungen → API-Keys hinterlegen.' });
+      }
+      const r = await ingestTwelveData(ctx.db, { symbol: target.symbol, timeframe: sourceTf, outputsize: 500 });
+      return { ok: true, venue: target.venue, symbol: target.symbol, timeframe: input.timeframe, sourceTf, inserted: r.inserted, fetched: r.fetched };
     }),
 
   /**

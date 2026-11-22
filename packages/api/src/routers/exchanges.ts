@@ -1,4 +1,5 @@
 import { TRPCError } from '@trpc/server';
+import ccxt from 'ccxt';
 import { and, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
@@ -202,4 +203,37 @@ export const exchangesRouter = router({
         tradingMode: settings.mode,
       };
     }),
+
+  /** Misst echte Round-Trip-Latenz (ms) zu jeder verbundenen Börse (öffentlicher Ping, isoliert je Börse). */
+  pingAll: protectedProcedure.query(async ({ ctx }) => {
+    const conns = await listConnections(ctx.db, ctx.user.id);
+    const active = conns.filter((c) => c.status === 'active');
+    const results = await Promise.all(
+      active.map(async (c) => {
+        const Ctor = (ccxt as unknown as Record<string, new (opts: object) => {
+          fetchTime?: () => Promise<number>;
+          fetchStatus?: () => Promise<unknown>;
+          loadMarkets: () => Promise<unknown>;
+        }>)[c.exchangeId];
+        if (!Ctor) return { connectionId: c.id, exchangeId: c.exchangeId, ok: false, latencyMs: null as number | null, error: 'unbekannt' };
+        const ex = new Ctor({ enableRateLimit: true, timeout: 6_000 });
+        const t0 = performance.now();
+        try {
+          if (typeof ex.fetchTime === 'function') await ex.fetchTime();
+          else if (typeof ex.fetchStatus === 'function') await ex.fetchStatus();
+          else await ex.loadMarkets();
+          return { connectionId: c.id, exchangeId: c.exchangeId, ok: true, latencyMs: Math.max(1, Math.round(performance.now() - t0)), error: null as string | null };
+        } catch (err) {
+          return {
+            connectionId: c.id,
+            exchangeId: c.exchangeId,
+            ok: false,
+            latencyMs: null as number | null,
+            error: err instanceof Error ? err.message.slice(0, 120) : String(err),
+          };
+        }
+      }),
+    );
+    return results;
+  }),
 });

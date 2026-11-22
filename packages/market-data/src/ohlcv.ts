@@ -237,15 +237,39 @@ export async function resolveCandleVenue(db: Db, symbol: string): Promise<string
 }
 
 /**
- * Lädt Kerzen je Kursquelle (Binance direkt; Yahoo/Twelve Data: `4h` wird look-ahead-frei aus
- * abgeschlossenen `1h`-Kerzen aggregiert). Ohne `venue` wird sie über `resolveCandleTarget` aufgelöst.
+ * Bestimmt den nativen Quell-Zeitrahmen einer Venue für einen gewünschten Ziel-Zeitrahmen.
+ * Nicht-native Zwischenstufen (z. B. 2m/10m auf Binance, 3m/10m/2h/4h/12h auf Yahoo) werden
+ * look-ahead-frei aus echten kleineren Kerzen aggregiert (aggregateCandles).
+ */
+export function sourceTimeframeFor(venue: string, targetTf: string): string {
+  if (venue === 'binance') {
+    if (targetTf === '2m') return '1m';
+    if (targetTf === '10m') return '5m';
+    return targetTf;
+  }
+  if (venue === 'yahoo') {
+    if (targetTf === '3m') return '1m';
+    if (targetTf === '10m') return '5m';
+    if (targetTf === '2h' || targetTf === '4h' || targetTf === '12h') return '1h';
+    return targetTf;
+  }
+  // twelvedata
+  if (targetTf === '2m' || targetTf === '3m') return '1m';
+  if (targetTf === '10m') return '5m';
+  if (targetTf === '2h' || targetTf === '4h' || targetTf === '12h') return '1h';
+  return targetTf;
+}
+
+/**
+ * Lädt Kerzen je Kursquelle (Binance direkt; nicht-native Zeitrahmen werden look-ahead-frei
+ * aus abgeschlossenen Quellkerzen aggregiert). Ohne `venue` wird sie über `resolveCandleTarget` aufgelöst.
  */
 export async function loadSourceCandles(
   db: Db,
   p: { venue?: string; symbol: string; timeframe: string; since?: Date; until?: Date; limit?: number; now?: Date },
 ): Promise<{ ts: Date; open: number; high: number; low: number; close: number; volume: number }[]> {
   const { venue, symbol } = await resolveCandleTarget(db, p.symbol, p.venue);
-  const sourceTf = venue !== 'binance' && p.timeframe === '4h' ? '1h' : p.timeframe;
+  const sourceTf = sourceTimeframeFor(venue, p.timeframe);
   if (sourceTf === p.timeframe) {
     return getOhlcv(db, {
       venue,
@@ -257,11 +281,13 @@ export async function loadSourceCandles(
     });
   }
   const end = p.until ?? p.now ?? new Date();
+  const defaultLookbackMs =
+    sourceTf === '1m' ? 7 * 86_400_000 : sourceTf === '5m' ? 30 * 86_400_000 : SOURCE_AGGREGATE_LOOKBACK_MS;
   const raw = await getOhlcv(db, {
     venue,
     symbol,
     timeframe: sourceTf,
-    since: p.since ?? new Date(end.getTime() - SOURCE_AGGREGATE_LOOKBACK_MS),
+    since: p.since ?? new Date(end.getTime() - defaultLookbackMs),
     until: end,
   });
   const out = aggregateCandles(closedCandles(raw, sourceTf, end), sourceTf, p.timeframe, end);

@@ -15,17 +15,21 @@ export type MarketLike = { symbol?: string; base?: string; quote?: string; spot?
 const LEVERAGED = /(UP|DOWN|BULL|BEAR)$/;
 const STABLE_OR_FIAT = new Set(['USDC', 'FDUSD', 'TUSD', 'BUSD', 'DAI', 'USDP', 'USD1', 'USDE', 'USDS', 'EUR', 'EURI', 'GBP', 'TRY', 'BRL', 'ARS', 'JPY', 'AUD', 'ZAR', 'UAH', 'PLN', 'RON', 'CZK', 'MXN', 'COP', 'NGN', 'RUB', 'XUSD', 'AEUR', 'PAXG']);
 
-/** Pur: ccxt-Märkte → sortierte USDT-Spot-Paare (ohne Hebel-Token, ohne Stable/Fiat-Basis). */
+/** Pur: ccxt-Märkte → sortierte USDT-Spot-Paare (plus USDC-Fallback für EU-MiCA-Paare ohne USDT; ohne Hebel-/Stable-Basis). */
 export function filterSpotPairs(markets: Iterable<MarketLike | undefined>): SpotPair[] {
-  const seen = new Set<string>();
-  const out: SpotPair[] = [];
+  const usdt = new Map<string, SpotPair>();
+  const usdc = new Map<string, SpotPair>();
   for (const m of markets) {
     if (!m || m.spot === false || m.active === false) continue;
-    if (m.quote !== 'USDT' || !m.base) continue;
+    if ((m.quote !== 'USDT' && m.quote !== 'USDC') || !m.base) continue;
     const base = m.base.toUpperCase();
-    if (LEVERAGED.test(base) || STABLE_OR_FIAT.has(base) || seen.has(base)) continue;
-    seen.add(base);
-    out.push({ symbol: `${base}/USDT`, base });
+    if (LEVERAGED.test(base) || STABLE_OR_FIAT.has(base)) continue;
+    if (m.quote === 'USDT' && !usdt.has(base)) usdt.set(base, { symbol: `${base}/USDT`, base });
+    else if (m.quote === 'USDC' && !usdc.has(base)) usdc.set(base, { symbol: `${base}/USDC`, base });
+  }
+  const out: SpotPair[] = [...usdt.values()];
+  for (const [base, pair] of usdc) {
+    if (!usdt.has(base)) out.push(pair);
   }
   out.sort((a, b) => a.base.localeCompare(b.base));
   return out;
