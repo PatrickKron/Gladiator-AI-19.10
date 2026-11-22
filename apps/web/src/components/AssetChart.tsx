@@ -8,6 +8,7 @@ import {
   CrosshairMode,
   LineStyle,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
   type SeriesMarker,
   type Time,
@@ -40,6 +41,7 @@ import type { DrawingPoint } from '@gladiator/core/drawings';
 import { DrawingsPrimitive, type ChartDrawing } from './chart-drawings-primitive.js';
 import { SmcBoxesPrimitive, type SmcItem } from './smc-boxes-primitive.js';
 import { compute2dHeatmap, computeChartHeatmap } from '../lib/chart-heatmap.js';
+import type { ChartOverlayLine } from '../lib/chart-overlays.js';
 import { appLocale } from '../lib/locale.js';
 
 /**
@@ -189,6 +191,8 @@ export function AssetChart({
   syncGroup,
   enableHotkeys = false,
   onPickPrice,
+  onCreateAlert,
+  overlayLines,
 }: {
   symbol: string;
   /** Kerzenquelle: 'binance' (Krypto, Live-Ticks) oder 'twelvedata'/'yahoo' (Aktien/ETF/Forex, nur DB-Kerzen). */
@@ -209,6 +213,10 @@ export function AssetChart({
   enableHotkeys?: boolean;
   /** Klick auf ein Preisniveau im Chart → Ein-Klick-Übergabe als Limit oder Stop-Loss ins Ticket. */
   onPickPrice?: (pick: { price: number; kind: 'limit' | 'sl' }) => void;
+  /** Klick auf „Preis-Alert hier“ → legt direkt einen echten Preis-Alert (Web-Push/Glocke) an. */
+  onCreateAlert?: (price: number) => Promise<void>;
+  /** Eigene TradingView-Preislinien (offene Positionen, Demo-Positionen, aktive Alerts — inkrementell ohne Chart-Neubau). */
+  overlayLines?: ChartOverlayLine[];
 }) {
   const { t } = useTranslation();
   // Timeframe pro Asset gemerkt (P0.2): Query-Override > gemerkt > Default.
@@ -258,12 +266,21 @@ export function AssetChart({
   }, [symbol, venue, rememberTf]);
   const shownTfs = CHART_TFS.filter((f) => availableTfs.includes(f) || f === tf);
   const [pickedPrice, setPickedPrice] = useState<number | null>(null);
+  const [alertBusy, setAlertBusy] = useState(false);
+  const [alertFeedback, setAlertFeedback] = useState<string | null>(null);
   const onPickPriceRef = useRef(onPickPrice);
   onPickPriceRef.current = onPickPrice;
+  const onCreateAlertRef = useRef(onCreateAlert);
+  onCreateAlertRef.current = onCreateAlert;
+  const overlayLinesRef = useRef<ChartOverlayLine[]>(overlayLines ?? []);
+  overlayLinesRef.current = overlayLines ?? [];
+  const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const overlayPriceLinesRef = useRef<IPriceLine[]>([]);
 
   // Symbol-/Quellenwechsel räumt ein altes Preis-Auswahl-Banner auf.
   useEffect(() => {
     setPickedPrice(null);
+    setAlertFeedback(null);
   }, [symbol, venue]);
 
   // Tastenkürzel 1–6 schalten direkt durch die angezeigten Timeframes (analog TradingView).
@@ -1205,9 +1222,12 @@ export function AssetChart({
       pointFromChart(barTimes, price.timeScale().coordinateToLogical(pt.x), candle.coordinateToPrice(pt.y));
     const onDrawClick = (param: Parameters<Parameters<typeof price.subscribeClick>[0]>[0]) => {
       if (!param.point || (param.paneIndex ?? 0) > 0) return; // Zeichnen nur im Kursfenster
-      if (toolRef.current === 'none' && onPickPriceRef.current) {
+      if (toolRef.current === 'none' && (onPickPriceRef.current || onCreateAlertRef.current)) {
         const pr = candle.coordinateToPrice(param.point.y);
-        if (pr !== null && Number.isFinite(pr) && pr > 0) setPickedPrice(pr);
+        if (pr !== null && Number.isFinite(pr) && pr > 0) {
+          setPickedPrice(pr);
+          setAlertFeedback(null);
+        }
       }
       handleChartClickRef.current(param.point, chartPointAt(param.point));
     };
@@ -1489,6 +1509,27 @@ export function AssetChart({
       );
     }
 
+    // Eigene Positions- & Preis-Alert-Linien (inkrementell aktualisiert über candleSeriesRef)
+    const toLwcStyle = (s: ChartOverlayLine['lineStyle']) =>
+      s === 'solid' ? LineStyle.Solid : s === 'dotted' ? LineStyle.Dotted : LineStyle.Dashed;
+    candleSeriesRef.current = candle;
+    overlayPriceLinesRef.current = overlayLinesRef.current.map((line) =>
+      candle.createPriceLine({
+        price: line.price,
+        color: line.color,
+        lineWidth: line.kind === 'entry' ? 2 : 1,
+        lineStyle: toLwcStyle(line.lineStyle),
+        axisLabelVisible: true,
+        title: line.title,
+      }),
+    );
+    cleanups.push(() => {
+      if (candleSeriesRef.current === candle) {
+        candleSeriesRef.current = null;
+        overlayPriceLinesRef.current = [];
+      }
+    });
+
     // Crosshair-Legende (OHLC-Readout)
     const legendEl = legendRef.current;
     const onMove = (param: Parameters<Parameters<typeof price.subscribeCrosshairMove>[0]>[0]) => {
@@ -1576,6 +1617,31 @@ export function AssetChart({
   useEffect(() => {
     smcPrimRef.current?.setItems(smcItems);
   }, [smcItems]);
+
+  // Eigene Positions- & Alert-Preislinien inkrementell aktualisieren (kein Chart-Neubau, Zoom/Pan bleiben stabil).
+  useEffect(() => {
+    const candle = candleSeriesRef.current;
+    if (!candle) return;
+    for (const pl of overlayPriceLinesRef.current) {
+      try {
+        candle.removePriceLine(pl);
+      } catch {
+        /* Chart schon entsorgt */
+      }
+    }
+    const toLwcStyle = (s: ChartOverlayLine['lineStyle']) =>
+      s === 'solid' ? LineStyle.Solid : s === 'dotted' ? LineStyle.Dotted : LineStyle.Dashed;
+    overlayPriceLinesRef.current = (overlayLines ?? []).map((line) =>
+      candle.createPriceLine({
+        price: line.price,
+        color: line.color,
+        lineWidth: line.kind === 'entry' ? 2 : 1,
+        lineStyle: toLwcStyle(line.lineStyle),
+        axisLabelVisible: true,
+        title: line.title,
+      }),
+    );
+  }, [overlayLines]);
 
   // Neue Ergebnisse oder Stil-Änderungen zeichnen, ohne den Chart neu zu bauen.
   useEffect(() => {
@@ -1745,7 +1811,7 @@ export function AssetChart({
         )}
       </div>
 
-      {pickedPrice !== null && onPickPrice && (
+      {pickedPrice !== null && (onPickPrice || onCreateAlert) && (
         <div
           className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs"
           style={{ borderColor: 'rgba(96,165,250,0.4)', background: 'rgba(59,130,246,0.08)' }}
@@ -1755,27 +1821,56 @@ export function AssetChart({
           <span className="num font-medium" style={{ color: 'var(--color-ink)' }}>
             Kurs: {pickedPrice.toLocaleString(appLocale(), { maximumFractionDigits: pickedPrice >= 1000 ? 1 : 4 })}
           </span>
-          <button
-            type="button"
-            onClick={() => {
-              onPickPrice({ price: pickedPrice, kind: 'limit' });
-              setPickedPrice(null);
-            }}
-            className="btn-primary px-2.5 py-0.5 text-[11px]"
-          >
-            Limit hier setzen
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              onPickPrice({ price: pickedPrice, kind: 'sl' });
-              setPickedPrice(null);
-            }}
-            className="tbtn px-2.5 py-0.5 text-[11px]"
-            style={{ color: 'var(--color-neg)', borderColor: 'rgba(239,68,68,0.45)' }}
-          >
-            Stop-Loss hier setzen
-          </button>
+          {onPickPrice && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  onPickPrice({ price: pickedPrice, kind: 'limit' });
+                  setPickedPrice(null);
+                }}
+                className="btn-primary px-2.5 py-0.5 text-[11px]"
+              >
+                Limit hier setzen
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onPickPrice({ price: pickedPrice, kind: 'sl' });
+                  setPickedPrice(null);
+                }}
+                className="tbtn px-2.5 py-0.5 text-[11px]"
+                style={{ color: 'var(--color-neg)', borderColor: 'rgba(239,68,68,0.45)' }}
+              >
+                Stop-Loss hier setzen
+              </button>
+            </>
+          )}
+          {onCreateAlert && (
+            <button
+              type="button"
+              disabled={alertBusy}
+              onClick={() => {
+                const target = pickedPrice;
+                setAlertBusy(true);
+                void onCreateAlert(target)
+                  .then(() => {
+                    setPickedPrice(null);
+                    setAlertFeedback(
+                      `✓ Preis-Alert bei ${target.toLocaleString(appLocale(), { maximumFractionDigits: target >= 1000 ? 1 : 4 })} gesetzt (Push & Glocke aktiv)`,
+                    );
+                  })
+                  .catch((err) => {
+                    setAlertFeedback(err instanceof Error ? err.message : 'Preis-Alert konnte nicht gesetzt werden.');
+                  })
+                  .finally(() => setAlertBusy(false));
+              }}
+              className="tbtn px-2.5 py-0.5 text-[11px] disabled:opacity-50"
+              style={{ color: 'var(--color-warn)', borderColor: 'rgba(245,158,11,0.5)' }}
+            >
+              🔔 {alertBusy ? 'Speichere …' : 'Preis-Alert hier'}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setPickedPrice(null)}
@@ -1783,6 +1878,18 @@ export function AssetChart({
             style={{ color: 'var(--color-mut)' }}
             aria-label="Schließen"
           >
+            ✕
+          </button>
+        </div>
+      )}
+      {alertFeedback && (
+        <div
+          className="mb-2 flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-xs"
+          style={{ borderColor: 'rgba(245,158,11,0.45)', background: 'rgba(245,158,11,0.08)', color: 'var(--color-ink)' }}
+          role="status"
+        >
+          <span>{alertFeedback}</span>
+          <button type="button" onClick={() => setAlertFeedback(null)} style={{ color: 'var(--color-mut)' }} aria-label="Schließen">
             ✕
           </button>
         </div>

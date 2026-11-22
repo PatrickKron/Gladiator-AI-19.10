@@ -199,6 +199,7 @@ export function createApp(db: Db, opts: AppOptions = {}): express.Express {
     '/api/trpc',
     createExpressMiddleware({
       router: appRouter,
+      maxBodySize: 512 * 1024, // 512 KB Schutzgrenze gegen überdimensionierte JSON-Payloads
       // Clients bekommen in Produktion keine Stacks mehr (sanitizeErrorShape) —
       // ungeplante Fehler landen dafür vollständig im Server-Log (journald).
       onError({ error, path }) {

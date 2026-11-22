@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { trpc } from '../api.js';
 import { Panel } from '../components/ui.js';
 import { AssetSelect, getSelectedAsset, getSelectedVenue, setSelectedAsset, setSelectedVenue } from '../components/AssetSelect.js';
 import { AssetAnalysis } from '../components/AssetAnalysis.js';
@@ -21,6 +22,8 @@ import { isTypingTarget } from '../lib/watchlist.js';
 import { CHART_LAYOUTS, layoutGridClass, loadChartLayout, normalizeCells, saveChartLayout, type ChartCell, type ChartLayout } from '../lib/chart-layout.js';
 import { appLocale } from '../lib/locale.js';
 import { priceUnit } from '../lib/asset-tabs.js';
+import { alertConditionForPrice, buildChartOverlayLines, type ChartOverlayLine } from '../lib/chart-overlays.js';
+import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
 
 const TAB_ICONS: Record<AssetTab, string> = {
   chart: '📈',
@@ -241,6 +244,46 @@ export function AssetDetail() {
   // Kurswährung aus dem Asset-Profil (SAP.DE → €); unbekannt (London in Pence) → kein Zeichen statt falschem „$".
   const unit = ctx && ctx.available ? priceUnit(ctx.quoteCurrency) : '';
 
+  // Eigene TradingView-Preislinien (offene Agenten-/Demo-Positionen + aktive Preis-Alerts) inkrementell im Chart.
+  const [overlayLines, setOverlayLines] = useState<ChartOverlayLine[]>([]);
+  const loadOverlays = useCallback(async () => {
+    const [agentRes, demoRes, alertRes] = await Promise.allSettled([
+      trpc.trading.positions.query(),
+      trpc.demo.positions.query(),
+      trpc.trading.alerts.query(),
+    ]);
+    setOverlayLines(
+      buildChartOverlayLines({
+        symbol: asset,
+        venue,
+        agentPositions: agentRes.status === 'fulfilled' ? agentRes.value : [],
+        demoPositions: demoRes.status === 'fulfilled' ? demoRes.value : [],
+        alerts: alertRes.status === 'fulfilled' ? alertRes.value : [],
+      }),
+    );
+  }, [asset, venue]);
+
+  useEffect(() => {
+    if (tab !== 'chart') return;
+    void loadOverlays();
+    const timer = setVisibleInterval(() => void loadOverlays(), 30_000);
+    return () => clearVisibleInterval(timer);
+  }, [tab, loadOverlays]);
+
+  const handleCreateChartAlert = useCallback(
+    async (targetPrice: number) => {
+      const condition = alertConditionForPrice(targetPrice, price);
+      await trpc.trading.createAlert.mutate({
+        symbol: asset,
+        venue,
+        condition,
+        price: targetPrice,
+      });
+      await loadOverlays();
+    },
+    [asset, venue, price, loadOverlays],
+  );
+
   return (
     <div>
       {/* Kompakter Cockpit-Kopf: Asset · Kurs · Modus-Wahl (Chart · Analyse · Makro · Risiko) · Layout · Aktionen */}
@@ -432,6 +475,8 @@ export function AssetDetail() {
                     mainHeight={layout === 1 ? singleChartHeight : Math.max(360, Math.round(viewportH * 0.42))}
                     syncGroup={layout === 1 ? undefined : 'chart-cells'}
                     enableHotkeys
+                    overlayLines={overlayLines}
+                    onCreateAlert={handleCreateChartAlert}
                     onPickPrice={({ price: p, kind }) => {
                       setTicketPrefill((prev) => ({ price: p, kind, seq: (prev?.seq ?? 0) + 1 }));
                       if (fullscreen) setFullscreen(false);
@@ -450,7 +495,7 @@ export function AssetDetail() {
               </div>
               {ticketOpen && layout > 1 && (
                 <div ref={ticketRef} className="mt-3">
-                  <OrderTicket symbol={asset} venue={venue} embedded prefill={ticketPrefill} onPlaced={() => undefined} />
+                  <OrderTicket symbol={asset} venue={venue} embedded prefill={ticketPrefill} onPlaced={() => void loadOverlays()} />
                 </div>
               )}
               {venue === 'binance' ? (
@@ -466,7 +511,7 @@ export function AssetDetail() {
             </div>
             {ticketOpen && layout === 1 && (
               <div ref={ticketRef} className="min-w-0">
-                <OrderTicket symbol={asset} venue={venue} embedded prefill={ticketPrefill} onPlaced={() => undefined} />
+                <OrderTicket symbol={asset} venue={venue} embedded prefill={ticketPrefill} onPlaced={() => void loadOverlays()} />
               </div>
             )}
           </div>
