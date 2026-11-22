@@ -181,6 +181,7 @@ export function TextStrategyBuilder({ onSaved }: { onSaved?: () => void }) {
         from: from.toISOString(),
         to: to.toISOString(),
         riskPctPerTrade: riskPct,
+        autoFetchCandles: true,
       });
       setBacktest(bt);
     } catch (err) {

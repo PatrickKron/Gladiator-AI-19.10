@@ -361,21 +361,24 @@ export const workshopRouter = router({
         to: z.string().datetime(),
         riskPctPerTrade: z.number().min(0.1).max(5).default(1),
         costModel: costSchema.optional(),
+        autoFetchCandles: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const from = new Date(input.from);
       const to = new Date(input.to);
-      try {
-        const session = await ownedSession(ctx.db, ctx.user.id, input.id);
-        const draft = parseInstructionDsl(session.draftDsl);
-        const sym = input.symbol ?? (draft.ok ? draft.dsl.symbol : undefined);
-        const tf = input.timeframe ?? (draft.ok ? draft.dsl.timeframe : undefined);
-        if (sym && tf) {
-          await ensureCandleHistory(ctx.db, { symbol: sym, timeframe: tf, from, to });
+      if (input.autoFetchCandles) {
+        try {
+          const session = await ownedSession(ctx.db, ctx.user.id, input.id);
+          const draft = parseInstructionDsl(session.draftDsl);
+          const sym = input.symbol ?? (draft.ok ? draft.dsl.symbol : undefined);
+          const tf = input.timeframe ?? (draft.ok ? draft.dsl.timeframe : undefined);
+          if (sym && tf) {
+            await ensureCandleHistory(ctx.db, { symbol: sym, timeframe: tf, from, to });
+          }
+        } catch {
+          // Offline / Test-DB: runDraftBacktest prüft vorhandene DB-Kerzen ehrlich.
         }
-      } catch {
-        // Offline / Test-DB: runDraftBacktest prüft vorhandene DB-Kerzen ehrlich.
       }
       return runDraftBacktest(ctx.db, ctx.user.id, {
         ...input,
