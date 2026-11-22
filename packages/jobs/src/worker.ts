@@ -7,6 +7,7 @@ import { runWalletCopy } from './wallet-copy.js';
 import { resolvePendingSwaps } from './swap-pending.js';
 import { fredConfigured, syncDerivatives, syncFredWatch, syncEconomicCalendar, syncFredSeries, syncMacroSeries, syncNews } from '@gladiator/market-data';
 import { runNightPipeline } from './briefing.js';
+import { runEveningReviewNotification } from './evening-review.js';
 import { runSignalScan } from './signal-scan.js';
 import { scanUniverse } from './universe.js';
 import { runDslScan } from './dsl-scan.js';
@@ -49,6 +50,7 @@ const NEWS_JOB = 'news-sync';
 const DERIVATIVES_JOB = 'derivatives-sync';
 const SUB_AGENT_JOB = 'sub-agent-run';
 const NIGHT_JOB = 'night-pipeline';
+const EVENING_REVIEW_JOB = 'evening-review';
 const ML_FEATURES_JOB = 'ml-features';
 const ML_LABEL_JOB = 'ml-auto-label';
 const ML_RETRAIN_JOB = 'ml-retrain';
@@ -154,6 +156,8 @@ export const FAST_SCHEDULES: [string, number][] = [[MONITOR_JOB, 60_000]];
 
 /** Nacht-Pipeline: täglich 03:30 UTC (08_ §5) — Cron statt Intervall. */
 const NIGHT_CRON = '30 3 * * *';
+/** Abend-Trade-Review: täglich 19:00 UTC (20:00/21:00 Berlin) — fasst Tages-Trades als Benachrichtigung zusammen. */
+const EVENING_REVIEW_CRON = '0 19 * * *';
 /**
  * Strategie-Optimierung → Vorschläge (08_ §4/§5): sonntags 03:00 UTC — wöchentlich,
  * weil sich das Ergebnis eines 1000/250-Bar-Walk-Forwards über einen Tag kaum
@@ -199,6 +203,7 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
   // sonst liefe er doppelt.
   await queue.removeJobScheduler(MONITOR_JOB);
   await queue.upsertJobScheduler(NIGHT_JOB, { pattern: NIGHT_CRON }, { name: NIGHT_JOB });
+  await queue.upsertJobScheduler(EVENING_REVIEW_JOB, { pattern: EVENING_REVIEW_CRON }, { name: EVENING_REVIEW_JOB });
   await queue.upsertJobScheduler(OPTIMIZE_JOB, { pattern: OPTIMIZE_CRON }, { name: OPTIMIZE_JOB });
   await queue.upsertJobScheduler(ML_RETRAIN_JOB, { pattern: ML_RETRAIN_CRON }, { name: ML_RETRAIN_JOB });
   await queue.upsertJobScheduler(RL_PERF_JOB, { pattern: RL_PERF_CRON }, { name: RL_PERF_JOB });
@@ -222,7 +227,7 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           const res = await runSignalScan(db);
           console.log(
             `[signal-scan] ${new Date().toISOString()} neu=${res.inserted} dupes=${res.skippedDuplicates} ` +
-              res.scanned.map((s) => `${s.venue === 'binance' ? '' : `${s.venue}:`}${s.symbol}@${s.timeframe}:${s.candles}${s.stale ? '(alt)' : ''}`).join(' '),
+            res.scanned.map((s) => `${s.venue === 'binance' ? '' : `${s.venue}:`}${s.symbol}@${s.timeframe}:${s.candles}${s.stale ? '(alt)' : ''}`).join(' '),
           );
           for (const s of res.skippedAssets) console.log('[signal-scan] übersprungen:', s);
           // DSL-Strategien (07_ §3) scannen — dieselbe Pipeline, source 'instruction'.
@@ -251,7 +256,7 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           const res = await refreshRegisteredCandles(db);
           console.log(
             `[candle-refresh] Assets=${res.assets} binance=${res.refreshed.binance} yahoo=${res.refreshed.yahoo} ` +
-              `twelvedata=${res.refreshed.twelvedata} neu=${res.inserted} übersprungen=${res.skipped.length} Fehler=${res.errors.length}`,
+            `twelvedata=${res.refreshed.twelvedata} neu=${res.inserted} übersprungen=${res.skipped.length} Fehler=${res.errors.length}`,
           );
           for (const s of res.skipped) console.log('[candle-refresh]', s);
           for (const e of res.errors) console.warn('[candle-refresh]', e);
@@ -260,6 +265,11 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
         case NIGHT_JOB: {
           const res = await runNightPipeline(db);
           console.log(`[night-pipeline] ${res.day} erstellt=${res.created} versendet=${res.sent}`);
+          return res;
+        }
+        case EVENING_REVIEW_JOB: {
+          const res = await runEveningReviewNotification(db);
+          console.log(`[evening-review] ${res.day} versendet=${res.sent}`);
           return res;
         }
         case OPTIMIZE_JOB: {
@@ -315,7 +325,7 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           if (res.killed > 0 || res.reentries > 0 || res.upgrades > 0 || res.errors.length > 0) {
             console.log(
               `[signal-lifecycle] geprüft=${res.checked} auto-kill=${res.killed} reentry=${res.reentries} ` +
-                `hebel-vorschläge=${res.upgrades} Fehler=${res.errors.length}`,
+              `hebel-vorschläge=${res.upgrades} Fehler=${res.errors.length}`,
             );
             for (const e of res.errors) console.warn('[signal-lifecycle]', e);
           }
@@ -333,7 +343,7 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           if (res.agentsEvaluated > 0) {
             console.log(
               `[sub-agent-run] Agenten=${res.agentsEvaluated} Signale=${res.signalsCreated} ` +
-                `geschlossen=${res.positionsClosed} pausiert=${res.paused} Fehler=${res.errors.length}`,
+              `geschlossen=${res.positionsClosed} pausiert=${res.paused} Fehler=${res.errors.length}`,
             );
             for (const e of res.errors) console.warn('[sub-agent-run]', e);
           }
@@ -429,7 +439,7 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           const res = await recomputeStudyClusters(db);
           console.log(
             `[study-clusters] Cluster=${res.clusters} mit Vorschlag=${res.recommended} ` +
-              `Trades=${res.rowsUsed} verworfen=${res.rowsSkipped}`,
+            `Trades=${res.rowsUsed} verworfen=${res.rowsSkipped}`,
           );
           return res;
         }

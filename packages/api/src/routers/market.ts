@@ -86,6 +86,7 @@ const venueQuoteCache = new TtlLruCache<string, { at: number; quotes: VenueQuote
   maxSize: 200,
   ttlMs: VENUE_QUOTE_TTL_MS,
 });
+const breadthCache = new TtlLruCache<string, unknown>({ maxSize: 4, ttlMs: 60_000 });
 
 /**
  * Kosten-Wächter für die News-Zusammenfassung — gleiche Budget-Logik wie im
@@ -1145,4 +1146,114 @@ export const marketRouter = router({
       });
       return res;
     }),
+
+  /**
+   * Marktbreite & Top-Mover (24h) aus echten DB-Kerzen (Welle 18):
+   * Berechnet für alle gespeicherten Symbole (Krypto, Aktien, ETFs, Forex) die
+   * reale 24h-Veränderung (1h-Kerzen, Fallback 1d-Kerzen) — keine Fake-Werte.
+   */
+  breadth: protectedProcedure.query(async ({ ctx }) => {
+    type BreadthRow = { symbol: string; venue: string; price: number; changePct24h: number };
+    type BreadthResult = {
+      total: number;
+      advancers: number;
+      decliners: number;
+      unchanged: number;
+      breadthPct: number | null;
+      avgChangePct: number | null;
+      crypto: { total: number; advancers: number; avgChangePct: number | null };
+      tradfi: { total: number; advancers: number; avgChangePct: number | null };
+      topGainers: BreadthRow[];
+      topLosers: BreadthRow[];
+      takeaway: string;
+    };
+
+    const cached = breadthCache.get('all') as BreadthResult | undefined;
+    if (cached) return cached;
+
+    const raw = await ctx.db.execute(sql`
+      WITH recent AS (
+        SELECT
+          venue,
+          symbol,
+          close::float8 AS close,
+          ts,
+          ROW_NUMBER() OVER (PARTITION BY venue, symbol ORDER BY ts DESC) AS rn_desc,
+          ROW_NUMBER() OVER (PARTITION BY venue, symbol ORDER BY ts ASC) AS rn_asc
+        FROM ohlcv
+        WHERE timeframe = '1h'
+          AND ts >= NOW() - INTERVAL '26 hours'
+      ),
+      pairs AS (
+        SELECT
+          a.venue,
+          a.symbol,
+          a.close AS last_close,
+          b.close AS first_close
+        FROM recent a
+        JOIN recent b
+          ON a.venue = b.venue AND a.symbol = b.symbol
+        WHERE a.rn_desc = 1 AND b.rn_asc = 1 AND a.ts > b.ts AND b.close > 0
+      )
+      SELECT venue, symbol, last_close, ((last_close - first_close) / first_close) * 100.0 AS pct
+      FROM pairs
+      ORDER BY pct DESC
+    `);
+
+    const items: BreadthRow[] = (raw.rows as Array<{ venue: string; symbol: string; last_close: number; pct: number }>)
+      .filter((r) => Number.isFinite(Number(r.last_close)) && Number.isFinite(Number(r.pct)))
+      .map((r) => ({
+        venue: String(r.venue),
+        symbol: String(r.symbol),
+        price: Number(r.last_close),
+        changePct24h: Math.round(Number(r.pct) * 100) / 100,
+      }));
+
+    const total = items.length;
+    const advancers = items.filter((i) => i.changePct24h > 0.05).length;
+    const decliners = items.filter((i) => i.changePct24h < -0.05).length;
+    const unchanged = Math.max(0, total - advancers - decliners);
+    const breadthPct = total > 0 ? Math.round((advancers / total) * 1000) / 10 : null;
+    const avgChangePct =
+      total > 0 ? Math.round((items.reduce((s, i) => s + i.changePct24h, 0) / total) * 100) / 100 : null;
+
+    const groupStats = (arr: BreadthRow[]) => ({
+      total: arr.length,
+      advancers: arr.filter((i) => i.changePct24h > 0.05).length,
+      avgChangePct:
+        arr.length > 0 ? Math.round((arr.reduce((s, i) => s + i.changePct24h, 0) / arr.length) * 100) / 100 : null,
+    });
+    const crypto = groupStats(items.filter((i) => i.venue === 'binance'));
+    const tradfi = groupStats(items.filter((i) => i.venue !== 'binance'));
+
+    const topGainers = items.filter((i) => i.changePct24h > 0).slice(0, 5);
+    const topLosers = [...items].reverse().filter((i) => i.changePct24h < 0).slice(0, 5);
+
+    let takeaway = 'Noch nicht genügend 1h-Kerzen der letzten 24h für eine Marktbreiten-Auswertung.';
+    if (total > 0 && breadthPct !== null && avgChangePct !== null) {
+      if (breadthPct >= 65) {
+        takeaway = `Breite Marktstärke (${breadthPct} % im Plus, Ø ${avgChangePct >= 0 ? '+' : ''}${avgChangePct} %) — Rückenwind für Trendfolge-Long-Setups.`;
+      } else if (breadthPct <= 35) {
+        takeaway = `Breiter Abgabedruck (nur ${breadthPct} % im Plus, Ø ${avgChangePct} %) — defensiv bleiben, eng absichern oder Short-Setups bevorzugen.`;
+      } else {
+        takeaway = `Gemischter Markt (${advancers} Gewinner vs. ${decliners} Verlierer, Ø ${avgChangePct >= 0 ? '+' : ''}${avgChangePct} %) — selektiv auf starke Einzel-Assets fokussieren.`;
+      }
+    }
+
+    const result: BreadthResult = {
+      total,
+      advancers,
+      decliners,
+      unchanged,
+      breadthPct,
+      avgChangePct,
+      crypto,
+      tradfi,
+      topGainers,
+      topLosers,
+      takeaway,
+    };
+    breadthCache.set('all', result);
+    return result;
+  }),
 });

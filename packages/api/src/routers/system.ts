@@ -1,12 +1,14 @@
 import { and, desc, eq, gte, isNull, like, lt, lte, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
-import { latestBriefing, telegramConfigured } from '@gladiator/jobs';
+import { TtlLruCache } from '@gladiator/core';
+import { buildBriefing, buildEveningReview, latestBriefing, telegramConfigured, type BriefingData } from '@gladiator/jobs';
 import { derivativesFresh, fredConfigured, getMacroSnapshot } from '@gladiator/market-data';
 import { protectedProcedure, router } from '../trpc.js';
 
 const startedAt = Date.now();
 const { auditLog } = schema;
+const structuredBriefingCache = new TtlLruCache<string, BriefingData>({ ttlMs: 60_000, maxSize: 8 });
 
 /** LIKE-Sonderzeichen im Präfix wörtlich nehmen (kein Wildcard-Leak). */
 function escapeLike(s: string): string {
@@ -144,4 +146,28 @@ export const systemRouter = router({
     const row = await latestBriefing(ctx.db);
     return row ? { day: row.day, text: row.text, sentAt: row.sentAt, createdAt: row.createdAt } : null;
   }),
+
+  /**
+   * Strukturiertes Live-Briefing für die Karten-Darstellung auf `#/` (Welle 18):
+   * Liefert immer aktuelle, strukturierte Daten (Regime, Konto, Signale, Termine, News)
+   * plus den optionalen LLM-Kommentar aus dem letzten Nacht-Briefing.
+   */
+  structuredBriefing: protectedProcedure.query(async ({ ctx }) => {
+    const dayKey = new Date().toISOString().slice(0, 10);
+    let data = structuredBriefingCache.get(dayKey);
+    if (!data) {
+      data = await buildBriefing(ctx.db);
+      structuredBriefingCache.set(dayKey, data);
+    }
+    const saved = await latestBriefing(ctx.db);
+    return {
+      ...data,
+      savedText: saved?.text ?? null,
+      savedDay: saved?.day ?? null,
+      savedSentAt: saved?.sentAt ?? null,
+    };
+  }),
+
+  /** Tägliches Abend-Trade-Review (Welle 18): fasst heutige Demo- & Agenten-Trades netto zusammen. */
+  eveningReview: protectedProcedure.query(({ ctx }) => buildEveningReview(ctx.db, ctx.user.id)),
 });

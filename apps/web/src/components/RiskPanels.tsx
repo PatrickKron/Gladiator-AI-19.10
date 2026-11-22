@@ -272,6 +272,24 @@ function AssetRiskPanels({ symbol, venue }: { symbol: string; venue: string }) {
         </div>
       )}
 
+      {/* Verbraucher-Kontext für den Risiko-Tab (Welle 18) */}
+      {a && (
+        <div className="glass mb-5 p-3.5 text-xs leading-relaxed" style={{ borderLeft: `3px solid ${a.risk.killSwitchActive || a.noTrade.active ? 'var(--color-neg)' : (v?.atrPct ?? 0) >= 5 ? 'var(--color-warn)' : 'var(--color-pos)'}` }}>
+          <span className="font-semibold" style={{ color: 'var(--color-cyan)' }}>
+            🛡️ Risiko-Einordnung für dich:{' '}
+          </span>
+          <span>
+            {a.risk.killSwitchActive
+              ? 'Der Kill-Switch ist aktiv — alle neuen Orders sind blockiert, bis du ihn bewusst wieder freigibst.'
+              : a.noTrade.active
+                ? `Wichtiger Wirtschaftstermin aktiv (${a.noTrade.reason ?? 'High-Impact'}) — neue Einstiege besser bis nach dem Termin aufschieben, da Spreads und Wicks stark ausschlagen können.`
+                : (v?.atrPct ?? 0) >= 5
+                  ? `Dieses Asset schwankt aktuell stark (ATR ${pct(v?.atrPct)}). Wähle einen kleineren Hebel und passe den Stop-Loss an die größere Schwankungsbreite an.`
+                  : 'Keine aktive Sperre und normale Volatilität — Standard-Positionsgröße gemäß deinen Limits ist tragbar.'}
+          </span>
+        </div>
+      )}
+
       <section className="grid gap-5 lg:grid-cols-2">
         {/* Termine dieses Assets */}
         <Panel label={t('aegis.eventsTitle', { symbol })} stagger={1} className="min-w-0">

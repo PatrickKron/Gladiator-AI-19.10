@@ -22,6 +22,8 @@ import { appLocale } from '../lib/locale.js';
 import { TodayList } from '../components/TodayList.js';
 import { PlexusHero } from '../components/PlexusHero.js';
 import { WealthCurve } from '../components/WealthCurve.js';
+import { MarketBreadthPanel } from '../components/MarketBreadthPanel.js';
+import { DailyBriefingAndReview } from '../components/DailyBriefingAndReview.js';
 import { rangeChange, rangeFilter, wealthCurve } from '../lib/wealth.js';
 import { getSelectedAsset, getSelectedVenue } from '../components/AssetSelect.js';
 
@@ -854,6 +856,12 @@ export function Dashboard() {
           </div>
         </section>
       )}
+
+      {/* Markt-Puls & Top-Mover (24h) — echte DB-Kerzen, sofortiger Einstieg in aktive Märkte */}
+      <MarketBreadthPanel compact />
+
+      {/* Strukturiertes Tages-Briefing (4 Karten) + Abend-Rückblick für Tages-Trades */}
+      <DailyBriefingAndReview />
 
       {/* Signal-Karten (Ticket direkt aus der Karte) — wie v2 immer sichtbar, ohne Signal mit ehrlichem Leer-Zustand */}
       <section className="reveal mt-8" style={{ '--stagger': 4 } as React.CSSProperties}>
