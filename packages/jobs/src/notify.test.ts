@@ -54,17 +54,19 @@ describe.skipIf(!process.env.DATABASE_URL)('notify (echte DB)', () => {
       sent.push(sub.endpoint);
     };
     let telegramText: string | null = null;
+    const title = `BTC/USDT Long ${RUN}`;
     const res = await notify(
       db,
-      { userId, kind: 'signal', title: 'BTC/USDT Long', body: 'Score 8,1 · Entry 64.000', link: '#/signals', telegramHtml: '<b>BTC</b>' },
+      { userId, kind: 'signal', title, body: 'Score 8,1 · Entry 64.000', link: '#/signals', telegramHtml: '<b>BTC</b>' },
       { sendPush, sendTelegram: async (t) => ((telegramText = t), true), pushConfigured: true },
     );
     expect(res).toMatchObject({ created: 1, pushed: 1, pushFailed: 2, removed: 1, telegram: true });
     expect(telegramText).toBe('<b>BTC</b>');
 
-    const rows = await db.select().from(notifications).where(eq(notifications.userId, userId));
+    // Auf dem Live-Server kann der laufende Worker parallel Broadcasts an alle User schreiben — gezielt nach unserer Zeile filtern.
+    const rows = (await db.select().from(notifications).where(eq(notifications.userId, userId))).filter((r) => r.title === title);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ kind: 'signal', title: 'BTC/USDT Long', readAt: null });
+    expect(rows[0]).toMatchObject({ kind: 'signal', title, readAt: null });
 
     const subs = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
     expect(subs.find((s) => s.endpoint.includes('gone'))!.revokedAt).not.toBeNull();
