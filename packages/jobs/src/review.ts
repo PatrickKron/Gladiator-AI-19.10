@@ -23,7 +23,7 @@ import {
   getMacroSnapshot,
   upcomingEvents,
 } from '@gladiator/market-data';
-import { evaluateRisk } from '@gladiator/risk';
+import { evaluateRisk, safeCappedNotional } from '@gladiator/risk';
 import {
   CostGuard,
   decideHedge,
@@ -202,6 +202,17 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue, opts: { sign
       };
 
       const rules = await venueForSource(venue, s.venue).marketRules(s.symbol);
+      const capped = safeCappedNotional({
+        equity: state.equity,
+        availableMargin: state.availableMargin,
+        leverage: 1,
+        riskPct: settings.riskPctPerTrade,
+        entry: facts.entry,
+        stopLoss: facts.stopLoss,
+        maxExposurePct: settings.maxExposurePctPerAsset,
+        existingExposurePct: state.exposureBySymbolPct[s.symbol] ?? 0,
+        minNotional: rules.minNotional,
+      });
       const riskVerdict = evaluateRisk(
         {
           symbol: s.symbol,
@@ -213,6 +224,7 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue, opts: { sign
           session: s.session,
           emaRegime: facts.emaRegime,
           marketPhase: facts.marketPhase,
+          ...(capped.capped && capped.notional !== null ? { requestedNotional: capped.notional } : {}),
         },
         settings,
         state,

@@ -106,6 +106,7 @@ export function Signals() {
 
   // Sortierung laut Vorgabe: neueste zuerst, Abgelaufene gedimmt ans Ende.
   const { active, expired } = useMemo(() => splitByExpiry(rows ?? []), [rows]);
+  const openTradableCount = useMemo(() => (rows ?? []).filter((r) => r.status === 'new').length, [rows]);
 
   const hiddenActive = HIDDEN_FILTER_KEYS.filter((k) => filters[k] !== 'all');
   const filtersDirty =
@@ -264,6 +265,37 @@ export function Signals() {
         </div>
       ) : (
         <>
+          {openTradableCount === 0 && (
+            <div
+              className="glass mb-4 flex flex-wrap items-center justify-between gap-3 p-4 text-xs leading-relaxed"
+              style={{ borderLeft: '3px solid var(--color-cyan)' }}
+            >
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold" style={{ color: 'var(--color-ink)' }}>
+                  Aktuell 0 offene (direkt handelbare) Signale
+                </p>
+                <p className="mt-0.5" style={{ color: 'var(--color-mut)' }}>
+                  Bereits abgelaufene oder gefüllte Signale unten sind nur noch Historie. Neue Setups prüft der Scanner automatisch alle 5 Min. — du kannst jedes Symbol aber jederzeit direkt im Chart & Demo-Ticket handeln oder im Katalog weitere Strategien aktivieren.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href="#/charts"
+                  className="btn-primary px-3 py-1.5 text-xs"
+                >
+                  📈 Chart & Demo-Ticket
+                </a>
+                <a
+                  href="#/strategien?tab=katalog"
+                  className="rounded-lg border px-3 py-1.5 text-xs"
+                  style={{ borderColor: 'var(--color-line)', color: 'var(--color-cyan)' }}
+                >
+                  ⚙️ Strategien aktivieren
+                </a>
+              </div>
+            </div>
+          )}
+
           {/* Aktive Signale: kompakte Zeilen, neueste zuerst */}
           {active.length === 0 ? (
             <div className="glass p-5 text-sm leading-relaxed" style={{ color: 'var(--color-mut)' }}>

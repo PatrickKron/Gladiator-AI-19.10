@@ -7,6 +7,7 @@ import { openAssistant } from './AssistantPanel.js';
 import { MlBadge } from './MlBadge.js';
 import { RegimeBadge } from './RegimeBadge.js';
 import { buildChartUrl } from '../lib/chart-url.js';
+import { setPendingTradeSymbol } from '../lib/trade-symbol.js';
 import { getUiMode } from '../lib/ui-mode.js';
 import { lifecycleChips, type AutoKillInfo, type LeverageUpgradeInfo, type ReentryInfo } from '../lib/signal-lifecycle.js';
 import { appLocale } from '../lib/locale.js';
@@ -433,7 +434,13 @@ function AdjustTicket({
       .then((p) => {
         if (cancelled) return;
         setPreview(p);
-        setAmountEur(p.suggested.notionalEur !== null ? Math.round(p.suggested.notionalEur) : null);
+        const r = p.eurUsdRate;
+        const maxE = r !== null ? Math.max(10, Math.floor(p.limits.maxNotionalUsd / r)) : null;
+        const minE = r !== null ? Math.max(1, Math.ceil(p.limits.minNotionalUsd / r)) : null;
+        const rawEur = p.suggested.notionalEur !== null ? Math.round(p.suggested.notionalEur) : null;
+        const clampedEur =
+          rawEur !== null && maxE !== null && minE !== null ? Math.min(maxE, Math.max(minE, rawEur)) : rawEur;
+        setAmountEur(clampedEur);
         setLeverage(p.suggested.leverage);
         setSlPct(Math.round(suggestedSlPct * 10) / 10);
       })
@@ -675,8 +682,18 @@ function AdjustTicket({
         </p>
       )}
 
+      {/* Automatische konservative Deckelung bei engem Stop transparent anzeigen */}
+      {preview.suggested.autoCapped && (
+        <p
+          className="mt-2 rounded border px-2 py-1 text-[11px] leading-relaxed"
+          style={{ borderColor: 'rgba(6,182,212,0.4)', color: 'var(--color-cyan)', background: 'rgba(6,182,212,0.08)' }}
+        >
+          ✓ Einsatz automatisch an dein {fmtPct(preview.exposureFit.limitPct, 0)}-Exposure-Limit angepasst (tatsächliches Risiko: {fmtPct(preview.suggested.effectiveRiskPct, 2)} statt {fmtPct(preview.exposureFit.riskPct, 2)}).
+        </p>
+      )}
+
       {/* Risiko% vs. Exposure-Limit (enger Stop): Rechnung offenlegen + größten erlaubten Betrag anbieten */}
-      {!preview.exposureFit.fits && preview.exposureFit.stopPct > 0 && !dirty && (
+      {!preview.suggested.autoCapped && !preview.exposureFit.fits && preview.exposureFit.stopPct > 0 && !dirty && (
         <div className="mt-2 rounded border p-2 text-[11px] leading-relaxed" style={{ borderColor: 'rgba(245,182,66,0.4)', color: 'var(--color-mut)' }}>
           <p>
             {t('ticket.exposureExplain', {
@@ -918,19 +935,30 @@ export function SignalCard({
           </p>
         </>
       )}
-      {/* Chat-Einstieg (Mängelliste 4): Signal mit echten Werten in den Chat tragen — bewertet mit recent_signals + asset_analysis. */}
-      <button
-        type="button"
-        className="mt-2 w-full text-center text-xs underline decoration-dotted"
-        style={{ color: 'var(--color-blue)' }}
-        onClick={() =>
-          openAssistant(
-            t('signals.chatPrompt', { symbol: signal.symbol, direction: signal.direction, tf: signal.timeframe, entry: fmt(signal.entry), sl: fmt(signal.stopLoss), score: fmt(signal.score) }),
-          )
-        }
-      >
-        {t('signals.discussChat')}
-      </button>
+      {/* Direkt-Einstieg ins Chart & Demo-Ticket — funktioniert für offene UND abgelaufene Signale */}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-2.5" style={{ borderColor: 'rgba(148,163,184,0.12)' }}>
+        <a
+          href={buildChartUrl(signal.symbol, signal.timeframe, signal.venue)}
+          onClick={() => setPendingTradeSymbol(signal.symbol)}
+          className="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors hover:border-[var(--color-cyan)]"
+          style={{ borderColor: 'rgba(6,182,212,0.45)', color: 'var(--color-cyan)' }}
+        >
+          📈 Im Chart & Demo-Ticket handeln
+        </a>
+        {/* Chat-Einstieg (Mängelliste 4): Signal mit echten Werten in den Chat tragen — bewertet mit recent_signals + asset_analysis. */}
+        <button
+          type="button"
+          className="text-xs underline decoration-dotted"
+          style={{ color: 'var(--color-blue)' }}
+          onClick={() =>
+            openAssistant(
+              t('signals.chatPrompt', { symbol: signal.symbol, direction: signal.direction, tf: signal.timeframe, entry: fmt(signal.entry), sl: fmt(signal.stopLoss), score: fmt(signal.score) }),
+            )
+          }
+        >
+          {t('signals.discussChat')}
+        </button>
+      </div>
     </div>
   );
 }
