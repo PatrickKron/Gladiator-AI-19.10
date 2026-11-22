@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel, StatusDot } from '../components/ui.js';
 import { SizingCalc } from '../components/SizingCalc.js';
+import { HedgingConfigPanel } from '../components/HedgingConfigPanel.js';
 import { Sparkline } from '../components/Sparkline.js';
 import { useHashTab } from '../lib/use-hash-tab.js';
 import { buildChartUrl, isChartVenue, type ChartVenue } from '../lib/chart-url.js';
@@ -861,42 +862,42 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
 
       {/* Historie (netto) */}
       {tab === 'historie' && (
-      <Panel label={t('trading.historyTitle')} stagger={9} className="mt-5">
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <ModeFilterBar value={historyMode} onChange={setHistoryMode} />
-          <TradeExport />
-        </div>
-        {history.length === 0 ? (
-          <Empty text={t('trading.noHistory')} />
-        ) : (
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="label text-left">
-                  <th className="py-1.5 pr-3 font-normal">Exit</th>
-                  <th className="py-1.5 pr-3 font-normal">{t('dashboard.symbol')}</th>
-                  <th className="py-1.5 pr-3 font-normal" />
-                  <th className="py-1.5 pr-3 text-right font-normal">Entry → Exit</th>
-                  <th className="py-1.5 pr-3 text-right font-normal">{t('trading.netPnl')} $</th>
-                  <th className="py-1.5 pr-3 text-right font-normal">R</th>
-                  <th className="py-1.5 font-normal">{t('trading.journalNote')}</th>
-                </tr>
-              </thead>
-              <tbody className="num">
-                {history.map((tr) => (
-                  <tr key={tr.id} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
-                    <td className="py-1.5 pr-3">
-                      {tr.exitTs ? new Date(tr.exitTs).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' }) : '—'}
-                    </td>
-                    <td className="py-1.5 pr-3">
-                      <a href={buildChartUrl(tr.symbol, null, tr.candleVenue)} className="hover:underline" style={{ color: 'var(--color-cyan)' }}>{tr.symbol}</a>
-                      {tr.mode === 'live' && (
-                        <span className="ml-1.5 rounded border px-1 py-0.5 text-[10px]" style={{ borderColor: 'rgba(245,158,11,0.5)', color: 'var(--color-warn)' }}>
-                          LIVE
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-1.5 pr-3" style={{ color: tr.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+        <Panel label={t('trading.historyTitle')} stagger={9} className="mt-5">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <ModeFilterBar value={historyMode} onChange={setHistoryMode} />
+            <TradeExport />
+          </div>
+          {history.length === 0 ? (
+            <Empty text={t('trading.noHistory')} />
+          ) : (
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="label text-left">
+                    <th className="py-1.5 pr-3 font-normal">Exit</th>
+                    <th className="py-1.5 pr-3 font-normal">{t('dashboard.symbol')}</th>
+                    <th className="py-1.5 pr-3 font-normal" />
+                    <th className="py-1.5 pr-3 text-right font-normal">Entry → Exit</th>
+                    <th className="py-1.5 pr-3 text-right font-normal">{t('trading.netPnl')} $</th>
+                    <th className="py-1.5 pr-3 text-right font-normal">R</th>
+                    <th className="py-1.5 font-normal">{t('trading.journalNote')}</th>
+                  </tr>
+                </thead>
+                <tbody className="num">
+                  {history.map((tr) => (
+                    <tr key={tr.id} style={{ borderTop: '1px solid rgba(148,163,184,0.08)' }}>
+                      <td className="py-1.5 pr-3">
+                        {tr.exitTs ? new Date(tr.exitTs).toLocaleString(appLocale(), { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                      </td>
+                      <td className="py-1.5 pr-3">
+                        <a href={buildChartUrl(tr.symbol, null, tr.candleVenue)} className="hover:underline" style={{ color: 'var(--color-cyan)' }}>{tr.symbol}</a>
+                        {tr.mode === 'live' && (
+                          <span className="ml-1.5 rounded border px-1 py-0.5 text-[10px]" style={{ borderColor: 'rgba(245,158,11,0.5)', color: 'var(--color-warn)' }}>
+                            LIVE
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-1.5 pr-3" style={{ color: tr.direction === 'long' ? 'var(--color-pos)' : 'var(--color-neg)' }}>
                         {tr.direction.toUpperCase()}
                       </td>
                       <td className="py-1.5 pr-3 text-right">
@@ -931,6 +932,7 @@ export function Trading({ account: accountKind = 'paper' }: { account?: 'paper' 
       )}
 
       {tab === 'risiko' && <SizingCalc />}
+      {tab === 'risiko' && <HedgingConfigPanel />}
       {tab === 'alerts' && <AlertsPanel />}
       {tab === 'performance' && <PerformancePanel />}
       {tab === 'risiko' && <LiveApprovals currentMode={settings?.mode ?? 'paper'} onModeChanged={() => void load()} />}

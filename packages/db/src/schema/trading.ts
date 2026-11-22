@@ -61,6 +61,8 @@ export const tradingSettings = pgTable('trading_settings', {
   maxDrawdownPct: numeric('max_drawdown_pct').notNull().default('15'),
   killSwitchActive: boolean('kill_switch_active').notNull().default(false),
   mode: tradeModeEnum('mode').notNull().default('paper'),
+  /** Konfigurierbare Portfolio-Hedging-Regeln (Welle 17: Drawdown/VIX/Risk-Off-Trigger, Quote, Instrument). */
+  hedgingConfig: jsonb('hedging_config'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

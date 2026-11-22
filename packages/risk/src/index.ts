@@ -36,3 +36,14 @@ export {
   type SwapProfileId,
   type SwapTokenSafety,
 } from './swap-gate.js';
+export {
+  DEFAULT_HEDGING_CONFIG,
+  HEDGING_INSTRUMENTS,
+  evaluateHedging,
+  hedgingConfigSchema,
+  parseHedgingConfig,
+  type HedgingConfig,
+  type HedgingContext,
+  type HedgingEvaluation,
+  type HedgingInstrument,
+} from './hedging.js';

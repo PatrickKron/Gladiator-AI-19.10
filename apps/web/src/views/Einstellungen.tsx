@@ -12,10 +12,9 @@ import { appLocale } from '../lib/locale.js';
  * Plus: adaptive Gates einzeln (de)aktivieren (Mensch im Loop).
  */
 
-type Settings = Awaited<ReturnType<typeof trpc.settings.get.query>>;
 type Gate = Awaited<ReturnType<typeof trpc.risk.gates.query>>[number];
 
-const FIELDS: { name: keyof Omit<Settings, 'killSwitchActive' | 'mode' | 'updatedAt'>; key: string; step: string }[] = [
+const FIELDS: { name: keyof TradingLimits; key: string; step: string }[] = [
   { name: 'riskPctPerTrade', key: 'settings.riskPctPerTrade', step: '0.1' },
   { name: 'maxLeverage', key: 'settings.maxLeverage', step: '1' },
   { name: 'maxOpenPositions', key: 'settings.maxOpenPositions', step: '1' },
@@ -473,133 +472,133 @@ export function Einstellungen() {
       {error && <ErrorBox message={error} />}
 
       {tab === 'risiko' && (
-      <>
-      <Panel stagger={1}>
-        {form === null ? (
-          <Loading />
-        ) : (
-          <>
-            {/* Risiko-Profile: füllen nur das Formular vor — gespeichert wird erst mit „Speichern" */}
-            <div className="mb-5">
-              <p className="label">{t('settings.profilesTitle')}</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {RISK_PROFILES.map((p) => {
-                  const active = currentProfile === p.id;
+        <>
+          <Panel stagger={1}>
+            {form === null ? (
+              <Loading />
+            ) : (
+              <>
+                {/* Risiko-Profile: füllen nur das Formular vor — gespeichert wird erst mit „Speichern" */}
+                <div className="mb-5">
+                  <p className="label">{t('settings.profilesTitle')}</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {RISK_PROFILES.map((p) => {
+                      const active = currentProfile === p.id;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setForm(Object.fromEntries(Object.entries(p.limits).map(([k, v]) => [k, String(v)])))}
+                          className="rounded-[0.625rem] border px-3 py-1.5 text-sm"
+                          style={{
+                            borderColor: active ? 'var(--color-cyan)' : 'var(--color-line)',
+                            color: active ? 'var(--color-ink)' : 'var(--color-mut)',
+                            background: active ? 'rgba(96,165,250,0.08)' : 'transparent',
+                          }}
+                          title={t(`settings.profile_${p.id}_hint`)}
+                        >
+                          {t(`settings.profile_${p.id}`)}
+                        </button>
+                      );
+                    })}
+                    <span className="self-center text-xs" style={{ color: 'var(--color-mut)' }}>
+                      {currentProfile === null ? t('settings.profileCustom') : t(`settings.profile_${currentProfile}_hint`)}
+                    </span>
+                  </div>
+                  {(currentProfile === 'aggressiv' || currentProfile === 'hochrisiko') && (
+                    <p className="mt-2 text-xs" style={{ color: 'var(--color-warn)' }}>
+                      {t('settings.profileWarn')}
+                    </p>
+                  )}
+                </div>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {FIELDS.map((f) => (
+                    <label key={f.name} className="flex flex-col gap-1.5">
+                      <span className="label">{t(f.key)}</span>
+                      <input
+                        type="number"
+                        step={f.step}
+                        min={SETTINGS_BOUNDS[f.name].min}
+                        max={SETTINGS_BOUNDS[f.name].max}
+                        value={form[f.name] ?? ''}
+                        onChange={(e) => setForm({ ...form, [f.name]: e.target.value })}
+                        className="field num px-3 py-2 text-sm"
+                      />
+                      <span className="text-[11px]" style={{ color: 'var(--color-mut)' }}>
+                        {SETTINGS_BOUNDS[f.name].min} – {SETTINGS_BOUNDS[f.name].max.toLocaleString(appLocale())}
+                        {f.name === 'maxExposurePctPerAsset' && <> · {t('settings.exposureHint')}</>}
+                      </span>
+                    </label>
+                  ))}
+                  <label className="flex flex-col gap-1.5">
+                    <span className="label">{t('settings.mode')}</span>
+                    <input
+                      value={mode === 'live' ? 'LIVE — CCXT-Live-Router aktiv (umschaltbar unter Traden → Risiko)' : `${mode.toUpperCase()} — ${t('settings.modePaperOnly')}`}
+                      disabled
+                      className="field px-3 py-2 text-sm opacity-70"
+                    />
+                  </label>
+                </div>
+                <div className="mt-6 flex items-center gap-4">
+                  <button onClick={() => void save()} disabled={saving} className="btn-primary px-5 py-2 text-sm disabled:opacity-50">
+                    {saving ? t('common.saving') : t('common.save')}
+                  </button>
+                  {saved && (
+                    <span className="text-sm" style={{ color: 'var(--color-pos)' }}>
+                      ✓ {t('common.saved')}
+                    </span>
+                  )}
+                  <span className="text-xs" style={{ color: 'var(--color-mut)' }}>
+                    {t('settings.saveHint')}
+                  </span>
+                </div>
+              </>
+            )}
+          </Panel>
+
+          <Panel label={t('settings.gatesTitle')} stagger={2} className="mt-5">
+            {gates === null ? (
+              <Loading />
+            ) : gates.length === 0 ? (
+              <Empty text={t('aegis.noGates')} />
+            ) : (
+              <ul className="mt-4 space-y-3">
+                {gates.map((g) => {
+                  const ev = g.evidence as { trades: number; expectancyR: number; winRate: number };
                   return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setForm(Object.fromEntries(Object.entries(p.limits).map(([k, v]) => [k, String(v)])))}
-                      className="rounded-[0.625rem] border px-3 py-1.5 text-sm"
-                      style={{
-                        borderColor: active ? 'var(--color-cyan)' : 'var(--color-line)',
-                        color: active ? 'var(--color-ink)' : 'var(--color-mut)',
-                        background: active ? 'rgba(96,165,250,0.08)' : 'transparent',
-                      }}
-                      title={t(`settings.profile_${p.id}_hint`)}
+                    <li
+                      key={g.id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-[0.625rem] border p-4"
+                      style={{ borderColor: g.isActive ? 'rgba(148,163,184,0.35)' : 'var(--color-line)', opacity: g.isActive ? 1 : 0.6 }}
                     >
-                      {t(`settings.profile_${p.id}`)}
-                    </button>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{g.reason}</p>
+                        <p className="num label mt-1">
+                          {t('aegis.evidence', {
+                            trades: ev.trades,
+                            expectancy: ev.expectancyR.toFixed(2),
+                            winRate: (ev.winRate * 100).toFixed(0),
+                          })}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => void toggleGate(g)}
+                        className="shrink-0 rounded-[0.625rem] border px-3 py-1.5 text-xs transition-all"
+                        style={
+                          g.isActive
+                            ? { borderColor: 'rgba(148,163,184,0.5)', color: 'var(--color-violet)' }
+                            : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
+                        }
+                      >
+                        {g.isActive ? t('settings.gateActive') : t('settings.gateDisabled')}
+                      </button>
+                    </li>
                   );
                 })}
-                <span className="self-center text-xs" style={{ color: 'var(--color-mut)' }}>
-                  {currentProfile === null ? t('settings.profileCustom') : t(`settings.profile_${currentProfile}_hint`)}
-                </span>
-              </div>
-              {(currentProfile === 'aggressiv' || currentProfile === 'hochrisiko') && (
-                <p className="mt-2 text-xs" style={{ color: 'var(--color-warn)' }}>
-                  {t('settings.profileWarn')}
-                </p>
-              )}
-            </div>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {FIELDS.map((f) => (
-                <label key={f.name} className="flex flex-col gap-1.5">
-                  <span className="label">{t(f.key)}</span>
-                  <input
-                    type="number"
-                    step={f.step}
-                    min={SETTINGS_BOUNDS[f.name].min}
-                    max={SETTINGS_BOUNDS[f.name].max}
-                    value={form[f.name] ?? ''}
-                    onChange={(e) => setForm({ ...form, [f.name]: e.target.value })}
-                    className="field num px-3 py-2 text-sm"
-                  />
-                  <span className="text-[11px]" style={{ color: 'var(--color-mut)' }}>
-                    {SETTINGS_BOUNDS[f.name].min} – {SETTINGS_BOUNDS[f.name].max.toLocaleString(appLocale())}
-                    {f.name === 'maxExposurePctPerAsset' && <> · {t('settings.exposureHint')}</>}
-                  </span>
-                </label>
-              ))}
-              <label className="flex flex-col gap-1.5">
-                <span className="label">{t('settings.mode')}</span>
-                <input
-                  value={mode === 'live' ? 'LIVE — CCXT-Live-Router aktiv (umschaltbar unter Traden → Risiko)' : `${mode.toUpperCase()} — ${t('settings.modePaperOnly')}`}
-                  disabled
-                  className="field px-3 py-2 text-sm opacity-70"
-                />
-              </label>
-            </div>
-            <div className="mt-6 flex items-center gap-4">
-              <button onClick={() => void save()} disabled={saving} className="btn-primary px-5 py-2 text-sm disabled:opacity-50">
-                {saving ? t('common.saving') : t('common.save')}
-              </button>
-              {saved && (
-                <span className="text-sm" style={{ color: 'var(--color-pos)' }}>
-                  ✓ {t('common.saved')}
-                </span>
-              )}
-              <span className="text-xs" style={{ color: 'var(--color-mut)' }}>
-                {t('settings.saveHint')}
-              </span>
-            </div>
-          </>
-        )}
-      </Panel>
-
-      <Panel label={t('settings.gatesTitle')} stagger={2} className="mt-5">
-        {gates === null ? (
-          <Loading />
-        ) : gates.length === 0 ? (
-          <Empty text={t('aegis.noGates')} />
-        ) : (
-          <ul className="mt-4 space-y-3">
-            {gates.map((g) => {
-              const ev = g.evidence as { trades: number; expectancyR: number; winRate: number };
-              return (
-                <li
-                  key={g.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-[0.625rem] border p-4"
-                  style={{ borderColor: g.isActive ? 'rgba(148,163,184,0.35)' : 'var(--color-line)', opacity: g.isActive ? 1 : 0.6 }}
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">{g.reason}</p>
-                    <p className="num label mt-1">
-                      {t('aegis.evidence', {
-                        trades: ev.trades,
-                        expectancy: ev.expectancyR.toFixed(2),
-                        winRate: (ev.winRate * 100).toFixed(0),
-                      })}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => void toggleGate(g)}
-                    className="shrink-0 rounded-[0.625rem] border px-3 py-1.5 text-xs transition-all"
-                    style={
-                      g.isActive
-                        ? { borderColor: 'rgba(148,163,184,0.5)', color: 'var(--color-violet)' }
-                        : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
-                    }
-                  >
-                    {g.isActive ? t('settings.gateActive') : t('settings.gateDisabled')}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </Panel>
-      </>
+              </ul>
+            )}
+          </Panel>
+        </>
       )}
 
       {tab === 'boersen' && <ExchangeConnectPanel />}

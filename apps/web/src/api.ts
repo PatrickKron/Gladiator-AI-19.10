@@ -162,7 +162,7 @@ export type AssistantStreamHandlers = {
 export async function streamAssistant(
   conversationId: string,
   message: string,
-  context: { route?: string; symbol?: string; locale?: string },
+  context: { route?: string; symbol?: string; venue?: string; timeframe?: string; tab?: string; locale?: string },
   h: AssistantStreamHandlers,
 ): Promise<AssistantStreamDone> {
   const post = () =>

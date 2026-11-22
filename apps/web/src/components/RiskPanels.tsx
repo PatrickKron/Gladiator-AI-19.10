@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { Empty, EmptyState, LoadFailures, Loading, NotConnected, Panel, useLoadFailures } from './ui.js';
+import { HedgingConfigPanel } from './HedgingConfigPanel.js';
 import { appLocale } from '../lib/locale.js';
 import { noTradeNoticeKey, priceUnit, safe003State } from '../lib/asset-tabs.js';
 import { normalizeRegime, REGIME_COLORS, type RegimeData } from '../lib/regime.js';
@@ -168,6 +169,8 @@ function GlobalRiskPanels() {
           → {t('settings.gatesTitle')}
         </a>
       </Panel>
+
+      <HedgingConfigPanel vix={grs?.inputs.vix ?? null} grsLabel={grs?.label ?? null} />
     </div>
   );
 }
@@ -450,6 +453,12 @@ function AssetRiskPanels({ symbol, venue }: { symbol: string; venue: string }) {
           </>
         )}
       </Panel>
+
+      <HedgingConfigPanel
+        vix={a?.macro.vix ?? null}
+        grsLabel={grs?.label ?? null}
+        netExposureUsd={a?.risk.exposureNotional ?? 0}
+      />
     </div>
   );
 }

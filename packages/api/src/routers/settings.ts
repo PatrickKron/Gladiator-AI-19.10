@@ -5,6 +5,7 @@ import { schema, type Db } from '@gladiator/db';
 import { hasApprovedLiveVenue } from '@gladiator/exchange';
 import { formatKillSwitchAlert, notifySafe, telegramHtmlToText } from '@gladiator/jobs';
 import { SETTINGS_BOUNDS } from '@gladiator/core/trading-settings';
+import { hedgingConfigSchema, parseHedgingConfig } from '@gladiator/risk';
 import { protectedProcedure, router } from '../trpc.js';
 
 const { tradingSettings, auditLog } = schema;
@@ -47,6 +48,7 @@ function toSettingsDto(row: typeof tradingSettings.$inferSelect) {
     maxDrawdownPct: Number(row.maxDrawdownPct),
     killSwitchActive: row.killSwitchActive,
     mode: row.mode,
+    hedging: parseHedgingConfig(row.hedgingConfig),
     updatedAt: row.updatedAt,
   };
 }
@@ -104,6 +106,26 @@ export const settingsRouter = router({
   update: protectedProcedure.input(settingsInput).mutation(async ({ ctx, input }) => {
     await applyTradingSettings(ctx.db, ctx.user.id, input, ctx.ip);
     return { ok: true };
+  }),
+
+  /** Konfigurierbares Hedging speichern (Welle 17): Trigger (Drawdown %, VIX, Risk-Off), max. Quote, Instrument. */
+  updateHedging: protectedProcedure.input(hedgingConfigSchema).mutation(async ({ ctx, input }) => {
+    await ensureRow(ctx);
+    const [updated] = await ctx.db
+      .update(tradingSettings)
+      .set({ hedgingConfig: input, updatedAt: new Date() })
+      .where(eq(tradingSettings.userId, ctx.user.id))
+      .returning();
+    await ctx.db.insert(auditLog).values({
+      actor: 'user',
+      userId: ctx.user.id,
+      action: 'settings.hedging.update',
+      entityType: 'trading_settings',
+      entityId: updated!.id,
+      details: input,
+      ip: ctx.ip,
+    });
+    return parseHedgingConfig(updated!.hedgingConfig);
   }),
 
   /** Kill-Switch (SAFE): sofortiger Order-Stopp — jede Änderung auditiert. */
