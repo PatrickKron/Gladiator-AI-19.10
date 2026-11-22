@@ -98,6 +98,13 @@ export {
   type ReentryPlan,
 } from './signal-lifecycle.js';
 export {
+  detectStrategyPatterns,
+  synthesizeDslFromText,
+  type PatternMatch,
+  type TextSynthesisOptions,
+  type TextSynthesisResult,
+} from './text-to-dsl.js';
+export {
   buildClusterKey,
   parseClusterKey,
   clusterKeyLevels,

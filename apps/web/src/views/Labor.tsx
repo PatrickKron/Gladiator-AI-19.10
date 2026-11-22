@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { EmptyState, PageHeader } from '../components/ui.js';
+import { AssetChart } from '../components/AssetChart.js';
 import { BacktestChart } from '../components/BacktestChart.js';
 import { loadLabConfig, saveLabConfig, type LabConfig } from '../lib/lab-config.js';
-import { CHART_TFS, type ChartTf } from '../lib/chart-url.js';
+import { CHART_TFS, type ChartTf, type ChartVenue } from '../lib/chart-url.js';
 import {
   COMPARE_COLORS,
   EquityChart,
@@ -114,26 +115,54 @@ function DataQualityWarnings({ warnings, as: Tag }: { warnings: string[]; as: 's
 
 export function Labor() {
   const { t } = useTranslation();
-  const [symbol, setSymbol] = useState<string>('BTC/USDT');
+  // Deep-Link-Parameter aus `#/labor?strategy=...&slug=...&symbol=...&tf=...&version=...` (Schnittstelle Strategie ↔ Labor)
+  const initialQuery = useMemo(() => {
+    const hash = window.location.hash;
+    const idx = hash.indexOf('?');
+    return idx >= 0 ? new URLSearchParams(hash.slice(idx + 1)) : new URLSearchParams();
+  }, []);
 
-  const [strategyId, setStrategyId] = useState<string>('builtin');
+  const [symbol, setSymbol] = useState<string>(() => initialQuery.get('symbol')?.trim().toUpperCase() || 'BTC/USDT');
+  const [strategyId, setStrategyId] = useState<string>(() => initialQuery.get('strategy') || 'builtin');
   const [dslStrategies, setDslStrategies] = useState<{ id: string; name: string; slug: string }[]>([]);
   const [universe, setUniverse] = useState<string[]>(['BTC/USDT', 'ETH/USDT', 'SOL/USDT']);
+  const [venueBySymbol, setVenueBySymbol] = useState<Record<string, ChartVenue>>({});
+  const [showLabChart, setShowLabChart] = useState(true);
+  const [showAdvancedParams, setShowAdvancedParams] = useState(false);
+
   useEffect(() => {
     void trpc.strategies.list
       .query()
-      .then((rows) => setDslStrategies(rows.filter((r) => r.kind === 'dsl').map((r) => ({ id: r.id, name: r.name, slug: r.slug }))))
+      .then((rows) => {
+        const dsls = rows.filter((r) => r.kind === 'dsl').map((r) => ({ id: r.id, name: r.name, slug: r.slug }));
+        setDslStrategies(dsls);
+        const qSlug = initialQuery.get('slug');
+        if (qSlug && !initialQuery.get('strategy')) {
+          const hit = dsls.find((d) => d.slug === qSlug);
+          if (hit) setStrategyId(hit.id);
+        }
+      })
       .catch(() => setDslStrategies([]));
     void Promise.all([
       trpc.market.scanUniverse.query().catch(() => ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']),
       trpc.market.stockSymbols.query().catch(() => ({ configured: { twelvedata: false }, rows: [] })),
     ]).then(([crypto, stocks]) => {
       const merged = new Set<string>(crypto);
-      for (const s of stocks.rows) merged.add(s.symbol);
+      const vMap: Record<string, ChartVenue> = {};
+      for (const c of crypto) vMap[c] = 'binance';
+      for (const s of stocks.rows) {
+        merged.add(s.symbol);
+        vMap[s.symbol] = s.venue === 'twelvedata' ? 'twelvedata' : 'yahoo';
+      }
+      if (symbol && !merged.has(symbol)) merged.add(symbol);
+      setVenueBySymbol(vMap);
       setUniverse([...merged]);
     });
   }, []);
-  const [timeframe, setTimeframe] = useState<(typeof TIMEFRAMES)[number]>('1h');
+  const [timeframe, setTimeframe] = useState<(typeof TIMEFRAMES)[number]>(() => {
+    const qTf = initialQuery.get('tf');
+    return qTf && (TIMEFRAMES as readonly string[]).includes(qTf) ? (qTf as (typeof TIMEFRAMES)[number]) : '1h';
+  });
   const [setupType, setSetupType] = useState<(typeof SETUPS)[number]>('swing');
   const [from, setFrom] = useState('2024-06-01');
   const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
@@ -150,7 +179,7 @@ export function Labor() {
     const n = Number(trailPctInput.replace(',', '.'));
     return trailPctInput.trim() !== '' && n >= 0.1 && n <= 50 ? n : undefined;
   })();
-  const [versionId, setVersionId] = useState<string>('');
+  const [versionId, setVersionId] = useState<string>(() => initialQuery.get('version') || '');
 
   const [busy, setBusy] = useState<'bt' | 'wf' | 'save' | 'cal' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -465,13 +494,114 @@ export function Labor() {
     URL.revokeObjectURL(url);
   }
 
+  const activeVenue: ChartVenue = venueBySymbol[symbol] ?? (symbol.endsWith('/USDT') || symbol.endsWith('/USDC') ? 'binance' : 'yahoo');
+
   return (
     <div>
-      <PageHeader title={t('ia.page_lab')} subtitle={t('ia.desc_lab')} />
+      <PageHeader
+        title={t('ia.page_lab')}
+        subtitle={t('ia.desc_lab')}
+        right={
+          <div className="flex flex-wrap gap-2">
+            <a
+              href="#/strategien?tab=text"
+              className="rounded-[0.625rem] border px-3 py-1.5 text-xs transition-colors hover:border-[var(--color-cyan)]"
+              style={{ borderColor: 'rgba(6,182,212,0.45)', color: 'var(--color-cyan)' }}
+            >
+              ✍️ Strategie per Text
+            </a>
+            <a
+              href="#/strategien?tab=workshop"
+              className="rounded-[0.625rem] border px-3 py-1.5 text-xs transition-colors"
+              style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
+            >
+              ⚙️ Workshop
+            </a>
+            <button
+              type="button"
+              onClick={() => setShowLabChart((s) => !s)}
+              className="rounded-[0.625rem] border px-3 py-1.5 text-xs transition-colors"
+              style={
+                showLabChart
+                  ? { borderColor: 'rgba(139,92,246,0.55)', color: 'var(--color-ink)', background: 'rgba(139,92,246,0.16)' }
+                  : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
+              }
+            >
+              📊 Indikator-Chart {showLabChart ? 'ausblenden' : 'anzeigen'}
+            </button>
+          </div>
+        }
+      />
+
+      {/* ── Geführter 3-Schritte-Wegweiser (klar & verständlich) ── */}
+      <div className="mb-4 grid gap-2.5 sm:grid-cols-3 text-xs">
+        <div className="glass px-3.5 py-2.5 flex items-start gap-2.5">
+          <span className="num shrink-0 rounded-full px-2 py-0.5 font-semibold" style={{ background: 'rgba(59,130,246,0.2)', color: 'var(--color-cyan)' }}>
+            1
+          </span>
+          <div>
+            <p className="font-medium">Strategie & Markt wählen</p>
+            <p className="text-[11px]" style={{ color: 'var(--color-mut)' }}>
+              Eigene DSL-Strategie, SMC-Core oder Schnellstart-Vorlage auswählen.
+            </p>
+          </div>
+        </div>
+        <div className="glass px-3.5 py-2.5 flex items-start gap-2.5">
+          <span className="num shrink-0 rounded-full px-2 py-0.5 font-semibold" style={{ background: 'rgba(139,92,246,0.2)', color: 'var(--color-violet)' }}>
+            2
+          </span>
+          <div>
+            <p className="font-medium">Indikatoren & Divergenzen prüfen</p>
+            <p className="text-[11px]" style={{ color: 'var(--color-mut)' }}>
+              Im Labor-Chart direkt Indikatoren, Bibliothek & RSI/MACD-Divergenzen testen.
+            </p>
+          </div>
+        </div>
+        <div className="glass px-3.5 py-2.5 flex items-start gap-2.5">
+          <span className="num shrink-0 rounded-full px-2 py-0.5 font-semibold" style={{ background: 'rgba(34,197,94,0.2)', color: 'var(--color-pos)' }}>
+            3
+          </span>
+          <div>
+            <p className="font-medium">Netto-Backtest auswerten & speichern</p>
+            <p className="text-[11px]" style={{ color: 'var(--color-mut)' }}>
+              Echte Kerzen inkl. Gebühren & Slippage prüfen und als Version übernehmen.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Interaktiver Labor-Chart mit Indikator-Bibliothek & Divergenzen (Welle 16) ── */}
+      {showLabChart && (
+        <section className="glass reveal mb-5 p-4 sm:p-5" style={{ '--stagger': 0 } as React.CSSProperties}>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="label">Labor-Chart · {symbol} ({timeframe}) — Indikatoren, eigene Formeln & Divergenzen</h2>
+              <p className="mt-0.5 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+                Nutze „Bibliothek“ zum Finden/Erstellen eigener Indikatoren und den „Divergenz“-Chip für RSI/MACD-Divergenzen.
+              </p>
+            </div>
+            <a
+              href={`#/charts?symbol=${encodeURIComponent(symbol)}&venue=${encodeURIComponent(activeVenue)}&tf=${encodeURIComponent(timeframe)}`}
+              className="text-xs underline decoration-dotted"
+              style={{ color: 'var(--color-cyan)' }}
+            >
+              Vollbild-Chart öffnen →
+            </a>
+          </div>
+          <AssetChart
+            symbol={symbol}
+            venue={activeVenue}
+            timeframeOverride={timeframe}
+            rememberTf={false}
+            onTimeframeChange={(next) => setTimeframe(next)}
+            mainHeight={360}
+          />
+        </section>
+      )}
 
       {/* ── Lauf-Konfiguration ── */}
       <section className="glass reveal p-6" style={{ '--stagger': 1 } as React.CSSProperties}>
-        <h2 className="label">{t('labor.backtestTitle')}</h2>
+        <h2 className="label">Schritt 1 & 2 · {t('labor.backtestTitle')}</h2>
 
         {/* Schnellstart-Vorlagen (P1.6): ein Klick füllt die Konfiguration */}
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -562,32 +692,44 @@ export function Labor() {
           </label>
         </div>
 
-        <h3 className="label mt-6">{t('labor.paramExperiment')}</h3>
-        <div className="mt-3 grid gap-4 md:grid-cols-3">
-          <label className="text-sm">
-            <span className="label">{t('labor.rsiLookback')}</span>
-            <input type="number" min={1} max={20} value={rsiLookbackBars} onChange={(e) => setRsiLookback(Number(e.target.value))} className="field num mt-1.5 w-full px-3 py-2" />
-          </label>
-          <label className="text-sm">
-            <span className="label">{t('labor.retestWindow')}</span>
-            <input type="number" min={2} max={60} value={retestWindowBars} onChange={(e) => setRetestWindow(Number(e.target.value))} className="field num mt-1.5 w-full px-3 py-2" />
-          </label>
-          <label className="text-sm">
-            <span className="label">{t('labor.emaProximity')}</span>
-            <input type="number" min={0.1} max={10} step={0.1} value={emaProximityPct} onChange={(e) => setEmaProximity(Number(e.target.value))} className="field num mt-1.5 w-full px-3 py-2" />
-          </label>
-        </div>
-        {/* Experiment (Phase 1b): Sweep/Discount als Zusatz-Confluence — messen, nicht annehmen */}
-        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-          <label className="flex cursor-pointer items-center gap-2">
-            <input type="checkbox" checked={sweepConfluence} onChange={(e) => setSweepConfluence(e.target.checked)} className="h-4 w-4" />
-            {t('labor.expSweep')}
-          </label>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input type="checkbox" checked={discountConfluence} onChange={(e) => setDiscountConfluence(e.target.checked)} className="h-4 w-4" />
-            {t('labor.expDiscount')}
-          </label>
-          <span className="label w-full">{t('labor.expHint')}</span>
+        <div className="mt-5">
+          <button
+            type="button"
+            onClick={() => setShowAdvancedParams((v) => !v)}
+            className="label flex items-center gap-2 text-xs hover:text-[var(--color-ink)]"
+          >
+            <span>{showAdvancedParams ? '▾' : '▸'} {t('labor.paramExperiment')} (optional für SMC-Core Feintuning)</span>
+          </button>
+          {showAdvancedParams && (
+            <>
+              <div className="mt-3 grid gap-4 md:grid-cols-3">
+                <label className="text-sm">
+                  <span className="label">{t('labor.rsiLookback')}</span>
+                  <input type="number" min={1} max={20} value={rsiLookbackBars} onChange={(e) => setRsiLookback(Number(e.target.value))} className="field num mt-1.5 w-full px-3 py-2" />
+                </label>
+                <label className="text-sm">
+                  <span className="label">{t('labor.retestWindow')}</span>
+                  <input type="number" min={2} max={60} value={retestWindowBars} onChange={(e) => setRetestWindow(Number(e.target.value))} className="field num mt-1.5 w-full px-3 py-2" />
+                </label>
+                <label className="text-sm">
+                  <span className="label">{t('labor.emaProximity')}</span>
+                  <input type="number" min={0.1} max={10} step={0.1} value={emaProximityPct} onChange={(e) => setEmaProximity(Number(e.target.value))} className="field num mt-1.5 w-full px-3 py-2" />
+                </label>
+              </div>
+              {/* Experiment (Phase 1b): Sweep/Discount als Zusatz-Confluence — messen, nicht annehmen */}
+              <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input type="checkbox" checked={sweepConfluence} onChange={(e) => setSweepConfluence(e.target.checked)} className="h-4 w-4" />
+                  {t('labor.expSweep')}
+                </label>
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input type="checkbox" checked={discountConfluence} onChange={(e) => setDiscountConfluence(e.target.checked)} className="h-4 w-4" />
+                  {t('labor.expDiscount')}
+                </label>
+                <span className="label w-full">{t('labor.expHint')}</span>
+              </div>
+            </>
+          )}
         </div>
 
         {error && <p className="mt-4 text-sm" style={{ color: 'var(--color-neg)' }}>{error}</p>}
@@ -620,16 +762,16 @@ export function Labor() {
           <DataQualityWarnings warnings={run.dataQuality.warnings} as="section" />
 
           <section className="mt-6 grid gap-3 md:grid-cols-3 xl:grid-cols-5">
-            <MetricCard label={t('labor.netPnl')} value={`${fmt(m.netPnl)} $`} tone={m.netPnl >= 0 ? 'pos' : 'neg'} />
-            <MetricCard label={t('labor.netReturn')} value={`${fmt(m.netReturnPct)} %`} tone={m.netReturnPct >= 0 ? 'pos' : 'neg'} />
-            <MetricCard label={t('labor.maxDrawdown')} value={`${fmt(m.maxDrawdownPct)} %`} tone="neg" />
-            <MetricCard label="Sharpe" value={fmt(m.sharpe)} />
-            <MetricCard label="Sortino" value={fmt(m.sortino)} />
-            <MetricCard label={t('labor.winRate')} value={m.winRate === null ? '—' : `${fmt(m.winRate * 100, 1)} %`} />
-            <MetricCard label={t('labor.profitFactor')} value={fmt(m.profitFactor)} />
-            <MetricCard label={t('labor.expectedValue')} value={m.expectancy === null ? '—' : `${fmt(m.expectancy)} R`} />
-            <MetricCard label={t('labor.trades')} value={String(m.tradeCount)} />
-            <MetricCard label={t('labor.candles')} value={fmt(run.candles, 0)} />
+            <MetricCard label={t('labor.netPnl')} value={`${fmt(m.netPnl)} $`} tone={m.netPnl >= 0 ? 'pos' : 'neg'} hint="Gewinn/Verlust nach Gebühren & Slippage" />
+            <MetricCard label={t('labor.netReturn')} value={`${fmt(m.netReturnPct)} %`} tone={m.netReturnPct >= 0 ? 'pos' : 'neg'} hint="Gesamtrendite auf 10.000 $ Startkapital" />
+            <MetricCard label={t('labor.maxDrawdown')} value={`${fmt(m.maxDrawdownPct)} %`} tone="neg" hint="Größter zwischenzeitlicher Rückgang" />
+            <MetricCard label="Sharpe" value={fmt(m.sharpe)} hint="> 1 gut · > 2 sehr stark (Rendite/Risiko)" />
+            <MetricCard label="Sortino" value={fmt(m.sortino)} hint="Wie Sharpe, gewichtet nur Verluste" />
+            <MetricCard label={t('labor.winRate')} value={m.winRate === null ? '—' : `${fmt(m.winRate * 100, 1)} %`} hint="Anteil abgeschlossener Gewinner-Trades" />
+            <MetricCard label={t('labor.profitFactor')} value={fmt(m.profitFactor)} hint="Bruttogewinn ÷ Bruttoverlust (> 1,3 solide)" />
+            <MetricCard label={t('labor.expectedValue')} value={m.expectancy === null ? '—' : `${fmt(m.expectancy)} R`} hint="Ø Gewinn je 1R eingesetztem Risiko" />
+            <MetricCard label={t('labor.trades')} value={String(m.tradeCount)} hint="Ab ca. 30 Trades statistisch aussagekräftig" />
+            <MetricCard label={t('labor.candles')} value={fmt(run.candles, 0)} hint="Geprüfte echte historische Kerzen" />
           </section>
 
           {/* Kostenmodell inkl. Funding-Herkunft (08_ §3a) — historisch nur bei vollständigen echten Settlements */}

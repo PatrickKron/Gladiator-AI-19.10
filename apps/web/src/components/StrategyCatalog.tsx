@@ -310,6 +310,14 @@ function CatalogCard({
           >
             {workshopBusy ? '…' : t('catalog.openInWorkshop')}
           </button>
+          <a
+            href={`#/labor?slug=${encodeURIComponent(entry.slug)}&symbol=${encodeURIComponent(effectiveSymbol)}&tf=${encodeURIComponent(effectiveTimeframe)}`}
+            className="rounded-[0.625rem] border px-2.5 py-1.5 text-xs transition-colors hover:border-violet-400/60"
+            style={{ borderColor: 'var(--color-line)', color: 'var(--color-violet)' }}
+            title="Direkt im Backtest-Labor prüfen & optimieren"
+          >
+            🔬 Im Labor
+          </a>
         </div>
         {busy && !message && (
           <p className="mt-2 text-[11px] animate-pulse" style={{ color: 'var(--color-mut)' }}>

@@ -47,7 +47,8 @@ type Cond =
   | { bollinger: { period?: number; mult?: number; event: 'close_below_lower' | 'close_above_upper' | 'close_above_middle' | 'close_below_middle' } }
   | { stochastic: { kPeriod?: number; dPeriod?: number; smoothK?: number; kLt?: number; kGt?: number; cross?: 'bullish' | 'bearish'; withinBars?: number } }
   | { adx: { period?: number; gt?: number; lt?: number } }
-  | { supertrend: { period?: number; mult?: number; direction: 'up' | 'down' } };
+  | { supertrend: { period?: number; mult?: number; direction: 'up' | 'down' } }
+  | { divergence: { indicator?: 'rsi' | 'macd'; kind: 'bullish' | 'bearish' | 'hidden_bullish' | 'hidden_bearish'; withinBars?: number } };
 
 type Dsl = {
   id: string;
@@ -69,7 +70,7 @@ type Dsl = {
   risk: { maxLeveragePerTrade: number; riskPctPerTrade: number };
 };
 
-const COND_TYPES = ['signal', 'rsi', 'trend', 'maCross', 'priceVs', 'macd', 'bollinger', 'stochastic', 'adx', 'supertrend'] as const;
+const COND_TYPES = ['signal', 'rsi', 'trend', 'maCross', 'priceVs', 'macd', 'bollinger', 'stochastic', 'adx', 'supertrend', 'divergence'] as const;
 type CondType = (typeof COND_TYPES)[number];
 
 function condType(c: Cond): CondType {
@@ -82,6 +83,7 @@ function condType(c: Cond): CondType {
   if ('bollinger' in c) return 'bollinger';
   if ('stochastic' in c) return 'stochastic';
   if ('adx' in c) return 'adx';
+  if ('divergence' in c) return 'divergence';
   return 'supertrend';
 }
 
@@ -97,6 +99,7 @@ function newCond(type: CondType): Cond {
     case 'stochastic': return { stochastic: { kLt: 20 } };
     case 'adx': return { adx: { gt: 20 } };
     case 'supertrend': return { supertrend: { direction: 'up' } };
+    case 'divergence': return { divergence: { indicator: 'rsi', kind: 'bullish', withinBars: 10 } };
   }
 }
 
@@ -266,6 +269,34 @@ function CondRow({ cond, onChange, onRemove }: { cond: Cond; onChange: (c: Cond)
           <MiniSelect label={t('sw.direction')} value={cond.supertrend.direction} options={['up', 'down']} onChange={(v) => onChange({ supertrend: { ...cond.supertrend, direction: v as 'up' | 'down' } })} />
           <NumBox label={t('sw.period')} value={cond.supertrend.period} onChange={(v) => onChange({ supertrend: { ...cond.supertrend, period: v } })} />
           <NumBox label="mult" step={0.1} value={cond.supertrend.mult} onChange={(v) => onChange({ supertrend: { ...cond.supertrend, mult: v } })} />
+        </>
+      )}
+      {type === 'divergence' && 'divergence' in cond && (
+        <>
+          <MiniSelect
+            label="Indikator"
+            value={cond.divergence.indicator ?? 'rsi'}
+            options={['rsi', 'macd']}
+            onChange={(v) => onChange({ divergence: { ...cond.divergence, indicator: v as 'rsi' | 'macd' } })}
+          />
+          <MiniSelect
+            label="Art"
+            value={cond.divergence.kind}
+            options={['bullish', 'bearish', 'hidden_bullish', 'hidden_bearish']}
+            onChange={(v) =>
+              onChange({
+                divergence: {
+                  ...cond.divergence,
+                  kind: v as 'bullish' | 'bearish' | 'hidden_bullish' | 'hidden_bearish',
+                },
+              })
+            }
+          />
+          <NumBox
+            label={t('sw.withinBars')}
+            value={cond.divergence.withinBars}
+            onChange={(v) => onChange({ divergence: { ...cond.divergence, withinBars: v } })}
+          />
         </>
       )}
       <button onClick={onRemove} className={secondaryBtn} style={{ borderColor: 'rgba(239,68,68,0.4)', color: 'var(--color-neg)' }}>
@@ -1175,6 +1206,19 @@ function VersionsPanel({
         <button onClick={() => void saveVersion()} disabled={busy !== null || !draft} className={secondaryBtn} style={ghostStyle}>
           {busy === 'save' ? t('common.loading') : t('sw.saveVersion')}
         </button>
+        {draft && (
+          <a
+            href={`#/labor?${new URLSearchParams({
+              ...(session.strategyId ? { strategy: session.strategyId } : {}),
+              symbol: draft.symbol,
+              tf: draft.timeframe,
+            }).toString()}`}
+            className={secondaryBtn}
+            style={{ borderColor: 'rgba(6,182,212,0.5)', color: 'var(--color-cyan)' }}
+          >
+            🔬 Im Backtest-Labor öffnen →
+          </a>
+        )}
         {notice && <span className="text-xs" style={{ color: 'var(--color-pos)' }}>{notice}</span>}
       </div>
       {error && (
