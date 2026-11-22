@@ -416,6 +416,28 @@ function AssetMacroPanels({ symbol, venue }: { symbol: string; venue: string }) 
               <Stat label="DXY" value={macro.dxy ? fixed(macro.dxy.value) : '—'} sub={grs ? `${signed(grs.inputs.dxyChangePct20d)} % · ${t('oracle.change20d')}` : undefined} />
               <Stat label="US10Y (%)" value={macro.us10y ? fixed(macro.us10y.value) : '—'} sub={grs ? `${signed(grs.inputs.us10yChangeBp20d, 0)} bp · ${t('oracle.change20d')}` : undefined} />
             </div>
+            <div
+              className="mt-3 rounded-[0.625rem] border p-3 text-xs leading-relaxed"
+              style={{ borderColor: 'rgba(6,182,212,0.35)', background: 'rgba(15,23,42,0.4)' }}
+            >
+              <span className="font-semibold" style={{ color: 'var(--color-cyan)' }}>
+                💡 Was heißt das für dein Trading?{' '}
+              </span>
+              <span>
+                {grs?.label === 'risk-off'
+                  ? 'GRS steht auf Risk-Off (Stress am Gesamtmarkt): Positionen kleiner halten, eng absichern und Hedging prüfen.'
+                  : grs?.label === 'risk-on'
+                    ? 'GRS steht auf Risk-On (günstiges Makro-Umfeld): Rückenwind für Trendfolge-Setups.'
+                    : 'GRS ist neutral: Makro drückt weder stark nach oben noch nach unten — die Chart-Struktur des Assets entscheidet.'}
+                {macro.vix
+                  ? macro.vix.value >= 25
+                    ? ` Der VIX (${fixed(macro.vix.value)}) signalisiert erhöhte Angst/Schwankungen.`
+                    : macro.vix.value <= 15
+                      ? ` Der VIX (${fixed(macro.vix.value)}) zeigt ein sehr ruhiges Marktumfeld.`
+                      : ` Der VIX (${fixed(macro.vix.value)}) liegt im normalen Bereich.`
+                  : ''}
+              </span>
+            </div>
             <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
               {t('oracle.globalNote')}{' '}
               <a href="#/marktlage?tab=makro" style={{ color: 'var(--color-cyan)' }}>

@@ -16,6 +16,13 @@ export {
   type PushSender,
 } from './notify.js';
 export { buildBriefing, latestBriefing, renderBriefing, runNightPipeline, type BriefingData, type NightPipelineResult } from './briefing.js';
+export {
+  buildEveningReview,
+  runEveningReviewNotification,
+  summarizeEveningReview,
+  type EveningReviewSummary,
+  type ReviewTradeItem,
+} from './evening-review.js';
 export { enqueueRlEpisodeRun, workerHeartbeatAgeSec, workerHeartbeatAgeSecAsync } from './worker.js';
 export { explainForUser, deterministicExplanation, buildExplanationMessages, sanitizeExplanation, type ExplanationFacts } from './explanation.js';
 export { buildUniverse, ensureCandles, normalizeTradingPair, scanUniverse, BASE_SYMBOLS, MAX_UNIVERSE } from './universe.js';

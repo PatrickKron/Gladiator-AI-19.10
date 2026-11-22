@@ -118,6 +118,38 @@ export function AssetAnalysis({ symbol, venue = 'binance', ctx }: { symbol: stri
         </div>
       </div>
 
+      {/* Verbraucher-Kontext: übersetzt die Zahlen in klare Alltagssprache (Welle 18) */}
+      {(c || a) && (() => {
+        const hints: string[] = [];
+        if (c?.rsi14 != null) {
+          if (c.rsi14 >= 70) hints.push(`RSI ${c.rsi14.toFixed(0)} (überhitzt): Neue Long-Einstiege tragen Rücksetzer-Risiko — lieber Pullback abwarten.`);
+          else if (c.rsi14 <= 30) hints.push(`RSI ${c.rsi14.toFixed(0)} (überverkauft): Technische Gegenbewegung möglich — auf Bodenbildung/Divergenz achten.`);
+          else hints.push(`RSI ${c.rsi14.toFixed(0)} (neutral): Kein Extrembereich — Trendrichtung & Struktur sind entscheidend.`);
+        }
+        if (c?.emaRegime === 'above') hints.push('Kurs über EMA200: Übergeordneter Aufwärtstrend stützt Long-Setups.');
+        else if (c?.emaRegime === 'below') hints.push('Kurs unter EMA200: Übergeordneter Abwärtstrend — Longs nur als kurzfristige Gegenbewegung.');
+        if (atrPct != null && atrPct >= 5) hints.push(`Hohe Volatilität (ATR ${atrPct.toFixed(1)} %): Stop-Loss breiter ansetzen und Hebel/Positionsgröße reduzieren.`);
+        if (a?.derivatives.connected && a.derivatives.fundingRate != null) {
+          const fp = a.derivatives.fundingRate * 100;
+          if (fp >= 0.05) hints.push(`Hohes positives Funding (${fp.toFixed(3)} %): Viele Longs im Markt — Risiko für plötzliche Long-Squeezes.`);
+          else if (fp <= -0.03) hints.push(`Negatives Funding (${fp.toFixed(3)} %): Shorts zahlen Gebühr — erhöhtes Short-Squeeze-Potenzial.`);
+        }
+        if (a?.noTrade.active) hints.push('Aktives No-Trade-Fenster: Wichtiger Makro-Termin steht unmittelbar bevor — neue Orders besser pausieren.');
+        if (hints.length === 0) return null;
+        return (
+          <div className="glass mb-4 p-3.5 text-xs space-y-1.5" style={{ borderLeft: '3px solid var(--color-cyan)' }}>
+            <p className="label" style={{ color: 'var(--color-cyan)' }}>
+              💡 Was bedeutet das für dich? ({symbol})
+            </p>
+            <ul className="list-disc space-y-1 pl-4 leading-relaxed" style={{ color: 'var(--color-ink)' }}>
+              {hints.slice(0, 4).map((h, idx) => (
+                <li key={idx}>{h}</li>
+              ))}
+            </ul>
+          </div>
+        );
+      })()}
+
       {/* Kompakte Impuls-Leiste aus den echten Kerzen dieses Assets */}
       {c && (
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
