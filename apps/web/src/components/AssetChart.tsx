@@ -1797,8 +1797,8 @@ export function AssetChart({
   return (
     <div>
       {/* EINE Werkzeugzeile (Welle C): Zeitrahmen · Ein-Klick-Chips (wie v2) · Ansicht ▾ · Smart Money · Bibliothek · Zeichnen ▾ · Replay */}
-      <div className="toolbar mb-2" role="toolbar" aria-label={t('chart.view')}>
-        <div className="flex flex-wrap gap-0.5 rounded-lg p-0.5" style={{ background: 'var(--color-bg3)' }}>
+      <div className="toolbar mb-2 min-w-0 max-w-full" role="toolbar" aria-label={t('chart.view')}>
+        <div className="flex min-w-0 max-w-full flex-wrap gap-0.5 rounded-lg p-0.5" style={{ background: 'var(--color-bg3)' }}>
           {shownTfs.map((f, idx) => {
             const cached = availableTfs.includes(f);
             return (
