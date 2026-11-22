@@ -3,7 +3,7 @@ import { and, asc, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
 import { envAnthropicProvider } from '@gladiator/agents';
-import { parseInstructionDsl, synthesizeDslFromPineScript } from '@gladiator/strategy-engine';
+import { parseInstructionDsl, summarizeDslRules, synthesizeDslFromPineScript, synthesizeDslFromText } from '@gladiator/strategy-engine';
 import { ensureCandleHistory, SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
 import { evaluateBacktestValidity, runLabBacktest } from '@gladiator/backtest';
 import { protectedProcedure, router } from '../trpc.js';
@@ -116,6 +116,93 @@ export const workshopRouter = router({
         ip: ctx.ip,
       });
       return row!;
+    }),
+
+  /**
+   * Text-zu-Strategie + Sofort-Demo-Backtest (Welle 16):
+   * Wandelt eine frei formulierte Beschreibung (auch ohne ANTHROPIC_API_KEY) in
+   * eine validierte Instruction-DSL um, legt eine Workshop-Sitzung an und startet
+   * auf Wunsch sofort einen echten Netto-Backtest.
+   */
+  createFromText: protectedProcedure
+    .input(
+      z.object({
+        text: z.string().min(6).max(5000),
+        name: z.string().min(3).max(120).optional(),
+        symbol: z.string().min(1).max(32).optional(),
+        timeframe: timeframeSchema.optional(),
+        autoBacktest: z.boolean().default(true),
+        lookbackDays: z.number().int().min(30).max(730).default(365),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const synth = synthesizeDslFromText(input.text, {
+        name: input.name,
+        symbol: input.symbol,
+        timeframe: input.timeframe,
+      });
+      const sessionName = (input.name?.trim() || synth.dsl.id).slice(0, 120);
+      const [row] = await ctx.db
+        .insert(workshopSessions)
+        .values({
+          userId: ctx.user.id,
+          name: sessionName,
+          instructions: input.text.trim(),
+          draftDsl: synth.dsl,
+        })
+        .returning();
+
+      await ctx.db.insert(auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: 'workshop.session.created_from_text',
+        entityType: 'workshop_session',
+        entityId: row!.id,
+        details: { name: sessionName, symbol: synth.dsl.symbol, timeframe: synth.dsl.timeframe, features: synth.detectedFeatures },
+        ip: ctx.ip,
+      });
+
+      let backtest: Awaited<ReturnType<typeof runDraftBacktest>> | null = null;
+      let backtestError: string | null = null;
+
+      if (input.autoBacktest) {
+        const to = new Date();
+        const from = new Date(to.getTime() - input.lookbackDays * 86_400_000);
+        try {
+          await ensureCandleHistory(ctx.db, {
+            symbol: synth.dsl.symbol,
+            timeframe: synth.dsl.timeframe,
+            from,
+            to,
+          });
+        } catch {
+          // Offline / Test-DB: Backtest prüft anschließend die vorhandenen DB-Kerzen ehrlich.
+        }
+        try {
+          backtest = await runDraftBacktest(ctx.db, ctx.user.id, {
+            id: row!.id,
+            label: 'Sofort-Demo-Backtest',
+            symbol: synth.dsl.symbol,
+            timeframe: synth.dsl.timeframe,
+            from,
+            to,
+            riskPctPerTrade: synth.dsl.risk.riskPctPerTrade,
+          });
+        } catch (err) {
+          backtestError = err instanceof Error ? err.message : 'Backtest fehlgeschlagen.';
+        }
+      }
+
+      return {
+        session: row!,
+        dsl: synth.dsl,
+        summary: synth.summary,
+        ruleSummary: summarizeDslRules(synth.dsl),
+        detectedFeatures: synth.detectedFeatures,
+        matchedPatterns: synth.matchedPatterns,
+        backtest,
+        backtestError,
+      };
     }),
 
   /** Stammdaten pflegen (Name, Pine-Quelle, textuelle Anweisungen). */
@@ -274,15 +361,31 @@ export const workshopRouter = router({
         to: z.string().datetime(),
         riskPctPerTrade: z.number().min(0.1).max(5).default(1),
         costModel: costSchema.optional(),
+        autoFetchCandles: z.boolean().optional(),
       }),
     )
-    .mutation(({ ctx, input }) =>
-      runDraftBacktest(ctx.db, ctx.user.id, {
+    .mutation(async ({ ctx, input }) => {
+      const from = new Date(input.from);
+      const to = new Date(input.to);
+      if (input.autoFetchCandles) {
+        try {
+          const session = await ownedSession(ctx.db, ctx.user.id, input.id);
+          const draft = parseInstructionDsl(session.draftDsl);
+          const sym = input.symbol ?? (draft.ok ? draft.dsl.symbol : undefined);
+          const tf = input.timeframe ?? (draft.ok ? draft.dsl.timeframe : undefined);
+          if (sym && tf) {
+            await ensureCandleHistory(ctx.db, { symbol: sym, timeframe: tf, from, to });
+          }
+        } catch {
+          // Offline / Test-DB: runDraftBacktest prüft vorhandene DB-Kerzen ehrlich.
+        }
+      }
+      return runDraftBacktest(ctx.db, ctx.user.id, {
         ...input,
-        from: new Date(input.from),
-        to: new Date(input.to),
-      }),
-    ),
+        from,
+        to,
+      });
+    }),
 
   /** Alle Draft-Backtests der Sitzung (Parameter-Set-Vergleich, neueste zuerst). */
   backtests: protectedProcedure.input(z.object({ id: z.string().uuid() })).query(async ({ ctx, input }) => {

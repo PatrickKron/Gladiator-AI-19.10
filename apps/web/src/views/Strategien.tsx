@@ -5,6 +5,7 @@ import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
 import { Workshop } from './Workshop.js';
 import { StrategyCatalog } from '../components/StrategyCatalog.js';
+import { TextStrategyBuilder } from '../components/TextStrategyBuilder.js';
 import { appLocale } from '../lib/locale.js';
 
 /**
@@ -29,7 +30,19 @@ type Validity = Awaited<ReturnType<typeof trpc.strategies.validity.query>>;
  * Backtest existiert — nur dann darf die Strategie selbstständig laufen. Der
  * Promote-Button ist ohne bestandenen Backtest gesperrt (Details im Tooltip).
  */
-function VersionRow({ v, busy, onPromote }: { v: Version; busy: boolean; onPromote: (id: string) => void }) {
+function VersionRow({
+  strategyId,
+  strategyKind,
+  v,
+  busy,
+  onPromote,
+}: {
+  strategyId: string;
+  strategyKind: string;
+  v: Version;
+  busy: boolean;
+  onPromote: (id: string) => void;
+}) {
   const { t } = useTranslation();
   const [val, setVal] = useState<Validity | null>(null);
 
@@ -88,8 +101,16 @@ function VersionRow({ v, busy, onPromote }: { v: Version; busy: boolean; onPromo
             {t('builder.promote')} ({t('builder.promoteDraftToPaper')})
           </button>
         )}
-        <a href="#/labor" className="text-xs" style={{ color: 'var(--color-cyan)' }}>
-          → {t('builder.backtest')}
+        <a
+          href={
+            strategyKind === 'dsl'
+              ? `#/labor?strategy=${encodeURIComponent(strategyId)}&version=${encodeURIComponent(v.id)}`
+              : `#/labor?version=${encodeURIComponent(v.id)}`
+          }
+          className="text-xs"
+          style={{ color: 'var(--color-cyan)' }}
+        >
+          → Im Labor testen
         </a>
       </span>
     </li>
@@ -167,7 +188,7 @@ function StrategyRow({ s, onChanged }: { s: Strategy; onChanged: () => void }) {
             <>
               <ul className="space-y-2">
                 {versions.map((v) => (
-                  <VersionRow key={v.id} v={v} busy={busy} onPromote={(id) => void promote(id)} />
+                  <VersionRow key={v.id} strategyId={s.id} strategyKind={s.kind} v={v} busy={busy} onPromote={(id) => void promote(id)} />
                 ))}
               </ul>
               <p className="mt-2 text-[11px] leading-relaxed" style={{ color: 'var(--color-mut)' }}>
@@ -544,8 +565,8 @@ function PineAnalyzePanel() {
   );
 }
 
-/** Tabs im Hash — Deep-Link z. B. `#/strategien?tab=pine` oder `#/strategien?tab=registry` (Legacy `builtin` wird auf `registry` abgebildet). */
-const STRATEGY_TABS = ['katalog', 'workshop', 'pine', 'registry', 'builtin'] as const;
+/** Tabs im Hash — Deep-Link z. B. `#/strategien?tab=text` oder `#/strategien?tab=pine` (Legacy `builtin` wird auf `registry` abgebildet). */
+const STRATEGY_TABS = ['katalog', 'text', 'workshop', 'pine', 'registry', 'builtin'] as const;
 type StrategyTab = (typeof STRATEGY_TABS)[number];
 
 export function Strategien() {
@@ -571,6 +592,7 @@ export function Strategien() {
 
   const tabs = [
     { id: 'katalog' as const, label: t('builder.tabCatalog') },
+    { id: 'text' as const, label: '✍️ Per Text + Demo-Test' },
     { id: 'workshop' as const, label: t('builder.tabWorkshop') },
     { id: 'pine' as const, label: t('builder.tabPine') },
     {
@@ -619,6 +641,7 @@ export function Strategien() {
       {error && <ErrorBox message={error} />}
 
       {tab === 'katalog' && <StrategyCatalog />}
+      {tab === 'text' && <TextStrategyBuilder onSaved={() => void load()} />}
       {tab === 'workshop' && <Workshop embedded />}
       {tab === 'pine' && (
         <>
