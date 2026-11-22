@@ -3,6 +3,14 @@ export * from './indicators.js';
 export * from './indicators-extra.js';
 export { computeSwings } from './swings.js';
 export { detectStructure, type StructureOptions } from './structure.js';
+export {
+  detectAllDivergences,
+  detectDivergences,
+  type DivergenceEvent,
+  type DivergenceIndicator,
+  type DivergenceKind,
+  type DivergenceOptions,
+} from './divergences.js';
 export { detectOrderBlocks, detectFvgs, type Zone } from './zones.js';
 export {
   dealingRangeAt,

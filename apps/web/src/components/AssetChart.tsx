@@ -264,7 +264,9 @@ export function AssetChart({
       cancelled = true;
     };
   }, [symbol, venue, rememberTf]);
-  const shownTfs = CHART_TFS.filter((f) => availableTfs.includes(f) || f === tf);
+  // Alle 14 unterstützten Timeframes (1m..1M) anbieten — nicht gecachte werden beim Klick automatisch on-demand geladen.
+  const shownTfs: Timeframe[] = [...CHART_TFS];
+  const autoFetchedTfRef = useRef<Set<string>>(new Set());
   const [pickedPrice, setPickedPrice] = useState<number | null>(null);
   const [alertBusy, setAlertBusy] = useState(false);
   const [alertFeedback, setAlertFeedback] = useState<string | null>(null);
@@ -794,10 +796,30 @@ export function AssetChart({
     liveDirtyRef.current = false;
     void trpc.market.chartData
       .query({ symbol, timeframe: tf, limit: 400, venue, ...(replayUntil !== null ? { until: replayUntil } : {}) })
-      .then((res) => {
+      .then(async (res) => {
         if (cancelled) return;
         replayLoadingRef.current = false;
         if (!res.available || res.candles.length === 0) {
+          // On-Demand-Laden: wenn ein gewählter Timeframe (z. B. 1m, 2m, 3m, 10m, 1w, 1M) noch nicht in der DB liegt, einmalig nachladen.
+          const fetchKey = `${venue}:${symbol}:${tf}`;
+          if (replayUntil === null && !autoFetchedTfRef.current.has(fetchKey)) {
+            autoFetchedTfRef.current.add(fetchKey);
+            try {
+              await trpc.market.ensureTimeframe.mutate({ symbol, venue, timeframe: tf });
+              if (cancelled) return;
+              const retry = await trpc.market.chartData.query({ symbol, timeframe: tf, limit: 400, venue });
+              if (cancelled) return;
+              if (retry.available && retry.candles.length > 0) {
+                replayTimesRef.current = retry.candles.map((c) => c.time);
+                setData(retry as ChartData);
+                setState('ready');
+                setAvailableTfs((prev) => (prev.includes(tf) ? prev : [...prev, tf]));
+                return;
+              }
+            } catch {
+              /* ehrlich leer bleiben */
+            }
+          }
           setState('empty');
           return;
         }
@@ -1430,6 +1452,20 @@ export function AssetChart({
         markers.push({ time: sw.time as UTCTimestamp, position: buy ? 'aboveBar' : 'belowBar', color: buy ? C.amber : C.cyan, shape: 'circle', text: buy ? 'BSL' : 'SSL' });
       }
     }
+    // Divergenzen (RSI & MACD, regulär & versteckt, look-ahead-frei)
+    if (toggles.divergences && data.divergences && data.divergences.length > 0) {
+      for (const d of data.divergences) {
+        const bull = d.kind === 'bullish' || d.kind === 'hidden_bullish';
+        const hidden = d.kind === 'hidden_bullish' || d.kind === 'hidden_bearish';
+        markers.push({
+          time: d.time as UTCTimestamp,
+          position: bull ? 'belowBar' : 'aboveBar',
+          color: bull ? (hidden ? C.cyan : C.green) : hidden ? C.amber : C.red,
+          shape: bull ? 'arrowUp' : 'arrowDown',
+          text: `${hidden ? 'H-' : ''}${bull ? 'Bull' : 'Bear'} ${d.indicator.toUpperCase()}`,
+        });
+      }
+    }
     const selectedSlugs = new Set(strategySlugs);
     if (toggles.signals && signals.length > 0 && data.candles.length > 0) {
       const first = data.candles[0]!.time as number;
@@ -1611,7 +1647,7 @@ export function AssetChart({
         /* schon entsorgt — ignorieren */
       }
     };
-  }, [state, data, toggles.ema, toggles.bollinger, toggles.volume, toggles.structure, toggles.liquidity, toggles.signals, toggles.rsi, toggles.macd, toggles.atr, tf, levels, signals, warmupInfo, t, strategySignals, strategySlugs, symbol, panes, venue, syncGroup, replayTrades]);
+  }, [state, data, toggles.ema, toggles.bollinger, toggles.volume, toggles.structure, toggles.divergences, toggles.liquidity, toggles.signals, toggles.rsi, toggles.macd, toggles.atr, tf, levels, signals, warmupInfo, t, strategySignals, strategySlugs, symbol, panes, venue, syncGroup, replayTrades]);
 
   // Heatmap, DOM-Orderbuch-Wände, Zonen, Liquidität & Vol-Profil inkrementell nachzeichnen (kein Chart-Rebuild, Zoom/Pan bleiben stabil).
   useEffect(() => {
@@ -1665,6 +1701,7 @@ export function AssetChart({
     macd: 'MACD 12/26/9',
     atr: 'ATR 14',
     structure: 'BOS/CHoCH',
+    divergences: 'Divergenz',
     zones: 'OB/FVG',
     liquidity: t('chart.liquidity'),
     pd: t('chart.pd'),
@@ -1761,19 +1798,26 @@ export function AssetChart({
     <div>
       {/* EINE Werkzeugzeile (Welle C): Zeitrahmen · Ein-Klick-Chips (wie v2) · Ansicht ▾ · Smart Money · Bibliothek · Zeichnen ▾ · Replay */}
       <div className="toolbar mb-2" role="toolbar" aria-label={t('chart.view')}>
-        <div className="flex gap-0.5 rounded-lg p-0.5" style={{ background: 'var(--color-bg3)' }}>
-          {shownTfs.map((f, idx) => (
-            <button
-              key={f}
-              onClick={() => changeTf(f)}
-              aria-pressed={tf === f}
-              title={enableHotkeys && idx < 6 ? `${f} (Taste ${idx + 1})` : f}
-              className="num rounded-md px-2 py-0.5 text-[11px] font-semibold transition-colors"
-              style={tf === f ? { background: 'rgba(59,130,246,0.2)', color: 'var(--color-ink)' } : { color: 'var(--color-mut)' }}
-            >
-              {f}
-            </button>
-          ))}
+        <div className="flex flex-wrap gap-0.5 rounded-lg p-0.5" style={{ background: 'var(--color-bg3)' }}>
+          {shownTfs.map((f, idx) => {
+            const cached = availableTfs.includes(f);
+            return (
+              <button
+                key={f}
+                onClick={() => changeTf(f)}
+                aria-pressed={tf === f}
+                title={enableHotkeys && idx < 6 ? `${f} (Taste ${idx + 1})${cached ? '' : ' · lädt bei Klick'}` : cached ? f : `${f} · lädt bei Klick`}
+                className="num rounded-md px-1.5 py-0.5 text-[11px] font-semibold transition-colors"
+                style={
+                  tf === f
+                    ? { background: 'rgba(59,130,246,0.2)', color: 'var(--color-ink)' }
+                    : { color: cached ? 'var(--color-mut)' : 'rgba(139,148,184,0.5)' }
+                }
+              >
+                {f}
+              </button>
+            );
+          })}
         </div>
         <span className="mx-1 hidden h-4 w-px sm:block" style={{ background: 'var(--color-line)' }} aria-hidden="true" />
         {/* v2-Bedienung: die neun Schalter direkt in der Leiste, ein Klick je Serie (bricht auf schmalen Bildschirmen um) */}

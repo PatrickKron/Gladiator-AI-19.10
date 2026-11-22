@@ -331,7 +331,7 @@ async function loadBinance(db: Db, symbol: string, deps: RegisterDeps): Promise<
     unreachable = errText(err);
   }
   if (pairs) {
-    if (!pairs.some((p) => p.symbol === symbol)) throw new AssetRegisterError('UNKNOWN_SYMBOL', `${symbol} ist kein Binance-Spot-Paar gegen USDT.`);
+    if (!pairs.some((p) => p.symbol === symbol)) throw new AssetRegisterError('UNKNOWN_SYMBOL', `${symbol} ist kein aktives Binance-Spot-Paar (USDT/USDC).`);
   } else if (Object.keys(await candleCounts(db, 'binance', symbol)).length === 0) {
     // Ohne Paarliste reicht nur eine vorhandene echte Kerzenreihe als Beleg.
     throw new AssetRegisterError('UNREACHABLE', `Binance nicht erreichbar — ${unreachable.slice(0, 160)}`);
@@ -360,7 +360,8 @@ async function loadYahoo(db: Db, symbol: string, input: RegisterInput, deps: Reg
   const load = await loadYahooCandles(db, symbol, { ingest: deps.ingestYahoo, now: deps.now?.() });
   const candles = await candleCounts(db, YAHOO_VENUE, symbol);
   if (Object.keys(candles).length === 0) {
-    throw new AssetRegisterError('NO_CANDLES', `Yahoo liefert keine Kerzen für ${symbol} (${load.errors.join(' · ') || 'unbekannt'}).`);
+    const hint = !symbol.includes('-') && /^[A-Z]{2,5}$/.test(symbol) ? ` (evtl. nicht börsennotiert / Pre-IPO — für Krypto versuche ${symbol}-USD oder ${symbol}/USDT)` : '';
+    throw new AssetRegisterError('NO_CANDLES', `Yahoo liefert keine Kerzen für ${symbol}${hint} (${load.errors.join(' · ') || 'unbekannt'}).`);
   }
   const quoteType = hit?.type ?? load.meta?.instrumentType ?? input.kind ?? null;
   const clientName = input.name?.trim().slice(0, 120) || null;

@@ -8,7 +8,7 @@
 export const DSL_SCHEMA_DOC = `{
   "id": "kebab-case-slug",
   "symbol": "BTC/USDT",
-  "timeframe": "5m"|"15m"|"30m"|"1h"|"2h"|"4h"|"12h"|"1d"|"1w"|"1M",
+  "timeframe": "1m"|"2m"|"3m"|"5m"|"10m"|"15m"|"30m"|"1h"|"2h"|"4h"|"12h"|"1d"|"1w"|"1M",
   "venueType": "cex"|"dex",
   "direction": "long"|"short",
   "setupType": "scalp"|"swing"|"position",
@@ -24,7 +24,8 @@ export const DSL_SCHEMA_DOC = `{
       {"bollinger":{"period":n,"mult":n,"event":"close_below_lower"|"close_above_upper"|"close_above_middle"|"close_below_middle"}},  // period/mult optional (20/2)
       {"stochastic":{"kPeriod":n,"dPeriod":n,"smoothK":n,"kLt":n,"kGt":n,"cross":"bullish"|"bearish","withinBars":n}},  // kLt/kGt/cross: mind. eines; Perioden optional (14/3/1)
       {"adx":{"period":n,"gt":n,"lt":n}},  // gt/lt: mind. eines; period optional (14)
-      {"supertrend":{"period":n,"mult":n,"direction":"up"|"down"}}  // period/mult optional (10/3)
+      {"supertrend":{"period":n,"mult":n,"direction":"up"|"down"}},  // period/mult optional (10/3)
+      {"divergence":{"indicator":"rsi"|"macd","kind":"bullish"|"bearish"|"hidden_bullish"|"hidden_bearish","withinBars":n}}  // look-ahead-frei ab Pivot-Bestätigung; withinBars optional (Default 6)
     ],
     "any": [[...], [...]]  // optional: 1-5 ODER-Zweige, jeder eine UND-Liste (1-10 Bedingungen, gleiche Typen wie "all"); mind. EIN Zweig muss vollständig erfüllt sein (zusätzlich zu "all")
   },

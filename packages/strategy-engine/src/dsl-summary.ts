@@ -91,6 +91,18 @@ export function summarizeDslCondition(cond: DslCondition): string {
     const { period, mult, direction } = cond.supertrend;
     return `Supertrend(${period}, ${mult}×) ${direction === 'up' ? '↑' : '↓'}`;
   }
+  if ('divergence' in cond) {
+    const { indicator, kind } = cond.divergence;
+    const kLabel =
+      kind === 'bullish'
+        ? 'Bullish'
+        : kind === 'bearish'
+          ? 'Bearish'
+          : kind === 'hidden_bullish'
+            ? 'Hidden Bullish'
+            : 'Hidden Bearish';
+    return `${indicator.toUpperCase()} Divergenz (${kLabel})`;
+  }
   return 'Bedingung';
 }
 
