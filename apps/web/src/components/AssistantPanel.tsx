@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { detectStrategyPatterns, type DslTimeframe } from '@gladiator/strategy-engine';
 import { streamAssistant, trpc, type AssistantCard } from '../api.js';
-import { getSelectedAsset } from './AssetSelect.js';
+import { getSelectedAsset, getSelectedVenue } from './AssetSelect.js';
+import { ChatPatternStrategyCard, type PatternDraftData } from './ChatPatternStrategyCard.js';
+import { loadTf } from '../lib/chart-tf.js';
+import { parseChartHash } from '../lib/chart-url.js';
 import { appLocale } from '../lib/locale.js';
 
 /**
@@ -12,9 +16,53 @@ import { appLocale } from '../lib/locale.js';
  * „nicht verbunden“ mit dem Weg zu den Einstellungen.
  */
 
-type Msg = { id: string; role: 'user' | 'assistant'; content: string; cards: AssistantCard[]; pending?: boolean };
+type PatternOffer = { text: string; patterns: string[]; symbol: string; timeframe: DslTimeframe };
+type Msg = {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  cards: AssistantCard[];
+  pending?: boolean;
+  patternDraft?: PatternDraftData;
+  patternOffer?: PatternOffer;
+};
 type Status = Awaited<ReturnType<typeof trpc.assistant.status.query>>;
 type Conversation = Awaited<ReturnType<typeof trpc.assistant.conversations.query>>[number];
+
+type LiveUiContext = {
+  route: string;
+  pageLabel: string;
+  tab: string | null;
+  symbol: string;
+  venue: string;
+  timeframe: DslTimeframe;
+};
+
+function readLiveUiContext(): LiveUiContext {
+  const hash = window.location.hash || '#/';
+  const [pathPart, queryPart] = hash.split('?');
+  const qs = new URLSearchParams(queryPart ?? '');
+  const parsedChart = parseChartHash(hash);
+  const symbol = parsedChart.symbol ?? getSelectedAsset();
+  const venue = parsedChart.venue ?? getSelectedVenue();
+  const timeframe: DslTimeframe = parsedChart.tf ?? loadTf(symbol) ?? '1h';
+  const tab = qs.get('tab');
+  const pageMap: Record<string, string> = {
+    '#/': 'Übersicht',
+    '#/charts': 'Chart',
+    '#/chart': 'Chart',
+    '#/strategien': 'Strategien',
+    '#/labor': 'Backtest-Labor',
+    '#/marktlage': 'Marktlage',
+    '#/traden': 'Traden',
+    '#/signale': 'Signale',
+    '#/screener': 'Screener',
+    '#/agenten': 'Agenten',
+    '#/vermoegen': 'Vermögen',
+  };
+  const pageLabel = pageMap[pathPart ?? '#/'] ?? (pathPart?.replace(/^#\//, '') || 'Übersicht');
+  return { route: hash, pageLabel, tab, symbol, venue, timeframe };
+}
 
 const CONV_KEY = 'gladiator.chatConversation';
 const TOOL_KEYS = [
@@ -68,8 +116,18 @@ export function AssistantPanel({ open, onClose, prefill }: { open: boolean; onCl
   const [busy, setBusy] = useState(false);
   const [tool, setTool] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [uiCtx, setUiCtx] = useState<LiveUiContext>(() => readLiveUiContext());
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const sync = () => setUiCtx(readLiveUiContext());
+    if (open) sync();
+    window.addEventListener('hashchange', sync);
+    return () => window.removeEventListener('hashchange', sync);
+  }, [open]);
+
+  const detectedPatterns = useMemo(() => detectStrategyPatterns(input), [input]);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -128,9 +186,110 @@ export function AssistantPanel({ open, onClose, prefill }: { open: boolean; onCl
     return c.id;
   };
 
+  /** Proaktiver Muster→Strategie-Workflow direkt im Chat (funktioniert mit UND ohne ANTHROPIC_API_KEY). */
+  const buildPatternStrategyInChat = async (rawText: string, overrideSym?: string, overrideTf?: DslTimeframe) => {
+    const text = rawText.trim();
+    if (!text || busy) return;
+    const live = readLiveUiContext();
+    setUiCtx(live);
+    const targetSym = overrideSym ?? live.symbol;
+    const targetTf = overrideTf ?? live.timeframe;
+    setError(null);
+    setInput('');
+    setBusy(true);
+    setTool('propose_strategy');
+    const tmpId = `pat-${Date.now()}`;
+    setMessages((m) => [
+      ...m,
+      { id: `u-${tmpId}`, role: 'user', content: text, cards: [] },
+      { id: tmpId, role: 'assistant', content: `Erstelle Strategie aus deinem Muster & teste netto auf ${targetSym} (${targetTf})…`, cards: [], pending: true },
+    ]);
+    try {
+      const res = await trpc.workshop.createFromText.mutate({
+        text,
+        symbol: targetSym,
+        timeframe: targetTf,
+        autoBacktest: true,
+        lookbackDays: 365,
+      });
+      const draftData: PatternDraftData = {
+        sessionId: res.session.id,
+        initialName: res.session.name,
+        summary: res.summary,
+        dsl: res.dsl,
+        conditions: res.ruleSummary.conditions,
+        stopLoss: res.ruleSummary.stopLoss,
+        takeProfits: res.ruleSummary.takeProfits,
+        backtest: res.backtest
+          ? {
+              symbol: res.backtest.symbol,
+              timeframe: res.backtest.timeframe,
+              candles: res.backtest.candles,
+              metrics: res.backtest.metrics,
+            }
+          : null,
+        backtestError: res.backtestError,
+      };
+      const replyText = res.backtest
+        ? `Ich habe deine Muster-Strategie erstellt und über echte Kerzen auf ${res.backtest.symbol} (${res.backtest.timeframe}) netto gebacktestet. Gib ihr unten einen Namen, speichere sie, blende sie im Chart ein oder aktiviere sie nach dem 12-Monats-Gate für Paper-Signale:`
+        : `Ich habe deine Muster-Strategie als validierten Entwurf angelegt (${res.summary}). Du kannst ihr direkt einen Namen geben, sie speichern oder im Labor testen:`;
+      setMessages((m) =>
+        m.map((x) =>
+          x.id === tmpId
+            ? { id: tmpId, role: 'assistant', content: replyText, cards: [], patternDraft: draftData }
+            : x,
+        ),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Strategie-Entwurf fehlgeschlagen.');
+      setMessages((m) => m.filter((x) => x.id !== tmpId));
+    } finally {
+      setBusy(false);
+      setTool(null);
+    }
+  };
+
   const send = async (text: string) => {
     const msg = text.trim();
     if (!msg || busy) return;
+    const live = readLiveUiContext();
+    setUiCtx(live);
+    const patterns = detectStrategyPatterns(msg);
+
+    // Ohne konfigurierten Anthropic-Key bleibt der proaktive Muster- & Strategie-Partner voll nutzbar!
+    if (status?.configured === false) {
+      setError(null);
+      setInput('');
+      const uid = `u-${Date.now()}`;
+      const aid = `a-${Date.now() + 1}`;
+      if (patterns.length > 0) {
+        const labels = patterns.map((p) => p.label);
+        setMessages((m) => [
+          ...m,
+          { id: uid, role: 'user', content: msg, cards: [] },
+          {
+            id: aid,
+            role: 'assistant',
+            content: `Ich habe in deiner Nachricht Muster erkannt (${labels.join(', ')}) — aktiv im Blick: ${live.symbol} (${live.timeframe}). Soll ich dir dazu direkt eine Strategie erstellen und netto backtesten?`,
+            cards: [],
+            patternOffer: { text: msg, patterns: labels, symbol: live.symbol, timeframe: live.timeframe },
+          },
+        ]);
+      } else {
+        setMessages((m) => [
+          ...m,
+          { id: uid, role: 'user', content: msg, cards: [] },
+          {
+            id: aid,
+            role: 'assistant',
+            content: `Aktiver Kontext: ${live.symbol} (${live.timeframe}) auf „${live.pageLabel}“. Für freie KI-Gespräche hinterlege deinen Anthropic-Key unter Einstellungen → API-Keys. Sobald du hier ein Chartmuster oder Setup beschreibst (z. B. „RSI-Divergenz über EMA 200“, „Bollinger-Rebound“, „EMA 20/50 Crossover“), erstelle und teste ich dir die Strategie aber schon jetzt direkt im Chat!`,
+            cards: [{ kind: 'link', label: 'Zu Einstellungen → API-Keys', hash: '#/einstellungen?tab=keys' }],
+          },
+        ]);
+      }
+      return;
+    }
+
     setError(null);
     setInput('');
     setBusy(true);
@@ -141,14 +300,31 @@ export function AssistantPanel({ open, onClose, prefill }: { open: boolean; onCl
       const done = await streamAssistant(
         id,
         msg,
-        { route: window.location.hash || '#/', symbol: getSelectedAsset(), locale: i18n.language },
+        {
+          route: live.route,
+          symbol: live.symbol,
+          venue: live.venue,
+          timeframe: live.timeframe,
+          tab: live.tab ?? undefined,
+          locale: i18n.language,
+        },
         {
           onDelta: (d) => setMessages((m) => m.map((x) => (x.id === tmpId ? { ...x, content: x.content + d } : x))),
           onTool: (e) => setTool(e.status === 'start' ? e.name : e.status === 'error' ? `!${e.name}:${e.detail ?? ''}` : null),
           onCard: (card) => setMessages((m) => m.map((x) => (x.id === tmpId ? { ...x, cards: [...x.cards, card] } : x))),
         },
       );
-      setMessages((m) => m.map((x) => (x.id === tmpId ? { id: done.messageId, role: 'assistant', content: done.content, cards: done.cards } : x)));
+      const offer: PatternOffer | undefined =
+        patterns.length > 0 && !done.cards.some((c) => c.kind === 'proposal' || c.kind === 'backtest')
+          ? { text: msg, patterns: patterns.map((p) => p.label), symbol: live.symbol, timeframe: live.timeframe }
+          : undefined;
+      setMessages((m) =>
+        m.map((x) =>
+          x.id === tmpId
+            ? { id: done.messageId, role: 'assistant', content: done.content, cards: done.cards, ...(offer ? { patternOffer: offer } : {}) }
+            : x,
+        ),
+      );
       void loadConversations();
       void trpc.assistant.status.query().then(setStatus).catch(() => undefined);
     } catch (err) {
@@ -235,13 +411,52 @@ export function AssistantPanel({ open, onClose, prefill }: { open: boolean; onCl
         </div>
       </div>
 
+      {/* Live-Kontext-Leiste: zeigt dem Nutzer, was der Chat gerade mitliest */}
+      <div
+        className="flex flex-wrap items-center gap-1.5 border-b px-3 py-1.5 text-[11px]"
+        style={{ borderColor: 'var(--color-line)', background: 'rgba(15,23,42,0.45)', color: 'var(--color-mut)' }}
+      >
+        <span style={{ color: 'var(--color-cyan)' }}>📍 Im Blick:</span>
+        <span className="num font-medium" style={{ color: 'var(--color-ink)' }}>
+          {uiCtx.symbol}
+        </span>
+        <span>·</span>
+        <span className="num">{uiCtx.timeframe}</span>
+        <span>·</span>
+        <span>{uiCtx.pageLabel}{uiCtx.tab ? ` (${uiCtx.tab})` : ''}</span>
+      </div>
+
       <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-3">
         {status && !status.configured && (
-          <div className="rounded border p-3 text-sm" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
-            {t('assistant.notConfigured')}{' '}
-            <a href="#/einstellungen?tab=keys" className="underline" style={{ color: 'var(--color-blue)' }} onClick={onClose}>
-              {t('assistant.toKeys')}
-            </a>
+          <div className="mb-3 rounded border p-3 text-xs space-y-1.5" style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}>
+            <p>
+              <strong style={{ color: 'var(--color-cyan)' }}>Muster- & Strategie-Partner sofort aktiv:</strong> Schreib einfach ein Chartmuster (z. B. „RSI-Divergenz über EMA 200“ oder „EMA 20/50 Crossover“) — ich erstelle und teste deine Strategie direkt hier im Chat.
+            </p>
+            <p>
+              {t('assistant.notConfigured')}{' '}
+              <a href="#/einstellungen?tab=keys" className="underline" style={{ color: 'var(--color-blue)' }} onClick={onClose}>
+                {t('assistant.toKeys')}
+              </a>
+            </p>
+          </div>
+        )}
+        {messages.length === 0 && status && !status.configured && (
+          <div className="mb-3 flex flex-col gap-1.5 text-xs">
+            <span className="label">Schnell-Start Muster testen:</span>
+            <button
+              type="button"
+              className="chip text-left"
+              onClick={() => void buildPatternStrategyInChat(`Bullische RSI-Divergenz über EMA 200 auf ${uiCtx.symbol} im ${uiCtx.timeframe} Chart`)}
+            >
+              ✨ RSI-Divergenz + EMA200 auf {uiCtx.symbol} ({uiCtx.timeframe}) testen
+            </button>
+            <button
+              type="button"
+              className="chip text-left"
+              onClick={() => void buildPatternStrategyInChat(`EMA 20 kreuzt EMA 50 mit ADX > 20 auf ${uiCtx.symbol} im ${uiCtx.timeframe} Chart`)}
+            >
+              ✨ EMA 20/50 Crossover + ADX auf {uiCtx.symbol} ({uiCtx.timeframe}) testen
+            </button>
           </div>
         )}
         {messages.length === 0 && status?.configured && (
@@ -277,6 +492,31 @@ export function AssistantPanel({ open, onClose, prefill }: { open: boolean; onCl
                   ))}
                 </div>
               )}
+              {m.patternOffer && (
+                <div
+                  className="mt-2 rounded-lg border p-2.5 text-xs space-y-2"
+                  style={{ borderColor: 'rgba(6,182,212,0.45)', background: 'rgba(6,182,212,0.08)' }}
+                >
+                  <p className="font-medium" style={{ color: 'var(--color-cyan)' }}>
+                    ✨ Muster erkannt: {m.patternOffer.patterns.join(' · ')}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void buildPatternStrategyInChat(m.patternOffer!.text, m.patternOffer!.symbol, m.patternOffer!.timeframe)}
+                      className="btn-primary px-3 py-1 text-[11px] disabled:opacity-50"
+                    >
+                      ▶ Ja, Strategie erstellen & auf {m.patternOffer.symbol} ({m.patternOffer.timeframe}) testen
+                    </button>
+                  </div>
+                </div>
+              )}
+              {m.patternDraft && (
+                <div className="mt-2">
+                  <ChatPatternStrategyCard data={m.patternDraft} onNavigate={onClose} />
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -291,6 +531,25 @@ export function AssistantPanel({ open, onClose, prefill }: { open: boolean; onCl
           </p>
         )}
       </div>
+
+      {!busy && detectedPatterns.length > 0 && !looksLikeScriptOrStrategy(input) && (
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-2 text-xs"
+          style={{ borderColor: 'var(--color-line)', background: 'rgba(6, 182, 212, 0.08)' }}
+        >
+          <span className="font-medium" style={{ color: 'var(--color-cyan)' }}>
+            ✨ Muster erkannt ({detectedPatterns.map((p) => p.label).slice(0, 2).join(', ')}) — Strategie dazu erstellen & testen?
+          </span>
+          <button
+            type="button"
+            className="tbtn px-2.5 py-1 text-[11px]"
+            style={{ borderColor: 'rgba(6,182,212,0.55)', color: 'var(--color-cyan)' }}
+            onClick={() => void buildPatternStrategyInChat(input)}
+          >
+            ▶ Erstellen & auf {uiCtx.symbol} ({uiCtx.timeframe}) testen
+          </button>
+        </div>
+      )}
 
       {!busy && status?.configured && looksLikeScriptOrStrategy(input) && (
         <div
@@ -345,11 +604,15 @@ export function AssistantPanel({ open, onClose, prefill }: { open: boolean; onCl
             }
           }}
           rows={2}
-          placeholder={t('assistant.placeholder')}
+          placeholder={
+            status?.configured === false
+              ? 'Beschreibe ein Chartmuster (z. B. „RSI-Divergenz über EMA 200“) zum sofortigen Strategietest…'
+              : t('assistant.placeholder')
+          }
           className="field min-w-0 flex-1 resize-none px-3 py-2 text-sm"
-          disabled={busy || status?.configured === false}
+          disabled={busy}
         />
-        <button type="submit" className="btn-primary" disabled={busy || !input.trim() || status?.configured === false}>
+        <button type="submit" className="btn-primary" disabled={busy || !input.trim()}>
           {t('assistant.send')}
         </button>
       </form>

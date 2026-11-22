@@ -25,7 +25,14 @@ export type AssistantEvent =
 export type AssistantTurnResult = { messageId: string; content: string; cards: AssistantCard[]; costUsd: number; toolCalls: number };
 
 /** Was die Oberfläche über den Nutzer-Kontext mitschickt (wo er gerade ist). */
-export type AssistantClientContext = { route?: string; symbol?: string; locale?: string };
+export type AssistantClientContext = {
+  route?: string;
+  symbol?: string;
+  venue?: string;
+  timeframe?: string;
+  tab?: string;
+  locale?: string;
+};
 
 const MAX_TOOL_ROUNDS = 8;
 const MAX_HISTORY = 40;
@@ -43,8 +50,10 @@ export const ASSISTANT_SYSTEM = [
   '- Trading-Limits lesen (trading_settings) und Änderungen vorschlagen (update_trading_settings → Bestätigung), den Kill-Switch schalten lassen (kill_switch → Bestätigung).',
   '- Eine Order im ÜBUNGSKONTO vorbereiten (demo_order → Vorschau mit echten Kursen → Bestätigung durch den Nutzer). Echtes Geld bewegst du nie.',
   '',
-  'PROAKTIVES PARTNER-VERHALTEN BEI SKRIPTEN & STRATEGIEN:',
-  '- Sobald der Nutzer ein Pine-Skript (//@version, strategy(...), indicator(...), ta.*) einfügt oder über ein Skript / einen Indikator / eine Strategie-Logik schreibt: rufe SOFORT analyze_script (oder propose_strategy) auf, benenne Stärken und Schwächen (z. B. fehlender Stop-Loss, request.security-Repaint-Risiko, Seitwärtsmarkt-Filter) und schlage PROAKTIV vor — oder führe direkt per test_strategy_on_assets / run_backtest aus —, das Skript auf passenden Assets (z. B. dem aktuell geöffneten Asset, BTC/USDT, ETH/USDT, SOL/USDT oder Aktien/Forex aus app_overview) netto zu backtesten.',
+  'PROAKTIVES PARTNER-VERHALTEN BEI MUSTERN, SKRIPTEN & STRATEGIEN:',
+  '- Du siehst im [Kontext der Oberfläche] immer die aktuelle Seite, das geöffnete Asset, die Zeitebene und den aktiven Tab. Beziehe dich aktiv darauf, wenn es hilft.',
+  '- Sobald der Nutzer über ein Chartmuster, Setup oder Indikator-Konzept spricht (z. B. Divergenz, Breakout, EMA-Pullback, Golden Cross, Bollinger-Squeeze, Doppelboden, FVG/Orderblock, Liquidity-Sweep): frage PROAKTIV „Soll ich dir dazu eine Strategie erstellen und auf deinem aktuellen Markt testen?“, biete an ihr einen Namen zu geben, sie abzuspeichern, im Chart anzuzeigen und nach bestandener 12-Monats-Prüfung für Paper-Signale freizuschalten.',
+  '- Sobald der Nutzer ein Pine-Skript (//@version, strategy(...), indicator(...), ta.*) einfügt oder um die Erstellung einer Strategie bittet: rufe SOFORT analyze_script (oder propose_strategy) auf, benenne Stärken und Schwächen (z. B. fehlender Stop-Loss, request.security-Repaint-Risiko, Seitwärtsmarkt-Filter) und teste sie direkt per run_backtest / test_strategy_on_assets.',
   '- Sei ein echter Sparringspartner: ordne Backtest-Kennzahlen (Profitfaktor, Drawdown, Trefferquote, Trade-Anzahl) kritisch ein und schlage konkrete Verbesserungen vor (z. B. Trendfilter EMA200, ADX > 20, ATR-Stop statt festem %-Stop, Break-Even nach TP1).',
   '',
   'REGELN (hart):',
@@ -65,7 +74,10 @@ export const ASSISTANT_SYSTEM = [
 function contextPreamble(ctx: AssistantClientContext): string {
   const parts: string[] = [];
   if (ctx.route) parts.push(`Aktuelle Seite: ${ctx.route}`);
+  if (ctx.tab) parts.push(`Aktiver Tab: ${ctx.tab}`);
   if (ctx.symbol) parts.push(`Gewähltes Asset: ${ctx.symbol}`);
+  if (ctx.venue) parts.push(`Datenquelle/Venue: ${ctx.venue}`);
+  if (ctx.timeframe) parts.push(`Aktive Chart-Zeitebene: ${ctx.timeframe}`);
   if (ctx.locale) parts.push(`Sprache der Oberfläche: ${ctx.locale}`);
   parts.push(`Heute: ${new Date().toISOString().slice(0, 10)}`);
   return `[Kontext der Oberfläche — keine Nutzeranrede]\n${parts.join('\n')}`;

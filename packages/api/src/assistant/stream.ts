@@ -15,7 +15,16 @@ import { ConversationNotFoundError, runAssistantTurn } from './service.js';
 
 const bodySchema = z.object({
   message: z.string().min(1).max(8000),
-  context: z.object({ route: z.string().max(200).optional(), symbol: z.string().max(40).optional(), locale: z.string().max(8).optional() }).optional(),
+  context: z
+    .object({
+      route: z.string().max(200).optional(),
+      symbol: z.string().max(40).optional(),
+      venue: z.string().max(32).optional(),
+      timeframe: z.string().max(12).optional(),
+      tab: z.string().max(40).optional(),
+      locale: z.string().max(8).optional(),
+    })
+    .optional(),
 });
 const idSchema = z.string().uuid();
 

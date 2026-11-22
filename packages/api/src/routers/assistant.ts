@@ -10,7 +10,16 @@ import { executeConfirm } from '../assistant/confirm.js';
 
 const { assistantConversations, assistantMessages } = schema;
 
-const contextSchema = z.object({ route: z.string().max(200).optional(), symbol: z.string().max(40).optional(), locale: z.string().max(8).optional() }).optional();
+const contextSchema = z
+  .object({
+    route: z.string().max(200).optional(),
+    symbol: z.string().max(40).optional(),
+    venue: z.string().max(32).optional(),
+    timeframe: z.string().max(12).optional(),
+    tab: z.string().max(40).optional(),
+    locale: z.string().max(8).optional(),
+  })
+  .optional();
 
 /**
  * Gladiator-Chat (Patricks Mängelliste, Punkt 4): Unterhaltungen, Verlauf, ein Turn ohne
