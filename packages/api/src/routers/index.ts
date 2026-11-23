@@ -17,6 +17,7 @@ import { portfolioRouter } from './portfolio.js';
 import { productRouter } from './product.js';
 import { rlRouter } from './rl.js';
 import { riskRouter } from './risk.js';
+import { scenariosRouter } from './scenarios.js';
 import { secretsRouter } from './secrets.js';
 import { settingsRouter } from './settings.js';
 import { setupRouter } from './setup.js';
@@ -48,6 +49,7 @@ export const appRouter = router({
   product: productRouter,
   rl: rlRouter,
   risk: riskRouter,
+  scenarios: scenariosRouter,
   secrets: secretsRouter,
   swaps: swapsRouter,
   settings: settingsRouter,

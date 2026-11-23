@@ -8,6 +8,7 @@ import { resolvePendingSwaps } from './swap-pending.js';
 import { fredConfigured, syncDerivatives, syncFredWatch, syncEconomicCalendar, syncFredSeries, syncMacroSeries, syncNews } from '@gladiator/market-data';
 import { runNightPipeline } from './briefing.js';
 import { runEveningReviewNotification } from './evening-review.js';
+import { runScenarioWatch } from './scenario-watch.js';
 import { runSignalScan } from './signal-scan.js';
 import { scanUniverse } from './universe.js';
 import { runDslScan } from './dsl-scan.js';
@@ -65,6 +66,7 @@ const PORTFOLIO_SNAPSHOT_JOB = 'portfolio-snapshot';
 const SIGNAL_LIFECYCLE_JOB = 'signal-lifecycle';
 const STUDY_CLUSTER_JOB = 'study-clusters';
 const SIGNAL_STUDIES_JOB = 'signal-studies';
+const SCENARIO_WATCH_JOB = 'scenario-watch';
 const OPTIMIZE_JOB = 'strategy-optimize';
 
 /**
@@ -161,6 +163,7 @@ export const SCHEDULES: [string, number][] = [
   [PORTFOLIO_SNAPSHOT_JOB, 60 * 60_000], // Vermögens-Snapshot stündlich (Zeitverlauf „Vermögen")
   [SIGNAL_LIFECYCLE_JOB, 60_000],        // 05_ §9: Auto-Kill/Reentry/Leverage-Upgrade je Minute (echte Preise)
   [SIGNAL_STUDIES_JOB, 30 * 60_000],     // Welle 23: Autonome Signal-Studien (genutzt vs. verpasst, 5 Varianten, Events) alle 30 min
+  [SCENARIO_WATCH_JOB, 5 * 60_000],      // Welle 24: Szenario-Playbooks (News/Makro + BOS-Bestätigung) alle 5 min
   // VDB2-Batch (13_ §4) wöchentlich: study_clusters aus study_trades (Labor + Paper) neu rechnen.
   // Zusatzläufe (Neustart) sind unschädlich: die Hebel-Stufengrenze bezieht sich auf die Vorwoche.
   [STUDY_CLUSTER_JOB, 7 * 24 * 60 * 60_000],
@@ -465,6 +468,13 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
               `[signal-studies] geprüft=${res.signalsChecked} neu=${res.signalsEvaluated} ` +
               `Zeilen=${res.rowsUpserted} übersprungen=${res.skippedClosed}`,
             );
+          }
+          return res;
+        }
+        case SCENARIO_WATCH_JOB: {
+          const res = await runScenarioWatch(db);
+          if (res.triggered > 0) {
+            console.log(`[scenario-watch] geprüft=${res.checked} ausgelöst=${res.triggered}`);
           }
           return res;
         }

@@ -23,6 +23,17 @@ export {
   type EveningReviewSummary,
   type ReviewTradeItem,
 } from './evening-review.js';
+export {
+  ensureScenarioStrategy,
+  evaluateScenarioPlaybook,
+  executeScenarioPlaybook,
+  runScenarioWatch,
+  type ScenarioActionOutcome,
+  type ScenarioEvaluationReport,
+  type ScenarioExecutionReport,
+  type ScenarioPlaybookRow,
+  type ScenarioWatchResult,
+} from './scenario-watch.js';
 export { enqueueRlEpisodeRun, workerHeartbeatAgeSec, workerHeartbeatAgeSecAsync } from './worker.js';
 export { explainForUser, deterministicExplanation, buildExplanationMessages, sanitizeExplanation, type ExplanationFacts } from './explanation.js';
 export { buildUniverse, ensureCandles, normalizeTradingPair, scanUniverse, BASE_SYMBOLS, MAX_UNIVERSE } from './universe.js';
