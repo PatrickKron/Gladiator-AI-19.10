@@ -449,6 +449,8 @@ export const fr: Catalog = {
     tab_daten: 'Séries de données',
     tab_heatmapPerformance: "Performance",
     tab_heatmapKorrelation: "Corrélation",
+    tab_labBacktest: "Backtest & Graphique",
+    tab_labStudies: "Études de signaux",
     tab_settingsRisk: "Risque & limites",
     tab_settingsExchanges: "Exchanges",
     tab_settingsKeys: "Clés API",
@@ -1770,6 +1772,9 @@ export const fr: Catalog = {
   builder: {
     tabWorkshop: "Atelier",
     tabCatalog: 'Catalogue',
+    tabText: 'Par texte + Démo',
+    tabScenarios: 'Scénarios',
+    tabHedging: 'Concepteur Hedging',
     tabRegistry: 'Mes stratégies',
     pineOpenInWorkshop: 'Ouvrir et tester dans l’Atelier IA',
     dslMovedHint: 'Les stratégies DSL personnalisées se créent désormais à UN seul endroit — dans le',
