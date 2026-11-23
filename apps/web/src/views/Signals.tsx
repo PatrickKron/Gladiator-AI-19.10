@@ -137,8 +137,8 @@ export function Signals() {
       const res = await trpc.signals.scanNow.mutate();
       setScanMsg(
         res.totalInserted > 0
-          ? `✓ Scan fertig: ${res.totalInserted} neue Signale gefunden (${res.reviewed} geprüft).`
-          : `Scan fertig (${res.scannedSmc} SMC-Ziele, ${res.scannedDsl} Strategie-Ziele geprüft) — aktuell keine neuen Setups. Aktiviere weitere Strategien für mehr Signale.`,
+          ? `✓ Scan fertig: ${res.totalInserted} neue Signale gefunden (${res.reviewed} geprüft${res.skippedByRegime > 0 ? `, ${res.skippedByRegime} durch Regime-Weiche pausiert` : ''}).`
+          : `Scan fertig (${res.scannedSmc} SMC-Ziele, ${res.scannedDsl} Strategie-Ziele geprüft${res.skippedByRegime > 0 ? `, ${res.skippedByRegime} durch Regime-Weiche pausiert` : ''}) — aktuell keine neuen Setups. Aktiviere weitere Strategien für mehr Signale.`,
       );
       await load(filters);
     } catch (err) {

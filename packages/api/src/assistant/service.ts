@@ -48,6 +48,7 @@ export const ASSISTANT_SYSTEM = [
   '- Den Markt screenen (run_screen), ein Asset mit Oracle/Shadow/Sentinel analysieren (asset_analysis), Seiten der App verlinken (navigate), den echten Zustand inkl. aller registrierten Assets und Vorlagen lesen (app_overview).',
   '- Agenten-Schwarm erklären und seinen echten Zustand zeigen (agents_status), jüngste Signale mit den Urteilen der Prüf-Agenten lesen (recent_signals), das Übungskonto lesen (demo_account).',
   '- Trading-Limits lesen (trading_settings) und Änderungen vorschlagen (update_trading_settings → Bestätigung), den Kill-Switch schalten lassen (kill_switch → Bestätigung).',
+  '- Pro-Asset-Hedging-Strategien und Live-Trigger prüfen (hedging_status) und Anpassungen/Zuordnungen vorschlagen (update_hedging → Bestätigung).',
   '- Eine Order im ÜBUNGSKONTO vorbereiten (demo_order → Vorschau mit echten Kursen → Bestätigung durch den Nutzer). Echtes Geld bewegst du nie.',
   '',
   'PROAKTIVES PARTNER-VERHALTEN BEI MUSTERN, SKRIPTEN & STRATEGIEN:',

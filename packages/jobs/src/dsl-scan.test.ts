@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { resolveDslScanTargets } from './dsl-scan.js';
+import { inferFallbackRegime, regimeAllowsScan, resolveDslScanTargets } from './dsl-scan.js';
 import type { RegisteredAsset } from './asset-register.js';
+import type { Candle } from '@gladiator/strategy-engine';
 
 const makeAsset = (
   symbol: string,
@@ -51,5 +52,36 @@ describe('resolveDslScanTargets (Multi-Asset-Signal-Scan)', () => {
     );
     expect(res.targets.map((t) => `${t.venue}:${t.symbol}`)).toEqual(['binance:ETH/USDT', 'yahoo:RHM.DE']);
     expect(res.unknownSymbols).toEqual(['UNKNOWN_XYZ']);
+  });
+});
+
+describe('Automatische Regime-Weiche (Welle 21)', () => {
+  it('erlaubt ohne Einschränkung alle Marktphasen und filtert bei gesetzten Regimes strikt', () => {
+    expect(regimeAllowsScan(undefined, 'crisis')).toBe(true);
+    expect(regimeAllowsScan([], 'sideways')).toBe(true);
+    expect(regimeAllowsScan(['bull', 'bear'], 'bull')).toBe(true);
+    expect(regimeAllowsScan(['bull', 'bear'], 'sideways')).toBe(false);
+    expect(regimeAllowsScan(['bull', 'bear'], 'crisis')).toBe(false);
+    expect(regimeAllowsScan(['sideways'], 'sideways')).toBe(true);
+  });
+
+  it('leitet Bull-, Sideways- und Crisis-Regime deterministisch aus echten Kerzen ab', () => {
+    const mk = (closes: number[], spreadPct = 0.005): Candle[] =>
+      closes.map((c, i) => ({
+        ts: new Date(1_700_000_000_000 + i * 3_600_000),
+        open: c,
+        high: c * (1 + spreadPct),
+        low: c * (1 - spreadPct),
+        close: c,
+        volume: 100,
+      }));
+    const bullCandles = mk(Array.from({ length: 65 }, (_, i) => 100 + i * 0.5), 0.004);
+    expect(inferFallbackRegime(bullCandles)).toBe('bull');
+
+    const flatCandles = mk(Array.from({ length: 65 }, (_, i) => 100 + (i % 2 === 0 ? 0.2 : -0.2)), 0.004);
+    expect(inferFallbackRegime(flatCandles)).toBe('sideways');
+
+    const crisisCandles = mk(Array.from({ length: 65 }, () => 100), 0.04); // 8 % bar range
+    expect(inferFallbackRegime(crisisCandles)).toBe('crisis');
   });
 });

@@ -100,6 +100,32 @@ export async function applyKillSwitch(db: Db, user: { id: string; email: string 
   return { killSwitchActive: updated!.killSwitchActive };
 }
 
+/** Hedging-Konfiguration speichern (Seite UND Gladiator-Chat nach Bestätigung — eine Wahrheit, auditiert). */
+export async function applyHedgingConfig(
+  db: Db,
+  userId: string,
+  input: z.infer<typeof hedgingConfigSchema>,
+  ip: string | null,
+) {
+  await ensureRow({ db, user: { id: userId } });
+  const parsed = hedgingConfigSchema.parse(input);
+  const [updated] = await db
+    .update(tradingSettings)
+    .set({ hedgingConfig: parsed, updatedAt: new Date() })
+    .where(eq(tradingSettings.userId, userId))
+    .returning();
+  await db.insert(auditLog).values({
+    actor: 'user',
+    userId,
+    action: 'settings.hedging.update',
+    entityType: 'trading_settings',
+    entityId: updated!.id,
+    details: parsed,
+    ip,
+  });
+  return parseHedgingConfig(updated!.hedgingConfig);
+}
+
 export const settingsRouter = router({
   get: protectedProcedure.query(async ({ ctx }) => toSettingsDto(await ensureRow(ctx))),
 
@@ -108,25 +134,10 @@ export const settingsRouter = router({
     return { ok: true };
   }),
 
-  /** Konfigurierbares Hedging speichern (Welle 17): Trigger (Drawdown %, VIX, Risk-Off), max. Quote, Instrument. */
-  updateHedging: protectedProcedure.input(hedgingConfigSchema).mutation(async ({ ctx, input }) => {
-    await ensureRow(ctx);
-    const [updated] = await ctx.db
-      .update(tradingSettings)
-      .set({ hedgingConfig: input, updatedAt: new Date() })
-      .where(eq(tradingSettings.userId, ctx.user.id))
-      .returning();
-    await ctx.db.insert(auditLog).values({
-      actor: 'user',
-      userId: ctx.user.id,
-      action: 'settings.hedging.update',
-      entityType: 'trading_settings',
-      entityId: updated!.id,
-      details: input,
-      ip: ctx.ip,
-    });
-    return parseHedgingConfig(updated!.hedgingConfig);
-  }),
+  /** Konfigurierbares Hedging speichern (Welle 17 + Welle 19): Trigger, Strategien & Asset-Zuordnungen. */
+  updateHedging: protectedProcedure
+    .input(hedgingConfigSchema)
+    .mutation(({ ctx, input }) => applyHedgingConfig(ctx.db, ctx.user.id, input, ctx.ip)),
 
   /** Kill-Switch (SAFE): sofortiger Order-Stopp — jede Änderung auditiert. */
   setKillSwitch: protectedProcedure.input(z.object({ active: z.boolean() })).mutation(({ ctx, input }) => applyKillSwitch(ctx.db, ctx.user, input.active, ctx.ip)),

@@ -83,6 +83,8 @@ const TOOL_KEYS = [
   'demo_account',
   'recent_signals',
   'demo_order',
+  'hedging_status',
+  'update_hedging',
   'navigate',
 ] as const;
 

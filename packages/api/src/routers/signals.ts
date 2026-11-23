@@ -84,6 +84,7 @@ export const signalsRouter = router({
       reviewed,
       scannedSmc: smc.scanned.length,
       scannedDsl: dsl.scanned.length,
+      skippedByRegime: dsl.skippedByRegime,
       errors: dsl.errors.slice(0, 5),
     };
   }),

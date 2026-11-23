@@ -3,7 +3,14 @@ import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
-import { DSL_SCHEMA_DOC, analyzePineScript, parseInstructionDsl, type InstructionDsl } from '@gladiator/strategy-engine';
+import {
+  DSL_REGIMES,
+  DSL_SCHEMA_DOC,
+  analyzePineScript,
+  parseInstructionDsl,
+  type DslRegime,
+  type InstructionDsl,
+} from '@gladiator/strategy-engine';
 import { evaluateBacktestValidity, readHoldout, runLabBacktest, DEFAULT_VALIDITY_THRESHOLDS, type ValidityVerdict } from '@gladiator/backtest';
 import { ensureCandleHistory } from '@gladiator/market-data';
 import { CostGuard, envAnthropicProvider, guardedComplete } from '@gladiator/agents';
@@ -170,6 +177,7 @@ export const strategiesRouter = router({
         timeframe?: string;
         direction?: string;
         signalSymbols?: string[];
+        allowedRegimes?: DslRegime[];
       } | null;
       const signalScanActive =
         r.isActive &&
@@ -184,6 +192,7 @@ export const strategiesRouter = router({
         timeframe: typeof p?.timeframe === 'string' ? p.timeframe : null,
         direction: typeof p?.direction === 'string' ? p.direction : null,
         signalSymbols: Array.isArray(p?.signalSymbols) ? p.signalSymbols : null,
+        allowedRegimes: Array.isArray(p?.allowedRegimes) ? p.allowedRegimes : null,
         signalScanActive,
       };
     });
@@ -191,7 +200,8 @@ export const strategiesRouter = router({
 
   /**
    * Jede Strategie (builtin, dsl, pine) für Paper-Signale ein-/ausschalten und optional
-   * auf bestimmte Ziel-Assets oder alle Watchlist-Assets (['*']) anwenden (Welle 19).
+   * auf bestimmte Ziel-Assets (oder ['*'] = alle Watchlist-Assets) sowie Marktregimes
+   * (automatische Regime-Weiche, Welle 21) anwenden.
    * Mensch im Loop & Risk-Gate bleiben beim Ausführen immer aktiv; Live wird hier nie freigeschaltet.
    */
   setSignalScan: protectedProcedure
@@ -200,6 +210,7 @@ export const strategiesRouter = router({
         strategyId: z.string().uuid(),
         enabled: z.boolean(),
         signalSymbols: z.array(z.string().min(1).max(32)).max(50).optional(),
+        allowedRegimes: z.array(z.enum(DSL_REGIMES)).max(5).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -214,6 +225,7 @@ export const strategiesRouter = router({
       let latestVersionId: string | null = null;
       let validated = false;
       let appliedSymbols: string[] | null = null;
+      let appliedRegimes: DslRegime[] | null = null;
 
       if (strategy.kind === 'dsl') {
         const [lv] = await ctx.db
@@ -233,7 +245,7 @@ export const strategiesRouter = router({
         validated = Boolean(val.hasBacktest && val.verdict?.passed);
 
         let nextParams = lv.params;
-        if (input.signalSymbols !== undefined) {
+        if (input.signalSymbols !== undefined || input.allowedRegimes !== undefined) {
           const parsed = parseInstructionDsl(lv.params);
           if (!parsed.ok) {
             throw new TRPCError({
@@ -241,14 +253,28 @@ export const strategiesRouter = router({
               message: `Strategie-DSL ungültig: ${parsed.errors.join('; ')}`,
             });
           }
-          const cleaned = input.signalSymbols.map((s) => s.trim().toUpperCase()).filter(Boolean);
-          const updatedDsl: InstructionDsl = {
-            ...parsed.dsl,
-            ...(cleaned.length > 0 ? { signalSymbols: cleaned } : { signalSymbols: undefined }),
-          };
-          if (cleaned.length === 0) delete updatedDsl.signalSymbols;
+          const updatedDsl: InstructionDsl = { ...parsed.dsl };
+          if (input.signalSymbols !== undefined) {
+            const cleaned = input.signalSymbols.map((s) => s.trim().toUpperCase()).filter(Boolean);
+            if (cleaned.length > 0) {
+              updatedDsl.signalSymbols = cleaned;
+              appliedSymbols = cleaned;
+            } else {
+              delete updatedDsl.signalSymbols;
+              appliedSymbols = null;
+            }
+          }
+          if (input.allowedRegimes !== undefined) {
+            const unique = [...new Set(input.allowedRegimes)];
+            if (unique.length > 0) {
+              updatedDsl.allowedRegimes = unique;
+              appliedRegimes = unique;
+            } else {
+              delete updatedDsl.allowedRegimes;
+              appliedRegimes = null;
+            }
+          }
           nextParams = updatedDsl;
-          appliedSymbols = cleaned.length > 0 ? cleaned : null;
         }
 
         const nextStatus =
@@ -279,6 +305,7 @@ export const strategiesRouter = router({
           validated,
           paperSignalsOnly: true,
           signalSymbols: appliedSymbols,
+          allowedRegimes: appliedRegimes,
         },
         ip: ctx.ip,
       });
@@ -289,6 +316,7 @@ export const strategiesRouter = router({
         latestVersionId,
         validated,
         signalSymbols: appliedSymbols,
+        allowedRegimes: appliedRegimes,
       };
     }),
 
