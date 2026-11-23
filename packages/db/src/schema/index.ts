@@ -24,3 +24,4 @@ export * from './notifications.js';
 export * from './swap.js';
 export * from './screens.js';
 export * from './assistant.js';
+export * from './scenarios.js';

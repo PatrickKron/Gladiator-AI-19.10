@@ -62,10 +62,43 @@ export async function searchYahoo(query: string, limit = 10, fetchFn: typeof fet
 }
 
 async function queryYahoo(q: string, limit: number, fetchFn: typeof fetch): Promise<StockHit[]> {
-  const url = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=${Math.min(25, limit * 2)}&newsCount=0&listsCount=0&enableFuzzyQuery=false`;
-  const res = await fetchFn(url, { headers: { 'User-Agent': UA, Accept: 'application/json' } });
-  if (!res.ok) throw new Error(`Yahoo-Suche HTTP ${res.status}`);
-  return parseYahooSearch(await res.json(), limit);
+  const qs = `q=${encodeURIComponent(q)}&quotesCount=${Math.min(25, limit * 2)}&newsCount=0&listsCount=0&enableFuzzyQuery=false`;
+  const hosts = fetchFn === fetch
+    ? ['https://query2.finance.yahoo.com', 'https://query1.finance.yahoo.com']
+    : ['https://query2.finance.yahoo.com'];
+
+  let lastErr: Error | null = null;
+  let lastHits: StockHit[] = [];
+
+  for (let i = 0; i < hosts.length; i++) {
+    const url = `${hosts[i]}/v1/finance/search?${qs}`;
+    try {
+      const res = await fetchFn(url, {
+        headers: { 'User-Agent': UA, Accept: 'application/json' },
+        ...(fetchFn === fetch ? { signal: AbortSignal.timeout(8_000) } : {}),
+      });
+      if (!res.ok) {
+        lastErr = new Error(`Yahoo-Suche HTTP ${res.status}`);
+        if (i < hosts.length - 1) {
+          await new Promise((r) => setTimeout(r, 300));
+          continue;
+        }
+        throw lastErr;
+      }
+      const hits = parseYahooSearch(await res.json(), limit);
+      lastHits = hits;
+      if (hits.length > 0 || i === hosts.length - 1) return hits;
+      await new Promise((r) => setTimeout(r, 250));
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err));
+      if (i < hosts.length - 1) {
+        await new Promise((r) => setTimeout(r, 300));
+        continue;
+      }
+      throw lastErr;
+    }
+  }
+  return lastHits;
 }
 
 /** Nur für Tests. */

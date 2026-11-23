@@ -8,6 +8,7 @@ import { Workshop } from './Workshop.js';
 import { StrategyCatalog } from '../components/StrategyCatalog.js';
 import { TextStrategyBuilder } from '../components/TextStrategyBuilder.js';
 import { HedgingDesignerPanel } from '../components/HedgingDesignerPanel.js';
+import { ScenarioPlaybooksPanel } from '../components/ScenarioPlaybooksPanel.js';
 
 /**
  * Strategie-Builder (09_ §3.14 + §3.5): Registry mit Versionen + Promotion
@@ -665,8 +666,8 @@ function PineAnalyzePanel() {
   );
 }
 
-/** Tabs im Hash — Deep-Link z. B. `#/strategien?tab=hedging` oder `#/strategien?tab=text` (Legacy `builtin` wird auf `registry` abgebildet). */
-const STRATEGY_TABS = ['katalog', 'text', 'workshop', 'hedging', 'pine', 'registry', 'builtin'] as const;
+/** Tabs im Hash — Deep-Link z. B. `#/strategien?tab=szenarien`, `#/strategien?tab=hedging` oder `#/strategien?tab=text` (Legacy `builtin` wird auf `registry` abgebildet). */
+const STRATEGY_TABS = ['katalog', 'text', 'szenarien', 'workshop', 'hedging', 'pine', 'registry', 'builtin'] as const;
 type StrategyTab = (typeof STRATEGY_TABS)[number];
 
 export function Strategien() {
@@ -693,6 +694,7 @@ export function Strategien() {
   const tabs = [
     { id: 'katalog' as const, label: t('builder.tabCatalog') },
     { id: 'text' as const, label: '✍️ Per Text + Demo-Test' },
+    { id: 'szenarien' as const, label: '🎯 Szenarien' },
     { id: 'workshop' as const, label: t('builder.tabWorkshop') },
     { id: 'hedging' as const, label: '🛡️ Hedging-Designer' },
     { id: 'pine' as const, label: t('builder.tabPine') },
@@ -743,6 +745,7 @@ export function Strategien() {
 
       {tab === 'katalog' && <StrategyCatalog />}
       {tab === 'text' && <TextStrategyBuilder onSaved={() => void load()} />}
+      {tab === 'szenarien' && <ScenarioPlaybooksPanel />}
       {tab === 'workshop' && <Workshop embedded />}
       {tab === 'hedging' && <HedgingDesignerPanel />}
       {tab === 'pine' && (
