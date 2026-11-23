@@ -129,14 +129,26 @@ export function summarizeAsset(asset: 'btc' | 'eth', series: { mvrv: DailyPoint[
 }
 
 async function getJson(url: string, fetchFn: Fetch): Promise<unknown> {
-  const res = await fetchFn(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetchFn(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(25_000) });
+      if (!res.ok) {
+        if (res.status >= 500 && attempt === 0) continue;
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return await res.json();
+    } catch (err) {
+      lastErr = err;
+      if (attempt === 0) continue;
+    }
+  }
+  throw lastErr;
 }
 
 /** Echte Abfrage beider Quellen; eine fehlende Quelle macht nur ihren Teil null. */
 export async function fetchOnchainSnapshot(fetchFn: Fetch = fetch, now = Date.now()): Promise<OnchainSnapshot> {
-  const start = new Date(now - 4 * 365 * 86_400_000).toISOString().slice(0, 10);
+  const start = new Date(now - 3 * 365 * 86_400_000).toISOString().slice(0, 10);
   const cmUrl = `${COINMETRICS_API}/timeseries/asset-metrics?assets=btc,eth&metrics=CapMVRVCur,AdrActCnt&frequency=1d&start_time=${start}&page_size=10000`;
   const [cm, sc] = await Promise.allSettled([getJson(cmUrl, fetchFn), getJson(`${DEFILLAMA_STABLECOINS_API}/stablecoincharts/all`, fetchFn)]);
 
