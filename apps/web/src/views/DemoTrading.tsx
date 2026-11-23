@@ -474,7 +474,7 @@ export function OrderTicket({
   return (
     <section className={embedded ? '' : 'reveal mt-5'} style={{ '--stagger': 5 } as React.CSSProperties}>
       {/* Kauf-Flow nach Bitpanda (Welle D): Betrag → Richtung → Vorschau → EIN Knopf; alles Weitere unter „Erweitert“ */}
-      <div className={embedded ? 'glass p-4' : 'glass mx-auto max-w-xl p-5'}>
+      <div className={embedded ? 'glass min-w-0 overflow-hidden p-4' : 'glass mx-auto min-w-0 max-w-xl overflow-hidden p-5'}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <span className="text-sm font-semibold">{embedded ? t('demo.quickTicketTitle', { symbol }) : t('demo.ticketTitle')}</span>
           {embedded ? (
@@ -605,8 +605,8 @@ export function OrderTicket({
             </span>
             <span className="text-xs transition-transform group-open:rotate-90" style={{ color: 'var(--color-mut)' }}>›</span>
           </summary>
-          <div className="mt-3 grid gap-4 sm:grid-cols-2">
-            <div>
+          <div className="mt-3 grid min-w-0 gap-4 sm:grid-cols-2">
+            <div className="min-w-0">
               <span className="label">{t('demo.orderType')}</span>
               <div className="mt-1 flex gap-1">
                 <button onClick={() => setType('market')} className="flex-1 rounded-[0.625rem] border px-3 py-1.5 text-sm" style={seg(type === 'market')}>
@@ -713,7 +713,7 @@ export function OrderTicket({
                 </li>
               </ul>
             )}
-            <div className="sm:col-span-2">
+            <div className="min-w-0 sm:col-span-2">
               {isStockVenue(venue) ? (
                 <p className="text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
                   {t('demo.stockVenueNote', { venue: venue === 'yahoo' ? 'Yahoo' : 'Twelve Data' })}

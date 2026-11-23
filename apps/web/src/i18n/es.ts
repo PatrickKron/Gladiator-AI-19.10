@@ -449,6 +449,8 @@ export const es: Catalog = {
     tab_daten: 'Series de datos',
     tab_heatmapPerformance: "Rendimiento",
     tab_heatmapKorrelation: "Correlación",
+    tab_labBacktest: "Backtest y gráfico",
+    tab_labStudies: "Estudios de señales",
     tab_settingsRisk: "Riesgo y límites",
     tab_settingsExchanges: "Exchanges",
     tab_settingsKeys: "Claves API",
@@ -1770,6 +1772,9 @@ export const es: Catalog = {
   builder: {
     tabWorkshop: "Taller",
     tabCatalog: 'Catálogo',
+    tabText: 'Por texto + Demo',
+    tabScenarios: 'Escenarios',
+    tabHedging: 'Diseñador de cobertura',
     tabRegistry: 'Mis estrategias',
     pineOpenInWorkshop: 'Abrir y probar en Taller IA',
     dslMovedHint: 'Las estrategias DSL propias ahora se crean en UN solo lugar — en el',

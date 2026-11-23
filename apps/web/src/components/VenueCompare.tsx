@@ -65,7 +65,7 @@ export function VenueCompare({
   const pct = (n: number | null, digits = 3) => (n === null ? '—' : `${fmtNum(n * 100, digits)} %`);
 
   return (
-    <div className="rounded-[0.625rem] border p-3" style={{ borderColor: 'var(--color-line)' }}>
+    <div className="min-w-0 overflow-hidden rounded-[0.625rem] border p-3" style={{ borderColor: 'var(--color-line)' }}>
       <div className="flex items-center justify-between gap-2">
         <p className="label">{t(side === 'buy' ? 'venues.titleBuy' : 'venues.titleSell', { symbol })}</p>
         <span className="text-[11px]" style={{ color: 'var(--color-mut)' }}>

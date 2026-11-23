@@ -108,6 +108,10 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
       expect(first('demo')).toBe('#/traden?tab=demo');
       expect(first('audit')).toBe('#/protokoll');
       expect(first('wer hat')).toBe('#/protokoll');
+      expect(first('szenarien')).toBe('#/strategien?tab=szenarien');
+      expect(first('hedging')).toBe('#/strategien?tab=hedging');
+      expect(first('signal-studien')).toBe('#/labor?tab=studien');
+      expect(first('fremdgeldkonto')).toBe('#/echtes-geld');
     });
 
     it('Groß-/Kleinschreibung und Umlaute egal, mehrere Wörter müssen alle passen', () => {

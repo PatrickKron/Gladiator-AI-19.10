@@ -181,7 +181,7 @@ export const PAGES = [
     labelKey: 'ia.page_realMoney',
     descKey: 'ia.desc_realMoney',
     icon: 'M3 7h18v10H3zM7 7V5h10v2M12 10a2 2 0 100 4 2 2 0 000-4z',
-    keywords: ['echtes geld', 'real money', 'börse', 'exchange', 'wallet anschließen', 'dezentral', 'dex', 'live', 'freigabe', 'api-key'],
+    keywords: ['echtes geld', 'real money', 'börse', 'exchange', 'wallet anschließen', 'dezentral', 'dex', 'live', 'freigabe', 'api-key', 'fremdgeld', 'fremdgeldkonto', 'prop', 'funded', 'ftmo', 'apex'],
   },
   {
     id: 'wealth',
@@ -190,7 +190,7 @@ export const PAGES = [
     labelKey: 'ia.page_wealth',
     descKey: 'ia.desc_wealth',
     icon: 'M3 7h18v12H3zM3 11h18M7 15h4m5-11l2 3h-4l2-3z',
-    keywords: ['portfolio', 'kontostand', 'balance', 'equity', 'geld', 'euro'],
+    keywords: ['portfolio', 'kontostand', 'balance', 'equity', 'geld', 'euro', 'fremdgeld', 'funded', 'prop'],
   },
   {
     id: 'agents',
@@ -216,9 +216,12 @@ export const PAGES = [
     keywords: ['builder', 'strategie', 'aktivieren', 'promote', 'paper'],
     tabs: [
       { id: 'katalog', labelKey: 'builder.tabCatalog', keywords: ['vorlagen', 'presets', 'konservativ', 'aggressiv', 'galerie'] },
+      { id: 'text', labelKey: 'builder.tabText', keywords: ['freitext', 'text strategie', 'demo-test', 'machbarkeit', 'klartext'] },
+      { id: 'szenarien', labelKey: 'builder.tabScenarios', keywords: ['szenario', 'szenarien', 'wette', 'wenn-dann', 'news', 'pandemie', 'bos', 'playbook', 'event'] },
       { id: 'workshop', labelKey: 'builder.tabWorkshop', keywords: ['workshop', 'dsl', 'chat', 'ki', 'claude', 'entwurf', 'versionen', 'eigene strategie'] },
-      { id: 'builtin', labelKey: 'builder.tabBuiltin', keywords: ['eingebaut', 'dsl'] },
+      { id: 'hedging', labelKey: 'builder.tabHedging', keywords: ['hedging', 'absicherung', 'hedge', 'drawdown', 'vix', 'asset hedging'] },
       { id: 'pine', labelKey: 'builder.tabPine', keywords: ['pine', 'tradingview', 'pinescript', 'import'] },
+      { id: 'registry', labelKey: 'builder.tabRegistry', keywords: ['eingebaut', 'dsl', 'meine strategien', 'regime-weiche'] },
     ],
   },
   {
@@ -230,6 +233,10 @@ export const PAGES = [
     descKey: 'ia.desc_lab',
     icon: 'M9 3v6l-5 9a2 2 0 002 3h12a2 2 0 002-3l-5-9V3M7 3h10',
     keywords: ['backtest', 'walk-forward', 'kalibrieren', 'vergleich', 'mfe', 'mae', 'optimierung', 'vorschlag', 'optimierungs-vorschläge', 'proposal'],
+    tabs: [
+      { id: 'backtest', labelKey: 'ia.tab_labBacktest', keywords: ['backtest', 'walk-forward', 'monte carlo', 'equity', 'chart'] },
+      { id: 'studien', labelKey: 'ia.tab_labStudies', keywords: ['signal-studien', 'verpasste signale', 'genutzte signale', 'session', 'makro event', 'hindsight', 'varianten', 'scatter'] },
+    ],
   },
   {
     id: 'aiModels',

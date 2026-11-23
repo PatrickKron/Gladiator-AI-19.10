@@ -448,6 +448,8 @@ export const de = {
     tab_daten: 'Datenreihen',
     tab_heatmapPerformance: "Performance",
     tab_heatmapKorrelation: "Korrelation",
+    tab_labBacktest: "Backtest & Chart",
+    tab_labStudies: "Signal-Studien",
     tab_settingsRisk: 'Risiko & Limits',
     tab_settingsExchanges: 'Börsen',
     tab_settingsKeys: 'API-Keys',
@@ -1769,6 +1771,9 @@ export const de = {
   builder: {
     tabWorkshop: "Workshop",
     tabCatalog: 'Katalog',
+    tabText: 'Per Text + Demo-Test',
+    tabScenarios: 'Szenarien',
+    tabHedging: 'Hedging-Designer',
     tabRegistry: 'Meine Strategien',
     pineOpenInWorkshop: 'Im KI-Workshop öffnen & backtesten',
     dslMovedHint: 'Eigene DSL-Strategien baust du jetzt an EINEM Ort — im',

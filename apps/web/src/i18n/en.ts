@@ -449,6 +449,8 @@ export const en: Catalog = {
     tab_daten: 'Data series',
     tab_heatmapPerformance: "Performance",
     tab_heatmapKorrelation: "Correlation",
+    tab_labBacktest: "Backtest & Chart",
+    tab_labStudies: "Signal Studies",
     tab_settingsRisk: "Risk & Limits",
     tab_settingsExchanges: "Exchanges",
     tab_settingsKeys: "API Keys",
@@ -1770,6 +1772,9 @@ export const en: Catalog = {
   builder: {
     tabWorkshop: "Workshop",
     tabCatalog: 'Catalog',
+    tabText: 'Text + Demo Test',
+    tabScenarios: 'Scenarios',
+    tabHedging: 'Hedging Designer',
     tabRegistry: 'My Strategies',
     pineOpenInWorkshop: 'Open & Backtest in AI Workshop',
     dslMovedHint: 'Custom DSL strategies are now built in ONE place — the',
