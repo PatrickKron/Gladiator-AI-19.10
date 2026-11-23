@@ -100,9 +100,13 @@ export {
   type ReentryPlan,
 } from './signal-lifecycle.js';
 export {
+  analyzeFreeTextStrategy,
   detectStrategyPatterns,
   synthesizeDslFromText,
+  type FreeTextStrategyAnalysis,
+  type ParsedTextHedgingDraft,
   type PatternMatch,
+  type StrategyLimitation,
   type TextSynthesisOptions,
   type TextSynthesisResult,
 } from './text-to-dsl.js';

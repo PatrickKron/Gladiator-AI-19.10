@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { PageHeader } from '../components/ui.js';
+import { FundedAccountsPanel } from '../components/FundedAccountsPanel.js';
 
 /**
  * Echtes Geld, auf einen Blick erklärt (Patricks Mängelliste 2026-10-22, Punkt 5): drei Wege
@@ -77,6 +78,8 @@ export function EchtesGeld() {
           status={null}
         />
       </div>
+
+      <FundedAccountsPanel className="mt-5" />
 
       <section className="glass mt-4 p-4">
         <p className="text-sm font-semibold">{t('realMoney.rules')}</p>

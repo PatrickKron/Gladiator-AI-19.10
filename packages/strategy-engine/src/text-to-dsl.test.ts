@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectStrategyPatterns, parseInstructionDsl, synthesizeDslFromText } from './index.js';
+import { analyzeFreeTextStrategy, detectStrategyPatterns, parseInstructionDsl, synthesizeDslFromText } from './index.js';
 
 describe('detectStrategyPatterns & synthesizeDslFromText', () => {
   it('erkennt RSI-Divergenz + EMA200 + Stop-Loss + Take-Profit aus natürlichem Deutsch', () => {
@@ -53,5 +53,44 @@ describe('detectStrategyPatterns & synthesizeDslFromText', () => {
 
   it('erkennt keine falschen Muster in einfachem Smalltalk', () => {
     expect(detectStrategyPatterns('Hallo wie geht es dir heute?')).toEqual([]);
+  });
+});
+
+describe('analyzeFreeTextStrategy (Machbarkeit & Anwendung, Welle 22)', () => {
+  it('erkennt reine Hedging-Strategie aus Text inkl. Cross-Hedge, VIX, Drawdown & Ziel-Assets', () => {
+    const res = analyzeFreeTextStrategy(
+      'Sichere SOL und ETH zu 50 % über BTC Short ab wenn VIX über 24 oder Drawdown 4 % mit 7 % Hedge-SL',
+    );
+    expect(res.category).toBe('hedging');
+    expect(res.feasibility).toBe('full');
+    expect(res.trading).toBeNull();
+    expect(res.hedging).not.toBeNull();
+    expect(res.hedging!.maxHedgeRatioPct).toBe(50);
+    expect(res.hedging!.hedgeSymbol).toBe('BTC/USDT');
+    expect(res.hedging!.triggerVix).toBe(24);
+    expect(res.hedging!.triggerDrawdownPct).toBe(4);
+    expect(res.hedging!.hedgeStopLossPct).toBe(7);
+    expect([...res.hedging!.targetAssets].sort()).toEqual(['ETH/USDT', 'SOL/USDT']);
+    expect(res.howToApply.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('erkennt hybride Trading- + Hedging-Strategie und Regime-Weiche aus Text', () => {
+    const res = analyzeFreeTextStrategy(
+      'Kaufe BTC/USDT auf 4h bei EMA 20/50 Cross nur im Trend mit 2 ATR Stop und sichere Portfolio mit 40 % Stablecoin-Puffer ab 5 % Drawdown ab',
+    );
+    expect(res.category).toBe('hybrid');
+    expect(res.feasibility).toBe('full');
+    expect(res.trading?.dsl.allowedRegimes).toEqual(['bull', 'bear']);
+    expect(res.hedging?.instrument).toBe('stablecoin_shift');
+    expect(res.hedging?.maxHedgeRatioPct).toBe(40);
+  });
+
+  it('meldet ehrliche Grenzen & konkrete Alternativen bei Optionen, DOM/Orderbuch und Martingale', () => {
+    const res = analyzeFreeTextStrategy(
+      'Kaufe Put-Optionen auf SPY bei Orderbuch-Imbalance im Tick-Chart und verdopple per Martingale im Verlust',
+    );
+    expect(res.feasibility).toBe('unsupported');
+    expect(res.limitations.length).toBeGreaterThanOrEqual(3);
+    expect(res.limitations.every((l) => l.workaround.length > 10)).toBe(true);
   });
 });

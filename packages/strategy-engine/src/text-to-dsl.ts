@@ -2,6 +2,7 @@ import {
   DSL_TIMEFRAMES,
   parseInstructionDsl,
   type DslCondition,
+  type DslRegime,
   type DslTimeframe,
   type InstructionDsl,
 } from './dsl.js';
@@ -388,6 +389,19 @@ export function synthesizeDslFromText(text: string, opts: TextSynthesisOptions =
     features.push('Trailing-Stop 2 %');
   }
 
+  // Optionale Regime-Weiche aus Text erkennen (Welle 21/22)
+  let allowedRegimes: DslRegime[] | undefined;
+  if (/\b(nur\s+im\s+trend|nur\s+in\s+trend|trendphase|nicht\s+seitwärts|kein(?:e|em)?\s+seitwärts)/i.test(raw)) {
+    allowedRegimes = ['bull', 'bear'];
+    features.push('Regime-Weiche: nur Trend (Bull/Bear)');
+  } else if (/\b(nur\s+seitwärts|range[\s-]*markt|seitwärtsphase)/i.test(raw)) {
+    allowedRegimes = ['sideways'];
+    features.push('Regime-Weiche: nur Seitwärts');
+  } else if (/\b(pause\s+bei\s+krise|nicht\s+in\s+krise|keine\s+krise|ohne\s+krise|high[\s-]*vol\s+pausieren)/i.test(raw)) {
+    allowedRegimes = ['bull', 'bear', 'sideways'];
+    features.push('Regime-Weiche: Pause bei Krise/High-Vol');
+  }
+
   // Risiko pro Trade
   const riskMatch = raw.match(/\b(?:risiko|risk)\s*(?:pro\s*trade)?\s*(?:von|bei|:)?\s*(\d+(?:[.,]\d+)?)\s*%/i);
   const parsedRisk = riskMatch ? parseNumber(riskMatch[1]) : null;
@@ -397,6 +411,7 @@ export function synthesizeDslFromText(text: string, opts: TextSynthesisOptions =
   const candidate = {
     id: slugify(baseName),
     symbol,
+    ...(allowedRegimes ? { allowedRegimes } : {}),
     timeframe,
     venueType: 'cex' as const,
     direction,
@@ -424,5 +439,304 @@ export function synthesizeDslFromText(text: string, opts: TextSynthesisOptions =
     detectedFeatures: features,
     matchedPatterns,
     summary,
+  };
+}
+
+// ── Freitext-Machbarkeits- & Anwendungs-Analyse (Welle 22) ──────────────────
+
+export type StrategyLimitation = {
+  topic: string;
+  reason: string;
+  workaround: string;
+};
+
+export type ParsedTextHedgingDraft = {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  triggerDrawdownPct: number;
+  triggerVix: number;
+  triggerOnRiskOff: boolean;
+  maxHedgeRatioPct: number;
+  instrument: 'inverse_perp' | 'spot_short' | 'stablecoin_shift' | 'index_hedge';
+  hedgeSymbol: string;
+  autoReduceExposure: boolean;
+  hedgeStopLossPct: number;
+  builtin: false;
+  targetAssets: string[];
+};
+
+export type FreeTextStrategyAnalysis = {
+  category: 'trading' | 'hedging' | 'hybrid';
+  feasibility: 'full' | 'partial' | 'unsupported';
+  feasibilityLabel: string;
+  supportedParts: string[];
+  limitations: StrategyLimitation[];
+  howToApply: string[];
+  trading: TextSynthesisResult | null;
+  hedging: ParsedTextHedgingDraft | null;
+};
+
+const LIMITATION_CHECKS: Array<{ re: RegExp; limitation: StrategyLimitation }> = [
+  {
+    re: /\b(option(?:en|s)?|put[\s-]*option|call[\s-]*option|iron\s+condor|straddle|strangle|gamma|vega|theta|delta[\s-]*hedge\s+mit\s+option|put[\s-]*call[\s-]*skew)\b/i,
+    limitation: {
+      topic: 'Optionen & Options-Greeks',
+      reason: 'Gladiator handelt Spot-, Perpetual- und CFD/Index-Kurse — native Optionsketten (Puts/Calls/Greeks) sind nicht angebunden.',
+      workaround: 'Als direkte Alternative: Inverse-Perp Short oder Index-Hedge (SPY/QQQ) mit festem Hedge-Stop-Loss und VIX-/Drawdown-Trigger im Hedging-Designer.',
+    },
+  },
+  {
+    re: /\b(orderbook|orderbuch|level[\s-]*2|\bdom\b|footprint|heatmap\s+imbalance|bid[\s/-]*ask[\s-]*imbalance|iceberg|tape\s+reading|delta\s+volume)\b/i,
+    limitation: {
+      topic: 'Orderbuch-Tiefe (Level 2 / DOM / Footprint)',
+      reason: 'Der Backtest- und Signal-Scanner arbeitet deterministisch auf abgeschlossenen OHLCV-Kerzen (keine historischen L2-Orderbuch-Snapshots).',
+      workaround: 'Nutze als Proxy Volumen-/Liquidity-Sweep-Filter (BOS/CHoCH), ADX oder Bollinger-Squeeze auf 1m/5m/15m-Kerzen — oder sende einen externen TradingView-Alert über den Pine-Webhook.',
+    },
+  },
+  {
+    re: /\b(tick[\s-]*chart|\d+\s*sek(?:unden?)?|seconds?\s*chart|hft|high[\s-]*frequency|millisekund)/i,
+    limitation: {
+      topic: 'Sekunden- / Tick-Charts & HFT',
+      reason: 'Kleinster unterstützter Timeframe ist 1 Minute (1m); Sub-Sekunden-HFT ist für selbst gehostete Retail-APIs nicht sinnvoll.',
+      workaround: 'Auf 1m- oder 2m-Kerzen umschalten und mit engem ATR-Stop sowie Trailing-Stop arbeiten.',
+    },
+  },
+  {
+    re: /\b(twitter|x[\s-]*posts?|reddit|social[\s-]*media|influencer|earnings[\s-]*call|pressemitteilung|news[\s-]*sentiment\s+in\s+echtzeit)\b/i,
+    limitation: {
+      topic: 'Social-Media- / Text-Sentiment als harter Entry-Trigger',
+      reason: 'Social-Media-APIs (X/Reddit) sind nicht als deterministischer Backtest-Indikator angebunden.',
+      workaround: 'Kombiniere einen technischen Entry-Trigger (z. B. Breakout/RSI/Divergenz) mit dem Makro-/News-Kalender und der automatischen No-Trade-Sperre.',
+    },
+  },
+  {
+    re: /\b(arbitrage|triangular|cross[\s-]*exchange|funding[\s-]*rate[\s-]*arbitrage|spot[\s-]*perp[\s-]*basis)\b/i,
+    limitation: {
+      topic: 'Cross-Exchange- / Funding-Arbitrage',
+      reason: 'Ausführung gegen zwei Börsen gleichzeitig (atomic dual-leg) wird aus Sicherheitsgründen noch nicht automatisch ausgeführt.',
+      workaround: 'Börsen-Spread & Latenz im Chart-Tab „Börsen-Vergleich“ überwachen und manuell im Demo-/Paper-Konto testen oder einseitigen Hedge über den Hedging-Designer einrichten.',
+    },
+  },
+  {
+    re: /\b(martingale|grid[\s-]*bot|nachkaufen\s+im\s+verlust|averaging\s+down|doppelte\s+positionsgröße\s+nach\s+verlust)\b/i,
+    limitation: {
+      topic: 'Martingale / Verlust-Verdopplung / Grid',
+      reason: 'Die harte Risk-Engine erlaubt bewusst kein unbegrenztes Nachkaufen im Verlust (fester Pflicht-Stop-Loss & Exposure-Limit je Asset).',
+      workaround: 'Nutze stattdessen gestaffelte Take-Profits, Break-Even nach TP1 und ein klares Risiko-Limit (0,5–2 % je Trade).',
+    },
+  },
+];
+
+function extractAllMentionedSymbols(raw: string): string[] {
+  const out: string[] = [];
+  for (const item of KNOWN_SYMBOLS) {
+    if (item.pattern.test(raw) && !out.includes(item.symbol)) {
+      out.push(item.symbol);
+    }
+  }
+  // Explizite Paare wie QNT/USDT, ANT/USDT, RHM.DE, SAP.DE erkennen
+  for (const m of raw.matchAll(/\b([A-Z0-9]{2,10}\/(?:USDT|USDC|USD|EUR)|[A-Z]{2,6}\.[A-Z]{2})\b/g)) {
+    const sym = m[1]!.toUpperCase();
+    if (!out.includes(sym)) out.push(sym);
+  }
+  return out;
+}
+
+function parseHedgingFromText(raw: string, opts: TextSynthesisOptions): ParsedTextHedgingDraft {
+  const mentioned = extractAllMentionedSymbols(raw);
+  const ratioMatch =
+    raw.match(/\b(\d{1,3})\s*%\s*(?:ab(?:zu)?sicher|hedge(?![\s-]*(?:sl|stop))|quote|gegen|in\s+stablecoin|short|stablecoin)/i) ??
+    raw.match(/(?:zu|mit|bis)\s+(\d{1,3})\s*%(?!\s*(?:hedge[\s-]*)?(?:sl|stop))/i);
+  const maxHedgeRatioPct = (() => {
+    const n = ratioMatch ? Number(ratioMatch[1]) : 50;
+    return Number.isFinite(n) ? Math.min(100, Math.max(5, Math.round(n))) : 50;
+  })();
+
+  const ddMatch = raw.match(/\b(?:drawdown|dd|verlust|rückgang)\s*(?:über|ab|von|>=?|≥)?\s*(\d+(?:[.,]\d+)?)\s*%/i);
+  const triggerDrawdownPct = (() => {
+    const n = ddMatch ? parseNumber(ddMatch[1]) : 5;
+    return n !== null && n >= 0.5 && n <= 50 ? n : 5;
+  })();
+
+  const vixMatch = raw.match(/\bvix\s*(?:über|ab|>=?|≥|:)?\s*(\d+(?:[.,]\d+)?)/i);
+  const triggerVix = (() => {
+    const n = vixMatch ? parseNumber(vixMatch[1]) : 25;
+    return n !== null && n >= 12 && n <= 80 ? Math.round(n) : 25;
+  })();
+
+  const slMatch =
+    raw.match(/\b(?:hedge[\s-]*sl|hedge[\s-]*stop|stop[\s-]*loss|sl)\s*(?:von|bei|:)?\s*(\d+(?:[.,]\d+)?)\s*%/i) ??
+    raw.match(/\b(\d+(?:[.,]\d+)?)\s*%\s*(?:hedge[\s-]*sl|hedge[\s-]*stop|stop[\s-]*loss|sl)\b/i);
+  const hedgeStopLossPct = (() => {
+    const n = slMatch ? parseNumber(slMatch[1]) : 8;
+    return n !== null && n >= 1 && n <= 50 ? n : 8;
+  })();
+
+  let instrument: ParsedTextHedgingDraft['instrument'] = 'inverse_perp';
+  if (/\b(stablecoin|usdt|usdc|cash[\s-]*puffer|umschicht)/i.test(raw)) {
+    instrument = 'stablecoin_shift';
+  } else if (/\b(index[\s-]*hedge|\bspy\b|\bqqq\b|s&p|nasdaq|dax)\b/i.test(raw)) {
+    instrument = 'index_hedge';
+  } else if (/\b(spot[\s-]*short|margin[\s-]*short)\b/i.test(raw)) {
+    instrument = 'spot_short';
+  }
+
+  // Cross-Hedge-Symbol erkennen („über BTC“, „via SPY“, „mit ETH Short“)
+  let hedgeSymbol = 'SAME';
+  const viaMatch = raw.match(/(?:^|[\s(])(?:über|ueber|via|mit\s+einem?|durch)\s+(?:einen?\s+)?([A-Za-z0-9/.-]{2,14})(?:\s+short)?/i);
+  if (viaMatch) {
+    const viaWord = viaMatch[1]!;
+    const hit = KNOWN_SYMBOLS.find((k) => k.pattern.test(viaWord));
+    if (hit) hedgeSymbol = hit.symbol;
+    else if (/^[A-Z0-9]{2,10}\/(?:USDT|USDC|USD)$/i.test(viaWord)) hedgeSymbol = viaWord.toUpperCase();
+  }
+  if (instrument === 'stablecoin_shift') hedgeSymbol = 'USDT';
+  else if (instrument === 'index_hedge' && hedgeSymbol === 'SAME') {
+    hedgeSymbol = /\bqqq\b|nasdaq/i.test(raw) ? 'QQQ' : 'SPY';
+  }
+
+  // Ziel-Assets = alle genannten Symbole außer dem Cross-Hedge-Symbol (falls mehr als 1 genannt)
+  const targetAssets =
+    hedgeSymbol !== 'SAME' && mentioned.length > 1
+      ? mentioned.filter((s) => s !== hedgeSymbol)
+      : mentioned.length > 0
+        ? mentioned
+        : opts.symbol
+          ? [opts.symbol.trim().toUpperCase()]
+          : [];
+
+  const triggerOnRiskOff = !/\b(ohne\s+risk[\s-]*off|kein\s+risk[\s-]*off)\b/i.test(raw);
+  const autoReduceExposure = !/\b(größe\s+nicht\s+halbieren|ohne\s+reduktion)\b/i.test(raw);
+
+  const labelName =
+    opts.name?.trim() ||
+    (hedgeSymbol === 'SAME'
+      ? `Text-Hedge 1:1 (${maxHedgeRatioPct} %)`
+      : `Text-Hedge via ${hedgeSymbol} (${maxHedgeRatioPct} %)`);
+
+  return {
+    id: slugify(labelName),
+    name: labelName,
+    description: raw.trim().slice(0, 280),
+    enabled: true,
+    triggerDrawdownPct,
+    triggerVix,
+    triggerOnRiskOff,
+    maxHedgeRatioPct,
+    instrument,
+    hedgeSymbol,
+    autoReduceExposure,
+    hedgeStopLossPct,
+    builtin: false,
+    targetAssets,
+  };
+}
+
+/**
+ * Vollständige Freitext-Analyse für Trading- & Hedging-Strategien (Welle 22):
+ * Prüft deterministisch & ehrlich, OB die beschriebene Strategie nativ möglich ist,
+ * WAS direkt funktioniert, WO Grenzen liegen (inkl. konkreter Alternative) und
+ * WIE genau sie in Gladiator angewendet wird.
+ */
+export function analyzeFreeTextStrategy(
+  text: string,
+  opts: TextSynthesisOptions = {},
+): FreeTextStrategyAnalysis {
+  const raw = text.trim();
+  if (raw.length < 6) {
+    throw new Error('Bitte beschreibe deine Strategie-Idee in mindestens einem kurzen Satz.');
+  }
+
+  const hedgingCue = /\b(hedg(?:e|ing)|absicher(?:n|ung)|gegen[\s-]*position|gegen[\s-]*short|beta[\s-]*hedge|crash[\s-]*schutz|drawdown[\s-]*schutz|portfolio[\s-]*schutz|stablecoin[\s-]*puffer|index[\s-]*hedge)\b/i.test(
+    raw,
+  );
+  const matchedPatterns = detectStrategyPatterns(raw);
+  const hasTradingIndicatorCue =
+    matchedPatterns.length > 0 ||
+    /\b(kauf(?:e|en)?|einstieg|entry|take[\s-]*profit|crv|breakout|ausbruch|long\s+auf|short\s+auf)\b/i.test(raw);
+
+  const category: FreeTextStrategyAnalysis['category'] =
+    hedgingCue && hasTradingIndicatorCue ? 'hybrid' : hedgingCue ? 'hedging' : 'trading';
+
+  const limitations: StrategyLimitation[] = [];
+  for (const check of LIMITATION_CHECKS) {
+    if (check.re.test(raw)) limitations.push(check.limitation);
+  }
+
+  const trading = category === 'trading' || category === 'hybrid' ? synthesizeDslFromText(raw, opts) : null;
+  const hedging = category === 'hedging' || category === 'hybrid' ? parseHedgingFromText(raw, opts) : null;
+
+  const supportedParts: string[] = [];
+  if (trading) {
+    supportedParts.push(
+      `Trading-DSL (${trading.dsl.direction.toUpperCase()} · ${trading.dsl.symbol} · ${trading.dsl.timeframe}): ${trading.detectedFeatures.join(', ')}`,
+    );
+  }
+  if (hedging) {
+    supportedParts.push(
+      `Hedging-Regel „${hedging.name}“: ${hedging.maxHedgeRatioPct} % über ${hedging.hedgeSymbol === 'SAME' ? '1:1 gleiches Asset' : hedging.hedgeSymbol} ab Drawdown ≥ ${hedging.triggerDrawdownPct} % / VIX ≥ ${hedging.triggerVix}${hedging.triggerOnRiskOff ? ' / Risk-Off' : ''} (Hedge-SL ${hedging.hedgeStopLossPct} %)`,
+    );
+    if (hedging.targetAssets.length > 0) {
+      supportedParts.push(`Erkannte Ziel-Assets für Hedging-Zuordnung: ${hedging.targetAssets.join(', ')}`);
+    }
+  }
+
+  let feasibility: FreeTextStrategyAnalysis['feasibility'] = 'full';
+  let feasibilityLabel = 'Vollständig nativ in Gladiator ausführbar';
+  if (limitations.length > 0) {
+    const hasOnlyFallbackTrading =
+      category === 'trading' && matchedPatterns.length === 0 && !hedging;
+    if (hasOnlyFallbackTrading) {
+      feasibility = 'unsupported';
+      feasibilityLabel = 'Kern-Konzept nicht nativ unterstützt — konkrete Alternative verfügbar';
+    } else {
+      feasibility = 'partial';
+      feasibilityLabel = 'Teilweise direkt ausführbar — mit ehrlichem Hinweis & Alternative';
+    }
+  }
+
+  const howToApply: string[] = [];
+  if (trading) {
+    howToApply.push(
+      `Demo-Backtest auf echten historischen Kerzen von ${trading.dsl.symbol} (${trading.dsl.timeframe}) prüfen und Stop-Loss / Take-Profit bei Bedarf mit den Reglern feinjustieren.`,
+    );
+    howToApply.push(
+      'Als Strategie speichern und unter „Strategien → Alle Strategien“ per „📡 Für Signale aktivieren“ (ein Asset oder „🌐 Alle Assets“) für Live-Paper-Signale freischalten.',
+    );
+    if (trading.dsl.allowedRegimes && trading.dsl.allowedRegimes.length > 0) {
+      howToApply.push(
+        `Automatische Regime-Weiche aktiv (${trading.dsl.allowedRegimes.join(', ')}) — der Scanner pausiert in unpassenden Marktphasen selbstständig.`,
+      );
+    } else {
+      howToApply.push(
+        'Optional eine Regime-Weiche setzen (z. B. nur Trend oder Pause bei Krise) und eingehende Signale in „Signale“ per „▶ Ausführen“ handeln.',
+      );
+    }
+  }
+  if (hedging) {
+    howToApply.push(
+      `Mit 1 Klick als Hedging-Strategie speichern${hedging.targetAssets.length > 0 ? ` und automatisch ${hedging.targetAssets.join(', ')} zuordnen` : ' und im Hedging-Designer deinen Wunsch-Assets zuordnen'}.`,
+    );
+    howToApply.push(
+      'Sobald VIX, Drawdown oder Risk-Off greift, reduziert Gladiator neue Positionsgrößen automatisch auf 50 % und bietet den 1-Klick-Demo-Hedge mit Schutz-Stop-Loss an.',
+    );
+  }
+  if (limitations.length > 0) {
+    howToApply.push(
+      'Für die oben markierten Sonder-Bestandteile die vorgeschlagene Alternative nutzen (oder TradingView-Alerts über „Strategien → Pine“ anbinden).',
+    );
+  }
+
+  return {
+    category,
+    feasibility,
+    feasibilityLabel,
+    supportedParts,
+    limitations,
+    howToApply,
+    trading,
+    hedging,
   };
 }

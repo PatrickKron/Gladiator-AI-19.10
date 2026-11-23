@@ -87,6 +87,9 @@ export function HedgingDesignerPanel() {
   const [extraAssets, setExtraAssets] = useState<string[]>([]);
   const [hedgeBusySym, setHedgeBusySym] = useState<string | null>(null);
   const [hedgeResultMsg, setHedgeResultMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [textInput, setTextInput] = useState('');
+  const [textBusy, setTextBusy] = useState(false);
+  const [textFeedback, setTextFeedback] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -242,6 +245,52 @@ export function HedgingDesignerPanel() {
     await persist({ ...cfg, assetAssignments: nextAssignments }, `Hedge-Zuordnung für ${norm} aktualisiert.`);
   }
 
+  async function applyHedgingFromText() {
+    if (textInput.trim().length < 6) return;
+    setTextBusy(true);
+    setTextFeedback(null);
+    setError(null);
+    try {
+      const res = await trpc.workshop.analyzeTextStrategy.mutate({
+        text: `Hedging-Absicherung: ${textInput.trim()}`,
+      });
+      if (!res.hedging) {
+        setTextFeedback({ ok: false, text: 'Konnte keine Absicherungs-Parameter erkennen — bitte z. B. Quote %, Trigger (VIX/Drawdown) oder Zielsymbol angeben.' });
+        return;
+      }
+      const h = res.hedging;
+      setSelectedId(h.id);
+      setDraft({
+        id: h.id,
+        name: h.name,
+        description: textInput.trim().slice(0, 280),
+        enabled: true,
+        triggerDrawdownPct: h.triggerDrawdownPct,
+        triggerVix: h.triggerVix,
+        triggerOnRiskOff: h.triggerOnRiskOff,
+        maxHedgeRatioPct: h.maxHedgeRatioPct,
+        instrument: h.instrument,
+        hedgeSymbol: h.hedgeSymbol,
+        autoReduceExposure: h.autoReduceExposure,
+        hedgeStopLossPct: h.hedgeStopLossPct,
+        builtin: false,
+      });
+      setIsNewDraft(true);
+      if (h.targetAssets.length > 0) {
+        setExtraAssets((prev) => [...new Set([...prev, ...h.targetAssets])]);
+      }
+      const limNote = res.limitations.length > 0 ? ` Hinweis: ${res.limitations[0]!.topic} → ${res.limitations[0]!.workaround}` : '';
+      setTextFeedback({
+        ok: true,
+        text: `✓ Aus Text übernommen (${res.feasibilityLabel})${h.targetAssets.length > 0 ? ` · Erkannte Assets: ${h.targetAssets.join(', ')}` : ''}. Prüfe rechts und klicke „✓ Neue Hedging-Strategie speichern“.${limNote}`,
+      });
+    } catch (err) {
+      setTextFeedback({ ok: false, text: err instanceof Error ? err.message : 'Text-Analyse fehlgeschlagen.' });
+    } finally {
+      setTextBusy(false);
+    }
+  }
+
   async function executeDemoHedge(targetSym: string) {
     setHedgeBusySym(targetSym);
     setHedgeResultMsg(null);
@@ -368,8 +417,45 @@ export function HedgingDesignerPanel() {
       </Panel>
 
       {/* Bereich 1: Hedging-Strategien designen */}
-      <Panel label="🎨 Hedging-Strategien designen" stagger={2} className="min-w-0 overflow-hidden">
-        <div className="mt-3 grid gap-5 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
+      <Panel label="🎨 Hedging-Strategien designen (Text oder Baukasten)" stagger={2} className="min-w-0 overflow-hidden">
+        {/* Schnell-Eingabe in reinem Text */}
+        <div
+          className="mt-3 rounded-[0.625rem] border p-3 text-xs"
+          style={{ borderColor: 'rgba(6,182,212,0.35)', background: 'rgba(6,182,212,0.06)' }}
+        >
+          <p className="font-semibold" style={{ color: 'var(--color-ink)' }}>
+            ✍️ Hedging-Strategie einfach in Text beschreiben
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <input
+              value={textInput}
+              onChange={(e) => setTextInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void applyHedgingFromText();
+                }
+              }}
+              placeholder="z. B. Sichere SOL und ETH zu 50 % über BTC Short ab wenn VIX über 24 oder Drawdown 4 % mit 7 % SL"
+              className="field min-w-[220px] flex-1 px-2.5 py-2 text-xs"
+            />
+            <button
+              type="button"
+              disabled={textBusy || textInput.trim().length < 6}
+              onClick={() => void applyHedgingFromText()}
+              className="btn-primary shrink-0 px-3.5 py-2 text-xs font-medium disabled:opacity-50"
+            >
+              {textBusy ? 'Prüfe …' : '✨ Aus Text übernehmen'}
+            </button>
+          </div>
+          {textFeedback && (
+            <p className="mt-2 text-[11px] leading-relaxed" style={{ color: textFeedback.ok ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+              {textFeedback.text}
+            </p>
+          )}
+        </div>
+
+        <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
           {/* Linke Liste: Vorlagen & eigene Strategien */}
           <div className="space-y-2 min-w-0">
             <button

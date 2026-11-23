@@ -569,3 +569,99 @@ export async function registerAsset(db: Db, input: RegisterInput, deps: Register
   };
 }
 
+const FX_OR_METAL_PAIR = /^(XAU|XAG|XPT|XPD|EUR|USD|GBP|CHF|JPY|AUD|CAD|NZD)\/(USD|EUR|GBP|CHF|JPY|AUD|CAD|NZD)$/i;
+
+/**
+ * Automatische Asset-Aufnahme ohne Quellen-Auswahl (Welle 22):
+ * Nimmt einen beliebigen Ticker/Namen entgegen (z. B. "QNT", "ANT", "KAS", "PLTR",
+ * "RHM.DE", "XAG/USD", "GC=F"), erkennt selbstständig die passende echte Datenquelle
+ * (Twelve Data für Forex/Metalle → Binance USDT/USDC → Yahoo inkl. <TICKER>-USD → Twelve Data),
+ * lädt automatisch alle historischen Kerzen, legt das Asset in „Eigene Märkte“ an und setzt den Stern.
+ * Kein Fake: schlägt fehl, wenn keine echte Quelle Kerzen liefert.
+ */
+export async function autoRegisterAsset(
+  db: Db,
+  input: { query: string; userId: string; favorite?: boolean; ip?: string | null },
+  deps: RegisterDeps = {},
+): Promise<RegisterResult & { triedSources: string[] }> {
+  const raw = input.query.trim();
+  if (!raw) throw new AssetRegisterError('BAD_INPUT', 'Bitte ein Symbol oder einen Namen eingeben (z. B. QNT, PLTR, RHM.DE, XAG/USD).');
+  const upper = raw.toUpperCase();
+  const triedSources: string[] = [];
+  const fav = input.favorite ?? true;
+
+  const tryReg = async (venue: CandleVenue, symbol: string, name?: string | null, kind?: string | null) => {
+    triedSources.push(`${venue}:${symbol}`);
+    try {
+      return await registerAsset(
+        db,
+        { venue, symbol, name: name ?? null, kind: kind ?? null, userId: input.userId, favorite: fav, ip: input.ip ?? null, via: 'auto-add-asset' },
+        deps,
+      );
+    } catch {
+      return null;
+    }
+  };
+
+  // 1) Forex / Edelmetall-Paar (z. B. XAU/USD, XAG/USD, EUR/USD) → Twelve Data falls konfiguriert
+  const tdReady = deps.twelveDataConfigured ? deps.twelveDataConfigured() : twelveDataConfigured();
+  if (FX_OR_METAL_PAIR.test(upper) && tdReady) {
+    const r = await tryReg('twelvedata', upper);
+    if (r) return { ...r, triedSources };
+  }
+
+  // 2) Binance Spot-Paar prüfen (exaktes Paar, <TICKER>/USDT oder <TICKER>/USDC)
+  if (!upper.includes('.') && !upper.startsWith('^') && !upper.includes('=')) {
+    try {
+      const pairs = await (deps.listPairs ?? listBinanceSpotPairs)();
+      const base = upper.replace(/\/(USDT|USDC|USD)$/i, '');
+      const exact = pairs.find((p) => p.symbol.toUpperCase() === upper);
+      const usdt = pairs.find((p) => p.symbol.toUpperCase() === `${base}/USDT`);
+      const usdc = pairs.find((p) => p.symbol.toUpperCase() === `${base}/USDC`);
+      const hit = exact ?? usdt ?? usdc;
+      if (hit) {
+        const r = await tryReg('binance', hit.symbol, hit.base, 'CRYPTO');
+        if (r) return { ...r, triedSources };
+      }
+    } catch {
+      // Binance gerade nicht erreichbar → weiter mit Yahoo/Twelve Data
+    }
+  }
+
+  // 3) Yahoo Finance Suche (Aktien, ETFs, Indizes, Futures, Forex UND Krypto-Coins außerhalb Binance wie ANT-USD, KAS-USD)
+  try {
+    const hits = await (deps.searchYahoo ?? searchYahoo)(raw, 8);
+    const ordered = [
+      ...hits.filter((h) => h.symbol.toUpperCase() === upper || h.symbol.toUpperCase() === `${upper}-USD`),
+      ...hits.filter((h) => h.symbol.toUpperCase() !== upper && h.symbol.toUpperCase() !== `${upper}-USD`),
+    ];
+    for (const h of ordered.slice(0, 3)) {
+      const r = await tryReg('yahoo', h.symbol, h.name, h.type);
+      if (r) return { ...r, triedSources };
+    }
+  } catch {
+    // Suche fehlgeschlagen → direkter Yahoo-Chart-Probe-Fallback
+  }
+
+  // 4) Direkter Yahoo-Probe (<UPPER> und für reine Ticker zusätzlich <UPPER>-USD)
+  if (normalizeRegisterSymbol('yahoo', upper)) {
+    const r = await tryReg('yahoo', upper);
+    if (r) return { ...r, triedSources };
+  }
+  if (/^[A-Z0-9]{2,10}$/.test(upper)) {
+    const r = await tryReg('yahoo', `${upper}-USD`, upper, 'CRYPTOCURRENCY');
+    if (r) return { ...r, triedSources };
+  }
+
+  // 5) Letzter Fallback: Twelve Data direkt (falls konfiguriert)
+  if (tdReady && normalizeRegisterSymbol('twelvedata', upper)) {
+    const r = await tryReg('twelvedata', upper);
+    if (r) return { ...r, triedSources };
+  }
+
+  throw new AssetRegisterError(
+    'UNKNOWN_SYMBOL',
+    `Für „${raw}“ wurden auf keiner angebundenen Börse/Datenquelle (${triedSources.slice(0, 5).join(', ') || 'Binance, Yahoo, Twelve Data'}) echte Kurskerzen gefunden. Prüfe das Ticker-Symbol (z. B. RHM.DE, PLTR, QNT, ANT-USD, XAG/USD).`,
+  );
+}
+

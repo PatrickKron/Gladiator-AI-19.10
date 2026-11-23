@@ -4,6 +4,7 @@ import { trpc } from '../api.js';
 import { rankAssets } from '../lib/asset-search.js';
 import { notifyFavoritesChanged } from '../lib/favorites-bus.js';
 import { VENUE_LABEL } from './AssetSelect.js';
+import { buildChartUrl } from '../lib/chart-url.js';
 
 /**
  * „+ Markt hinzufügen“ auf dem Dashboard (Patrick: „wenn ich bei der Übersicht
@@ -64,7 +65,7 @@ export function AddMarketPicker({
   const [binance, setBinance] = useState<BinanceSearch | null>(null);
   const [stocks, setStocks] = useState<StockSearch | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [message, setMessage] = useState<{ ok: boolean; text: string; chartHref?: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const loadCatalog = () =>
@@ -132,6 +133,35 @@ export function AddMarketPicker({
     }
   }
 
+  async function autoAdd(rawQuery: string) {
+    const q = rawQuery.trim();
+    if (!q) return;
+    setAdding(`auto:${q}`);
+    setMessage(null);
+    try {
+      const r = await trpc.product.autoAddAsset.mutate({ query: q });
+      const totalCandles = Object.values(r.candles ?? {}).reduce((a, b) => a + b, 0);
+      setMessage({
+        ok: true,
+        text: `✓ ${r.symbol} (${r.venue.toUpperCase()}, ${r.assetType}) automatisch erkannt & hinzugefügt — ${totalCandles.toLocaleString()} Kerzen geladen. Ab sofort in Chart, Screener, Labor & Signal-Scan verfügbar.`,
+        chartHref: buildChartUrl(r.symbol, null, r.venue),
+      });
+      await loadCatalog();
+      onChanged();
+      notifyFavoritesChanged();
+      if (r.venue === 'binance' || r.venue === 'yahoo') {
+        onAdded?.({ symbol: r.symbol, venue: r.venue });
+      }
+    } catch (e) {
+      setMessage({
+        ok: false,
+        text: String(e instanceof Error ? e.message : e).slice(0, 220),
+      });
+    } finally {
+      setAdding(null);
+    }
+  }
+
   async function add(venue: 'binance' | 'yahoo', symbol: string, name?: string, kind?: string) {
     setAdding(`${venue}:${symbol}`);
     setMessage(null);
@@ -192,15 +222,45 @@ export function AddMarketPicker({
         </div>
       )}
 
+      {/* Beliebiges Asset außerhalb der Pakete: 1-Klick Auto-Erkennung & Daten-Import (Welle 22) */}
+      {query.trim().length >= 2 && (
+        <div
+          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[0.625rem] border p-2.5 text-xs"
+          style={{ borderColor: 'rgba(6,182,212,0.4)', background: 'rgba(6,182,212,0.06)' }}
+        >
+          <div className="min-w-0 flex-1">
+            <p className="font-medium" style={{ color: 'var(--color-ink)' }}>
+              Noch nicht in den Paketen? Automatisch finden & alle Kerzen holen
+            </p>
+            <p className="mt-0.5 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+              Gladiator prüft selbstständig Binance, Yahoo (Aktien, ETFs, Krypto &lt;TICKER&gt;-USD) & Twelve Data, lädt die Historie und hält „{query.trim().toUpperCase()}“ künftig automatisch aktuell.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void autoAdd(query)}
+            className="btn-primary shrink-0 px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+          >
+            {adding?.startsWith('auto:') ? 'Suche & lade Daten …' : `✨ „${query.trim().toUpperCase()}“ automatisch holen`}
+          </button>
+        </div>
+      )}
+
       {adding && (
         <p className="mt-3 animate-pulse text-xs" style={{ color: 'var(--color-cyan)' }}>
           {t('dashboard.addMarketAdding', { symbol: adding.split(':').slice(1).join(':') })}
         </p>
       )}
       {message && (
-        <p className="mt-3 text-xs" style={{ color: message.ok ? 'var(--color-pos)' : 'var(--color-neg)' }}>
-          {message.text}
-        </p>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs" style={{ color: message.ok ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+          <span>{message.text}</span>
+          {message.chartHref && (
+            <a href={message.chartHref} className="shrink-0 underline" style={{ color: 'var(--color-cyan)' }}>
+              📈 Im Chart öffnen →
+            </a>
+          )}
+        </div>
       )}
 
       {assets === undefined ? (

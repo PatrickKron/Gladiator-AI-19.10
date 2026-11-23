@@ -1,6 +1,6 @@
 import { TRPCError } from '@trpc/server';
 import type { Db } from '@gladiator/db';
-import { AssetRegisterError, registerAsset, type RegisterDeps, type RegisterInput, type RegisterResult } from '@gladiator/jobs';
+import { AssetRegisterError, autoRegisterAsset, registerAsset, type RegisterDeps, type RegisterInput, type RegisterResult } from '@gladiator/jobs';
 
 /**
  * Asset-Register an der API (product.addAsset, market.ensureCandles, market.ensureStockCandles):
@@ -29,6 +29,17 @@ export function registerErrorToTrpc(err: unknown): unknown {
 export async function registerOrThrow(db: Db, input: RegisterInput): Promise<RegisterResult> {
   try {
     return await registerAsset(db, input, depsOverride ?? {});
+  } catch (err) {
+    throw registerErrorToTrpc(err);
+  }
+}
+
+export async function autoRegisterOrThrow(
+  db: Db,
+  input: { query: string; userId: string; favorite?: boolean; ip?: string | null },
+): Promise<RegisterResult & { triedSources: string[] }> {
+  try {
+    return await autoRegisterAsset(db, input, depsOverride ?? {});
   } catch (err) {
     throw registerErrorToTrpc(err);
   }

@@ -15,6 +15,7 @@ import { appLocale } from '../lib/locale.js';
  */
 
 type CreateFromTextResult = Awaited<ReturnType<typeof trpc.workshop.createFromText.mutate>>;
+type AnalyzeTextResult = Awaited<ReturnType<typeof trpc.workshop.analyzeTextStrategy.mutate>>;
 type BacktestResult = NonNullable<CreateFromTextResult['backtest']>;
 type ValidateResult = Awaited<ReturnType<typeof trpc.workshop.saveAndValidateVersion.mutate>>;
 
@@ -84,8 +85,10 @@ export function TextStrategyBuilder({ onSaved }: { onSaved?: () => void }) {
   const [timeframe, setTimeframe] = useState<DslTimeframe>('1h');
   const [lookbackDays, setLookbackDays] = useState(365);
 
-  const [busy, setBusy] = useState<'build' | 'retest' | 'save' | 'promote' | null>(null);
+  const [busy, setBusy] = useState<'analyze' | 'build' | 'retest' | 'save' | 'promote' | 'saveHedge' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<AnalyzeTextResult | null>(null);
+  const [hedgeSavedMsg, setHedgeSavedMsg] = useState<string | null>(null);
   const [created, setCreated] = useState<CreateFromTextResult | null>(null);
   const [dsl, setDsl] = useState<InstructionDsl | null>(null);
   const [backtest, setBacktest] = useState<BacktestResult | null>(null);
@@ -118,6 +121,73 @@ export function TextStrategyBuilder({ onSaved }: { onSaved?: () => void }) {
     setRiskPct(next.risk.riskPctPerTrade);
   }
 
+  async function analyzeOnly() {
+    if (text.trim().length < 6) return;
+    setBusy('analyze');
+    setError(null);
+    setHedgeSavedMsg(null);
+    try {
+      const res = await trpc.workshop.analyzeTextStrategy.mutate({
+        text: text.trim(),
+        ...(name.trim().length >= 2 ? { name: name.trim() } : {}),
+        symbol: symbol.trim().toUpperCase() || undefined,
+        timeframe,
+      });
+      setAnalysis(res);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Analyse fehlgeschlagen.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveDetectedHedging() {
+    const h = analysis?.hedging;
+    if (!h) return;
+    setBusy('saveHedge');
+    setError(null);
+    setHedgeSavedMsg(null);
+    try {
+      const current = (await trpc.settings.get.query()).hedging;
+      const strat = {
+        id: h.id,
+        name: h.name,
+        description: h.description,
+        enabled: true,
+        triggerDrawdownPct: h.triggerDrawdownPct,
+        triggerVix: h.triggerVix,
+        triggerOnRiskOff: h.triggerOnRiskOff,
+        maxHedgeRatioPct: h.maxHedgeRatioPct,
+        instrument: h.instrument,
+        hedgeSymbol: h.hedgeSymbol,
+        autoReduceExposure: h.autoReduceExposure,
+        hedgeStopLossPct: h.hedgeStopLossPct,
+        builtin: false,
+      };
+      const exists = current.strategies.some((s) => s.id === strat.id);
+      const nextStrategies = exists
+        ? current.strategies.map((s) => (s.id === strat.id ? strat : s))
+        : [...current.strategies, strat];
+      const nextAssignments = { ...current.assetAssignments };
+      for (const sym of h.targetAssets) {
+        nextAssignments[sym.toUpperCase()] = strat.id;
+      }
+      await trpc.settings.updateHedging.mutate({
+        ...current,
+        enabled: true,
+        strategies: nextStrategies,
+        assetAssignments: nextAssignments,
+      });
+      setHedgeSavedMsg(
+        `Hedging-Strategie „${strat.name}“ gespeichert${h.targetAssets.length > 0 ? ` & zugeordnet an ${h.targetAssets.join(', ')}` : ''}.`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Hedging-Strategie konnte nicht gespeichert werden.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function buildAndBacktest() {
     if (text.trim().length < 6) return;
     setBusy('build');
@@ -125,6 +195,7 @@ export function TextStrategyBuilder({ onSaved }: { onSaved?: () => void }) {
     setBtError(null);
     setSavedVal(null);
     setPromotedMsg(null);
+    setHedgeSavedMsg(null);
     try {
       const res = await trpc.workshop.createFromText.mutate({
         text: text.trim(),
@@ -134,6 +205,7 @@ export function TextStrategyBuilder({ onSaved }: { onSaved?: () => void }) {
         autoBacktest: true,
         lookbackDays,
       });
+      setAnalysis(res.analysis);
       setCreated(res);
       setDsl(res.dsl);
       syncSlidersFromDsl(res.dsl);
@@ -336,6 +408,15 @@ export function TextStrategyBuilder({ onSaved }: { onSaved?: () => void }) {
         <div className="mt-4 flex flex-wrap items-center gap-2.5">
           <button
             type="button"
+            onClick={() => void analyzeOnly()}
+            disabled={busy !== null || text.trim().length < 6}
+            className="rounded-[0.625rem] border px-4 py-2.5 text-sm font-medium transition-colors hover:border-[var(--color-pos)] disabled:opacity-50"
+            style={{ borderColor: 'rgba(34,197,94,0.5)', color: 'var(--color-pos)', background: 'rgba(34,197,94,0.08)' }}
+          >
+            {busy === 'analyze' ? 'Prüfe Machbarkeit …' : '🧭 Erst Machbarkeit & Anwendung prüfen'}
+          </button>
+          <button
+            type="button"
             onClick={() => void buildAndBacktest()}
             disabled={busy !== null || text.trim().length < 6}
             className="btn-primary px-5 py-2.5 text-sm font-medium disabled:opacity-50"
@@ -358,6 +439,96 @@ export function TextStrategyBuilder({ onSaved }: { onSaved?: () => void }) {
           </p>
         )}
       </Panel>
+
+      {/* ── Machbarkeits- & Anwendungs-Check (Welle 22: Trading, Hedging & Hybrid) ── */}
+      {analysis && (
+        <Panel label="🧭 Machbarkeit, Grenzen & Wie du sie anwendest" stagger={1.5} className="min-w-0 overflow-hidden">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span
+                className="rounded border px-2 py-0.5 font-semibold"
+                style={{
+                  borderColor:
+                    analysis.feasibility === 'full'
+                      ? 'var(--color-pos)'
+                      : analysis.feasibility === 'partial'
+                        ? 'var(--color-warn)'
+                        : 'var(--color-neg)',
+                  color:
+                    analysis.feasibility === 'full'
+                      ? 'var(--color-pos)'
+                      : analysis.feasibility === 'partial'
+                        ? 'var(--color-warn)'
+                        : 'var(--color-neg)',
+                }}
+              >
+                {analysis.feasibility === 'full' ? '✓' : analysis.feasibility === 'partial' ? '⚠' : 'ℹ'} {analysis.feasibilityLabel}
+              </span>
+              <span className="rounded border px-2 py-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)', color: 'var(--color-cyan)' }}>
+                Typ: {analysis.category === 'hedging' ? 'Hedging-Strategie' : analysis.category === 'hybrid' ? 'Hybrid (Trading + Hedging)' : 'Trading-Strategie'}
+              </span>
+            </div>
+            {analysis.hedging && (
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => void saveDetectedHedging()}
+                className="btn-primary px-3.5 py-1.5 text-xs font-medium disabled:opacity-50"
+              >
+                {busy === 'saveHedge' ? 'Speichere Hedge …' : '🛡️ Als Hedging-Strategie speichern & Assets zuordnen'}
+              </button>
+            )}
+          </div>
+
+          {hedgeSavedMsg && (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded border p-2.5 text-xs" style={{ borderColor: 'rgba(34,197,94,0.5)', color: 'var(--color-pos)' }}>
+              <span>✓ {hedgeSavedMsg}</span>
+              <a href="#/strategien?tab=hedging" className="underline" style={{ color: 'var(--color-cyan)' }}>
+                → Im Hedging-Designer ansehen
+              </a>
+            </div>
+          )}
+
+          {analysis.supportedParts.length > 0 && (
+            <div className="mt-3">
+              <p className="label">Was direkt nativ ausführbar ist</p>
+              <ul className="mt-1.5 space-y-1 text-xs" style={{ color: 'var(--color-ink)' }}>
+                {analysis.supportedParts.map((s, i) => (
+                  <li key={i}>
+                    <span style={{ color: 'var(--color-pos)' }}>✓</span> {s}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {analysis.limitations.length > 0 && (
+            <div className="mt-3 rounded-[0.625rem] border p-3 text-xs space-y-2" style={{ borderColor: 'rgba(245,158,11,0.45)', background: 'rgba(245,158,11,0.06)' }}>
+              <p className="label" style={{ color: 'var(--color-warn)' }}>Ehrliche Grenzen & konkrete Alternative</p>
+              {analysis.limitations.map((lim, i) => (
+                <div key={i} className="space-y-0.5">
+                  <p className="font-semibold" style={{ color: 'var(--color-ink)' }}>⚠ {lim.topic}</p>
+                  <p style={{ color: 'var(--color-mut)' }}>{lim.reason}</p>
+                  <p style={{ color: 'var(--color-cyan)' }}>→ Wie trotzdem möglich: {lim.workaround}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {analysis.howToApply.length > 0 && (
+            <div className="mt-3">
+              <p className="label">So wendest du diese Strategie in Gladiator an</p>
+              <ol className="mt-1.5 space-y-1 text-xs" style={{ color: 'var(--color-mut)' }}>
+                {analysis.howToApply.map((step, i) => (
+                  <li key={i}>
+                    <span className="num font-semibold" style={{ color: 'var(--color-cyan)' }}>{i + 1}.</span> {step}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+        </Panel>
+      )}
 
       {/* ── Ergebnis-Auswertung + interaktive Anpassungs-Regler ── */}
       {created && dsl && (

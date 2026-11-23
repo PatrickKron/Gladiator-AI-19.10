@@ -3,7 +3,7 @@ import { and, asc, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
 import { envAnthropicProvider } from '@gladiator/agents';
-import { parseInstructionDsl, summarizeDslRules, synthesizeDslFromPineScript, synthesizeDslFromText } from '@gladiator/strategy-engine';
+import { analyzeFreeTextStrategy, parseInstructionDsl, summarizeDslRules, synthesizeDslFromPineScript, synthesizeDslFromText } from '@gladiator/strategy-engine';
 import { ensureCandleHistory, SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
 import { evaluateBacktestValidity, runLabBacktest } from '@gladiator/backtest';
 import { protectedProcedure, router } from '../trpc.js';
@@ -124,6 +124,28 @@ export const workshopRouter = router({
    * eine validierte Instruction-DSL um, legt eine Workshop-Sitzung an und startet
    * auf Wunsch sofort einen echten Netto-Backtest.
    */
+  /**
+   * Reine Freitext-Machbarkeits- & Anwendungs-Analyse (Welle 22):
+   * Erkennt automatisch Trading-, Hedging- oder Hybrid-Strategien, benennt ehrlich
+   * was nativ ausführbar ist, wo Grenzen liegen (inkl. Alternative) und wie sie angewendet wird.
+   */
+  analyzeTextStrategy: protectedProcedure
+    .input(
+      z.object({
+        text: z.string().min(6).max(5000),
+        name: z.string().min(2).max(120).optional(),
+        symbol: z.string().min(1).max(32).optional(),
+        timeframe: timeframeSchema.optional(),
+      }),
+    )
+    .mutation(({ input }) =>
+      analyzeFreeTextStrategy(input.text, {
+        name: input.name,
+        symbol: input.symbol,
+        timeframe: input.timeframe,
+      }),
+    ),
+
   createFromText: protectedProcedure
     .input(
       z.object({
@@ -136,11 +158,18 @@ export const workshopRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const synth = synthesizeDslFromText(input.text, {
+      const analysis = analyzeFreeTextStrategy(input.text, {
         name: input.name,
         symbol: input.symbol,
         timeframe: input.timeframe,
       });
+      const synth =
+        analysis.trading ??
+        synthesizeDslFromText(input.text, {
+          name: input.name,
+          symbol: input.symbol,
+          timeframe: input.timeframe,
+        });
       const sessionName = (input.name?.trim() || synth.dsl.id).slice(0, 120);
       const [row] = await ctx.db
         .insert(workshopSessions)
@@ -200,6 +229,7 @@ export const workshopRouter = router({
         ruleSummary: summarizeDslRules(synth.dsl),
         detectedFeatures: synth.detectedFeatures,
         matchedPatterns: synth.matchedPatterns,
+        analysis,
         backtest,
         backtestError,
       };

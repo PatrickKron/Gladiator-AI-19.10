@@ -13,6 +13,7 @@ import {
 import { users } from './auth.js';
 import { signals } from './strategy.js';
 import { subAgents } from './sub-agents.js';
+import { exchangeConnections } from './exchange-connections.js';
 import {
   directionEnum,
   orderSideEnum,
@@ -163,4 +164,39 @@ export const positions = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('positions_unique_idx').on(t.userId, t.venue, t.symbol, t.mode)],
+);
+
+/**
+ * Fremdgeldkonten / Prop-Firm- & Drittkapital-Konten (Welle 22):
+ * Strikt getrennt von Eigengeld — verwaltet Anbieter-Regeln (Tagesverlust,
+ * Gesamt-/Trailing-Drawdown, Ziel, Payout-Split) und optional eine direkte
+ * Verknüpfung zu einer echten CCXT-Börsen-API-Verbindung (nur lesend/Salden-Sync).
+ */
+export const fundedAccounts = pgTable(
+  'funded_accounts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    provider: text('provider').notNull(),
+    phase: text('phase').notNull().default('challenge_1'),
+    currency: text('currency').notNull().default('USD'),
+    startBalance: numeric('start_balance').notNull(),
+    currentEquity: numeric('current_equity').notNull(),
+    highWaterMark: numeric('high_water_mark').notNull(),
+    dailyStartEquity: numeric('daily_start_equity').notNull(),
+    dailyLossLimitPct: numeric('daily_loss_limit_pct').notNull().default('5'),
+    maxTotalDrawdownPct: numeric('max_total_drawdown_pct').notNull().default('10'),
+    profitTargetPct: numeric('profit_target_pct'),
+    payoutSplitPct: numeric('payout_split_pct').notNull().default('80'),
+    trailingDrawdown: boolean('trailing_drawdown').notNull().default(false),
+    exchangeConnectionId: uuid('exchange_connection_id').references(() => exchangeConnections.id, { onDelete: 'set null' }),
+    notes: text('notes'),
+    status: text('status').notNull().default('active'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('funded_accounts_user_idx').on(t.userId)],
 );

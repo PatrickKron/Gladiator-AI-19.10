@@ -33,6 +33,7 @@ export {
   USER_MARKETS_PACKAGE,
   assetIdFor,
   assetTypeFor,
+  autoRegisterAsset,
   displayTicker,
   ensureUserMarketsPackage,
   isCandleVenue,
