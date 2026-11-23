@@ -1,14 +1,29 @@
 import { TRPCError } from '@trpc/server';
-import { and, desc, eq, max, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, max, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '@gladiator/db';
-import { readProposalState, runLabBacktest, runLabWalkForward, type OptimizationProposalResults, runMonteCarlo } from '@gladiator/backtest';
+import {
+  buildSignalStudyAnalytics,
+  readProposalState,
+  runLabBacktest,
+  runLabWalkForward,
+  runMonteCarlo,
+  runSignalStudiesBatch,
+  STUDY_EVENT_CATEGORIES,
+  STUDY_VARIANT_IDS,
+  STUDY_VARIANTS,
+  type OptimizationProposalResults,
+  type SignalUsageGroup,
+  type StudyEventCategory,
+  type StudyRowLike,
+  type StudyVariantId,
+} from '@gladiator/backtest';
 import { parseInstructionDsl } from '@gladiator/strategy-engine';
 import { SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
 import { deriveAdaptiveGates } from '@gladiator/risk';
 import { protectedProcedure, router } from '../trpc.js';
 
-const { strategies, strategyVersions, backtests, auditLog, riskGates, optimizations } = schema;
+const { strategies, strategyVersions, backtests, auditLog, riskGates, optimizations, signalStudies } = schema;
 
 const timeframeSchema = z.enum(SUPPORTED_TIMEFRAMES);
 const setupSchema = z.enum(['scalp', 'swing', 'position']);
@@ -486,4 +501,114 @@ export const labRouter = router({
         .limit(input.limit);
       return rows;
     }),
+
+  /**
+   * Autonome Signal-Studien-Auswertung (Welle 23):
+   * Liefert Statistiken & Grafik-Daten für benutzte UND verpasste Signale über
+   * alle 5 Studien-Parameter, Sessions und echte Makro-Events. Falls die Tabelle
+   * noch leer ist, läuft einmalig ein Erst-Lauf gegen die bestehenden Signale.
+   */
+  signalStudies: protectedProcedure
+    .input(
+      z
+        .object({
+          variant: z.enum(STUDY_VARIANT_IDS).default('baseline'),
+          usageGroup: z.enum(['all', 'used', 'missed']).default('all'),
+          session: z.enum(['all', 'asia', 'london', 'overlap', 'newyork', 'off']).default('all'),
+          eventCategory: z.enum(['all', 'any_event', ...STUDY_EVENT_CATEGORIES]).default('all'),
+          symbol: z.string().default('all'),
+          timeframe: z.string().default('all'),
+          direction: z.enum(['all', 'long', 'short']).default('all'),
+          strategySlug: z.string().default('all'),
+          days: z.number().int().min(0).max(730).default(0),
+        })
+        .default({
+          variant: 'baseline',
+          usageGroup: 'all',
+          session: 'all',
+          eventCategory: 'all',
+          symbol: 'all',
+          timeframe: 'all',
+          direction: 'all',
+          strategySlug: 'all',
+          days: 0,
+        }),
+    )
+    .query(async ({ ctx, input }) => {
+      const [cnt] = await ctx.db.select({ n: sql<number>`count(*)::int` }).from(signalStudies);
+      if (Number(cnt?.n ?? 0) === 0) {
+        await runSignalStudiesBatch(ctx.db, { limit: 150 }).catch(() => undefined);
+      }
+
+      const since = input.days > 0 ? new Date(Date.now() - input.days * 86_400_000) : null;
+      const allRows = await ctx.db
+        .select()
+        .from(signalStudies)
+        .where(since ? gte(signalStudies.signalCreatedAt, since) : undefined)
+        .orderBy(desc(signalStudies.signalCreatedAt))
+        .limit(2500);
+
+      const availableSymbols = [...new Set(allRows.map((r) => r.symbol))].sort();
+      const availableStrategies = [...new Set(allRows.map((r) => r.strategySlug))].sort();
+      const availableTimeframes = [...new Set(allRows.map((r) => r.timeframe))].sort();
+      let lastEvaluatedAt: string | null = null;
+      for (const r of allRows) {
+        const iso = r.evaluatedAt.toISOString();
+        if (!lastEvaluatedAt || iso > lastEvaluatedAt) lastEvaluatedAt = iso;
+      }
+
+      const filtered: StudyRowLike[] = allRows
+        .filter((r) => {
+          if (input.usageGroup !== 'all' && r.usageGroup !== input.usageGroup) return false;
+          if (input.session !== 'all' && r.session !== input.session) return false;
+          if (input.eventCategory === 'any_event' && r.eventCategory === 'none') return false;
+          if (input.eventCategory !== 'all' && input.eventCategory !== 'any_event' && r.eventCategory !== input.eventCategory) return false;
+          if (input.symbol !== 'all' && r.symbol !== input.symbol) return false;
+          if (input.timeframe !== 'all' && r.timeframe !== input.timeframe) return false;
+          if (input.direction !== 'all' && r.direction !== input.direction) return false;
+          if (input.strategySlug !== 'all' && r.strategySlug !== input.strategySlug) return false;
+          return true;
+        })
+        .map((r) => ({
+          signalId: r.signalId,
+          strategySlug: r.strategySlug,
+          symbol: r.symbol,
+          venue: r.venue,
+          timeframe: r.timeframe,
+          direction: r.direction,
+          setupType: r.setupType,
+          signalStatus: r.signalStatus,
+          usageGroup: r.usageGroup as SignalUsageGroup,
+          variant: r.variant as StudyVariantId,
+          studyStatus: r.studyStatus as 'closed' | 'open' | 'no_data',
+          rMultiple: r.rMultiple === null ? null : Number(r.rMultiple),
+          mfeR: r.mfeR === null ? null : Number(r.mfeR),
+          maeR: r.maeR === null ? null : Number(r.maeR),
+          exitReason: r.exitReason,
+          barsHeld: r.barsHeld,
+          session: r.session,
+          marketPhase: r.marketPhase,
+          emaRegime: r.emaRegime,
+          score: Number(r.score),
+          eventCategory: r.eventCategory as StudyEventCategory,
+          eventTitle: r.eventTitle,
+          eventDeltaMin: r.eventDeltaMin,
+          signalCreatedAt: r.signalCreatedAt,
+          exitTs: r.exitTs,
+        }));
+
+      return {
+        variants: STUDY_VARIANTS,
+        availableSymbols,
+        availableStrategies,
+        availableTimeframes,
+        lastEvaluatedAt,
+        analytics: buildSignalStudyAnalytics(filtered, input.variant),
+      };
+    }),
+
+  /** Sofortiger Studien-Lauf (on-demand im Labor, zusätzlich zum 30-Min.-Worker). */
+  runSignalStudies: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(10).max(500).default(250), forceReeval: z.boolean().default(false) }).default({ limit: 250, forceReeval: false }))
+    .mutation(async ({ ctx, input }) => runSignalStudiesBatch(ctx.db, input)),
 });

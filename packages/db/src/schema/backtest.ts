@@ -1,5 +1,5 @@
-import { index, jsonb, numeric, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
-import { strategies, strategyVersions } from './strategy.js';
+import { index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { signals, strategies, strategyVersions } from './strategy.js';
 import { runStatusEnum } from './enums.js';
 
 /**
@@ -78,4 +78,54 @@ export const optimizations = pgTable(
     finishedAt: timestamp('finished_at', { withTimezone: true }),
   },
   (t) => [index('optimizations_strategy_idx').on(t.strategyId)],
+);
+
+/**
+ * Autonome Signal-Studien (Welle 23): wertet benutzte (`used`: filled/closed/confirmed)
+ * UND ungenutzte/verpasste (`missed`: expired/rejected) Signale look-ahead-frei über
+ * 5 Studien-Parameter-Varianten + Session + echtes Makro-Event-Fenster (±120 Min.) aus.
+ * Strikt getrennt von `executed_trades` (rein hypothetische Labor-Auswertung).
+ */
+export const signalStudies = pgTable(
+  'signal_studies',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    signalId: uuid('signal_id')
+      .notNull()
+      .references(() => signals.id, { onDelete: 'cascade' }),
+    strategyId: uuid('strategy_id')
+      .notNull()
+      .references(() => strategies.id, { onDelete: 'cascade' }),
+    strategySlug: text('strategy_slug').notNull(),
+    symbol: text('symbol').notNull(),
+    venue: text('venue').notNull().default('binance'),
+    timeframe: text('timeframe').notNull(),
+    direction: text('direction').notNull(),
+    setupType: text('setup_type').notNull(),
+    signalStatus: text('signal_status').notNull(),
+    usageGroup: text('usage_group').notNull(), // 'used' | 'missed'
+    variant: text('variant').notNull(), // 'baseline' | 'wide_sl' | 'conservative_tp1' | 'runner_trail' | 'no_be'
+    studyStatus: text('study_status').notNull(), // 'closed' | 'open' | 'no_data'
+    rMultiple: numeric('r_multiple'),
+    mfeR: numeric('mfe_r'),
+    maeR: numeric('mae_r'),
+    exitReason: text('exit_reason'),
+    barsHeld: integer('bars_held'),
+    session: text('session').notNull(),
+    marketPhase: text('market_phase').notNull(),
+    emaRegime: text('ema_regime').notNull(),
+    score: numeric('score').notNull(),
+    eventCategory: text('event_category').notNull().default('none'),
+    eventTitle: text('event_title'),
+    eventDeltaMin: integer('event_delta_min'),
+    signalCreatedAt: timestamp('signal_created_at', { withTimezone: true }).notNull(),
+    exitTs: timestamp('exit_ts', { withTimezone: true }),
+    evaluatedAt: timestamp('evaluated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('signal_studies_signal_variant_uidx').on(t.signalId, t.variant),
+    index('signal_studies_created_idx').on(t.signalCreatedAt),
+    index('signal_studies_usage_variant_idx').on(t.usageGroup, t.variant),
+    index('signal_studies_session_event_idx').on(t.session, t.eventCategory),
+  ],
 );

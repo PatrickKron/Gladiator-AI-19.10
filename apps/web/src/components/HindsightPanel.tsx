@@ -95,9 +95,18 @@ export function HindsightPanel() {
               </ul>
             </>
           )}
-          <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
-            {t('hindsight.method')}
-          </p>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+              {t('hindsight.method')}
+            </p>
+            <a
+              href="#/labor?tab=studien"
+              className="shrink-0 rounded-[0.5rem] border px-2.5 py-1 text-xs transition-colors hover:border-[var(--color-cyan)]"
+              style={{ borderColor: 'rgba(6,182,212,0.45)', color: 'var(--color-cyan)' }}
+            >
+              📊 Alle Signal-Studien &amp; Grafiken im Labor →
+            </a>
+          </div>
         </div>
       )}
     </div>

@@ -21,7 +21,7 @@ import { computeAllFeatures, autoLabelSignals, retrainModel } from './ml-pipelin
 import { runRlEpisodes, aggregateRlPerformance, rebalanceRlWeights } from './rl-pipeline.js';
 import { detectAllRegimes, runSelfEvaluation, runModelComparison, createPerformanceSnapshots } from './self-improve-pipeline.js';
 import { snapshotAccountValues } from './portfolio-snapshot.js';
-import { recomputeStudyClusters } from '@gladiator/backtest';
+import { recomputeStudyClusters, runSignalStudiesBatch } from '@gladiator/backtest';
 import { runStrategyOptimization } from './optimization.js';
 
 /**
@@ -64,6 +64,7 @@ const PERF_SNAPSHOT_JOB = 'perf-snapshot';
 const PORTFOLIO_SNAPSHOT_JOB = 'portfolio-snapshot';
 const SIGNAL_LIFECYCLE_JOB = 'signal-lifecycle';
 const STUDY_CLUSTER_JOB = 'study-clusters';
+const SIGNAL_STUDIES_JOB = 'signal-studies';
 const OPTIMIZE_JOB = 'strategy-optimize';
 
 /**
@@ -159,6 +160,7 @@ export const SCHEDULES: [string, number][] = [
   [REGIME_JOB, 15 * 60_000],            // Regime-Erkennung alle 15 min
   [PORTFOLIO_SNAPSHOT_JOB, 60 * 60_000], // Vermögens-Snapshot stündlich (Zeitverlauf „Vermögen")
   [SIGNAL_LIFECYCLE_JOB, 60_000],        // 05_ §9: Auto-Kill/Reentry/Leverage-Upgrade je Minute (echte Preise)
+  [SIGNAL_STUDIES_JOB, 30 * 60_000],     // Welle 23: Autonome Signal-Studien (genutzt vs. verpasst, 5 Varianten, Events) alle 30 min
   // VDB2-Batch (13_ §4) wöchentlich: study_clusters aus study_trades (Labor + Paper) neu rechnen.
   // Zusatzläufe (Neustart) sind unschädlich: die Hebel-Stufengrenze bezieht sich auf die Vorwoche.
   [STUDY_CLUSTER_JOB, 7 * 24 * 60 * 60_000],
@@ -454,6 +456,16 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
             `[study-clusters] Cluster=${res.clusters} mit Vorschlag=${res.recommended} ` +
             `Trades=${res.rowsUsed} verworfen=${res.rowsSkipped}`,
           );
+          return res;
+        }
+        case SIGNAL_STUDIES_JOB: {
+          const res = await runSignalStudiesBatch(db, { limit: 300 });
+          if (res.signalsEvaluated > 0) {
+            console.log(
+              `[signal-studies] geprüft=${res.signalsChecked} neu=${res.signalsEvaluated} ` +
+              `Zeilen=${res.rowsUpserted} übersprungen=${res.skippedClosed}`,
+            );
+          }
           return res;
         }
         default:
