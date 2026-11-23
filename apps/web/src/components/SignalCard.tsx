@@ -682,6 +682,17 @@ function AdjustTicket({
         </p>
       )}
 
+      {/* Adaptives Asset-Hedging (Welle 20): transparent anzeigen, wenn der Asset-Hedge live aktiv ist */}
+      {preview.hedging && preview.hedging.state === 'active' && (
+        <p
+          className="mt-2 rounded border px-2 py-1 text-[11px] leading-relaxed"
+          style={{ borderColor: 'rgba(245,158,11,0.45)', color: 'var(--color-warn)', background: 'rgba(245,158,11,0.08)' }}
+        >
+          🛡️ Adaptives Hedging aktiv ({preview.hedging.strategyName}): {preview.hedging.summary}
+          {preview.hedging.scaled ? ' — Vorschlag automatisch auf 50 % reduziert.' : ''}
+        </p>
+      )}
+
       {/* Automatische konservative Deckelung bei engem Stop transparent anzeigen */}
       {preview.suggested.autoCapped && (
         <p

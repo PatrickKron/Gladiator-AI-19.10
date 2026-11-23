@@ -73,6 +73,8 @@ export function HedgingDesignerPanel() {
 
   const [vix, setVix] = useState<number | null>(null);
   const [grsLabel, setGrsLabel] = useState<string | null>(null);
+  const [drawdownPct, setDrawdownPct] = useState<number | null>(null);
+  const [netExposureUsd, setNetExposureUsd] = useState<number>(0);
   const [universe, setUniverse] = useState<string[]>([]);
 
   // Designer-Editor-State
@@ -90,7 +92,8 @@ export function HedgingDesignerPanel() {
       trpc.settings.get.query(),
       trpc.market.scanUniverse.query(),
       trpc.market.macro.query(),
-    ]).then(([sRes, uRes, mRes]) => {
+      trpc.trading.account.query(),
+    ]).then(([sRes, uRes, mRes, aRes]) => {
       if (cancelled) return;
       if (sRes.status === 'fulfilled' && sRes.value.hedging) {
         const h = sRes.value.hedging;
@@ -105,6 +108,10 @@ export function HedgingDesignerPanel() {
       if (mRes.status === 'fulfilled') {
         setVix(mRes.value.grs?.inputs.vix ?? mRes.value.vix?.value ?? null);
         setGrsLabel(mRes.value.grs?.label ?? null);
+      }
+      if (aRes.status === 'fulfilled') {
+        setDrawdownPct(aRes.value.drawdownPct ?? null);
+        setNetExposureUsd(aRes.value.netExposureUsd ?? 0);
       }
       setLoaded(true);
     });
@@ -267,16 +274,16 @@ export function HedgingDesignerPanel() {
       autoReduceExposure: draft.autoReduceExposure,
     };
     return evaluateHedging(previewCfg, {
-      drawdownPct: null,
+      drawdownPct,
       vix,
       grsLabel,
-      netExposureUsd: 10_000,
+      netExposureUsd: netExposureUsd > 0 ? netExposureUsd : 10_000,
     });
-  }, [cfg, draft, vix, grsLabel]);
+  }, [cfg, draft, drawdownPct, vix, grsLabel, netExposureUsd]);
 
   const globalEval = useMemo(
-    () => evaluateHedging(cfg, { drawdownPct: null, vix, grsLabel, netExposureUsd: 0 }),
-    [cfg, vix, grsLabel],
+    () => evaluateHedging(cfg, { drawdownPct, vix, grsLabel, netExposureUsd }),
+    [cfg, drawdownPct, vix, grsLabel, netExposureUsd],
   );
 
   return (
@@ -290,7 +297,7 @@ export function HedgingDesignerPanel() {
               Index-Hedge für Aktien) und ordne jedem Asset genau die Absicherung zu, die dazu passt.
             </p>
             <p className="num mt-1.5 text-[11px]" style={{ color: 'var(--color-mut)' }}>
-              Live-Marktdaten: VIX {vix !== null ? vix.toFixed(1) : '—'} · Makro-Regime: {grsLabel ?? '—'} ·{' '}
+              Live-Marktdaten: VIX {vix !== null ? vix.toFixed(1) : '—'} · Makro-Regime: {grsLabel ?? '—'} · Drawdown: {drawdownPct !== null ? `${drawdownPct.toFixed(1)} %` : '—'} ·{' '}
               <span style={{ color: cfg.enabled ? 'var(--color-pos)' : 'var(--color-mut)' }}>
                 {globalEval.state === 'active' ? 'Trigger aktiv' : globalEval.state === 'standby' ? 'Überwachung Standby' : 'Hedging ausgeschaltet'}
               </span>
@@ -667,10 +674,10 @@ export function HedgingDesignerPanel() {
             const explicit = cfg.assetAssignments[sym];
             const selectVal = explicit ?? '__default__';
             const evalRes = evaluateAssetHedging(cfg, sym, {
-              drawdownPct: null,
+              drawdownPct,
               vix,
               grsLabel,
-              netExposureUsd: 0,
+              netExposureUsd,
             });
             const badgeColor =
               evalRes.mode === 'none' || evalRes.evaluation.state === 'disabled'

@@ -10,7 +10,7 @@ const { newsItems } = schema;
  */
 
 export const NEWS_FEEDS: { source: string; url: string }[] = [
-  { source: 'coindesk', url: 'https://www.coindesk.com/arc/outboundfeeds/rss' },
+  { source: 'cryptoslate', url: 'https://cryptoslate.com/feed/' },
   { source: 'cointelegraph', url: 'https://cointelegraph.com/rss' },
   // Patricks Mängelliste 2026-10-22, Punkt 7: mehr Quellen — alle öffentliche, offizielle RSS-Feeds.
   { source: 'decrypt', url: 'https://decrypt.co/feed' },
