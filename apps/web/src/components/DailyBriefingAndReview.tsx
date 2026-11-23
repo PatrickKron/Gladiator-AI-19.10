@@ -60,7 +60,7 @@ export function DailyBriefingAndReview() {
   const fmtMoney = (n: number) => `${n >= 0 ? '+' : ''}${n.toLocaleString(loc, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
 
   return (
-    <section className="glass reveal mt-6 p-5" style={{ '--stagger': 3 } as React.CSSProperties}>
+    <section className="glass reveal mt-6 min-w-0 max-w-full overflow-hidden p-5" style={{ '--stagger': 3 } as React.CSSProperties}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="label">Tages-Cockpit · Briefing & Abend-Rückblick</p>
@@ -133,9 +133,9 @@ export function DailyBriefingAndReview() {
               </div>
 
               {/* 4 strukturierte Karten */}
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid min-w-0 gap-3 md:grid-cols-2">
                 {/* Karte 1: Marktlage & Makro */}
-                <div className="rounded-lg border p-3.5 text-xs space-y-2" style={{ borderColor: 'var(--color-line)' }}>
+                <div className="min-w-0 overflow-hidden rounded-lg border p-3.5 text-xs space-y-2" style={{ borderColor: 'var(--color-line)' }}>
                   <p className="label">🧭 1 · Makro-Regime</p>
                   {briefing.regime ? (
                     <>
@@ -157,7 +157,7 @@ export function DailyBriefingAndReview() {
                 </div>
 
                 {/* Karte 2: Konto & Risiko */}
-                <div className="rounded-lg border p-3.5 text-xs space-y-2" style={{ borderColor: 'var(--color-line)' }}>
+                <div className="min-w-0 overflow-hidden rounded-lg border p-3.5 text-xs space-y-2" style={{ borderColor: 'var(--color-line)' }}>
                   <p className="label">🛡️ 2 · Konto & Schutz</p>
                   <div className="flex items-baseline justify-between">
                     <span className="num text-base font-semibold">
@@ -174,7 +174,7 @@ export function DailyBriefingAndReview() {
                 </div>
 
                 {/* Karte 3: Chancen & Offene Signale */}
-                <div className="rounded-lg border p-3.5 text-xs space-y-2" style={{ borderColor: 'var(--color-line)' }}>
+                <div className="min-w-0 overflow-hidden rounded-lg border p-3.5 text-xs space-y-2" style={{ borderColor: 'var(--color-line)' }}>
                   <div className="flex items-center justify-between">
                     <p className="label">📡 3 · Aktive Chancen ({briefing.openSignals.length})</p>
                     <a href="#/signals" className="text-[11px] hover:underline" style={{ color: 'var(--color-cyan)' }}>
@@ -205,7 +205,7 @@ export function DailyBriefingAndReview() {
                 </div>
 
                 {/* Karte 4: Termine & News */}
-                <div className="rounded-lg border p-3.5 text-xs space-y-2" style={{ borderColor: 'var(--color-line)' }}>
+                <div className="min-w-0 overflow-hidden rounded-lg border p-3.5 text-xs space-y-2" style={{ borderColor: 'var(--color-line)' }}>
                   <div className="flex items-center justify-between">
                     <p className="label">📅 4 · Termine (No-Trade) & News</p>
                     <a href="#/kalender" className="text-[11px] hover:underline" style={{ color: 'var(--color-cyan)' }}>
