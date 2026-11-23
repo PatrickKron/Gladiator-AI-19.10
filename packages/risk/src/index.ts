@@ -63,3 +63,17 @@ export {
   type HedgingStrategy,
   type ResolvedAssetHedging,
 } from './hedging.js';
+export {
+  FUNDED_PHASES,
+  FUNDED_PROVIDERS,
+  FUNDED_PROVIDER_PRESETS,
+  FUNDED_STATUSES,
+  evaluateFundedAccount,
+  fundedAccountCreateSchema,
+  type FundedAccountEvalInput,
+  type FundedAccountEvaluation,
+  type FundedPhase,
+  type FundedProvider,
+  type FundedProviderPreset,
+  type FundedStatus,
+} from './funded-accounts.js';

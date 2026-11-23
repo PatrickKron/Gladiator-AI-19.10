@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { trpc } from '../api.js';
 import { fmt } from '../components/EquityChart.js';
 import { WealthCurve } from '../components/WealthCurve.js';
+import { FundedAccountsPanel } from '../components/FundedAccountsPanel.js';
 import { allocation, rangeChange, rangeFilter, rangeStats, WEALTH_RANGES, wealthCurve, type WealthRange } from '../lib/wealth.js';
 import { appLocale } from '../lib/locale.js';
 import { clearVisibleInterval, setVisibleInterval } from '../lib/visible-interval.js';
@@ -266,6 +267,8 @@ export function Vermoegen() {
         </div>
         <p className="label mt-3">{t('wealth.subtitle')}</p>
       </section>
+
+      <FundedAccountsPanel className="mt-6" />
     </div>
   );
 }

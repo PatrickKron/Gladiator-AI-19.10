@@ -323,6 +323,13 @@
       "when": 1795280000000,
       "tag": "0045_hedging_config",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1795450000000,
+      "tag": "0046_funded_accounts",
+      "breakpoints": true
     }
   ]
 }

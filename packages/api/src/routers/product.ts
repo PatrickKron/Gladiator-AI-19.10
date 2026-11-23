@@ -4,7 +4,7 @@ import { schema } from '@gladiator/db';
 import { CANDLE_VENUES, isCandleVenue, normalizeTradingPair, type CandleVenue } from '@gladiator/jobs';
 import { protectedProcedure, router } from '../trpc.js';
 import { newsTicker } from '../market/asset-news.js';
-import { registerOrThrow } from '../market/register.js';
+import { autoRegisterOrThrow, registerOrThrow } from '../market/register.js';
 import { assetSource } from '../market/asset-source.js';
 
 const { packages, assets, magazineArticles, assetFavorites } = schema;
@@ -259,6 +259,31 @@ export const productRouter = router({
         via: 'add-asset',
       });
       return { ...r.asset, favorite: r.favorite, created: r.created, inserted: r.inserted, candles: r.candles, errors: r.errors };
+    }),
+
+  /**
+   * Beliebiges Asset außerhalb der Pakete automatisch finden & alle historischen Kerzen holen (Welle 22):
+   * Prüft selbstständig Binance, Yahoo (inkl. <TICKER>-USD) und Twelve Data, lädt die Kerzen,
+   * legt das Asset in „Eigene Märkte“ an und setzt den Favoriten-Stern für fortlaufende Updates.
+   */
+  autoAddAsset: protectedProcedure
+    .input(z.object({ query: z.string().trim().min(1).max(40) }))
+    .mutation(async ({ ctx, input }) => {
+      const r = await autoRegisterOrThrow(ctx.db, {
+        query: input.query,
+        userId: ctx.user.id,
+        favorite: true,
+        ip: ctx.ip,
+      });
+      return {
+        ...r.asset,
+        favorite: r.favorite,
+        created: r.created,
+        inserted: r.inserted,
+        candles: r.candles,
+        errors: r.errors,
+        triedSources: r.triedSources,
+      };
     }),
 
   articles: protectedProcedure
