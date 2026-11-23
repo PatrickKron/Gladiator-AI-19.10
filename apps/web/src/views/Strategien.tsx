@@ -6,7 +6,7 @@ import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js
 import { Workshop } from './Workshop.js';
 import { StrategyCatalog } from '../components/StrategyCatalog.js';
 import { TextStrategyBuilder } from '../components/TextStrategyBuilder.js';
-import { appLocale } from '../lib/locale.js';
+import { HedgingDesignerPanel } from '../components/HedgingDesignerPanel.js';
 
 /**
  * Strategie-Builder (09_ §3.14 + §3.5): Registry mit Versionen + Promotion
@@ -129,6 +129,8 @@ function StrategyRow({ s, onChanged }: { s: Strategy; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isAllAssets = Boolean(s.signalSymbols?.includes('*'));
+
   async function toggle() {
     const next = !open;
     setOpen(next);
@@ -155,10 +157,28 @@ function StrategyRow({ s, onChanged }: { s: Strategy; onChanged: () => void }) {
     }
   }
 
+  async function toggleSignals(enabled: boolean, signalSymbols?: string[]) {
+    setBusy(true);
+    setError(null);
+    try {
+      await trpc.strategies.setSignalScan.mutate({
+        strategyId: s.id,
+        enabled,
+        ...(signalSymbols !== undefined ? { signalSymbols } : {}),
+      });
+      if (open) setVersions(await trpc.strategies.versions.query({ strategyId: s.id }));
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <li className="rounded-[0.625rem] border p-4" style={{ borderColor: 'var(--color-line)' }}>
-      <button onClick={() => void toggle()} className="flex w-full flex-wrap items-center justify-between gap-3 text-left">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button onClick={() => void toggle()} className="flex min-w-0 flex-1 flex-wrap items-center gap-2.5 text-left">
           <span
             className="label rounded border px-1.5 py-0.5"
             style={{ borderColor: KIND_COLOR[s.kind] ?? 'var(--color-line)', color: KIND_COLOR[s.kind] ?? 'var(--color-mut)' }}
@@ -167,11 +187,48 @@ function StrategyRow({ s, onChanged }: { s: Strategy; onChanged: () => void }) {
           </span>
           <span className="text-sm font-medium">{s.name}</span>
           <span className="label">{s.slug}</span>
+          {s.symbol && s.timeframe && (
+            <span className="num text-[11px]" style={{ color: 'var(--color-mut)' }}>
+              {isAllAssets ? 'Alle Assets (*)' : s.symbol} · {s.timeframe}
+            </span>
+          )}
+        </button>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {s.kind === 'dsl' && s.latestVersionId && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void toggleSignals(true, isAllAssets ? [] : ['*'])}
+              className="rounded border px-2 py-1 text-[11px] disabled:opacity-50"
+              style={{
+                borderColor: isAllAssets ? 'rgba(6,182,212,0.55)' : 'var(--color-line)',
+                color: isAllAssets ? 'var(--color-cyan)' : 'var(--color-mut)',
+              }}
+              title="Umschalten zwischen Standard-Symbol und allen Watchlist-Assets"
+            >
+              {isAllAssets ? '🌐 Alle Assets' : `🎯 Nur ${s.symbol ?? 'Symbol'}`}
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={busy || (s.kind === 'dsl' && !s.latestVersionId)}
+            onClick={() => void toggleSignals(!s.signalScanActive)}
+            className="rounded border px-2.5 py-1 text-xs font-medium disabled:opacity-40"
+            style={
+              s.signalScanActive
+                ? { borderColor: 'rgba(34,197,94,0.55)', color: 'var(--color-pos)', background: 'rgba(34,197,94,0.10)' }
+                : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
+            }
+            title="Für automatische Paper-Signale (Mensch-im-Loop) aktivieren/pausieren"
+          >
+            {s.signalScanActive ? '📡 Signale AN' : '📡 Für Signale aktivieren'}
+          </button>
+          <button type="button" onClick={() => void toggle()} className="label px-1">
+            {open ? '−' : '+'}
+          </button>
         </div>
-        <span className="label">
-          {t('builder.createdAt')}: {new Date(s.createdAt).toLocaleDateString(appLocale())} · {open ? '−' : '+'}
-        </span>
-      </button>
+      </div>
       {open && (
         <div className="mt-3 border-t pt-3" style={{ borderColor: 'rgba(148,163,184,0.12)' }}>
           {s.description && (
@@ -565,8 +622,8 @@ function PineAnalyzePanel() {
   );
 }
 
-/** Tabs im Hash — Deep-Link z. B. `#/strategien?tab=text` oder `#/strategien?tab=pine` (Legacy `builtin` wird auf `registry` abgebildet). */
-const STRATEGY_TABS = ['katalog', 'text', 'workshop', 'pine', 'registry', 'builtin'] as const;
+/** Tabs im Hash — Deep-Link z. B. `#/strategien?tab=hedging` oder `#/strategien?tab=text` (Legacy `builtin` wird auf `registry` abgebildet). */
+const STRATEGY_TABS = ['katalog', 'text', 'workshop', 'hedging', 'pine', 'registry', 'builtin'] as const;
 type StrategyTab = (typeof STRATEGY_TABS)[number];
 
 export function Strategien() {
@@ -594,6 +651,7 @@ export function Strategien() {
     { id: 'katalog' as const, label: t('builder.tabCatalog') },
     { id: 'text' as const, label: '✍️ Per Text + Demo-Test' },
     { id: 'workshop' as const, label: t('builder.tabWorkshop') },
+    { id: 'hedging' as const, label: '🛡️ Hedging-Designer' },
     { id: 'pine' as const, label: t('builder.tabPine') },
     {
       id: 'registry' as const,
@@ -643,6 +701,7 @@ export function Strategien() {
       {tab === 'katalog' && <StrategyCatalog />}
       {tab === 'text' && <TextStrategyBuilder onSaved={() => void load()} />}
       {tab === 'workshop' && <Workshop embedded />}
+      {tab === 'hedging' && <HedgingDesignerPanel />}
       {tab === 'pine' && (
         <>
           <PineTab onRegistered={() => void load()} />

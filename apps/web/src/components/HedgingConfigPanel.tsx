@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   DEFAULT_HEDGING_CONFIG,
+  evaluateAssetHedging,
   evaluateHedging,
   type HedgingConfig,
   type HedgingInstrument,
@@ -9,11 +10,10 @@ import { trpc } from '../api.js';
 import { Panel } from './ui.js';
 
 /**
- * Konfigurierbares Portfolio-Hedging (Welle 17):
- * Ermöglicht das direkte Aktivieren und Konfigurieren der Absicherungs-Regeln
- * (Drawdown-Schwelle, VIX-Schwelle, Risk-Off-Regime, maximale Hedge-Quote,
- * bevorzugtes Instrument & Symbol, Auto-Exposure-Reduktion) und zeigt den
- * aktuellen Live-Status gegen echte Marktdaten (VIX, GRS, offene Exposure).
+ * Konfigurierbares Portfolio- & Asset-Hedging (Welle 17 + Welle 19):
+ * Zeigt den Live-Status gegen echte Marktdaten (VIX, GRS, Drawdown, Exposure),
+ * erlaubt bei übergebenem `symbol` die direkte Auswahl der Hedging-Strategie
+ * genau für dieses Asset und verlinkt direkt in den Hedging-Designer.
  */
 
 const INSTRUMENT_OPTIONS: Array<{ value: HedgingInstrument; label: string; desc: string }> = [
@@ -24,12 +24,14 @@ const INSTRUMENT_OPTIONS: Array<{ value: HedgingInstrument; label: string; desc:
 ];
 
 export function HedgingConfigPanel({
+  symbol,
   vix = null,
   grsLabel = null,
   drawdownPct = null,
   netExposureUsd = 0,
   className = 'mt-5',
 }: {
+  symbol?: string;
   vix?: number | null;
   grsLabel?: string | null;
   drawdownPct?: number | null;
@@ -60,15 +62,25 @@ export function HedgingConfigPanel({
     };
   }, []);
 
+  const assetEval = useMemo(
+    () =>
+      symbol
+        ? evaluateAssetHedging(cfg, symbol, { drawdownPct, vix, grsLabel, netExposureUsd })
+        : null,
+    [cfg, symbol, drawdownPct, vix, grsLabel, netExposureUsd],
+  );
+
   const evaluation = useMemo(
     () =>
-      evaluateHedging(cfg, {
-        drawdownPct,
-        vix,
-        grsLabel,
-        netExposureUsd,
-      }),
-    [cfg, drawdownPct, vix, grsLabel, netExposureUsd],
+      assetEval
+        ? assetEval.evaluation
+        : evaluateHedging(cfg, {
+            drawdownPct,
+            vix,
+            grsLabel,
+            netExposureUsd,
+          }),
+    [assetEval, cfg, drawdownPct, vix, grsLabel, netExposureUsd],
   );
 
   async function save(next: HedgingConfig) {
@@ -87,6 +99,10 @@ export function HedgingConfigPanel({
     }
   }
 
+  const normSymbol = symbol ? symbol.trim().toUpperCase() : null;
+  const assignedForSymbol = normSymbol ? cfg.assetAssignments[normSymbol] ?? '__default__' : '__default__';
+  const assignedPairs = Object.entries(cfg.assetAssignments);
+
   const stateTone =
     evaluation.state === 'active'
       ? 'var(--color-warn)'
@@ -95,30 +111,95 @@ export function HedgingConfigPanel({
         : 'var(--color-mut)';
 
   return (
-    <Panel label="🛡️ Portfolio-Hedging & Absicherungs-Regeln" stagger={4} className={className}>
+    <Panel label={normSymbol ? `🛡️ Hedging für ${normSymbol}` : '🛡️ Portfolio-Hedging & Absicherungs-Regeln'} stagger={4} className={className}>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs leading-relaxed max-w-2xl" style={{ color: 'var(--color-mut)' }}>
-          Steuere exakt, wann Gladiator eine Absicherung (Hedge) auslöst oder empfiehlt — anhand deines echten Drawdowns,
-          des VIX und des Makro-Regimes (Risk-Off). Keine automatische Live-Auszahlung; Empfehlungen & Sizing-Reduktion
-          greifen transparent im Risk-Cockpit.
+          Steuere exakt, wann Gladiator eine Absicherung (Hedge) auslöst oder empfiehlt — global oder individuell pro Asset
+          anhand von Drawdown, VIX und Makro-Regime.
         </p>
-        <label className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium" style={{ borderColor: cfg.enabled ? 'rgba(34,197,94,0.5)' : 'var(--color-line)' }}>
-          <input
-            type="checkbox"
-            checked={cfg.enabled}
+        <div className="flex flex-wrap items-center gap-2">
+          <a
+            href="#/strategien?tab=hedging"
+            className="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors hover:border-[var(--color-cyan)]"
+            style={{ borderColor: 'rgba(6,182,212,0.45)', color: 'var(--color-cyan)' }}
+          >
+            🎨 Hedging-Designer & Asset-Zuordnung →
+          </a>
+          <label className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium" style={{ borderColor: cfg.enabled ? 'rgba(34,197,94,0.5)' : 'var(--color-line)' }}>
+            <input
+              type="checkbox"
+              checked={cfg.enabled}
+              disabled={!loaded || saving}
+              onChange={(e) => {
+                const next = { ...cfg, enabled: e.target.checked };
+                setCfg(next);
+                void save(next);
+              }}
+              className="h-4 w-4 accent-[var(--color-pos)]"
+            />
+            <span style={{ color: cfg.enabled ? 'var(--color-pos)' : 'var(--color-mut)' }}>
+              {cfg.enabled ? 'Hedging AKTIV' : 'Hedging AUS'}
+            </span>
+          </label>
+        </div>
+      </div>
+
+      {/* Direkte Asset-Strategie-Auswahl im Chart/Risiko-Tab */}
+      {normSymbol && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-[0.625rem] border p-3 text-xs" style={{ borderColor: 'rgba(6,182,212,0.3)', background: 'rgba(6,182,212,0.06)' }}>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold" style={{ color: 'var(--color-ink)' }}>
+              Zugeordnete Hedging-Strategie für {normSymbol}: <span style={{ color: 'var(--color-cyan)' }}>{assetEval?.strategyName}</span>
+            </p>
+            <p className="mt-0.5 text-[11px]" style={{ color: 'var(--color-mut)' }}>
+              {assetEval?.mode === 'none'
+                ? 'Für dieses Asset ist Hedging bewusst ausgeschaltet.'
+                : `Absicherung über ${assetEval?.hedgeSymbol} (max. ${assetEval?.effectiveConfig.maxHedgeRatioPct} %).`}
+            </p>
+          </div>
+          <select
+            aria-label={`Hedging-Strategie für ${normSymbol}`}
+            value={assignedForSymbol}
             disabled={!loaded || saving}
             onChange={(e) => {
-              const next = { ...cfg, enabled: e.target.checked };
+              const nextAssignments = { ...cfg.assetAssignments };
+              if (e.target.value === '__default__') delete nextAssignments[normSymbol];
+              else nextAssignments[normSymbol] = e.target.value;
+              const next = { ...cfg, assetAssignments: nextAssignments };
               setCfg(next);
               void save(next);
             }}
-            className="h-4 w-4 accent-[var(--color-pos)]"
-          />
-          <span style={{ color: cfg.enabled ? 'var(--color-pos)' : 'var(--color-mut)' }}>
-            {cfg.enabled ? 'Hedging AKTIV' : 'Hedging AUS'}
-          </span>
-        </label>
-      </div>
+            className="field min-w-[200px] px-2.5 py-1.5 text-xs"
+          >
+            <option value="__default__">Standard-Regel (Fallback)</option>
+            <option value="none">Kein Hedge (für {normSymbol} aus)</option>
+            {cfg.strategies.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.maxHedgeRatioPct} %)
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Kompakte Übersicht bestehender Asset-Zuordnungen (global) */}
+      {!normSymbol && assignedPairs.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span className="label mr-1">Asset-Regeln:</span>
+          {assignedPairs.map(([sym, stratId]) => {
+            const label = stratId === 'none' ? 'Aus' : cfg.strategies.find((s) => s.id === stratId)?.name ?? stratId;
+            return (
+              <span
+                key={sym}
+                className="rounded border px-2 py-0.5"
+                style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink)' }}
+              >
+                <span className="num font-semibold">{sym}</span> → {label}
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       {/* Live-Bewertung gegen echte Marktdaten */}
       <div

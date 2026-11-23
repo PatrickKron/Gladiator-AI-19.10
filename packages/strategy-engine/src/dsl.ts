@@ -156,6 +156,13 @@ export const instructionDslSchema = z
       .max(64)
       .regex(/^[a-z0-9][a-z0-9-]*$/, 'id: nur Kleinbuchstaben, Ziffern, Bindestriche'),
     symbol: z.string().min(1).max(32),
+    /**
+     * Optionale Ziel-Assets für den Live-Signal-Scan (Welle 19):
+     * - fehlt/leer → scannt nur `symbol`
+     * - ['*'] → scannt ALLE registrierten Watchlist-Assets
+     * - ['BTC/USDT', 'ETH/USDT', ...] → scannt gezielt diese Symbole
+     */
+    signalSymbols: z.array(z.string().min(1).max(32)).max(50).optional(),
     timeframe: z.enum(DSL_TIMEFRAMES).default('1h'),
     venueType: z.enum(['cex', 'dex']).default('cex'),
     direction: z.enum(['long', 'short']),

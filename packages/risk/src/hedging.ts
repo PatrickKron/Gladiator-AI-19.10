@@ -17,6 +17,98 @@ export const HEDGING_INSTRUMENTS = [
 
 export type HedgingInstrument = (typeof HEDGING_INSTRUMENTS)[number];
 
+/**
+ * Einzelne designte Hedging-Strategie (Welle 19):
+ * Kann pro Asset zugewiesen werden (z. B. Krypto-Crash-Schutz für BTC,
+ * Beta-Hedge über BTC für Altcoins, Index-Hedge für Aktien/ETFs).
+ */
+export const hedgingStrategySchema = z.object({
+  id: z
+    .string()
+    .min(2)
+    .max(64)
+    .regex(/^[a-z0-9][a-z0-9-_]*$/, 'Strategie-ID: nur Kleinbuchstaben, Ziffern, Bindestrich/Unterstrich'),
+  name: z.string().min(2).max(80),
+  description: z.string().max(300).default(''),
+  enabled: z.boolean().default(true),
+  triggerDrawdownPct: z.number().min(0.5).max(50).default(5),
+  triggerVix: z.number().min(12).max(80).default(25),
+  triggerOnRiskOff: z.boolean().default(true),
+  maxHedgeRatioPct: z.number().min(5).max(100).default(50),
+  instrument: z.enum(HEDGING_INSTRUMENTS).default('inverse_perp'),
+  /** 'SAME' = direktes 1:1 Gegen-Asset; sonst Cross-Hedge (z. B. BTC/USDT, SPY, QQQ). */
+  hedgeSymbol: z.string().min(1).max(32).default('SAME'),
+  autoReduceExposure: z.boolean().default(true),
+  /** Optionaler Stop-Loss (%) fürs Hedge-Bein zur Verlustbegrenzung bei Fehlausbruch. */
+  hedgeStopLossPct: z.number().min(1).max(50).default(8),
+  builtin: z.boolean().default(false),
+});
+
+export type HedgingStrategy = z.infer<typeof hedgingStrategySchema>;
+
+export const DEFAULT_HEDGING_STRATEGIES: HedgingStrategy[] = [
+  {
+    id: 'crypto-crash-shield',
+    name: 'Krypto-Crash-Schutz (1:1 Inverse)',
+    description: 'Sichert volatile Krypto-Positionen direkt über einen 1:1 Gegen-Short auf dasselbe Asset ab.',
+    enabled: true,
+    triggerDrawdownPct: 5,
+    triggerVix: 25,
+    triggerOnRiskOff: true,
+    maxHedgeRatioPct: 60,
+    instrument: 'inverse_perp',
+    hedgeSymbol: 'SAME',
+    autoReduceExposure: true,
+    hedgeStopLossPct: 7,
+    builtin: true,
+  },
+  {
+    id: 'altcoin-btc-beta',
+    name: 'Altcoin Beta-Hedge über BTC',
+    description: 'Sichert Altcoins (ETH, SOL, UNI, QNT …) über einen liquiden BTC/USDT-Short ab.',
+    enabled: true,
+    triggerDrawdownPct: 4,
+    triggerVix: 24,
+    triggerOnRiskOff: true,
+    maxHedgeRatioPct: 45,
+    instrument: 'inverse_perp',
+    hedgeSymbol: 'BTC/USDT',
+    autoReduceExposure: true,
+    hedgeStopLossPct: 8,
+    builtin: true,
+  },
+  {
+    id: 'equity-index-shield',
+    name: 'Aktien- & ETF-Index-Hedge (SPY)',
+    description: 'Sichert Einzelaktien und Indizes in Risk-Off-Phasen breit über SPY ab.',
+    enabled: true,
+    triggerDrawdownPct: 6,
+    triggerVix: 22,
+    triggerOnRiskOff: true,
+    maxHedgeRatioPct: 40,
+    instrument: 'index_hedge',
+    hedgeSymbol: 'SPY',
+    autoReduceExposure: true,
+    hedgeStopLossPct: 6,
+    builtin: true,
+  },
+  {
+    id: 'stablecoin-buffer',
+    name: 'Konservativer Stablecoin-Puffer',
+    description: 'Schichtet bei Drawdown oder Stress schrittweise bis zu 35 % in Stablecoins (USDT) um.',
+    enabled: true,
+    triggerDrawdownPct: 3,
+    triggerVix: 28,
+    triggerOnRiskOff: true,
+    maxHedgeRatioPct: 35,
+    instrument: 'stablecoin_shift',
+    hedgeSymbol: 'USDT',
+    autoReduceExposure: true,
+    hedgeStopLossPct: 5,
+    builtin: true,
+  },
+];
+
 export const hedgingConfigSchema = z.object({
   enabled: z.boolean().default(false),
   /** Ab diesem Portfolio-Drawdown (%) wird Absicherung empfohlen/aktiviert. */
@@ -33,6 +125,15 @@ export const hedgingConfigSchema = z.object({
   autoReduceExposure: z.boolean().default(true),
   /** Bevorzugtes Hedge-Symbol (z. B. BTC/USDT, SPY, QQQ). */
   hedgeSymbol: z.string().min(1).max(32).default('BTC/USDT'),
+  /** Bibliothek der Vorlagen & selbst designten Hedging-Strategien (Welle 19). */
+  strategies: z
+    .array(hedgingStrategySchema)
+    .max(30)
+    .default(() => DEFAULT_HEDGING_STRATEGIES.map((s) => ({ ...s }))),
+  /** Zuordnung Asset-Symbol (z. B. 'BTC/USDT', 'RHM.DE') → Strategy-ID oder 'none'. */
+  assetAssignments: z.record(z.string().min(1).max(32), z.string().min(1).max(64)).default(() => ({})),
+  /** Optionale Standard-Strategie für alle nicht explizit zugeordneten Assets. */
+  defaultStrategyId: z.string().max(64).nullable().default(null),
 });
 
 export type HedgingConfig = z.infer<typeof hedgingConfigSchema>;
@@ -41,7 +142,105 @@ export const DEFAULT_HEDGING_CONFIG: HedgingConfig = hedgingConfigSchema.parse({
 
 export function parseHedgingConfig(raw: unknown): HedgingConfig {
   const res = hedgingConfigSchema.safeParse(raw ?? {});
-  return res.success ? res.data : { ...DEFAULT_HEDGING_CONFIG };
+  return res.success ? res.data : hedgingConfigSchema.parse({});
+}
+
+export type ResolvedAssetHedging = {
+  symbol: string;
+  mode: 'assigned' | 'default_strategy' | 'global_fallback' | 'none';
+  strategyId: string | null;
+  strategyName: string;
+  instrument: HedgingInstrument;
+  hedgeSymbol: string;
+  effectiveConfig: HedgingConfig;
+};
+
+/**
+ * Ermittelt für ein konkretes Asset die gültige Hedging-Strategie:
+ * 1. Explizite Asset-Zuordnung (`assetAssignments[SYMBOL]`) — 'none' schaltet Hedge für dieses Asset ab.
+ * 2. Globale Standard-Strategie (`defaultStrategyId`), falls gesetzt.
+ * 3. Rückfall auf die globalen Basis-Parameter von `config`.
+ */
+export function resolveHedgingForAsset(config: HedgingConfig, symbol: string): ResolvedAssetHedging {
+  const norm = symbol.trim().toUpperCase();
+  const strategiesList = config.strategies ?? [];
+
+  let assignedId: string | undefined;
+  for (const [k, v] of Object.entries(config.assetAssignments ?? {})) {
+    if (k.trim().toUpperCase() === norm) {
+      assignedId = v;
+      break;
+    }
+  }
+
+  if (assignedId === 'none') {
+    return {
+      symbol: norm,
+      mode: 'none',
+      strategyId: null,
+      strategyName: 'Kein Hedge (deaktiviert)',
+      instrument: config.instrument,
+      hedgeSymbol: norm,
+      effectiveConfig: { ...config, enabled: false },
+    };
+  }
+
+  const pickStrategy = (id: string | null | undefined) =>
+    id ? strategiesList.find((s) => s.id === id) ?? null : null;
+
+  const assignedStrategy = pickStrategy(assignedId);
+  const defaultStrategy = !assignedStrategy ? pickStrategy(config.defaultStrategyId) : null;
+  const chosen = assignedStrategy ?? defaultStrategy;
+
+  if (chosen) {
+    const resolvedHedgeSymbol = chosen.hedgeSymbol.trim().toUpperCase() === 'SAME' ? norm : chosen.hedgeSymbol.trim().toUpperCase();
+    return {
+      symbol: norm,
+      mode: assignedStrategy ? 'assigned' : 'default_strategy',
+      strategyId: chosen.id,
+      strategyName: chosen.name,
+      instrument: chosen.instrument,
+      hedgeSymbol: resolvedHedgeSymbol,
+      effectiveConfig: {
+        ...config,
+        enabled: config.enabled && chosen.enabled,
+        triggerDrawdownPct: chosen.triggerDrawdownPct,
+        triggerVix: chosen.triggerVix,
+        triggerOnRiskOff: chosen.triggerOnRiskOff,
+        maxHedgeRatioPct: chosen.maxHedgeRatioPct,
+        instrument: chosen.instrument,
+        hedgeSymbol: resolvedHedgeSymbol,
+        autoReduceExposure: chosen.autoReduceExposure,
+      },
+    };
+  }
+
+  return {
+    symbol: norm,
+    mode: 'global_fallback',
+    strategyId: null,
+    strategyName: 'Globale Basis-Regel',
+    instrument: config.instrument,
+    hedgeSymbol: config.hedgeSymbol.trim().toUpperCase() === 'SAME' ? norm : config.hedgeSymbol,
+    effectiveConfig: config,
+  };
+}
+
+export type AssetHedgingEvaluation = ResolvedAssetHedging & {
+  evaluation: HedgingEvaluation;
+};
+
+/** Bewertet die für ein konkretes Asset zugeordnete Hedging-Strategie gegen echte Marktdaten. */
+export function evaluateAssetHedging(
+  config: HedgingConfig,
+  symbol: string,
+  ctx: HedgingContext,
+): AssetHedgingEvaluation {
+  const resolved = resolveHedgingForAsset(config, symbol);
+  return {
+    ...resolved,
+    evaluation: evaluateHedging(resolved.effectiveConfig, ctx),
+  };
 }
 
 export type HedgingContext = {

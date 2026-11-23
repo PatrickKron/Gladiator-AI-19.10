@@ -16,7 +16,7 @@ import {
 } from '@gladiator/exchange';
 import { evaluateRisk, exposureFit, safeCappedNotional } from '@gladiator/risk';
 import { leverageUpgradeSchema, reentrySchema } from '@gladiator/core';
-import { formatEmergencyAlert, notifySafe, telegramHtmlToText } from '@gladiator/jobs';
+import { formatEmergencyAlert, notifySafe, reviewNewSignals, runDslScan, runSignalScan, telegramHtmlToText } from '@gladiator/jobs';
 import { getEurUsdRate } from '@gladiator/market-data';
 import { evaluateExpiredSignals, getOptimalParams, MIN_TRADES_PER_CLUSTER, type OptimalParams } from '@gladiator/backtest';
 import { buildClusterKey } from '@gladiator/strategy-engine';
@@ -60,6 +60,32 @@ export const signalsRouter = router({
       .from(signals)
       .where(eq(signals.status, 'new'));
     return { count: Number(row?.count ?? 0) };
+  }),
+
+  /**
+   * Sofortiger Signal-Scan (Welle 19): prüft alle aktivierten Strategien (SMC Core +
+   * alle für Signale aktivierten DSL-/Katalog-Strategien) gegen echte Live-Kerzen und
+   * lässt neue Signale direkt vom Schwarm & Risk-Gate bewerten.
+   */
+  scanNow: protectedProcedure.mutation(async ({ ctx }) => {
+    const smc = await runSignalScan(ctx.db);
+    const dsl = await runDslScan(ctx.db);
+    const totalInserted = smc.inserted + dsl.inserted;
+    let reviewed = 0;
+    if (ctx.venue && totalInserted > 0) {
+      const rev = await reviewNewSignals(ctx.db, ctx.venue);
+      reviewed = rev.reviewed;
+    }
+    return {
+      smcInserted: smc.inserted,
+      dslInserted: dsl.inserted,
+      totalInserted,
+      expired: smc.expired,
+      reviewed,
+      scannedSmc: smc.scanned.length,
+      scannedDsl: dsl.scanned.length,
+      errors: dsl.errors.slice(0, 5),
+    };
   }),
 
   /**

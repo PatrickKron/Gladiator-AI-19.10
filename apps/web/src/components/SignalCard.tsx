@@ -922,8 +922,8 @@ export function SignalCard({
             />
           ) : (
             <div className="mt-4 grid grid-cols-[1fr_auto] items-center gap-2">
-              <button onClick={() => void decide('confirm')} disabled={busy !== null} className="btn-primary px-3 py-2.5 text-sm disabled:opacity-50">
-                {busy === 'confirm' ? t('signals.confirming') : t('signals.openTicket')}
+              <button onClick={() => void decide('confirm')} disabled={busy !== null} className="btn-primary px-3 py-2.5 text-sm font-semibold disabled:opacity-50">
+                {busy === 'confirm' ? t('signals.confirming') : `▶ Ausführen (${t('signals.openTicket')})`}
               </button>
               <button onClick={() => void decide('reject')} disabled={busy !== null} className="btn disabled:opacity-50">
                 {busy === 'reject' ? t('signals.rejecting') : t('signals.rejectBtn')}

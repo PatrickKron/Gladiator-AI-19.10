@@ -45,12 +45,19 @@ export {
 } from './swap-gate.js';
 export {
   DEFAULT_HEDGING_CONFIG,
+  DEFAULT_HEDGING_STRATEGIES,
   HEDGING_INSTRUMENTS,
+  evaluateAssetHedging,
   evaluateHedging,
   hedgingConfigSchema,
+  hedgingStrategySchema,
   parseHedgingConfig,
+  resolveHedgingForAsset,
+  type AssetHedgingEvaluation,
   type HedgingConfig,
   type HedgingContext,
   type HedgingEvaluation,
   type HedgingInstrument,
+  type HedgingStrategy,
+  type ResolvedAssetHedging,
 } from './hedging.js';

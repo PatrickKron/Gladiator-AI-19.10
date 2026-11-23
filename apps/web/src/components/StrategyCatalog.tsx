@@ -91,6 +91,29 @@ function CatalogCard({
     }
   }
 
+  async function enableForSignals(allAssets = false) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await trpc.catalog.enableForSignals.mutate({
+        slug: entry.slug,
+        ...(isCustomTarget ? { symbol: effectiveSymbol, timeframe: effectiveTimeframe } : {}),
+        allAssets,
+      });
+      setMessage({
+        ok: true,
+        text: res.validated
+          ? `✓ Für Signale aktiv (${allAssets ? 'alle Watchlist-Assets' : res.symbol} · ${res.timeframe}) — Backtest-Gate bestanden.`
+          : `✓ Für Paper-Signale aktiv (${allAssets ? 'alle Watchlist-Assets' : res.symbol} · ${res.timeframe}, Mensch-im-Loop). Hinweis: ${res.gateReasons[0] ?? 'unvalidiert'}`,
+      });
+      onChanged();
+    } catch (err) {
+      setMessage({ ok: false, text: err instanceof Error ? err.message : t('common.error') });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function deactivate(slugOverride?: string) {
     setBusy(true);
     setMessage(null);
@@ -289,17 +312,39 @@ function CatalogCard({
               {busy ? '…' : t('catalog.deactivate')}
             </button>
           ) : (
-            <button
-              className="btn-primary px-3 py-1.5 text-xs disabled:opacity-50"
-              disabled={busy || workshopBusy}
-              onClick={() => void activate()}
-            >
-              {busy
-                ? t('catalog.activating')
-                : isCustomTarget
-                  ? `${t('catalog.activateOn')} ${effectiveSymbol}`
-                  : t('catalog.activate')}
-            </button>
+            <>
+              <button
+                className="btn-primary px-3 py-1.5 text-xs disabled:opacity-50"
+                disabled={busy || workshopBusy}
+                onClick={() => void activate()}
+              >
+                {busy
+                  ? t('catalog.activating')
+                  : isCustomTarget
+                    ? `${t('catalog.activateOn')} ${effectiveSymbol}`
+                    : t('catalog.activate')}
+              </button>
+              <button
+                type="button"
+                className="rounded-[0.625rem] border px-2.5 py-1.5 text-xs font-medium disabled:opacity-50"
+                style={{ borderColor: 'rgba(34,197,94,0.45)', color: 'var(--color-pos)' }}
+                disabled={busy || workshopBusy}
+                onClick={() => void enableForSignals(false)}
+                title="Strategie direkt für Paper-Signale aktivieren (Mensch bestätigt weiterhin jede Ausführung)"
+              >
+                📡 Für Signale
+              </button>
+              <button
+                type="button"
+                className="rounded-[0.625rem] border px-2.5 py-1.5 text-xs disabled:opacity-50"
+                style={{ borderColor: 'rgba(6,182,212,0.45)', color: 'var(--color-cyan)' }}
+                disabled={busy || workshopBusy}
+                onClick={() => void enableForSignals(true)}
+                title="Diese Strategie für Paper-Signale auf ALLEN Watchlist-Assets anwenden"
+              >
+                🌐 Alle Assets
+              </button>
+            </>
           )}
           <button
             type="button"

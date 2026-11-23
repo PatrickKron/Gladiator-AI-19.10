@@ -60,7 +60,7 @@ export function emaTrendOf(candles: Candle[], period: number): 'bull' | 'bear' |
 }
 
 /** Stellt sicher, dass die SMC-Core-Strategie + Version 1 registriert sind. */
-export async function ensureSmcCoreStrategy(db: Db): Promise<{ strategyId: string; versionId: string }> {
+export async function ensureSmcCoreStrategy(db: Db): Promise<{ strategyId: string; versionId: string; isActive: boolean }> {
   const [strategy] = await db
     .insert(strategies)
     .values({
@@ -89,7 +89,7 @@ export async function ensureSmcCoreStrategy(db: Db): Promise<{ strategyId: strin
         .limit(1)
     )[0]!;
 
-  return { strategyId: strategyRow.id, versionId: versionRow.id };
+  return { strategyId: strategyRow.id, versionId: versionRow.id, isActive: strategyRow.isActive };
 }
 
 export type ScanResult = {
@@ -121,12 +121,13 @@ async function loadScanCandles(db: Db, target: ScanTarget, timeframe: string, no
 
 export async function runSignalScan(db: Db, opts: { now?: Date } = {}): Promise<ScanResult> {
   const now = opts.now ?? new Date();
-  const { strategyId, versionId } = await ensureSmcCoreStrategy(db);
+  const { strategyId, versionId, isActive } = await ensureSmcCoreStrategy(db);
   const result: ScanResult = { scanned: [], inserted: 0, skippedDuplicates: 0, expired: 0, skippedAssets: [] };
 
   // Zuerst veraltete offene Signale ablaufen lassen → „offen"-Liste bleibt aktuell.
   result.expired = await expireStaleSignals(db);
   if (result.expired > 0) console.log(`[signal-scan] ${result.expired} überfällige Signale auf 'expired' gesetzt.`);
+  if (!isActive) return result;
 
   // Universum = Asset-Register (alle Quellen). Binance-Symbole inkrementell frisch
   // halten — auch die Basis: deren Kerzen kommen sonst nur aus dem Seed und veralten

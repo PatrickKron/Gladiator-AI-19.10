@@ -473,6 +473,7 @@ function AssetRiskPanels({ symbol, venue }: { symbol: string; venue: string }) {
       </Panel>
 
       <HedgingConfigPanel
+        symbol={symbol}
         vix={a?.macro.vix ?? null}
         grsLabel={grs?.label ?? null}
         netExposureUsd={a?.risk.exposureNotional ?? 0}

@@ -75,18 +75,22 @@ export const catalogRouter = router({
         .where(
           and(
             like(strategies.slug, `${preset.slug}-%`),
+            eq(strategies.isActive, true),
             inArray(strategyVersions.status, ['paper', 'live']),
           ),
         );
       const activeTargets = derivedRows.map((r) => {
-        const p = r.params as { symbol?: string; timeframe?: string } | null;
+        const p = r.params as { symbol?: string; timeframe?: string; signalSymbols?: string[] } | null;
         return {
           slug: r.slug,
           symbol: p?.symbol ?? preset.dsl.symbol,
           timeframe: (p?.timeframe ?? preset.dsl.timeframe) as (typeof DSL_TIMEFRAMES)[number],
           status: r.status as 'paper' | 'live',
+          allAssets: Boolean(p?.signalSymbols?.includes('*')),
         };
       });
+      const rootParams = (version?.params ?? null) as { signalSymbols?: string[] } | null;
+      const rootActive = Boolean(strategy?.isActive && (version?.status === 'paper' || version?.status === 'live'));
       out.push({
         slug: preset.slug,
         slugKey: preset.slugKey,
@@ -99,7 +103,8 @@ export const catalogRouter = router({
         maxLeverage: preset.dsl.risk.maxLeveragePerTrade,
         takeProfitRrs: preset.dsl.takeProfits.map((tp) => tp.rr),
         ruleSummary: summarizeDslRules(preset.dsl),
-        status: (version?.status ?? 'not_activated') as 'not_activated' | 'draft' | 'paper' | 'live' | 'retired',
+        status: (rootActive ? version!.status : version ? 'draft' : 'not_activated') as 'not_activated' | 'draft' | 'paper' | 'live' | 'retired',
+        allAssetsActive: rootActive && Boolean(rootParams?.signalSymbols?.includes('*')),
         activeTargets,
         validity,
       });
@@ -305,6 +310,133 @@ export const catalogRouter = router({
         symbol: targetDsl.symbol,
         timeframe: targetDsl.timeframe,
         gateReasons: verdict.passed ? [] : verdict.reasons,
+        validity: await loadCatalogValidity(ctx.db, version!.id),
+      };
+    }),
+
+  /**
+   * Katalog-Strategie direkt für Paper-Signale anwenden (Welle 19):
+   * Registriert das Preset (optional für alle Watchlist-Assets via signalSymbols: ['*']),
+   * führt wenn möglich einen echten Backtest als ehrliche Prüfung durch und schaltet
+   * den Paper-Signal-Scan (Mensch-im-Loop) frei — Live bleibt weiterhin strikt gesperrt.
+   */
+  enableForSignals: protectedProcedure
+    .input(
+      z.object({
+        slug: z.string().min(3).max(64),
+        symbol: z.string().min(1).max(32).optional(),
+        timeframe: z.enum(DSL_TIMEFRAMES).optional(),
+        allAssets: z.boolean().default(false),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const preset = presetBySlug(input.slug);
+      if (!preset) throw new TRPCError({ code: 'NOT_FOUND', message: 'Katalog-Strategie nicht gefunden.' });
+
+      const adapted = adaptPresetDslToTarget(preset.dsl, {
+        symbol: input.symbol,
+        timeframe: input.timeframe,
+      });
+      const targetDsl = input.allAssets ? { ...adapted, signalSymbols: ['*'] } : adapted;
+
+      let [strategy] = await ctx.db.select().from(strategies).where(eq(strategies.slug, targetDsl.id)).limit(1);
+      if (!strategy) {
+        [strategy] = await ctx.db
+          .insert(strategies)
+          .values({
+            slug: targetDsl.id,
+            name: targetDsl.id,
+            kind: 'dsl',
+            isActive: true,
+            description: `Katalog-Preset (${preset.category} · ${input.allAssets ? 'Alle Assets' : targetDsl.symbol} ${targetDsl.timeframe})`,
+          })
+          .returning();
+      } else if (!strategy.isActive) {
+        await ctx.db.update(strategies).set({ isActive: true }).where(eq(strategies.id, strategy.id));
+      }
+
+      let [version] = await ctx.db
+        .select()
+        .from(strategyVersions)
+        .where(eq(strategyVersions.strategyId, strategy!.id))
+        .orderBy(desc(strategyVersions.version))
+        .limit(1);
+
+      if (!version) {
+        [version] = await ctx.db
+          .insert(strategyVersions)
+          .values({
+            strategyId: strategy!.id,
+            version: 1,
+            params: targetDsl,
+            status: 'paper',
+            promotedBy: ctx.user.id,
+            promotedAt: new Date(),
+          })
+          .returning();
+      } else {
+        await ctx.db
+          .update(strategyVersions)
+          .set({
+            params: targetDsl,
+            status: version.status === 'live' ? 'live' : 'paper',
+            promotedBy: ctx.user.id,
+            promotedAt: new Date(),
+          })
+          .where(eq(strategyVersions.id, version.id));
+      }
+
+      // Optionaler ehrlicher Backtest für transparente Validitäts-Anzeige (blockiert Paper-Signale nicht).
+      const to = new Date();
+      const from = new Date(to.getTime() - BACKTEST_MONTHS * 30 * 86_400_000);
+      let validated = false;
+      let gateReasons: string[] = [];
+      try {
+        await ensureCandleHistory(ctx.db, { symbol: targetDsl.symbol, timeframe: targetDsl.timeframe, from, to });
+        const lab = await runLabBacktest(ctx.db, {
+          strategyId: strategy!.id,
+          versionId: version!.id,
+          symbol: targetDsl.symbol,
+          timeframe: targetDsl.timeframe,
+          setupType: targetDsl.setupType,
+          from,
+          to,
+          riskPctPerTrade: targetDsl.risk.riskPctPerTrade,
+        });
+        const verdict = evaluateBacktestValidity(lab.result.metrics);
+        validated = verdict.passed;
+        gateReasons = verdict.passed ? [] : verdict.reasons;
+      } catch (err) {
+        gateReasons = [err instanceof Error ? err.message : String(err)];
+      }
+
+      await ctx.db.insert(auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: 'catalog.strategy.paper_signals_enabled',
+        entityType: 'strategy',
+        entityId: strategy!.id,
+        details: {
+          slug: targetDsl.id,
+          presetSlug: preset.slug,
+          symbol: targetDsl.symbol,
+          timeframe: targetDsl.timeframe,
+          allAssets: input.allAssets,
+          validated,
+          gateReasons,
+          paperSignalsOnly: true,
+        },
+        ip: ctx.ip,
+      });
+
+      return {
+        enabled: true,
+        validated,
+        gateReasons,
+        targetSlug: targetDsl.id,
+        symbol: targetDsl.symbol,
+        timeframe: targetDsl.timeframe,
+        allAssets: input.allAssets,
         validity: await loadCatalogValidity(ctx.db, version!.id),
       };
     }),
