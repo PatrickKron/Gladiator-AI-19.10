@@ -2,12 +2,19 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { getOhlcv, isCandleFresh } from '@gladiator/market-data';
-import { deriveLifecyclePlans, evaluateDslAt, parseInstructionDsl, type InstructionDsl } from '@gladiator/strategy-engine';
+import {
+  deriveLifecyclePlans,
+  evaluateDslAt,
+  parseInstructionDsl,
+  type Candle,
+  type DslRegime,
+  type InstructionDsl,
+} from '@gladiator/strategy-engine';
 import { registeredAssets, type RegisteredAsset } from './asset-register.js';
 import { AGGREGATE_LOOKBACK_MS, prepareScanCandles, scanSourceTimeframe, signalAssetClassFor, type ScanTarget } from './scan-targets.js';
 import { normalizeTradingPair } from './universe.js';
 
-const { strategies, strategyVersions, signals } = schema;
+const { strategies, strategyVersions, signals, marketRegimes } = schema;
 
 /**
  * DSL-Scan (07_ §3/§4 + Welle 19): registrierte Anweisungs- & Katalog-Strategien
@@ -80,16 +87,51 @@ export function resolveDslScanTargets(
   return { targets, unknownSymbols };
 }
 
+/**
+ * Regime-Weiche (Welle 21): prüft, ob die Strategie im aktuellen Marktregime scannen darf.
+ * Ohne Vorgabe (`allowedRegimes` leer/undefiniert) oder ohne bekannten Regime-Stand → erlaubt.
+ */
+export function regimeAllowsScan(
+  allowedRegimes: readonly DslRegime[] | undefined,
+  currentRegime: DslRegime | null,
+): boolean {
+  if (!allowedRegimes || allowedRegimes.length === 0) return true;
+  if (!currentRegime) return true;
+  return allowedRegimes.includes(currentRegime);
+}
+
+/**
+ * Deterministische Fallback-Regime-Ableitung aus echten Kerzen, falls der ML-Regime-Cache
+ * für ein Symbol/Timeframe noch keinen Eintrag hat (keine Erfindung — echte EMA-/Range-Werte).
+ */
+export function inferFallbackRegime(candles: readonly Candle[]): DslRegime | null {
+  if (candles.length < 60) return null;
+  const slice = candles.slice(-60);
+  const last = slice[slice.length - 1]!;
+  const closes = slice.map((c) => c.close);
+  const mean20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+  const mean60 = closes.reduce((a, b) => a + b, 0) / closes.length;
+  const avgRangePct =
+    slice.slice(-14).reduce((sum, c) => sum + (c.close > 0 ? ((c.high - c.low) / c.close) * 100 : 0), 0) / 14;
+  if (avgRangePct >= 6) return 'crisis';
+  if (avgRangePct >= 3.5) return 'high_vol';
+  const spreadPct = mean60 > 0 ? ((mean20 - mean60) / mean60) * 100 : 0;
+  if (spreadPct >= 1.2 && last.close > mean20) return 'bull';
+  if (spreadPct <= -1.2 && last.close < mean20) return 'bear';
+  return 'sideways';
+}
+
 export type DslScanResult = {
   scanned: { slug: string; symbol: string; timeframe: string; candles: number }[];
   inserted: number;
   skippedDuplicates: number;
+  skippedByRegime: number;
   errors: string[];
 };
 
 export async function runDslScan(db: Db, opts: { now?: Date } = {}): Promise<DslScanResult> {
   const now = opts.now ?? new Date();
-  const result: DslScanResult = { scanned: [], inserted: 0, skippedDuplicates: 0, errors: [] };
+  const result: DslScanResult = { scanned: [], inserted: 0, skippedDuplicates: 0, skippedByRegime: 0, errors: [] };
 
   const rows = await db
     .select({
@@ -138,6 +180,21 @@ export async function runDslScan(db: Db, opts: { now?: Date } = {}): Promise<Dsl
       if (!isCandleFresh(lastTs, dsl.timeframe, target.venue, now)) {
         result.errors.push(`${row.slug}: ${target.venue}:${target.symbol}@${dsl.timeframe} veraltet (letzte Kerze ${lastTs.toISOString()}) — kein Signal auf alten Kerzen.`);
         continue;
+      }
+
+      // Adaptivität: automatische Regime-Weiche prüfen, falls für diese Strategie gesetzt.
+      if (dsl.allowedRegimes && dsl.allowedRegimes.length > 0) {
+        const [regRow] = await db
+          .select({ regime: marketRegimes.regime })
+          .from(marketRegimes)
+          .where(and(eq(marketRegimes.symbol, target.symbol), eq(marketRegimes.timeframe, dsl.timeframe)))
+          .orderBy(desc(marketRegimes.ts))
+          .limit(1);
+        const currentRegime = (regRow?.regime as DslRegime | undefined) ?? inferFallbackRegime(candles);
+        if (!regimeAllowsScan(dsl.allowedRegimes, currentRegime)) {
+          result.skippedByRegime++;
+          continue;
+        }
       }
 
       const setup = evaluateDslAt(candles, candles.length - 1, dsl);

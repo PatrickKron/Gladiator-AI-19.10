@@ -1057,6 +1057,8 @@ export const en: Catalog = {
     tool_demo_account: "Practice account",
     tool_recent_signals: "Signals",
     tool_demo_order: "Practice order",
+    tool_hedging_status: "Hedging status",
+    tool_update_hedging: "Update hedging",
     tool_analyze_script: "Script analysis",
     tool_test_strategy_on_assets: "Multi-asset backtest",
   },

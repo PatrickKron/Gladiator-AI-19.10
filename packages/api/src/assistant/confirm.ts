@@ -1,6 +1,7 @@
 import type { Db } from '@gladiator/db';
+import { parseHedgingConfig } from '@gladiator/risk';
 import { promoteVersion } from '../routers/strategies.js';
-import { applyKillSwitch, applyTradingSettings, ensureTradingSettings, settingsInput } from '../routers/settings.js';
+import { applyHedgingConfig, applyKillSwitch, applyTradingSettings, ensureTradingSettings, settingsInput } from '../routers/settings.js';
 import { placeDemoOrderFor } from '../routers/demo.js';
 import type { ConfirmRequest } from './tools.js';
 
@@ -40,6 +41,28 @@ export async function executeConfirm(db: Db, user: { id: string; email: string }
       const r = await placeDemoOrderFor(db, user.id, req.args);
       const fill = r.avgFillPrice !== null ? ` zu ≈ ${r.avgFillPrice.toFixed(2)}` : '';
       return `Demo-Order gesetzt (${r.status})${fill} — Übungskonto, kein echtes Geld.`;
+    }
+    case 'update_hedging': {
+      const row = await ensureTradingSettings(db, user.id);
+      const current = parseHedgingConfig(row.hedgingConfig);
+      const nextAssignments = { ...current.assetAssignments };
+      if (req.args.assetAssignments) {
+        for (const [sym, id] of Object.entries(req.args.assetAssignments)) {
+          if (id === '__default__') delete nextAssignments[sym.toUpperCase()];
+          else nextAssignments[sym.toUpperCase()] = id;
+        }
+      }
+      const merged = {
+        ...current,
+        ...(req.args.enabled !== undefined ? { enabled: req.args.enabled } : {}),
+        ...(req.args.defaultStrategyId !== undefined ? { defaultStrategyId: req.args.defaultStrategyId } : {}),
+        ...(req.args.triggerVix !== undefined ? { triggerVix: req.args.triggerVix } : {}),
+        ...(req.args.triggerDrawdownPct !== undefined ? { triggerDrawdownPct: req.args.triggerDrawdownPct } : {}),
+        ...(req.args.maxHedgeRatioPct !== undefined ? { maxHedgeRatioPct: req.args.maxHedgeRatioPct } : {}),
+        assetAssignments: nextAssignments,
+      };
+      await applyHedgingConfig(db, user.id, merged, ip);
+      return 'Pro-Asset-Hedging gespeichert — greift ab sofort im Signal-Review, Ticket-Sizing und Hedging-Designer.';
     }
     default: {
       const never: never = req;

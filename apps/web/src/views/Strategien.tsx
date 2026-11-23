@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useHashTab } from '../lib/use-hash-tab.js';
 import { trpc } from '../api.js';
 import { Empty, ErrorBox, Loading, PageHeader, Panel } from '../components/ui.js';
+import type { DslRegime } from '@gladiator/strategy-engine';
 import { Workshop } from './Workshop.js';
 import { StrategyCatalog } from '../components/StrategyCatalog.js';
 import { TextStrategyBuilder } from '../components/TextStrategyBuilder.js';
@@ -157,14 +158,18 @@ function StrategyRow({ s, onChanged }: { s: Strategy; onChanged: () => void }) {
     }
   }
 
-  async function toggleSignals(enabled: boolean, signalSymbols?: string[]) {
+  async function toggleSignals(
+    enabled: boolean,
+    opts: { signalSymbols?: string[]; allowedRegimes?: DslRegime[] } = {},
+  ) {
     setBusy(true);
     setError(null);
     try {
       await trpc.strategies.setSignalScan.mutate({
         strategyId: s.id,
         enabled,
-        ...(signalSymbols !== undefined ? { signalSymbols } : {}),
+        ...(opts.signalSymbols !== undefined ? { signalSymbols: opts.signalSymbols } : {}),
+        ...(opts.allowedRegimes !== undefined ? { allowedRegimes: opts.allowedRegimes } : {}),
       });
       if (open) setVersions(await trpc.strategies.versions.query({ strategyId: s.id }));
       onChanged();
@@ -172,6 +177,28 @@ function StrategyRow({ s, onChanged }: { s: Strategy; onChanged: () => void }) {
       setError(err instanceof Error ? err.message : t('common.error'));
     } finally {
       setBusy(false);
+    }
+  }
+
+  const regimePresetValue = (() => {
+    const r = s.allowedRegimes ?? [];
+    if (r.length === 0) return 'all';
+    const set = new Set(r);
+    if (r.length === 2 && set.has('bull') && set.has('bear')) return 'trend';
+    if (r.length === 1 && set.has('sideways')) return 'sideways';
+    if (r.length === 3 && set.has('bull') && set.has('bear') && set.has('sideways')) return 'no_crisis';
+    return 'custom';
+  })();
+
+  function applyRegimePreset(val: string) {
+    const map: Record<string, DslRegime[]> = {
+      all: [],
+      trend: ['bull', 'bear'],
+      sideways: ['sideways'],
+      no_crisis: ['bull', 'bear', 'sideways'],
+    };
+    if (val in map) {
+      void toggleSignals(s.signalScanActive || true, { allowedRegimes: map[val] });
     }
   }
 
@@ -196,19 +223,35 @@ function StrategyRow({ s, onChanged }: { s: Strategy; onChanged: () => void }) {
 
         <div className="flex flex-wrap items-center gap-2">
           {s.kind === 'dsl' && s.latestVersionId && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void toggleSignals(true, isAllAssets ? [] : ['*'])}
-              className="rounded border px-2 py-1 text-[11px] disabled:opacity-50"
-              style={{
-                borderColor: isAllAssets ? 'rgba(6,182,212,0.55)' : 'var(--color-line)',
-                color: isAllAssets ? 'var(--color-cyan)' : 'var(--color-mut)',
-              }}
-              title="Umschalten zwischen Standard-Symbol und allen Watchlist-Assets"
-            >
-              {isAllAssets ? '🌐 Alle Assets' : `🎯 Nur ${s.symbol ?? 'Symbol'}`}
-            </button>
+            <>
+              <select
+                aria-label={`Regime-Weiche für ${s.name}`}
+                disabled={busy}
+                value={regimePresetValue}
+                onChange={(e) => applyRegimePreset(e.target.value)}
+                className="field px-2 py-1 text-[11px]"
+                title="Automatische Regime-Weiche: in welchen Marktphasen diese Strategie Signale scannen darf"
+              >
+                <option value="all">🧭 Alle Phasen</option>
+                <option value="trend">📈 Nur Trend (Bull/Bear)</option>
+                <option value="sideways">↔️ Nur Seitwärts</option>
+                <option value="no_crisis">🛡️ Pause bei Krise/High-Vol</option>
+                {regimePresetValue === 'custom' && <option value="custom">Individuell</option>}
+              </select>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void toggleSignals(true, { signalSymbols: isAllAssets ? [] : ['*'] })}
+                className="rounded border px-2 py-1 text-[11px] disabled:opacity-50"
+                style={{
+                  borderColor: isAllAssets ? 'rgba(6,182,212,0.55)' : 'var(--color-line)',
+                  color: isAllAssets ? 'var(--color-cyan)' : 'var(--color-mut)',
+                }}
+                title="Umschalten zwischen Standard-Symbol und allen Watchlist-Assets"
+              >
+                {isAllAssets ? '🌐 Alle Assets' : `🎯 Nur ${s.symbol ?? 'Symbol'}`}
+              </button>
+            </>
           )}
           <button
             type="button"
@@ -683,10 +726,10 @@ export function Strategien() {
                 style={
                   tab === x.id
                     ? {
-                        borderColor: 'rgba(96,165,250,0.5)',
-                        color: 'var(--color-ink)',
-                        background: 'rgba(59,130,246,0.2)',
-                      }
+                      borderColor: 'rgba(96,165,250,0.5)',
+                      color: 'var(--color-ink)',
+                      background: 'rgba(59,130,246,0.2)',
+                    }
                     : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
                 }
               >

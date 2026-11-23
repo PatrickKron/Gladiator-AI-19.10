@@ -85,6 +85,8 @@ export function HedgingDesignerPanel() {
   // Neues Asset für Zuordnung
   const [newAssetInput, setNewAssetInput] = useState('');
   const [extraAssets, setExtraAssets] = useState<string[]>([]);
+  const [hedgeBusySym, setHedgeBusySym] = useState<string | null>(null);
+  const [hedgeResultMsg, setHedgeResultMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -238,6 +240,26 @@ export function HedgingDesignerPanel() {
       nextAssignments[norm] = strategyId;
     }
     await persist({ ...cfg, assetAssignments: nextAssignments }, `Hedge-Zuordnung für ${norm} aktualisiert.`);
+  }
+
+  async function executeDemoHedge(targetSym: string) {
+    setHedgeBusySym(targetSym);
+    setHedgeResultMsg(null);
+    try {
+      const r = await trpc.demo.placeHedgeOrder.mutate({ targetSymbol: targetSym });
+      const fillTxt = r.avgFillPrice !== null ? ` zu ${r.avgFillPrice.toFixed(2)}` : '';
+      setHedgeResultMsg({
+        ok: true,
+        text: `✓ Demo-Hedge eröffnet (${r.strategyName}): SHORT ${r.qty.toFixed(4)} ${r.hedgeSymbol}${fillTxt} (~${r.notionalUsd} $, SL ${r.stopLoss.toFixed(2)}) — im Übungskonto sichtbar.`,
+      });
+    } catch (err) {
+      setHedgeResultMsg({
+        ok: false,
+        text: err instanceof Error ? err.message : 'Demo-Hedge konnte nicht eröffnet werden.',
+      });
+    } finally {
+      setHedgeBusySym(null);
+    }
   }
 
   function addCustomAsset() {
@@ -668,6 +690,24 @@ export function HedgingDesignerPanel() {
           </div>
         </div>
 
+        {hedgeResultMsg && (
+          <div
+            className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[0.625rem] border px-3 py-2 text-xs"
+            style={{
+              borderColor: hedgeResultMsg.ok ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)',
+              color: hedgeResultMsg.ok ? 'var(--color-pos)' : 'var(--color-neg)',
+              background: hedgeResultMsg.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
+            }}
+          >
+            <span>{hedgeResultMsg.text}</span>
+            {hedgeResultMsg.ok && (
+              <a href="#/traden?tab=demo" className="underline shrink-0" style={{ color: 'var(--color-cyan)' }}>
+                → Zum Übungskonto
+              </a>
+            )}
+          </div>
+        )}
+
         {/* Zuordnungs-Liste */}
         <div className="mt-4 divide-y rounded-[0.625rem] border" style={{ borderColor: 'var(--color-line)' }}>
           {allAssets.map((sym) => {
@@ -679,6 +719,7 @@ export function HedgingDesignerPanel() {
               grsLabel,
               netExposureUsd,
             });
+            const canDemoHedge = evalRes.mode !== 'none' && evalRes.instrument !== 'stablecoin_shift';
             const badgeColor =
               evalRes.mode === 'none' || evalRes.evaluation.state === 'disabled'
                 ? 'var(--color-mut)'
@@ -718,21 +759,35 @@ export function HedgingDesignerPanel() {
                   </p>
                 </div>
 
-                <select
-                  aria-label={`Hedging-Strategie für ${sym}`}
-                  value={selectVal}
-                  disabled={!loaded || saving}
-                  onChange={(e) => void assignAsset(sym, e.target.value)}
-                  className="field min-w-[200px] max-w-full px-2.5 py-1.5 text-xs sm:w-64"
-                >
-                  <option value="__default__">Standard-Regel (Fallback)</option>
-                  <option value="none">Kein Hedge (für {sym} aus)</option>
-                  {cfg.strategies.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.maxHedgeRatioPct} % · {s.hedgeSymbol === 'SAME' ? sym : s.hedgeSymbol})
-                    </option>
-                  ))}
-                </select>
+                <div className="flex flex-wrap items-center gap-2">
+                  {canDemoHedge && (
+                    <button
+                      type="button"
+                      disabled={hedgeBusySym !== null || saving}
+                      onClick={() => void executeDemoHedge(sym)}
+                      className="rounded-[0.625rem] border px-2.5 py-1.5 text-[11px] font-medium transition-colors hover:border-[var(--color-warn)] disabled:opacity-50"
+                      style={{ borderColor: 'rgba(245,158,11,0.5)', color: 'var(--color-warn)', background: 'rgba(245,158,11,0.08)' }}
+                      title={`Short-Hedge über ${evalRes.hedgeSymbol} mit automatischem Stop-Loss im Übungskonto eröffnen`}
+                    >
+                      {hedgeBusySym === sym ? 'Eröffne …' : '🛡️ Demo-Hedge'}
+                    </button>
+                  )}
+                  <select
+                    aria-label={`Hedging-Strategie für ${sym}`}
+                    value={selectVal}
+                    disabled={!loaded || saving}
+                    onChange={(e) => void assignAsset(sym, e.target.value)}
+                    className="field min-w-[190px] max-w-full px-2.5 py-1.5 text-xs sm:w-64"
+                  >
+                    <option value="__default__">Standard-Regel (Fallback)</option>
+                    <option value="none">Kein Hedge (für {sym} aus)</option>
+                    {cfg.strategies.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.maxHedgeRatioPct} % · {s.hedgeSymbol === 'SAME' ? sym : s.hedgeSymbol})
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             );
           })}

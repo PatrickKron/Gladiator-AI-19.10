@@ -1056,6 +1056,8 @@ export const de = {
     tool_demo_account: "Übungskonto",
     tool_recent_signals: "Signale",
     tool_demo_order: "Demo-Order",
+    tool_hedging_status: "Hedging-Status",
+    tool_update_hedging: "Hedging anpassen",
     tool_analyze_script: "Skript-Analyse",
     tool_test_strategy_on_assets: "Multi-Asset-Backtest",
   },

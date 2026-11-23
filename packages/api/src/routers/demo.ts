@@ -20,9 +20,11 @@ import {
   type DemoBookSource,
 } from '@gladiator/exchange';
 import { computeMetrics } from '@gladiator/backtest';
+import { evaluateAssetHedging } from '@gladiator/risk';
+import { getMacroSnapshot } from '@gladiator/market-data';
 import { protectedProcedure, router } from '../trpc.js';
 
-const { demoOrders, demoPositions, demoTrades } = schema;
+const { demoOrders, demoPositions, demoTrades, auditLog } = schema;
 
 /**
  * Demo-Trading (Session 5): manueller Übungsmodus mit virtuellem Guthaben.
@@ -125,6 +127,133 @@ export const demoRouter = router({
   preview: protectedProcedure.input(demoOrderInput).mutation(({ ctx, input }) => previewDemoOrderFor(ctx.db, ctx.user.id, input)),
 
   placeOrder: protectedProcedure.input(demoOrderInput).mutation(({ ctx, input }) => placeDemoOrderFor(ctx.db, ctx.user.id, input)),
+
+  /**
+   * 1-Klick-Gegen-Hedge im Übungskonto (Welle 21):
+   * Liest die diesem Asset zugeordnete Hedging-Strategie + echten Orderbuch-Kurs,
+   * berechnet automatisch die Short-Menge und den Schutz-Stop-Loss (`hedgeStopLossPct`)
+   * und führt über dieselbe Demo-Engine aus (virtuelles Guthaben, nie echtes Geld).
+   */
+  placeHedgeOrder: protectedProcedure
+    .input(
+      z.object({
+        targetSymbol: z.string().min(1).max(32),
+        notionalUsd: z.number().positive().max(1_000_000).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const targetSym = input.targetSymbol.trim().toUpperCase();
+      const settings = await loadRiskSettings(ctx.db, ctx.user.id);
+      const [macro, account, openPos] = await Promise.all([
+        getMacroSnapshot(ctx.db).catch(() => null),
+        demoAccountOverview(ctx.db, books(), ctx.user.id),
+        listDemoPositions(ctx.db, books(), ctx.user.id),
+      ]);
+
+      const posForTarget = openPos.filter((p) => p.symbol.toUpperCase() === targetSym && p.direction === 'long');
+      const targetExposureUsd = posForTarget.reduce(
+        (sum, p) => sum + Math.abs(p.qty * (p.markPrice ?? p.entryPrice)),
+        0,
+      );
+      const totalExposureUsd = openPos.reduce(
+        (sum, p) => sum + Math.abs(p.qty * (p.markPrice ?? p.entryPrice)),
+        0,
+      );
+      const drawdownPct =
+        account.startBalance > 0
+          ? Math.max(0, ((account.startBalance - account.equity) / account.startBalance) * 100)
+          : 0;
+
+      const evalRes = evaluateAssetHedging(settings.hedgingConfig, targetSym, {
+        drawdownPct,
+        vix: macro?.vix?.value ?? null,
+        grsLabel: macro?.grs?.label ?? null,
+        netExposureUsd: targetExposureUsd > 0 ? targetExposureUsd : totalExposureUsd,
+      });
+
+      if (evalRes.mode === 'none') {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Für ${targetSym} ist „Kein Hedge“ eingestellt — erst eine Hedging-Strategie zuordnen.`,
+        });
+      }
+      if (evalRes.instrument === 'stablecoin_shift') {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Die Strategie „${evalRes.strategyName}“ nutzt Stablecoin-Umschichtung statt Short-Gegenposition — bitte Long-Position direkt teilverkaufen.`,
+        });
+      }
+
+      const hedgeSymbol = evalRes.hedgeSymbol.toUpperCase();
+      const book = await books().fetchBook(hedgeSymbol);
+      const mid = midPrice(book);
+      if (mid === null || mid <= 0) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `Kein echter Live-Kurs für Hedge-Symbol ${hedgeSymbol} verfügbar.`,
+        });
+      }
+
+      const strategyObj = evalRes.strategyId
+        ? settings.hedgingConfig.strategies.find((s) => s.id === evalRes.strategyId)
+        : null;
+      const stopPct = strategyObj?.hedgeStopLossPct ?? 8;
+      const ratioPct =
+        evalRes.evaluation.recommendedHedgePct > 0
+          ? evalRes.evaluation.recommendedHedgePct
+          : evalRes.effectiveConfig.maxHedgeRatioPct;
+
+      const baseExposure = targetExposureUsd > 0 ? targetExposureUsd : totalExposureUsd;
+      const computedNotional =
+        input.notionalUsd ??
+        (baseExposure > 0
+          ? Math.max(25, Math.round((baseExposure * ratioPct) / 100))
+          : Math.max(25, Math.min(500, Math.floor(account.available * 0.1))));
+
+      const qty = computedNotional / mid;
+      const stopLoss = Math.round(mid * (1 + stopPct / 100) * 1e6) / 1e6;
+
+      const placed = await placeDemoOrderFor(ctx.db, ctx.user.id, {
+        symbol: hedgeSymbol,
+        direction: 'short',
+        type: 'market',
+        qty,
+        stopLoss,
+        leverage: 1,
+      });
+
+      await ctx.db.insert(auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: 'demo.hedge.executed',
+        entityType: 'demo_order',
+        entityId: placed.orderId,
+        details: {
+          targetSymbol: targetSym,
+          hedgeSymbol,
+          strategyId: evalRes.strategyId,
+          strategyName: evalRes.strategyName,
+          notionalUsd: computedNotional,
+          ratioPct,
+          stopLoss,
+          avgFillPrice: placed.avgFillPrice,
+        },
+        ip: ctx.ip,
+      });
+
+      return {
+        placed: true,
+        orderId: placed.orderId,
+        targetSymbol: targetSym,
+        hedgeSymbol,
+        direction: 'short' as const,
+        qty,
+        notionalUsd: computedNotional,
+        avgFillPrice: placed.avgFillPrice,
+        stopLoss,
+        strategyName: evalRes.strategyName,
+      };
+    }),
 
   cancelOrder: protectedProcedure.input(z.object({ orderId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
     const ok = await cancelDemoOrder(ctx.db, ctx.user.id, input.orderId);

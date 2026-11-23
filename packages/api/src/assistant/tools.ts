@@ -14,7 +14,8 @@ import {
 } from '@gladiator/strategy-engine';
 import { conditionsSchema, SCREEN_PRESETS } from '@gladiator/indicators';
 import { runLabBacktest } from '@gladiator/backtest';
-import { SUPPORTED_TIMEFRAMES } from '@gladiator/market-data';
+import { SUPPORTED_TIMEFRAMES, getMacroSnapshot } from '@gladiator/market-data';
+import { evaluateAssetHedging, parseHedgingConfig } from '@gladiator/risk';
 import { registeredAssets, scanUniverse } from '@gladiator/jobs';
 import { runDraftBacktest, saveWorkshopVersion, ownedSession } from '../workshop/draft-service.js';
 import { runScreen } from '../routers/screener.js';
@@ -23,7 +24,7 @@ import { buildAssetAnalysis } from '../market/asset-analysis.js';
 import { loadAgentsStatus } from '../routers/agents.js';
 import { ensureTradingSettings } from '../routers/settings.js';
 import { currentDemoBookSource, demoOrderInput, listDemoPositions, previewDemoOrderFor, type DemoOrderArgs } from '../routers/demo.js';
-import { midPrice } from '@gladiator/exchange';
+import { buildAccountState, midPrice } from '@gladiator/exchange';
 import { demoAccountOverview } from '@gladiator/exchange';
 import { SETTINGS_BOUNDS, type TradingLimits } from '@gladiator/core/trading-settings';
 
@@ -55,7 +56,18 @@ export type ConfirmRequest =
   | { action: 'promote_version'; args: { versionId: string } }
   | { action: 'update_settings'; args: Partial<TradingLimits> }
   | { action: 'kill_switch'; args: { active: boolean } }
-  | { action: 'demo_order'; args: DemoOrderArgs };
+  | { action: 'demo_order'; args: DemoOrderArgs }
+  | {
+      action: 'update_hedging';
+      args: {
+        enabled?: boolean;
+        assetAssignments?: Record<string, string>;
+        defaultStrategyId?: string | null;
+        triggerVix?: number;
+        triggerDrawdownPct?: number;
+        maxHedgeRatioPct?: number;
+      };
+    };
 
 const LIMIT_LABELS: Record<keyof TradingLimits, string> = {
   riskPctPerTrade: 'Risiko je Trade %',
@@ -399,6 +411,39 @@ export const ASSISTANT_TOOLS: LlmTool[] = [
         venue: { type: 'string' },
       },
       required: ['symbol', 'direction'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'hedging_status',
+    description:
+      'Liest die echten Hedging-Strategien des Nutzers, alle Pro-Asset-Zuordnungen und den Live-Trigger-Status (VIX, GRS-Regime, echter Konto-Drawdown). Optional für ein konkretes Symbol (z. B. BTC/USDT, SOL/USDT, RHM.DE). Nur lesend.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        symbol: { type: 'string', description: 'Optional: konkretes Asset für Live-Hedge-Auswertung' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'update_hedging',
+    description:
+      'Bittet den Nutzer per Bestätigungs-Karte um Freigabe, das Pro-Asset-Hedging anzupassen (aktivieren/deaktivieren, Asset → Hedging-Strategie-ID oder "none" zuordnen, Standard-Strategie oder globale Schwellen ändern). Vorher hedging_status aufrufen, um gültige Strategie-IDs zu kennen. Führt NICHT selbst aus.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        enabled: { type: 'boolean' },
+        assetAssignments: {
+          type: 'object',
+          additionalProperties: { type: 'string' },
+          description: 'Map Symbol → Strategy-ID (z. B. {"SOL/USDT": "altcoin-btc-beta", "XAU/USD": "none"})',
+        },
+        defaultStrategyId: { type: ['string', 'null'] },
+        triggerVix: { type: 'number', minimum: 12, maximum: 80 },
+        triggerDrawdownPct: { type: 'number', minimum: 1, maximum: 50 },
+        maxHedgeRatioPct: { type: 'number', minimum: 5, maximum: 100 },
+      },
       additionalProperties: false,
     },
   },
@@ -799,6 +844,101 @@ export async function executeTool(ctx: ToolCtx, name: string, input: Record<stri
       return {
         result: { preview, order: args, needsConfirmation: true, note: 'Übungskonto. Der Nutzer muss die Karte bestätigen; erst dann wird die Order gesetzt.' },
         cards: [{ kind: 'confirm', action: 'demo_order', args, label, status: 'pending' }],
+      };
+    }
+    case 'hedging_status': {
+      const row = await ensureTradingSettings(ctx.db, ctx.userId);
+      const cfg = parseHedgingConfig(row.hedgingConfig);
+      const [macro, state] = await Promise.all([
+        getMacroSnapshot(ctx.db).catch(() => null),
+        buildAccountState(ctx.db, ctx.userId).catch(() => null),
+      ]);
+      const drawdownPct = state ? Math.max(0, -state.monthlyPnlPct) : null;
+      const netExposureUsd = state
+        ? Object.values(state.exposureBySymbolPct).reduce((sum, p) => sum + (state.equity * p) / 100, 0)
+        : 0;
+      const evalCtx = {
+        drawdownPct,
+        vix: macro?.vix?.value ?? null,
+        grsLabel: macro?.grs?.label ?? null,
+        netExposureUsd,
+      };
+      const sym = typeof input.symbol === 'string' && input.symbol.trim() ? input.symbol.trim().toUpperCase() : null;
+      const assetEval = sym ? evaluateAssetHedging(cfg, sym, evalCtx) : null;
+      return {
+        result: {
+          enabled: cfg.enabled,
+          defaultStrategyId: cfg.defaultStrategyId,
+          liveContext: evalCtx,
+          strategies: cfg.strategies.map((s) => ({
+            id: s.id,
+            name: s.name,
+            instrument: s.instrument,
+            hedgeSymbol: s.hedgeSymbol,
+            maxHedgeRatioPct: s.maxHedgeRatioPct,
+            triggerDrawdownPct: s.triggerDrawdownPct,
+            triggerVix: s.triggerVix,
+          })),
+          assetAssignments: cfg.assetAssignments,
+          ...(assetEval ? { assetEvaluation: assetEval } : {}),
+        },
+        cards: [{ kind: 'link', label: '🛡️ Hedging-Designer öffnen', hash: '#/strategien?tab=hedging' }],
+      };
+    }
+    case 'update_hedging': {
+      const row = await ensureTradingSettings(ctx.db, ctx.userId);
+      const cfg = parseHedgingConfig(row.hedgingConfig);
+      const validIds = new Set(cfg.strategies.map((s) => s.id));
+      const patch: Extract<ConfirmRequest, { action: 'update_hedging' }>['args'] = {};
+      const parts: string[] = [];
+
+      if (typeof input.enabled === 'boolean') {
+        patch.enabled = input.enabled;
+        parts.push(input.enabled ? 'Hedging AKTIV' : 'Hedging AUS');
+      }
+      if (input.assetAssignments && typeof input.assetAssignments === 'object' && !Array.isArray(input.assetAssignments)) {
+        const clean: Record<string, string> = {};
+        for (const [rawSym, rawId] of Object.entries(input.assetAssignments as Record<string, unknown>)) {
+          if (typeof rawId !== 'string') throw new Error(`Ungültige Strategie-ID für ${rawSym}.`);
+          const sym = rawSym.trim().toUpperCase();
+          if (!sym) continue;
+          if (rawId !== 'none' && rawId !== '__default__' && !validIds.has(rawId)) {
+            throw new Error(`Hedging-Strategie „${rawId}“ unbekannt. Verfügbar: ${[...validIds].join(', ')}, none.`);
+          }
+          clean[sym] = rawId;
+          const stratName = rawId === 'none' ? 'Aus' : rawId === '__default__' ? 'Standard' : cfg.strategies.find((s) => s.id === rawId)?.name ?? rawId;
+          parts.push(`${sym} → ${stratName}`);
+        }
+        if (Object.keys(clean).length > 0) patch.assetAssignments = clean;
+      }
+      if (input.defaultStrategyId !== undefined) {
+        if (input.defaultStrategyId !== null && (typeof input.defaultStrategyId !== 'string' || !validIds.has(input.defaultStrategyId))) {
+          throw new Error(`Standard-Hedging-Strategie ungültig. Verfügbar: ${[...validIds].join(', ')}, null.`);
+        }
+        patch.defaultStrategyId = input.defaultStrategyId;
+        parts.push(`Standard → ${input.defaultStrategyId ?? 'Basis-Regel'}`);
+      }
+      if (typeof input.triggerVix === 'number' && Number.isFinite(input.triggerVix)) {
+        if (input.triggerVix < 12 || input.triggerVix > 80) throw new Error('triggerVix muss zwischen 12 und 80 liegen.');
+        patch.triggerVix = input.triggerVix;
+        parts.push(`VIX ≥ ${input.triggerVix}`);
+      }
+      if (typeof input.triggerDrawdownPct === 'number' && Number.isFinite(input.triggerDrawdownPct)) {
+        if (input.triggerDrawdownPct < 1 || input.triggerDrawdownPct > 50) throw new Error('triggerDrawdownPct muss zwischen 1 und 50 liegen.');
+        patch.triggerDrawdownPct = input.triggerDrawdownPct;
+        parts.push(`DD ≥ ${input.triggerDrawdownPct} %`);
+      }
+      if (typeof input.maxHedgeRatioPct === 'number' && Number.isFinite(input.maxHedgeRatioPct)) {
+        if (input.maxHedgeRatioPct < 5 || input.maxHedgeRatioPct > 100) throw new Error('maxHedgeRatioPct muss zwischen 5 und 100 liegen.');
+        patch.maxHedgeRatioPct = input.maxHedgeRatioPct;
+        parts.push(`Quote ${input.maxHedgeRatioPct} %`);
+      }
+      if (parts.length === 0) throw new Error('Keine gültige Hedging-Änderung angegeben.');
+
+      const label = `Hedging anpassen: ${parts.join(' · ')}`;
+      return {
+        result: { patch, needsConfirmation: true, note: 'Der Nutzer muss die Karte bestätigen; erst dann wird die Hedging-Konfiguration gespeichert.' },
+        cards: [{ kind: 'confirm', action: 'update_hedging', args: patch, label, status: 'pending' }],
       };
     }
     case 'navigate': {

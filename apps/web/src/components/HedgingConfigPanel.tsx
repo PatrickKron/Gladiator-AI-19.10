@@ -43,6 +43,8 @@ export function HedgingConfigPanel({
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hedgeBusy, setHedgeBusy] = useState(false);
+  const [hedgeMsg, setHedgeMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,6 +98,24 @@ export function HedgingConfigPanel({
       setError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function executeQuickDemoHedge() {
+    const target = normSymbol ?? cfg.hedgeSymbol;
+    setHedgeBusy(true);
+    setHedgeMsg(null);
+    try {
+      const r = await trpc.demo.placeHedgeOrder.mutate({ targetSymbol: target });
+      const fillTxt = r.avgFillPrice !== null ? ` zu ${r.avgFillPrice.toFixed(2)}` : '';
+      setHedgeMsg({
+        ok: true,
+        text: `✓ Demo-Hedge gesetzt: SHORT ${r.qty.toFixed(4)} ${r.hedgeSymbol}${fillTxt} (~${r.notionalUsd} $, SL ${r.stopLoss.toFixed(2)}).`,
+      });
+    } catch (err) {
+      setHedgeMsg({ ok: false, text: err instanceof Error ? err.message : 'Demo-Hedge fehlgeschlagen.' });
+    } finally {
+      setHedgeBusy(false);
     }
   }
 
@@ -217,6 +237,27 @@ export function HedgingConfigPanel({
         <p className="mt-1.5 leading-relaxed" style={{ color: 'var(--color-ink)' }}>
           {evaluation.summary}
         </p>
+        {evaluation.state === 'active' && (assetEval?.instrument ?? cfg.instrument) !== 'stablecoin_shift' && (
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={hedgeBusy || !loaded}
+              onClick={() => void executeQuickDemoHedge()}
+              className="rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+              style={{ borderColor: 'rgba(245,158,11,0.6)', color: 'var(--color-warn)', background: 'rgba(245,158,11,0.12)' }}
+            >
+              {hedgeBusy ? 'Eröffne Demo-Hedge …' : '🛡️ Empfohlenen Demo-Hedge jetzt eröffnen'}
+            </button>
+            <a href="#/traden?tab=demo" className="text-[11px] underline" style={{ color: 'var(--color-cyan)' }}>
+              Übungskonto öffnen
+            </a>
+          </div>
+        )}
+        {hedgeMsg && (
+          <p className="mt-2 text-[11px] font-medium" style={{ color: hedgeMsg.ok ? 'var(--color-pos)' : 'var(--color-neg)' }}>
+            {hedgeMsg.text}
+          </p>
+        )}
       </div>
 
       {/* Einstellbare Parameter */}

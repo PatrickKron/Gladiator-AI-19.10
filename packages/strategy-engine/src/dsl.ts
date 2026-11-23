@@ -148,6 +148,10 @@ export type DslCondition = z.infer<typeof conditionSchema>;
 export const DSL_TIMEFRAMES = ['1m', '2m', '3m', '5m', '10m', '15m', '30m', '1h', '2h', '4h', '12h', '1d', '1w', '1M'] as const;
 export type DslTimeframe = (typeof DSL_TIMEFRAMES)[number];
 
+/** Marktregime für die automatische Regime-Weiche (Welle 21). */
+export const DSL_REGIMES = ['bull', 'bear', 'sideways', 'high_vol', 'crisis'] as const;
+export type DslRegime = (typeof DSL_REGIMES)[number];
+
 export const instructionDslSchema = z
   .object({
     id: z
@@ -163,6 +167,12 @@ export const instructionDslSchema = z
      * - ['BTC/USDT', 'ETH/USDT', ...] → scannt gezielt diese Symbole
      */
     signalSymbols: z.array(z.string().min(1).max(32)).max(50).optional(),
+    /**
+     * Optionale Regime-Weiche (Welle 21):
+     * - fehlt/leer → scannt in jeder Marktphase
+     * - z. B. ['bull', 'bear'] → scannt automatisch nur in Trendphasen
+     */
+    allowedRegimes: z.array(z.enum(DSL_REGIMES)).max(5).optional(),
     timeframe: z.enum(DSL_TIMEFRAMES).default('1h'),
     venueType: z.enum(['cex', 'dex']).default('cex'),
     direction: z.enum(['long', 'short']),
