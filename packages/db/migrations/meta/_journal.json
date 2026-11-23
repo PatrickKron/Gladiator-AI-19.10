@@ -330,6 +330,13 @@
       "when": 1795450000000,
       "tag": "0046_funded_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1795620000000,
+      "tag": "0047_signal_studies",
+      "breakpoints": true
     }
   ]
 }

@@ -16,6 +16,7 @@ import {
 } from '../components/EquityChart.js';
 import { MonteCarloPanel } from '../components/MonteCarloPanel.js';
 import { OptimizationProposals } from '../components/OptimizationProposals.js';
+import { SignalStudiesPanel } from '../components/SignalStudiesPanel.js';
 import { appLocale } from '../lib/locale.js';
 
 /** Schnellstart-Vorlagen (P1.6) — ein Klick füllt die Konfiguration. */
@@ -121,6 +122,25 @@ export function Labor() {
     const idx = hash.indexOf('?');
     return idx >= 0 ? new URLSearchParams(hash.slice(idx + 1)) : new URLSearchParams();
   }, []);
+
+  const [labTab, setLabTab] = useState<'backtest' | 'studien'>(() =>
+    initialQuery.get('tab') === 'studien' ? 'studien' : 'backtest',
+  );
+  useEffect(() => {
+    const onHash = () => {
+      const hash = window.location.hash;
+      const idx = hash.indexOf('?');
+      const params = idx >= 0 ? new URLSearchParams(hash.slice(idx + 1)) : new URLSearchParams();
+      setLabTab(params.get('tab') === 'studien' ? 'studien' : 'backtest');
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  function switchLabTab(next: 'backtest' | 'studien') {
+    setLabTab(next);
+    const target = next === 'studien' ? '#/labor?tab=studien' : '#/labor';
+    if (window.location.hash !== target) window.history.replaceState(null, '', target);
+  }
 
   const [symbol, setSymbol] = useState<string>(() => initialQuery.get('symbol')?.trim().toUpperCase() || 'BTC/USDT');
   const [strategyId, setStrategyId] = useState<string>(() => initialQuery.get('strategy') || 'builtin');
@@ -517,21 +537,60 @@ export function Labor() {
             >
               ⚙️ Workshop
             </a>
-            <button
-              type="button"
-              onClick={() => setShowLabChart((s) => !s)}
-              className="rounded-[0.625rem] border px-3 py-1.5 text-xs transition-colors"
-              style={
-                showLabChart
-                  ? { borderColor: 'rgba(139,92,246,0.55)', color: 'var(--color-ink)', background: 'rgba(139,92,246,0.16)' }
-                  : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
-              }
-            >
-              📊 Indikator-Chart {showLabChart ? 'ausblenden' : 'anzeigen'}
-            </button>
+            {labTab === 'backtest' && (
+              <button
+                type="button"
+                onClick={() => setShowLabChart((s) => !s)}
+                className="rounded-[0.625rem] border px-3 py-1.5 text-xs transition-colors"
+                style={
+                  showLabChart
+                    ? { borderColor: 'rgba(139,92,246,0.55)', color: 'var(--color-ink)', background: 'rgba(139,92,246,0.16)' }
+                    : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
+                }
+              >
+                📊 Indikator-Chart {showLabChart ? 'ausblenden' : 'anzeigen'}
+              </button>
+            )}
           </div>
         }
       />
+
+      {/* ── Labor-Haupttabs: Backtest & Chart vs. Autonome Signal-Studien ── */}
+      <div className="mb-5 flex flex-wrap gap-2" role="tablist" aria-label="Labor-Bereiche">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={labTab === 'backtest'}
+          onClick={() => switchLabTab('backtest')}
+          className="rounded-[0.625rem] border px-3.5 py-2 text-xs font-medium transition-colors"
+          style={
+            labTab === 'backtest'
+              ? { borderColor: 'var(--color-cyan)', background: 'rgba(6,182,212,0.16)', color: 'var(--color-ink)' }
+              : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
+          }
+        >
+          🔬 Backtest &amp; Chart
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={labTab === 'studien'}
+          onClick={() => switchLabTab('studien')}
+          className="rounded-[0.625rem] border px-3.5 py-2 text-xs font-medium transition-colors"
+          style={
+            labTab === 'studien'
+              ? { borderColor: 'var(--color-cyan)', background: 'rgba(6,182,212,0.16)', color: 'var(--color-ink)' }
+              : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
+          }
+        >
+          📊 Signal-Studien (Genutzt &amp; Verpasst)
+        </button>
+      </div>
+
+      {labTab === 'studien' ? (
+        <SignalStudiesPanel />
+      ) : (
+        <>
 
       {/* ── Geführter 3-Schritte-Wegweiser (klar & verständlich) ── */}
       <div className="mb-4 grid gap-2.5 sm:grid-cols-3 text-xs">
@@ -1234,6 +1293,8 @@ export function Labor() {
       <footer className="mt-10 text-center text-xs" style={{ color: 'var(--color-mut)' }}>
         {t('labor.footer')}
       </footer>
+        </>
+      )}
     </div>
   );
 }
