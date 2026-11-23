@@ -611,6 +611,32 @@ export function TextStrategyBuilder({ onSaved }: { onSaved?: () => void }) {
                     {busy === 'promote' ? 'Aktiviere…' : '→ Jetzt für Paper-Signale freischalten'}
                   </button>
                 )}
+                {!savedVal.verdict?.passed && !promotedMsg && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setBusy('promote');
+                      setError(null);
+                      try {
+                        await trpc.strategies.setSignalScan.mutate({
+                          strategyId: savedVal.strategyId,
+                          enabled: true,
+                        });
+                        setPromotedMsg('Für Paper-Signale aktiviert (Mensch-im-Loop & Risk-Gate bleiben aktiv).');
+                        onSaved?.();
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Aktivierung fehlgeschlagen.');
+                      } finally {
+                        setBusy(null);
+                      }
+                    }}
+                    disabled={busy !== null}
+                    className="rounded border px-3 py-1 text-xs font-medium"
+                    style={{ borderColor: 'rgba(6,182,212,0.55)', color: 'var(--color-cyan)' }}
+                  >
+                    {busy === 'promote' ? 'Aktiviere…' : '📡 Trotzdem für Paper-Signale aktivieren'}
+                  </button>
+                )}
               </div>
               {savedVal.verdict && (
                 <ul className="grid gap-1 sm:grid-cols-2 text-[11px]" style={{ color: 'var(--color-mut)' }}>

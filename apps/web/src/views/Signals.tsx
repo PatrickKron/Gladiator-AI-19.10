@@ -58,6 +58,8 @@ export function Signals() {
   const [universe, setUniverse] = useState<string[]>([]);
   const [rows, setRows] = useState<SignalRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanMsg, setScanMsg] = useState<string | null>(null);
   const reqSeqRef = useRef(0);
 
   const set = (patch: Partial<SignalFilters>) => setFilters((f) => ({ ...f, ...patch }));
@@ -127,22 +129,66 @@ export function Signals() {
 
   const reload = () => void load(filters);
 
+  async function scanNow() {
+    setScanning(true);
+    setScanMsg(null);
+    setError(null);
+    try {
+      const res = await trpc.signals.scanNow.mutate();
+      setScanMsg(
+        res.totalInserted > 0
+          ? `✓ Scan fertig: ${res.totalInserted} neue Signale gefunden (${res.reviewed} geprüft).`
+          : `Scan fertig (${res.scannedSmc} SMC-Ziele, ${res.scannedDsl} Strategie-Ziele geprüft) — aktuell keine neuen Setups. Aktiviere weitere Strategien für mehr Signale.`,
+      );
+      await load(filters);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setScanning(false);
+    }
+  }
+
   return (
     <div>
       <PageHeader
         title={t('signals.title')}
         subtitle={t('signals.subtitleList')}
         right={
-          rows !== null ? (
-            <p className="num text-sm" style={{ color: 'var(--color-mut)' }}>
-              {t('signals.rowsSummary', { n: rows.length })}
-              {expired.length > 0 && <> · {t('signals.expiredSummary', { n: expired.length })}</>}
-            </p>
-          ) : undefined
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={scanning}
+              onClick={() => void scanNow()}
+              className="btn-primary px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+            >
+              {scanning ? 'Scanne Strategien …' : '🔍 Jetzt scannen'}
+            </button>
+            <a
+              href="#/strategien?tab=registry"
+              className="rounded-[0.625rem] border px-3 py-1.5 text-xs"
+              style={{ borderColor: 'var(--color-line)', color: 'var(--color-cyan)' }}
+            >
+              📡 Strategien wählen
+            </a>
+            {rows !== null && (
+              <p className="num text-xs" style={{ color: 'var(--color-mut)' }}>
+                {t('signals.rowsSummary', { n: rows.length })}
+                {expired.length > 0 && <> · {t('signals.expiredSummary', { n: expired.length })}</>}
+              </p>
+            )}
+          </div>
         }
       />
 
       {error && <ErrorBox message={error} />}
+      {scanMsg && (
+        <div
+          className="glass mb-4 p-3 text-xs"
+          style={{ borderLeft: '3px solid var(--color-pos)', color: 'var(--color-ink)' }}
+        >
+          {scanMsg}
+        </div>
+      )}
 
       <HindsightPanel />
 
@@ -279,18 +325,27 @@ export function Signals() {
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <a
-                  href="#/charts"
-                  className="btn-primary px-3 py-1.5 text-xs"
+                <button
+                  type="button"
+                  disabled={scanning}
+                  onClick={() => void scanNow()}
+                  className="btn-primary px-3 py-1.5 text-xs disabled:opacity-50"
                 >
-                  📈 Chart & Demo-Ticket
-                </a>
+                  {scanning ? 'Scanne …' : '🔍 Jetzt scannen'}
+                </button>
                 <a
-                  href="#/strategien?tab=katalog"
+                  href="#/strategien?tab=registry"
                   className="rounded-lg border px-3 py-1.5 text-xs"
                   style={{ borderColor: 'var(--color-line)', color: 'var(--color-cyan)' }}
                 >
-                  ⚙️ Strategien aktivieren
+                  📡 Strategien für Signale aktivieren
+                </a>
+                <a
+                  href="#/charts"
+                  className="rounded-lg border px-3 py-1.5 text-xs"
+                  style={{ borderColor: 'var(--color-line)', color: 'var(--color-mut)' }}
+                >
+                  📈 Chart & Demo-Ticket
                 </a>
               </div>
             </div>

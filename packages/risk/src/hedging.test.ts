@@ -1,10 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_HEDGING_CONFIG, evaluateHedging, parseHedgingConfig } from './hedging.js';
+import {
+  DEFAULT_HEDGING_CONFIG,
+  DEFAULT_HEDGING_STRATEGIES,
+  evaluateAssetHedging,
+  evaluateHedging,
+  parseHedgingConfig,
+  resolveHedgingForAsset,
+} from './hedging.js';
 
 describe('Hedging-Konfiguration & Auswertung', () => {
-  it('liefert sichere Defaults bei leerem/kaputtem Input', () => {
+  it('liefert sichere Defaults inkl. eingebauter Strategien bei leerem/kaputtem Input', () => {
     expect(parseHedgingConfig(null)).toEqual(DEFAULT_HEDGING_CONFIG);
     expect(parseHedgingConfig({ triggerVix: 999 })).toEqual(DEFAULT_HEDGING_CONFIG);
+    expect(DEFAULT_HEDGING_CONFIG.strategies.length).toBe(DEFAULT_HEDGING_STRATEGIES.length);
+    expect(DEFAULT_HEDGING_CONFIG.assetAssignments).toEqual({});
   });
 
   it('bleibt deaktiviert, wenn enabled=false', () => {
@@ -52,5 +61,54 @@ describe('Hedging-Konfiguration & Auswertung', () => {
     expect(res.recommendedHedgePct).toBe(60);
     expect(res.recommendedHedgeUsd).toBe(12_000);
     expect(res.exposureScaleFactor).toBe(0.5);
+  });
+
+  it('ordnet verschiedenen Assets verschiedene Hedging-Strategien zu und löst SAME sauber auf', () => {
+    const cfg = parseHedgingConfig({
+      enabled: true,
+      assetAssignments: {
+        'BTC/USDT': 'crypto-crash-shield',
+        'SOL/USDT': 'altcoin-btc-beta',
+        'RHM.DE': 'equity-index-shield',
+        'XAU/USD': 'none',
+      },
+      defaultStrategyId: 'stablecoin-buffer',
+    });
+
+    const btc = resolveHedgingForAsset(cfg, 'btc/usdt');
+    expect(btc.mode).toBe('assigned');
+    expect(btc.strategyId).toBe('crypto-crash-shield');
+    expect(btc.hedgeSymbol).toBe('BTC/USDT'); // SAME → BTC/USDT
+    expect(btc.effectiveConfig.maxHedgeRatioPct).toBe(60);
+
+    const sol = evaluateAssetHedging(cfg, 'SOL/USDT', {
+      drawdownPct: 5,
+      vix: 26,
+      grsLabel: 'risk-off',
+      netExposureUsd: 10_000,
+    });
+    expect(sol.strategyId).toBe('altcoin-btc-beta');
+    expect(sol.hedgeSymbol).toBe('BTC/USDT');
+    expect(sol.evaluation.state).toBe('active');
+    expect(sol.evaluation.recommendedHedgePct).toBe(45);
+    expect(sol.evaluation.recommendedHedgeUsd).toBe(4_500);
+
+    const rhm = resolveHedgingForAsset(cfg, 'RHM.DE');
+    expect(rhm.strategyId).toBe('equity-index-shield');
+    expect(rhm.hedgeSymbol).toBe('SPY');
+
+    const gold = evaluateAssetHedging(cfg, 'XAU/USD', {
+      drawdownPct: 12,
+      vix: 40,
+      grsLabel: 'risk-off',
+      netExposureUsd: 5_000,
+    });
+    expect(gold.mode).toBe('none');
+    expect(gold.evaluation.state).toBe('disabled');
+
+    const eth = resolveHedgingForAsset(cfg, 'ETH/USDT');
+    expect(eth.mode).toBe('default_strategy');
+    expect(eth.strategyId).toBe('stablecoin-buffer');
+    expect(eth.hedgeSymbol).toBe('USDT');
   });
 });

@@ -1,8 +1,8 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { getOhlcv, isCandleFresh } from '@gladiator/market-data';
-import { deriveLifecyclePlans, evaluateDslAt, parseInstructionDsl } from '@gladiator/strategy-engine';
+import { deriveLifecyclePlans, evaluateDslAt, parseInstructionDsl, type InstructionDsl } from '@gladiator/strategy-engine';
 import { registeredAssets, type RegisteredAsset } from './asset-register.js';
 import { AGGREGATE_LOOKBACK_MS, prepareScanCandles, scanSourceTimeframe, signalAssetClassFor, type ScanTarget } from './scan-targets.js';
 import { normalizeTradingPair } from './universe.js';
@@ -10,12 +10,11 @@ import { normalizeTradingPair } from './universe.js';
 const { strategies, strategyVersions, signals } = schema;
 
 /**
- * DSL-Scan (07_ §3/§4): registrierte Anweisungs-Strategien laufen durch
- * DIESELBE Pipeline wie die eingebauten — letzter abgeschlossener Bar,
+ * DSL-Scan (07_ §3/§4 + Welle 19): registrierte Anweisungs- & Katalog-Strategien
+ * laufen durch DIESELBE Pipeline wie die eingebauten — letzter abgeschlossener Bar,
  * echte Kerzen, Dedupe, kanonisches Signal (source 'instruction').
- * Kerzenquelle (A1): das DSL-Symbol wird im Asset-Register nachgeschlagen (Binance, Yahoo,
- * Twelve Data); unbekannt ⇒ ehrlicher Fehler statt geratener Quelle. Nur abgeschlossene, frische
- * Kerzen, 4h für Börsen-Quellen aus 1h — wie der SMC-Scan.
+ * Unterstützt sowohl Einzel-Symbol (`dsl.symbol`), gezielte Multi-Asset-Listen
+ * als auch `signalSymbols: ['*']` (= alle registrierten Watchlist-Assets).
  */
 
 const MIN_CANDLES = 220;
@@ -34,6 +33,51 @@ export function resolveDslTarget(symbol: string, registered: readonly Registered
   }
   const pair = normalizeTradingPair(wanted);
   return pair ? { symbol: pair, venue: 'binance', assetClass: 'crypto' } : null;
+}
+
+/**
+ * Löst alle Scan-Ziele einer DSL-Strategie auf:
+ * - `signalSymbols` enthält `'*'` → alle registrierten Assets mit gültiger Asset-Klasse
+ * - `signalSymbols` nicht leer → alle angegebenen Symbole (dedupliziert)
+ * - sonst → genau `[dsl.symbol]`
+ */
+export function resolveDslScanTargets(
+  dsl: Pick<InstructionDsl, 'symbol' | 'signalSymbols'>,
+  registered: readonly RegisteredAsset[],
+): { targets: ScanTarget[]; unknownSymbols: string[] } {
+  const targets: ScanTarget[] = [];
+  const seen = new Set<string>();
+  const unknownSymbols: string[] = [];
+
+  const pushTarget = (t: ScanTarget | null, rawSym: string) => {
+    if (!t) {
+      unknownSymbols.push(rawSym);
+      return;
+    }
+    const key = `${t.venue}:${t.symbol.toUpperCase()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    targets.push(t);
+  };
+
+  const list = dsl.signalSymbols?.map((s) => s.trim()).filter(Boolean) ?? [];
+  if (list.includes('*')) {
+    for (const asset of registered) {
+      const assetClass = signalAssetClassFor(asset);
+      if (!assetClass) continue;
+      pushTarget({ symbol: asset.symbol, venue: asset.venue, assetClass }, asset.symbol);
+    }
+    if (targets.length === 0) {
+      pushTarget(resolveDslTarget(dsl.symbol, registered), dsl.symbol);
+    }
+    return { targets, unknownSymbols };
+  }
+
+  const symbolsToScan = list.length > 0 ? list : [dsl.symbol];
+  for (const sym of symbolsToScan) {
+    pushTarget(resolveDslTarget(sym, registered), sym);
+  }
+  return { targets, unknownSymbols };
 }
 
 export type DslScanResult = {
@@ -57,10 +101,10 @@ export async function runDslScan(db: Db, opts: { now?: Date } = {}): Promise<Dsl
     })
     .from(strategies)
     .innerJoin(strategyVersions, eq(strategyVersions.strategyId, strategies.id))
-    .where(and(eq(strategies.kind, 'dsl'), eq(strategies.isActive, true), eq(strategyVersions.status, 'paper')))
+    .where(and(eq(strategies.kind, 'dsl'), eq(strategies.isActive, true), inArray(strategyVersions.status, ['paper', 'live'])))
     .orderBy(desc(strategyVersions.version));
 
-  // Je Strategie nur die NEUESTE Paper-Version auswerten.
+  // Je Strategie nur die NEUESTE aktive Version auswerten.
   const latest = new Map<string, (typeof rows)[number]>();
   for (const r of rows) if (!latest.has(r.strategyId)) latest.set(r.strategyId, r);
 
@@ -74,73 +118,75 @@ export async function runDslScan(db: Db, opts: { now?: Date } = {}): Promise<Dsl
     }
     const dsl = parsed.dsl;
 
-    const target = resolveDslTarget(dsl.symbol, registered);
-    if (!target) {
-      result.errors.push(`${row.slug} v${row.version}: Quelle für ${dsl.symbol} unbekannt — erst als Markt hinzufügen.`);
-      continue;
-    }
-    const sourceTf = scanSourceTimeframe(target.venue, dsl.timeframe);
-    const raw = await getOhlcv(db, {
-      venue: target.venue,
-      symbol: target.symbol,
-      timeframe: sourceTf,
-      ...(sourceTf === dsl.timeframe ? { limit: LOAD_LIMIT + 1 } : { since: new Date(now.getTime() - AGGREGATE_LOOKBACK_MS), until: now }),
-    });
-    const candles = prepareScanCandles(target.venue, dsl.timeframe, raw, now).slice(-LOAD_LIMIT);
-    result.scanned.push({ slug: row.slug, symbol: dsl.symbol, timeframe: dsl.timeframe, candles: candles.length });
-    if (candles.length < MIN_CANDLES) continue; // ehrlich: zu wenig Historie
-    const lastTs = candles[candles.length - 1]!.ts;
-    if (!isCandleFresh(lastTs, dsl.timeframe, target.venue, now)) {
-      result.errors.push(`${row.slug}: ${target.venue}:${target.symbol}@${dsl.timeframe} veraltet (letzte Kerze ${lastTs.toISOString()}) — kein Signal auf alten Kerzen.`);
-      continue;
+    const { targets, unknownSymbols } = resolveDslScanTargets(dsl, registered);
+    for (const u of unknownSymbols) {
+      result.errors.push(`${row.slug} v${row.version}: Quelle für ${u} unbekannt — erst als Markt hinzufügen.`);
     }
 
-    const setup = evaluateDslAt(candles, candles.length - 1, dsl);
-    if (!setup) continue;
+    for (const target of targets) {
+      const sourceTf = scanSourceTimeframe(target.venue, dsl.timeframe);
+      const raw = await getOhlcv(db, {
+        venue: target.venue,
+        symbol: target.symbol,
+        timeframe: sourceTf,
+        ...(sourceTf === dsl.timeframe ? { limit: LOAD_LIMIT + 1 } : { since: new Date(now.getTime() - AGGREGATE_LOOKBACK_MS), until: now }),
+      });
+      const candles = prepareScanCandles(target.venue, dsl.timeframe, raw, now).slice(-LOAD_LIMIT);
+      result.scanned.push({ slug: row.slug, symbol: target.symbol, timeframe: dsl.timeframe, candles: candles.length });
+      if (candles.length < MIN_CANDLES) continue; // ehrlich: zu wenig Historie
+      const lastTs = candles[candles.length - 1]!.ts;
+      if (!isCandleFresh(lastTs, dsl.timeframe, target.venue, now)) {
+        result.errors.push(`${row.slug}: ${target.venue}:${target.symbol}@${dsl.timeframe} veraltet (letzte Kerze ${lastTs.toISOString()}) — kein Signal auf alten Kerzen.`);
+        continue;
+      }
 
-    const dup = await db.execute(sql`
-      SELECT 1 FROM signals
-      WHERE strategy_id = ${row.strategyId} AND venue = ${target.venue} AND symbol = ${target.symbol} AND timeframe = ${dsl.timeframe}
-        AND direction = ${setup.direction} AND setup_type = ${setup.setupType}
-        AND status = 'new'
-      LIMIT 1
-    `);
-    if (dup.rows.length > 0) {
-      result.skippedDuplicates++;
-      continue;
+      const setup = evaluateDslAt(candles, candles.length - 1, dsl);
+      if (!setup) continue;
+
+      const dup = await db.execute(sql`
+        SELECT 1 FROM signals
+        WHERE strategy_id = ${row.strategyId} AND venue = ${target.venue} AND symbol = ${target.symbol} AND timeframe = ${dsl.timeframe}
+          AND direction = ${setup.direction} AND setup_type = ${setup.setupType}
+          AND status = 'new'
+        LIMIT 1
+      `);
+      if (dup.rows.length > 0) {
+        result.skippedDuplicates++;
+        continue;
+      }
+
+      await db.insert(signals).values({
+        source: 'instruction',
+        strategyId: row.strategyId,
+        // Die Version ist zugleich der Transportweg für TP-Gewichte und den
+        // Break-Even-Schalter: der Executor liest sie aus DERSELBEN (unveränderlichen)
+        // DSL dieser Version (loadExecutionPlan) — Backtest = Live, ohne Extra-Spalte.
+        strategyVersionId: row.versionId,
+        symbol: target.symbol,
+        venue: target.venue,
+        timeframe: dsl.timeframe,
+        assetClass: target.assetClass,
+        venueType: dsl.venueType,
+        direction: setup.direction,
+        setupType: setup.setupType,
+        entry: String(setup.entry),
+        stopLoss: String(setup.stopLoss),
+        takeProfits: setup.takeProfits.map(String),
+        // Trailing-Stop der Strategie reist mit dem Signal bis in die Live-Position (Backtest = Live).
+        ...(setup.trailPct !== undefined ? { trailPct: String(setup.trailPct) } : {}),
+        leverageSuggested: String(setup.leverageSuggested),
+        score: String(setup.score),
+        riskClass: setup.riskClass,
+        confluence: setup.confluence,
+        session: setup.session,
+        // 05_ §9: Reentry-/Leverage-Upgrade-Plan je Setup-Typ (dieselbe Ableitung wie die Engine).
+        ...deriveLifecyclePlans(setup),
+        emaRegime: setup.emaRegime,
+        marketPhase: setup.marketPhase,
+        status: 'new',
+      });
+      result.inserted++;
     }
-
-    await db.insert(signals).values({
-      source: 'instruction',
-      strategyId: row.strategyId,
-      // Die Version ist zugleich der Transportweg für TP-Gewichte und den
-      // Break-Even-Schalter: der Executor liest sie aus DERSELBEN (unveränderlichen)
-      // DSL dieser Version (loadExecutionPlan) — Backtest = Live, ohne Extra-Spalte.
-      strategyVersionId: row.versionId,
-      symbol: target.symbol,
-      venue: target.venue,
-      timeframe: dsl.timeframe,
-      assetClass: target.assetClass,
-      venueType: dsl.venueType,
-      direction: setup.direction,
-      setupType: setup.setupType,
-      entry: String(setup.entry),
-      stopLoss: String(setup.stopLoss),
-      takeProfits: setup.takeProfits.map(String),
-      // Trailing-Stop der Strategie reist mit dem Signal bis in die Live-Position (Backtest = Live).
-      ...(setup.trailPct !== undefined ? { trailPct: String(setup.trailPct) } : {}),
-      leverageSuggested: String(setup.leverageSuggested),
-      score: String(setup.score),
-      riskClass: setup.riskClass,
-      confluence: setup.confluence,
-      session: setup.session,
-      // 05_ §9: Reentry-/Leverage-Upgrade-Plan je Setup-Typ (dieselbe Ableitung wie die Engine).
-      ...deriveLifecyclePlans(setup),
-      emaRegime: setup.emaRegime,
-      marketPhase: setup.marketPhase,
-      status: 'new',
-    });
-    result.inserted++;
   }
 
   return result;

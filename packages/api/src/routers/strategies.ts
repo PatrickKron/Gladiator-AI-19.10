@@ -130,7 +130,7 @@ export async function promoteVersion(db: Db, userId: string, versionId: string, 
 export { loadVersionValidity };
 
 export const strategiesRouter = router({
-  /** Alle Strategien mit letzter Version (Registry-Übersicht). */
+  /** Alle Strategien mit letzter Version & Signal-Scan-Status (Registry-Übersicht). */
   list: protectedProcedure.query(async ({ ctx }) => {
     const rows = await ctx.db
       .select({
@@ -144,8 +144,153 @@ export const strategiesRouter = router({
       })
       .from(strategies)
       .orderBy(desc(strategies.createdAt));
-    return rows;
+
+    if (rows.length === 0) return [];
+
+    const allVersions = await ctx.db
+      .select({
+        id: strategyVersions.id,
+        strategyId: strategyVersions.strategyId,
+        version: strategyVersions.version,
+        status: strategyVersions.status,
+        params: strategyVersions.params,
+      })
+      .from(strategyVersions)
+      .orderBy(desc(strategyVersions.version));
+
+    const latestByStrategy = new Map<string, (typeof allVersions)[number]>();
+    for (const v of allVersions) {
+      if (!latestByStrategy.has(v.strategyId)) latestByStrategy.set(v.strategyId, v);
+    }
+
+    return rows.map((r) => {
+      const lv = latestByStrategy.get(r.id);
+      const p = (lv?.params ?? null) as {
+        symbol?: string;
+        timeframe?: string;
+        direction?: string;
+        signalSymbols?: string[];
+      } | null;
+      const signalScanActive =
+        r.isActive &&
+        (r.kind === 'builtin' ||
+          r.kind === 'pine' ||
+          (r.kind === 'dsl' && (lv?.status === 'paper' || lv?.status === 'live')));
+      return {
+        ...r,
+        latestVersionId: lv?.id ?? null,
+        latestStatus: lv?.status ?? null,
+        symbol: typeof p?.symbol === 'string' ? p.symbol : null,
+        timeframe: typeof p?.timeframe === 'string' ? p.timeframe : null,
+        direction: typeof p?.direction === 'string' ? p.direction : null,
+        signalSymbols: Array.isArray(p?.signalSymbols) ? p.signalSymbols : null,
+        signalScanActive,
+      };
+    });
   }),
+
+  /**
+   * Jede Strategie (builtin, dsl, pine) für Paper-Signale ein-/ausschalten und optional
+   * auf bestimmte Ziel-Assets oder alle Watchlist-Assets (['*']) anwenden (Welle 19).
+   * Mensch im Loop & Risk-Gate bleiben beim Ausführen immer aktiv; Live wird hier nie freigeschaltet.
+   */
+  setSignalScan: protectedProcedure
+    .input(
+      z.object({
+        strategyId: z.string().uuid(),
+        enabled: z.boolean(),
+        signalSymbols: z.array(z.string().min(1).max(32)).max(50).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [strategy] = await ctx.db.select().from(strategies).where(eq(strategies.id, input.strategyId)).limit(1);
+      if (!strategy) throw new TRPCError({ code: 'NOT_FOUND', message: 'Strategie nicht gefunden.' });
+
+      await ctx.db
+        .update(strategies)
+        .set({ isActive: input.enabled })
+        .where(eq(strategies.id, strategy.id));
+
+      let latestVersionId: string | null = null;
+      let validated = false;
+      let appliedSymbols: string[] | null = null;
+
+      if (strategy.kind === 'dsl') {
+        const [lv] = await ctx.db
+          .select()
+          .from(strategyVersions)
+          .where(eq(strategyVersions.strategyId, strategy.id))
+          .orderBy(desc(strategyVersions.version))
+          .limit(1);
+        if (!lv) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'Diese Strategie hat noch keine gespeicherte Version.',
+          });
+        }
+        latestVersionId = lv.id;
+        const val = await loadVersionValidity(ctx.db, lv.id);
+        validated = Boolean(val.hasBacktest && val.verdict?.passed);
+
+        let nextParams = lv.params;
+        if (input.signalSymbols !== undefined) {
+          const parsed = parseInstructionDsl(lv.params);
+          if (!parsed.ok) {
+            throw new TRPCError({
+              code: 'UNPROCESSABLE_CONTENT',
+              message: `Strategie-DSL ungültig: ${parsed.errors.join('; ')}`,
+            });
+          }
+          const cleaned = input.signalSymbols.map((s) => s.trim().toUpperCase()).filter(Boolean);
+          const updatedDsl: InstructionDsl = {
+            ...parsed.dsl,
+            ...(cleaned.length > 0 ? { signalSymbols: cleaned } : { signalSymbols: undefined }),
+          };
+          if (cleaned.length === 0) delete updatedDsl.signalSymbols;
+          nextParams = updatedDsl;
+          appliedSymbols = cleaned.length > 0 ? cleaned : null;
+        }
+
+        const nextStatus =
+          input.enabled && lv.status !== 'live'
+            ? 'paper'
+            : lv.status;
+
+        await ctx.db
+          .update(strategyVersions)
+          .set({
+            status: nextStatus,
+            params: nextParams,
+            ...(input.enabled && lv.status === 'draft' ? { promotedBy: ctx.user.id, promotedAt: new Date() } : {}),
+          })
+          .where(eq(strategyVersions.id, lv.id));
+      }
+
+      await ctx.db.insert(auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: 'strategy.signal_scan.updated',
+        entityType: 'strategy',
+        entityId: strategy.id,
+        details: {
+          slug: strategy.slug,
+          kind: strategy.kind,
+          enabled: input.enabled,
+          validated,
+          paperSignalsOnly: true,
+          signalSymbols: appliedSymbols,
+        },
+        ip: ctx.ip,
+      });
+
+      return {
+        strategyId: strategy.id,
+        enabled: input.enabled,
+        latestVersionId,
+        validated,
+        signalSymbols: appliedSymbols,
+      };
+    }),
 
   /** Versionen einer Strategie (Params + Status — Grundlage für Backtests & Promotion). */
   versions: protectedProcedure

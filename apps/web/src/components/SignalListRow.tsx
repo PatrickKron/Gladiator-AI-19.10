@@ -213,23 +213,23 @@ export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDeci
           {isNew && (
             <span className="ml-auto flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
               {verdict.riskReject ? (
-                // Ehrlicher Button-Zustand: Risk-Veto liegt vor → Klick prüft trotzdem LIVE am Gate.
+                // Ehrlicher Button-Zustand: Risk-Veto liegt vor → Klick öffnet Ticket & prüft LIVE am Gate (inkl. Auto-Cap).
                 <button
                   onClick={() => void decide('confirm')}
                   disabled={busy !== null}
-                  className="rounded-[0.625rem] border border-dashed px-2.5 py-1 text-xs disabled:opacity-50"
-                  style={{ borderColor: 'rgba(239,68,68,0.6)', color: 'var(--color-neg)' }}
+                  className="rounded-[0.625rem] border px-2.5 py-1 text-xs font-medium disabled:opacity-50"
+                  style={{ borderColor: 'rgba(245,158,11,0.65)', color: 'var(--color-warn)', background: 'rgba(245,158,11,0.08)' }}
                   title={t('signals.blockedBtnHint', { reason: verdict.riskReject })}
                 >
-                  ⛔ {t('signals.blockedBtn')}
+                  ▶ Prüfen & Ausführen
                 </button>
               ) : (
                 <button
                   onClick={() => void decide('confirm')}
                   disabled={busy !== null}
-                  className="btn-primary px-2.5 py-1 text-xs disabled:opacity-50"
+                  className="btn-primary px-3 py-1 text-xs font-semibold disabled:opacity-50"
                 >
-                  {t('signals.confirmBtn')}
+                  ▶ Ausführen
                 </button>
               )}
               <button
