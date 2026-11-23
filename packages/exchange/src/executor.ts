@@ -2,10 +2,13 @@ import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, sql } fro
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import {
+  applyAdaptiveHedgeSizing,
   countRegimeChanges,
+  evaluateAssetHedging,
   evaluateRisk,
   intradayMovePct,
   noTradeWindowFor,
+  parseHedgingConfig,
   returnZScore,
   safeCappedNotional,
   SAFE_006_WINDOW_MS,
@@ -150,6 +153,7 @@ export async function loadRiskSettings(db: Db, userId: string) {
     pauseAfterLossStreakHours: 4,
     killSwitchActive: settingsRow?.killSwitchActive ?? false,
     mode: (settingsRow?.mode ?? 'paper') as 'paper' | 'live',
+    hedgingConfig: parseHedgingConfig(settingsRow?.hedgingConfig),
   };
 }
 
@@ -540,25 +544,46 @@ export async function executeConfirmedSignal(
   // Ohne Override bleibt es bei konservativ 1× (Paper-Phase, Hebel-Anwendung mit VDB2-Promotion).
   const effectiveLeverage = opts.overrides?.leverage ?? 1;
 
+  const riskCtxBase = opts.riskContext ?? (await loadRiskContext(db));
+  const totalExposureUsd = Object.values(state.exposureBySymbolPct).reduce(
+    (sum, pct) => sum + (state.equity * pct) / 100,
+    0,
+  );
+  const assetHedge = evaluateAssetHedging(settings.hedgingConfig, signal.symbol, {
+    drawdownPct: Math.max(0, -state.monthlyPnlPct),
+    vix: riskCtxBase.vix ?? null,
+    grsLabel: null,
+    netExposureUsd: totalExposureUsd,
+  });
+
   // Bei engen Stops (z. B. 0,5–2 % SL) würde 1-%-Risiko-Sizing das Exposure-/Margin-Limit sprengen.
   // Wenn der Nutzer KEINEN expliziten Wunschbetrag angibt, deckeln wir konservativ auf das
-  // erlaubte Budget (Risiko wird kleiner, alle harten Risk-Gates bleiben unverändert scharf).
+  // erlaubte Budget UND skalieren bei aktivem Asset-Hedge-Trigger adaptiv (Risiko wird nur kleiner).
   const autoCap =
     opts.overrides?.notionalUsd === undefined
       ? safeCappedNotional({
-          equity: state.equity,
-          availableMargin: state.availableMargin,
-          leverage: effectiveLeverage,
-          riskPct: settings.riskPctPerTrade,
-          entry: Number(signal.entry),
-          stopLoss: effectiveStopLoss,
-          maxExposurePct: settings.maxExposurePctPerAsset,
-          existingExposurePct: state.exposureBySymbolPct[signal.symbol] ?? 0,
-          minNotional: rules.minNotional,
-        })
+        equity: state.equity,
+        availableMargin: state.availableMargin,
+        leverage: effectiveLeverage,
+        riskPct: settings.riskPctPerTrade,
+        entry: Number(signal.entry),
+        stopLoss: effectiveStopLoss,
+        maxExposurePct: settings.maxExposurePctPerAsset,
+        existingExposurePct: state.exposureBySymbolPct[signal.symbol] ?? 0,
+        minNotional: rules.minNotional,
+      })
+      : null;
+  const hedgeSizing =
+    opts.overrides?.notionalUsd === undefined && autoCap !== null
+      ? applyAdaptiveHedgeSizing(autoCap.notional, rules.minNotional, assetHedge)
       : null;
   const effectiveRequestedNotional =
-    opts.overrides?.notionalUsd ?? (autoCap?.capped && autoCap.notional !== null ? autoCap.notional : undefined);
+    opts.overrides?.notionalUsd ??
+    (hedgeSizing?.scaled && hedgeSizing.notionalUsd !== null
+      ? hedgeSizing.notionalUsd
+      : autoCap?.capped && autoCap.notional !== null
+        ? autoCap.notional
+        : undefined);
 
   const verdict = evaluateRisk(
     {
@@ -577,7 +602,7 @@ export async function executeConfirmedSignal(
     state,
     rules,
     gates,
-    { ...(opts.riskContext ?? (await loadRiskContext(db))), ...orderRiskInputs },
+    { ...riskCtxBase, ...orderRiskInputs },
   );
 
   await db.insert(auditLog).values({
@@ -590,6 +615,16 @@ export async function executeConfirmedSignal(
       reasons: verdict.reasons,
       checks: verdict.checks,
       sizing: verdict.sizing,
+      adaptiveHedging:
+        assetHedge.evaluation.state === 'active'
+          ? {
+              strategyName: assetHedge.strategyName,
+              hedgeSymbol: assetHedge.hedgeSymbol,
+              recommendedHedgePct: assetHedge.evaluation.recommendedHedgePct,
+              scaled: hedgeSizing?.scaled ?? false,
+              scaleFactor: hedgeSizing?.scaleFactor ?? 1,
+            }
+          : null,
       mode: execMode,
       venue: venue.id,
       // Transparenz: Was hat der User angepasst, was war der Strategie-Vorschlag?

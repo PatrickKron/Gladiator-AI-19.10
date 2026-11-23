@@ -94,7 +94,20 @@ export async function workerHeartbeatAgeSecAsync(): Promise<number | null> {
   try {
     if (!heartbeatReader) {
       const { host, port } = redisConnection();
-      heartbeatReader = new Redis({ host, port, maxRetriesPerRequest: 1, enableOfflineQueue: false });
+      heartbeatReader = new Redis({
+        host,
+        port,
+        maxRetriesPerRequest: 1,
+        connectTimeout: 2000,
+        commandTimeout: 2000,
+        lazyConnect: true,
+      });
+      heartbeatReader.on('error', () => {
+        // Fehler wird im Aufrufer sauber als null behandelt (kein unhandled error event).
+      });
+    }
+    if (heartbeatReader.status === 'wait') {
+      await heartbeatReader.connect();
     }
     const v = await heartbeatReader.get(HEARTBEAT_KEY);
     return v ? Math.max(0, Math.floor((Date.now() - Number(v)) / 1000)) : null;

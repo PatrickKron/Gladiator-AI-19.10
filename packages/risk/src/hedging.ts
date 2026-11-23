@@ -243,6 +243,54 @@ export function evaluateAssetHedging(
   };
 }
 
+export type AdaptiveHedgeSizingResult = {
+  notionalUsd: number | null;
+  scaled: boolean;
+  scaleFactor: number;
+  strategyName: string;
+  hedgeSymbol: string;
+  recommendedHedgePct: number;
+  summary: string;
+};
+
+/**
+ * Wendet den adaptiven Hedging-Skalierungsfaktor (`exposureScaleFactor`, z. B. 0,5)
+ * konservativ auf eine vorgeschlagene Positionsgröße an, sobald der Asset-Hedge-Trigger
+ * live aktiv ist und `autoReduceExposure` eingeschaltet wurde.
+ * Erhöht NIEMALS das Risiko; unterschreitet `minNotionalUsd` nicht, wenn das Basis-Notional
+ * darüber lag.
+ */
+export function applyAdaptiveHedgeSizing(
+  baseNotionalUsd: number | null,
+  minNotionalUsd: number,
+  assetEval: AssetHedgingEvaluation,
+): AdaptiveHedgeSizingResult {
+  const factor = assetEval.evaluation.state === 'active' ? assetEval.evaluation.exposureScaleFactor : 1;
+  if (baseNotionalUsd === null || !Number.isFinite(baseNotionalUsd) || baseNotionalUsd <= 0 || factor >= 1) {
+    return {
+      notionalUsd: baseNotionalUsd,
+      scaled: false,
+      scaleFactor: 1,
+      strategyName: assetEval.strategyName,
+      hedgeSymbol: assetEval.hedgeSymbol,
+      recommendedHedgePct: assetEval.evaluation.recommendedHedgePct,
+      summary: assetEval.evaluation.summary,
+    };
+  }
+  const scaledRaw = baseNotionalUsd * factor;
+  const clamped = baseNotionalUsd >= minNotionalUsd ? Math.max(minNotionalUsd, scaledRaw) : scaledRaw;
+  const finalNotional = Math.min(baseNotionalUsd, clamped);
+  return {
+    notionalUsd: Math.round(finalNotional * 100) / 100,
+    scaled: finalNotional < baseNotionalUsd - 1e-6,
+    scaleFactor: factor,
+    strategyName: assetEval.strategyName,
+    hedgeSymbol: assetEval.hedgeSymbol,
+    recommendedHedgePct: assetEval.evaluation.recommendedHedgePct,
+    summary: assetEval.evaluation.summary,
+  };
+}
+
 export type HedgingContext = {
   /** Aktueller Drawdown als positive Prozentzahl (z. B. 7.5 für −7,5 %). */
   drawdownPct: number | null;

@@ -23,7 +23,7 @@ import {
   getMacroSnapshot,
   upcomingEvents,
 } from '@gladiator/market-data';
-import { evaluateRisk, safeCappedNotional } from '@gladiator/risk';
+import { evaluateAssetHedging, evaluateRisk, safeCappedNotional } from '@gladiator/risk';
 import {
   CostGuard,
   decideHedge,
@@ -306,8 +306,28 @@ export async function reviewNewSignals(db: Db, venue: TradingVenue, opts: { sign
 
       const portfolio = verdicts[verdicts.length - 1]!;
 
-      // ── Erweitertes Signalobjekt (PDF §11) additiv persistieren ──
-      const hedge = decideHedge(intelligence);
+      // ── Erweitertes Signalobjekt (PDF §11) + adaptives Pro-Asset-Hedging (Welle 20) ──
+      const totalExposureUsd = Object.values(state.exposureBySymbolPct).reduce(
+        (sum, pct) => sum + (state.equity * pct) / 100,
+        0,
+      );
+      const assetHedge = evaluateAssetHedging(settings.hedgingConfig, s.symbol, {
+        drawdownPct: Math.max(0, -state.monthlyPnlPct),
+        vix: macro.vix?.value ?? riskContext.vix ?? null,
+        grsLabel: macro.grs?.label ?? null,
+        netExposureUsd: totalExposureUsd,
+      });
+      const baseHedge = decideHedge(intelligence);
+      const hedge =
+        assetHedge.evaluation.state === 'active'
+          ? {
+              mode:
+                baseHedge.mode === 'full_hedge' || assetHedge.evaluation.recommendedHedgePct >= 60
+                  ? ('full_hedge' as const)
+                  : ('partial_hedge' as const),
+              reason: `${assetHedge.strategyName}: ${assetHedge.evaluation.summary}`,
+            }
+          : baseHedge;
       const riskClass = escalateRiskClass(s.riskClass, intelligence);
       const positionSizeMode = positionSizeModeFor(hedge.mode, riskClass);
       const finalDecision = finalDecisionFor(hedge.mode, portfolio.vote);

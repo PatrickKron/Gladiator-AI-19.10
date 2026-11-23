@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_HEDGING_CONFIG,
   DEFAULT_HEDGING_STRATEGIES,
+  applyAdaptiveHedgeSizing,
   evaluateAssetHedging,
   evaluateHedging,
   parseHedgingConfig,
@@ -110,5 +111,33 @@ describe('Hedging-Konfiguration & Auswertung', () => {
     expect(eth.mode).toBe('default_strategy');
     expect(eth.strategyId).toBe('stablecoin-buffer');
     expect(eth.hedgeSymbol).toBe('USDT');
+  });
+
+  it('skaliert vorgeschlagene Positionsgrößen adaptiv auf 50 % bei aktivem Asset-Hedge-Trigger', () => {
+    const cfg = parseHedgingConfig({
+      enabled: true,
+      assetAssignments: { 'BTC/USDT': 'crypto-crash-shield' },
+    });
+    const activeEval = evaluateAssetHedging(cfg, 'BTC/USDT', {
+      drawdownPct: 6,
+      vix: 28,
+      grsLabel: 'risk-off',
+      netExposureUsd: 4_000,
+    });
+    const scaled = applyAdaptiveHedgeSizing(2_000, 10, activeEval);
+    expect(scaled.scaled).toBe(true);
+    expect(scaled.scaleFactor).toBe(0.5);
+    expect(scaled.notionalUsd).toBe(1_000);
+
+    // Standby skaliert nicht
+    const standbyEval = evaluateAssetHedging(cfg, 'BTC/USDT', {
+      drawdownPct: 1,
+      vix: 16,
+      grsLabel: 'risk-on',
+      netExposureUsd: 4_000,
+    });
+    const unchanged = applyAdaptiveHedgeSizing(2_000, 10, standbyEval);
+    expect(unchanged.scaled).toBe(false);
+    expect(unchanged.notionalUsd).toBe(2_000);
   });
 });

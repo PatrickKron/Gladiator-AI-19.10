@@ -64,6 +64,11 @@ export const tradingRouter = router({
       mode: settings.mode,
       liveEquityUsd,
     });
+    const netExposureUsd = Object.values(state.exposureBySymbolPct).reduce(
+      (sum, pct) => sum + (state.equity * pct) / 100,
+      0,
+    );
+    const drawdownPct = Math.max(0, -state.monthlyPnlPct);
     const venueStatus = ctx.venue ? await ctx.venue.validate() : { ok: false, detail: 'Kein Venue aktiv.' };
     return {
       mode: settings.mode,
@@ -71,6 +76,9 @@ export const tradingRouter = router({
       equity: state.equity,
       dailyPnlPct: state.dailyPnlPct,
       weeklyPnlPct: state.weeklyPnlPct,
+      monthlyPnlPct: state.monthlyPnlPct,
+      drawdownPct,
+      netExposureUsd,
       openPositions: state.openPositions,
       consecutiveLosses: state.consecutiveLosses,
       venue: activeVenueInfo ?? { id: ctx.venue?.id ?? 'none', kind: ctx.venue?.kind ?? 'none', ...venueStatus },

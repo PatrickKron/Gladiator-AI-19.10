@@ -14,10 +14,10 @@ import {
   loadRiskSettings,
   type TradingVenue,
 } from '@gladiator/exchange';
-import { evaluateRisk, exposureFit, safeCappedNotional } from '@gladiator/risk';
+import { applyAdaptiveHedgeSizing, evaluateAssetHedging, evaluateRisk, exposureFit, safeCappedNotional } from '@gladiator/risk';
 import { leverageUpgradeSchema, reentrySchema } from '@gladiator/core';
 import { formatEmergencyAlert, notifySafe, reviewNewSignals, runDslScan, runSignalScan, telegramHtmlToText } from '@gladiator/jobs';
-import { getEurUsdRate } from '@gladiator/market-data';
+import { getEurUsdRate, getMacroSnapshot } from '@gladiator/market-data';
 import { evaluateExpiredSignals, getOptimalParams, MIN_TRADES_PER_CLUSTER, type OptimalParams } from '@gladiator/backtest';
 import { buildClusterKey } from '@gladiator/strategy-engine';
 import { protectedProcedure, router } from '../trpc.js';
@@ -285,6 +285,19 @@ export const signalsRouter = router({
       const gates = await loadActiveGates(ctx.db);
       const suggestedLev = Math.max(1, Math.min(settings.maxLeverage, Number(signal.leverageSuggested ?? 1) || 1));
       const existingExpPct = state.exposureBySymbolPct[signal.symbol] ?? 0;
+      const riskContext = await loadRiskContext(ctx.db);
+      const macroSnap = await getMacroSnapshot(ctx.db).catch(() => null);
+      const totalExposureUsd = Object.values(state.exposureBySymbolPct).reduce(
+        (sum, pct) => sum + (state.equity * pct) / 100,
+        0,
+      );
+      const assetHedge = evaluateAssetHedging(settings.hedgingConfig, signal.symbol, {
+        drawdownPct: Math.max(0, -state.monthlyPnlPct),
+        vix: riskContext.vix ?? macroSnap?.vix?.value ?? null,
+        grsLabel: macroSnap?.grs?.label ?? null,
+        netExposureUsd: totalExposureUsd,
+      });
+
       const autoCap = safeCappedNotional({
         equity: state.equity,
         availableMargin: state.availableMargin,
@@ -296,6 +309,13 @@ export const signalsRouter = router({
         existingExposurePct: existingExpPct,
         minNotional: rules.minNotional,
       });
+      const hedgeSizing = applyAdaptiveHedgeSizing(autoCap.notional, rules.minNotional, assetHedge);
+      const previewRequestedNotional =
+        hedgeSizing.scaled && hedgeSizing.notionalUsd !== null
+          ? hedgeSizing.notionalUsd
+          : autoCap.capped && autoCap.notional !== null
+            ? autoCap.notional
+            : undefined;
       const verdict = evaluateRisk(
         {
           symbol: signal.symbol,
@@ -307,16 +327,16 @@ export const signalsRouter = router({
           session: signal.session,
           emaRegime: signal.emaRegime as 'above' | 'below',
           marketPhase: signal.marketPhase as 'bull' | 'bear',
-          ...(autoCap.capped && autoCap.notional !== null ? { requestedNotional: autoCap.notional } : {}),
+          ...(previewRequestedNotional !== undefined ? { requestedNotional: previewRequestedNotional } : {}),
         },
         settings,
         state,
         rules,
         gates,
-        await loadRiskContext(ctx.db),
+        riskContext,
       );
       const eurUsd = await getEurUsdRate();
-      const suggestedNotionalUsd = verdict.sizing?.notional ?? autoCap.notional ?? null;
+      const suggestedNotionalUsd = verdict.sizing?.notional ?? hedgeSizing.notionalUsd ?? autoCap.notional ?? null;
 
       // Vorschlag aus Erfahrung (13_ §7): VDB2-Cluster des Signals, gedeckelt
       // durch die Risk-Settings. Nur Vorschlag — angewendet wird nichts
@@ -404,6 +424,19 @@ export const signalsRouter = router({
         },
         /** Optionaler Vorschlag aus echten Trades (Labor + Paper); null-Fall mit Grund. */
         experience,
+        /** Adaptives Asset-Hedging (Welle 20): Live-Status der diesem Asset zugeordneten Hedging-Strategie. */
+        hedging: {
+          strategyName: assetHedge.strategyName,
+          mode: assetHedge.mode,
+          state: assetHedge.evaluation.state,
+          hedgeSymbol: assetHedge.hedgeSymbol,
+          recommendedHedgePct: assetHedge.evaluation.recommendedHedgePct,
+          recommendedHedgeUsd: assetHedge.evaluation.recommendedHedgeUsd,
+          exposureScaleFactor: assetHedge.evaluation.exposureScaleFactor,
+          scaled: hedgeSizing.scaled,
+          triggeredBy: assetHedge.evaluation.triggeredBy,
+          summary: assetHedge.evaluation.summary,
+        },
       };
     }),
 
