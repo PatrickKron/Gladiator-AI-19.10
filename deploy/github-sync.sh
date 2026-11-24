@@ -42,8 +42,35 @@ fi
 git -C "$MIRROR" fetch -q github "+refs/heads/$BRANCH:refs/remotes/github/$BRANCH"
 NEW=$(git -C "$MIRROR" rev-parse "refs/remotes/github/$BRANCH")
 CUR=$(git -C "$SERVER_REPO" rev-parse --verify -q "refs/heads/$BRANCH" || echo none)
+LAST_STATE=$(cat "$STATE" 2>/dev/null || true)
 
-[ "$NEW" = "$CUR" ] && exit 0
+if [ "$NEW" = "$CUR" ]; then
+  # Selbstheilung (Welle 26): Wenn ein früherer Push zwar die Branch-Referenz im Server-Repo
+  # aktualisiert hat, der post-receive-Hook (scripts/ci.sh) aber transient abgebrochen ist
+  # ("fail:$NEW:<ts>"), nach 10 Min. Cooldown den Hook erneut anstoßen.
+  if [[ "$LAST_STATE" == "fail:$NEW"* ]]; then
+    FAIL_TS=0
+    if [[ "$LAST_STATE" == "fail:$NEW:"* ]]; then
+      FAIL_TS="${LAST_STATE##*:}"
+    fi
+    NOW_TS=$(date +%s)
+    if [ $((NOW_TS - FAIL_TS)) -lt 600 ]; then
+      exit 0
+    fi
+    HOOK="$SERVER_REPO/hooks/post-receive"
+    if [ -x "$HOOK" ]; then
+      echo "Selbstheilung: Wiederhole Hook für ${NEW:0:7}"
+      if (cd "$SERVER_REPO" && "$HOOK" <<< "$CUR $NEW refs/heads/$BRANCH"); then
+        echo "ok:$NEW" > "$STATE"
+        exit 0
+      else
+        echo "fail:$NEW:$(date +%s)" > "$STATE"
+        exit 1
+      fi
+    fi
+  fi
+  exit 0
+fi
 
 if [ "$CUR" != none ]; then
   # Server-Commit muss im GitHub-Stand enthalten sein (reiner Fast-Forward).
@@ -62,9 +89,9 @@ echo "Deploy ${CUR:0:7} → ${NEW:0:7}"
 if git -C "$MIRROR" push "$SERVER_REPO" "$NEW:refs/heads/$BRANCH"; then
   echo "ok:$NEW" > "$STATE"
 else
-  if [ "$(cat "$STATE" 2>/dev/null || true)" != "fail:$NEW" ]; then
+  if [[ "${LAST_STATE:-}" != "fail:$NEW"* ]]; then
     "$NOTIFY" "🔴 Gladiator-Deploy ${NEW:0:7} fehlgeschlagen (Push/Hook). Journal: journalctl -u gladiator-github-sync" || true
-    echo "fail:$NEW" > "$STATE"
   fi
+  echo "fail:$NEW:$(date +%s)" > "$STATE"
   exit 1
 fi

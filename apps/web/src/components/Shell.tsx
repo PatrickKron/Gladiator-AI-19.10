@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { logout, trpc } from '../api.js';
 import { NotificationBell } from './NotificationBell.js';
-import { AssistantPanel } from './AssistantPanel.js';
 import { ensurePriceStream, getFeedState, onFeedState, type FeedState } from '../lib/prices.js';
 import { LANGUAGES, setLanguage, storedLanguage, type LanguageCode } from '../i18n/index.js';
 import { isDemoMode, onDemoModeChange } from '../lib/demo-mode.js';
 import { getUiMode, onUiModeChange, setUiMode, type UiMode } from '../lib/ui-mode.js';
 import { currentSessionEnd, nextSessionStart, sessionAt, type MarketSession } from '../lib/market-session.js';
-import { CommandPalette } from './CommandPalette.js';
 import { AREAS, pageForHash, sidebarGroups, subnavPages, tabForHash, type AreaId } from '../lib/navigation.js';
+
+const AssistantPanel = lazy(() => import('./AssistantPanel.js').then((m) => ({ default: m.AssistantPanel })));
+const CommandPalette = lazy(() => import('./CommandPalette.js').then((m) => ({ default: m.CommandPalette })));
 import { GOTO_KEYS, MATRIX_KEY, resolveHotkey } from '../lib/hotkeys.js';
 import { getEffectPrefs, setEffectPrefs } from '../lib/effects.js';
 import { isTypingTarget } from '../lib/watchlist.js';
@@ -463,8 +464,16 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
         {areaLinks('tab')}
       </nav>
 
-      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
-      <AssistantPanel open={chatOpen} onClose={() => setChatOpen(false)} prefill={chatPrefill} />
+      {paletteOpen && (
+        <Suspense fallback={null}>
+          <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+        </Suspense>
+      )}
+      {chatOpen && (
+        <Suspense fallback={null}>
+          <AssistantPanel open={chatOpen} onClose={() => setChatOpen(false)} prefill={chatPrefill} />
+        </Suspense>
+      )}
       {helpOpen && <HotkeyHelp onClose={() => setHelpOpen(false)} />}
     </div>
   );
