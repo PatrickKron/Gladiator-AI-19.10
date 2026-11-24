@@ -3,9 +3,10 @@ import { useTranslation } from 'react-i18next';
 import { accountForHash, hashForAccount, rememberAccount, rememberedAccount, TRADE_ACCOUNTS, type TradeAccount } from '../lib/trade-account.js';
 import { DemoKonto, Trading } from './Trading.js';
 import { WalletTrading } from './WalletTrading.js';
+import { SpotWalletWorkflowPanel } from '../components/SpotWalletWorkflowPanel.js';
 
 /**
- * Traden (UI-Welle 3): EINE Seite mit Konto-Schalter statt drei verstreuter
+ * Traden (UI-Welle 3 + Welle 27): EINE Seite mit Konto-Schalter statt verstreuter
  * Seiten. Die Konten bleiben technisch strikt getrennt (eigene Router/Tabellen) —
  * der Schalter wechselt nur die Ansicht. Alte Links (#/demo, #/trading,
  * #/wallet) leiten hierher weiter.
@@ -14,6 +15,7 @@ import { WalletTrading } from './WalletTrading.js';
 const ACCOUNT_STYLE: Record<TradeAccount, { active: string; color: string }> = {
   demo: { active: 'rgba(245,158,11,0.16)', color: 'var(--color-magenta)' },
   agent: { active: 'rgba(96,165,250,0.14)', color: 'var(--color-cyan)' },
+  spot: { active: 'rgba(167,139,250,0.16)', color: 'var(--color-violet)' },
   wallet: { active: 'rgba(52,211,153,0.14)', color: 'var(--color-pos)' },
 };
 
@@ -50,6 +52,7 @@ export function Traden() {
       </div>
       {account === 'demo' && <DemoKonto key="demo" />}
       {account === 'agent' && <Trading key="agent" />}
+      {account === 'spot' && <SpotWalletWorkflowPanel key="spot" />}
       {account === 'wallet' && <WalletTrading key="wallet" />}
     </div>
   );

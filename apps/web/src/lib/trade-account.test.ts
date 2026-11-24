@@ -3,8 +3,9 @@ import { accountForHash, hashForAccount, TRADE_ACCOUNT_KEY, TRADE_ACCOUNTS } fro
 import { VIEW_PREFERENCE_KEYS } from './hotkeys.js';
 
 describe('Konto-Schalter „Traden“', () => {
-  it('Tab bestimmt das Konto: demo/wallet direkt, Agenten-Tabs → Agenten-Konto', () => {
+  it('Tab bestimmt das Konto: demo/spot/wallet direkt, Agenten-Tabs → Agenten-Konto', () => {
     expect(accountForHash('#/traden?tab=demo', 'agent')).toBe('demo');
+    expect(accountForHash('#/traden?tab=spot', 'agent')).toBe('spot');
     expect(accountForHash('#/traden?tab=wallet', null)).toBe('wallet');
     expect(accountForHash('#/traden?tab=alerts', 'demo')).toBe('agent');
     expect(accountForHash('#/traden?tab=historie', null)).toBe('agent');
@@ -19,7 +20,7 @@ describe('Konto-Schalter „Traden“', () => {
 
   it('Agenten-Konto steht im Schalter vorn (v2: „Agenten-Konto (Paper) · Demo-Modus“)', () => {
     expect(TRADE_ACCOUNTS[0]).toBe('agent');
-    expect([...TRADE_ACCOUNTS].sort()).toEqual(['agent', 'demo', 'wallet']);
+    expect([...TRADE_ACCOUNTS].sort()).toEqual(['agent', 'demo', 'spot', 'wallet']);
   });
 
   it('der Merker nutzt einen neuen Schlüssel — der von v3 ungefragt gemerkte Demo-Standard gilt nicht weiter', () => {

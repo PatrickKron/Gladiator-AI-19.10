@@ -25,3 +25,4 @@ export * from './swap.js';
 export * from './screens.js';
 export * from './assistant.js';
 export * from './scenarios.js';
+export * from './spot-workflow.js';

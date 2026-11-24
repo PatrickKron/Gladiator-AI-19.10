@@ -40,12 +40,21 @@ export function EchtesGeld() {
   return (
     <div>
       <PageHeader title={t('realMoney.title')} subtitle={t('realMoney.subtitle')} />
-      <div className="mb-4 flex flex-wrap gap-2">
-        {chips.map((c) => (
-          <span key={c} className="chip num">
-            {c}
-          </span>
-        ))}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          {chips.map((c) => (
+            <span key={c} className="chip num">
+              {c}
+            </span>
+          ))}
+        </div>
+        <a
+          href="#/traden?tab=spot"
+          className="rounded-[0.625rem] border px-3.5 py-1.5 text-xs font-semibold transition-colors hover:border-[var(--color-cyan)]"
+          style={{ borderColor: 'rgba(6,182,212,0.5)', background: 'rgba(6,182,212,0.14)', color: 'var(--color-ink)' }}
+        >
+          🪙 Spot kaufen &amp; auf eigene Wallet sichern (3-Wege-Workflow) →
+        </a>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">

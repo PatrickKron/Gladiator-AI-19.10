@@ -28,6 +28,25 @@ export {
   type ExecutionResult,
 } from './executor.js';
 export {
+  DEX_DIRECT_PRESETS,
+  SPOT_NETWORK_IDS,
+  SPOT_NETWORKS,
+  WITHDRAW_CONFIRM_PHRASE,
+  checkAssetNetworkCompatibility,
+  exchangeWithdrawUrl,
+  executeCexSpotBuy,
+  executeWhitelistedCexWithdraw,
+  expectedWalletApprovalPhrase,
+  explorerAddressUrl,
+  fetchLiveSpotQuote,
+  fetchOnChainAssetBalance,
+  validateDestinationAddress,
+  verifyWalletApprovalPhrase,
+  type OnChainBalanceResult,
+  type SpotNetworkId,
+  type SpotNetworkMeta,
+} from './spot-workflow.js';
+export {
   CANDLE_CLOSE_SOURCES,
   CANDLE_CLOSE_VENUE_PREFIX,
   candleCloseSourceOf,

@@ -22,6 +22,7 @@ import { secretsRouter } from './secrets.js';
 import { settingsRouter } from './settings.js';
 import { setupRouter } from './setup.js';
 import { signalsRouter } from './signals.js';
+import { spotWorkflowRouter } from './spot-workflow.js';
 import { strategiesRouter } from './strategies.js';
 import { subAgentsRouter } from './sub-agents.js';
 import { swapsRouter } from './swaps.js';
@@ -55,6 +56,7 @@ export const appRouter = router({
   settings: settingsRouter,
   setup: setupRouter,
   signals: signalsRouter,
+  spotWorkflow: spotWorkflowRouter,
   strategies: strategiesRouter,
   subAgents: subAgentsRouter,
   system: systemRouter,

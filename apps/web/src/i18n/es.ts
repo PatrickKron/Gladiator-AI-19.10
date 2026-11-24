@@ -2888,9 +2888,11 @@ export const es: Catalog = {
     account_demo: "Cuenta demo",
     account_agent: "Cuenta de agentes",
     account_wallet: "Wallets",
+    account_spot: "Spot y Wallet",
     hint_demo: "Opera tú mismo con dinero ficticio contra libros reales — con apalancamiento y comparación de exchanges.",
     hint_agent: "Cuenta paper de tus agentes: posiciones, historial, riesgo, alertas.",
     hint_wallet: "Compra y vende tokens por dirección (Solana, EVM) — paper o tu propia wallet.",
+    hint_spot: "Compra spot sin apalancamiento y envíalo a tu propia wallet — 3 vías ordenadas (Guiada, DEX, API Whitelist).",
   },
   market: {
     watchlist: "Mis mercados",
