@@ -113,5 +113,26 @@ describe('Szenario-Playbooks / Wenn-Dann-Wetten (Welle 24)', () => {
       candles,
     );
     expect(upConf.matched).toBe(false);
+
+    // Kausalität (Welle 26): lag das Ereignis (News) NACH dem BOS, darf der alte BOS NICHT zählen!
+    const lastBarTs = candles[candles.length - 1]!.ts.getTime();
+    const afterBosNewsTs = new Date(lastBarTs + 60_000);
+    const staleConf = evaluateScenarioConfirmation(
+      { kind: 'bos_down', symbol: 'BTC/USDT', timeframe: '1h', lookbackBars: 6 },
+      candles,
+      'BTC/USDT',
+      afterBosNewsTs,
+    );
+    expect(staleConf.matched).toBe(false);
+
+    // Lag die News VOR dem BOS, zählt der nachfolgende BOS!
+    const beforeBosNewsTs = new Date(candles[candles.length - 4]!.ts.getTime());
+    const causalConf = evaluateScenarioConfirmation(
+      { kind: 'bos_down', symbol: 'BTC/USDT', timeframe: '1h', lookbackBars: 6 },
+      candles,
+      'BTC/USDT',
+      beforeBosNewsTs,
+    );
+    expect(causalConf.matched).toBe(true);
   });
 });

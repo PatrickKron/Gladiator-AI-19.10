@@ -3,8 +3,10 @@ import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import {
   applyAdaptiveHedgeSizing,
+  checkFundedOrderGate,
   countRegimeChanges,
   evaluateAssetHedging,
+  evaluateFundedAccount,
   evaluateRisk,
   intradayMovePct,
   noTradeWindowFor,
@@ -14,6 +16,7 @@ import {
   SAFE_006_WINDOW_MS,
   timeframeToMs,
   type AdaptiveGate,
+  type FundedOrderGateVerdict,
   type RiskContext,
   type RiskVerdict,
 } from '@gladiator/risk';
@@ -39,7 +42,62 @@ import {
   type CreateLiveClient,
 } from './connections.js';
 
-const { signals, strategies, strategyVersions, orders, positions, executedTrades, tradingSettings, riskGates, auditLog, economicEvents, macroSeries, ohlcv, marketRegimes, exchangeConnections, venueApprovals } = schema;
+const { signals, strategies, strategyVersions, orders, positions, executedTrades, tradingSettings, riskGates, auditLog, economicEvents, macroSeries, ohlcv, marketRegimes, exchangeConnections, venueApprovals, fundedAccounts } = schema;
+
+/**
+ * Prüft das Fremdgeldkonto-Schutzgate (Welle 26), falls die aktive Live-Verbindung
+ * einem aktiven Prop-/Drittkapital-Konto zugeordnet ist. Paper & nicht verknüpfte
+ * Verbindungen bleiben komplett unberührt (`null`).
+ */
+export async function loadFundedGateForConnection(
+  db: Db,
+  userId: string,
+  connectionId: string | null | undefined,
+  proposedRiskUsd: number,
+  liveEquityOverrideUsd?: number | null,
+): Promise<(FundedOrderGateVerdict & { accountId: string; accountName: string }) | null> {
+  if (!connectionId) return null;
+  const [acct] = await db
+    .select()
+    .from(fundedAccounts)
+    .where(
+      and(
+        eq(fundedAccounts.userId, userId),
+        eq(fundedAccounts.exchangeConnectionId, connectionId),
+        eq(fundedAccounts.status, 'active'),
+      ),
+    )
+    .limit(1);
+  if (!acct) return null;
+
+  const currentEquity =
+    typeof liveEquityOverrideUsd === 'number' && Number.isFinite(liveEquityOverrideUsd) && liveEquityOverrideUsd >= 0
+      ? liveEquityOverrideUsd
+      : Number(acct.currentEquity);
+
+  const evaluation = evaluateFundedAccount({
+    startBalance: Number(acct.startBalance),
+    currentEquity,
+    highWaterMark: Math.max(Number(acct.highWaterMark), currentEquity),
+    dailyStartEquity: Number(acct.dailyStartEquity),
+    dailyLossLimitPct: Number(acct.dailyLossLimitPct),
+    maxTotalDrawdownPct: Number(acct.maxTotalDrawdownPct),
+    profitTargetPct: acct.profitTargetPct === null ? null : Number(acct.profitTargetPct),
+    trailingDrawdown: acct.trailingDrawdown,
+  });
+
+  const verdict = checkFundedOrderGate({
+    evaluation,
+    accountName: acct.name,
+    proposedRiskUsd,
+  });
+
+  return {
+    ...verdict,
+    accountId: acct.id,
+    accountName: acct.name,
+  };
+}
 
 /**
  * Order-Lifecycle (06_ §5): bestätigtes Signal → Risk-Gate (statisch + adaptiv)
@@ -466,9 +524,11 @@ export async function executeConfirmedSignal(
 
   let venue: TradingVenue;
   let liveEquityUsd: number | null = null;
+  let resolvedConnectionId: string | null = null;
   if (wantLive) {
     if (baseVenue.kind === 'live') {
       venue = baseVenue;
+      if (baseVenue.id.startsWith('live:')) resolvedConnectionId = baseVenue.id.slice(5);
     } else {
       const resolved = await resolveLiveVenueForSymbol(db, opts.userId, signal.symbol, {
         createLiveClient: opts.createLiveClient,
@@ -492,6 +552,7 @@ export async function executeConfirmedSignal(
         return { verdict: blockedVerdict, executed: false, detail: `Live-Router blockt: ${resolved.detail}` };
       }
       venue = resolved.venue;
+      resolvedConnectionId = resolved.connection.id;
     }
 
     if (venue instanceof CcxtLiveVenue) {
@@ -605,6 +666,51 @@ export async function executeConfirmedSignal(
     { ...riskCtxBase, ...orderRiskInputs },
   );
 
+  // Welle 26: Hartes Fremdgeld-/Prop-Konto-Gate bei verknüpfter Live-Börse
+  if (resolvedConnectionId && verdict.allowed && verdict.sizing) {
+    const fundedGate = await loadFundedGateForConnection(
+      db,
+      opts.userId,
+      resolvedConnectionId,
+      verdict.sizing.riskAmount,
+      liveEquityUsd,
+    );
+    if (fundedGate) {
+      if (!fundedGate.allowed) {
+        verdict.allowed = false;
+        verdict.reasons.push(fundedGate.reason ?? 'Prop-Gate hat die Order blockiert.');
+        verdict.checks.push({
+          name: 'funded_account_gate',
+          passed: false,
+          detail: fundedGate.reason ?? 'Prop-Limit erreicht',
+        });
+        verdict.sizing = null;
+      } else if (fundedGate.scaled) {
+        const nextNotional = verdict.sizing.notional * fundedGate.scaleFactor;
+        if (nextNotional < rules.minNotional) {
+          verdict.allowed = false;
+          const msg = `Prop-Schutz („${fundedGate.accountName}“): Gedrosselte Positionsgröße ($${nextNotional.toFixed(2)}) liegt unter dem Börsen-Minimum ($${rules.minNotional}).`;
+          verdict.reasons.push(msg);
+          verdict.checks.push({ name: 'funded_account_gate', passed: false, detail: msg });
+          verdict.sizing = null;
+        } else {
+          verdict.sizing = {
+            ...verdict.sizing,
+            qty: verdict.sizing.qty * fundedGate.scaleFactor,
+            notional: nextNotional,
+            marginRequired: verdict.sizing.marginRequired * fundedGate.scaleFactor,
+            riskAmount: verdict.sizing.riskAmount * fundedGate.scaleFactor,
+          };
+          verdict.checks.push({
+            name: 'funded_account_gate',
+            passed: true,
+            detail: fundedGate.reason ?? 'Prop-Risiko automatisch gedrosselt',
+          });
+        }
+      }
+    }
+  }
+
   await db.insert(auditLog).values({
     actor: 'system',
     userId: opts.userId,
@@ -618,12 +724,12 @@ export async function executeConfirmedSignal(
       adaptiveHedging:
         assetHedge.evaluation.state === 'active'
           ? {
-              strategyName: assetHedge.strategyName,
-              hedgeSymbol: assetHedge.hedgeSymbol,
-              recommendedHedgePct: assetHedge.evaluation.recommendedHedgePct,
-              scaled: hedgeSizing?.scaled ?? false,
-              scaleFactor: hedgeSizing?.scaleFactor ?? 1,
-            }
+            strategyName: assetHedge.strategyName,
+            hedgeSymbol: assetHedge.hedgeSymbol,
+            recommendedHedgePct: assetHedge.evaluation.recommendedHedgePct,
+            scaled: hedgeSizing?.scaled ?? false,
+            scaleFactor: hedgeSizing?.scaleFactor ?? 1,
+          }
           : null,
       mode: execMode,
       venue: venue.id,

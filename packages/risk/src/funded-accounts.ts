@@ -254,3 +254,67 @@ export function evaluateFundedAccount(input: FundedAccountEvalInput): FundedAcco
     warnings,
   };
 }
+
+export type FundedOrderGateVerdict = {
+  allowed: boolean;
+  scaled: boolean;
+  maxAllowedRiskUsd: number;
+  scaleFactor: number;
+  reason: string | null;
+};
+
+/**
+ * Hartes Pre-Trade-Gate für verknüpfte Fremdgeld-/Prop-Konten (Welle 26):
+ * - Blockiert sofort, wenn Tagesverlust- oder Gesamt-/Trailing-Drawdown bereits gerissen ist
+ *   oder weniger als 5 USD Sicherheitspuffer übrig sind.
+ * - Drosselt das Order-Risiko auf maximal 80 % des kleinsten verbleibenden Puffers
+ *   (damit auch inklusive Gebühren/Slippage kein einzelner Trade die Challenge reißt).
+ */
+export function checkFundedOrderGate(input: {
+  evaluation: FundedAccountEvaluation;
+  accountName: string;
+  proposedRiskUsd: number;
+}): FundedOrderGateVerdict {
+  const { evaluation, accountName, proposedRiskUsd } = input;
+  if (evaluation.ruleState === 'breached') {
+    return {
+      allowed: false,
+      scaled: false,
+      maxAllowedRiskUsd: 0,
+      scaleFactor: 0,
+      reason: `Prop-Gate blockt („${accountName}“): ${evaluation.warnings[0] ?? 'Regel-Limit erreicht.'}`,
+    };
+  }
+
+  const rawBuffer = Math.min(evaluation.remainingDailyBufferUsd, evaluation.remainingTotalBufferUsd);
+  const safeRiskCapUsd = Math.round(rawBuffer * 0.8 * 100) / 100;
+
+  if (safeRiskCapUsd < 5) {
+    return {
+      allowed: false,
+      scaled: false,
+      maxAllowedRiskUsd: 0,
+      scaleFactor: 0,
+      reason: `Prop-Gate blockt („${accountName}“): Restpuffer zum Tages-/Gesamtlimit zu klein ($${rawBuffer.toFixed(2)} übrig).`,
+    };
+  }
+
+  if (proposedRiskUsd > 0 && proposedRiskUsd > safeRiskCapUsd) {
+    const scaleFactor = Math.max(0.05, Math.round((safeRiskCapUsd / proposedRiskUsd) * 10_000) / 10_000);
+    return {
+      allowed: true,
+      scaled: true,
+      maxAllowedRiskUsd: safeRiskCapUsd,
+      scaleFactor,
+      reason: `Prop-Schutz („${accountName}“): Risiko automatisch von $${proposedRiskUsd.toFixed(2)} auf $${safeRiskCapUsd.toFixed(2)} gedrosselt (80 % Restpuffer).`,
+    };
+  }
+
+  return {
+    allowed: true,
+    scaled: false,
+    maxAllowedRiskUsd: safeRiskCapUsd,
+    scaleFactor: 1,
+    reason: null,
+  };
+}

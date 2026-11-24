@@ -33,6 +33,7 @@ const SCOPE_LABELS: Record<TargetScope, string> = {
 
 const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }> = {
   armed: { label: '🟢 Scharf (alle 5 Min.)', color: 'var(--color-pos)', bg: 'rgba(16,185,129,0.14)' },
+  waiting_confirmation: { label: '⏳ Stufe 1 aktiv — warte auf BOS', color: '#38bdf8', bg: 'rgba(56,189,248,0.16)' },
   triggered: { label: '⚡ Ausgelöst', color: '#fbbf24', bg: 'rgba(245,158,11,0.18)' },
   executed: { label: '✅ Ausgeführt', color: 'var(--color-cyan)', bg: 'rgba(6,182,212,0.14)' },
   paused: { label: '⏸ Pausiert', color: 'var(--color-mut)', bg: 'rgba(148,163,184,0.12)' },
@@ -896,7 +897,7 @@ export function ScenarioPlaybooksPanel() {
                     </div>
 
                     <div className="flex shrink-0 flex-wrap gap-1.5">
-                      {pb.status === 'armed' ? (
+                      {pb.status === 'armed' || pb.status === 'waiting_confirmation' ? (
                         <button
                           type="button"
                           disabled={isBusy}

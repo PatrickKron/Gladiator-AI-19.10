@@ -10,6 +10,7 @@ import {
   signalExecutionBlock,
   venueForSource,
   loadActiveGates,
+  loadFundedGateForConnection,
   loadRiskContext,
   loadRiskSettings,
   type TradingVenue,
@@ -262,15 +263,18 @@ export const signalsRouter = router({
       let liveEquityUsd: number | null = null;
       let liveBlockReason: string | null = null;
       let liveSourceName = signal.venue;
+      let resolvedConnectionId: string | null = null;
       if (wantLive && !isCandleCloseSource(signal.venue)) {
         if (ctx.venue.kind === 'live') {
           execVenue = ctx.venue;
           liveSourceName = ctx.venue.id;
+          if (ctx.venue.id.startsWith('live:')) resolvedConnectionId = ctx.venue.id.slice(5);
         } else {
           const resolved = await resolveLiveVenueForSymbol(ctx.db, ctx.user.id, signal.symbol);
           if (resolved.ok) {
             execVenue = resolved.venue;
             liveSourceName = resolved.connection.exchangeId;
+            resolvedConnectionId = resolved.connection.id;
             liveEquityUsd = await resolved.venue.equityUsd().catch(() => null);
           } else {
             liveBlockReason = resolved.detail;
@@ -365,9 +369,20 @@ export const signalsRouter = router({
         console.warn(`[executionPreview] Erfahrungs-Vorschlag nicht ladbar: ${String(err)}`);
         experience = { available: false, reason: 'error', tradeCount: 0, minTrades: MIN_TRADES_PER_CLUSTER };
       }
+      const fundedGate = resolvedConnectionId
+        ? await loadFundedGateForConnection(
+            ctx.db,
+            ctx.user.id,
+            resolvedConnectionId,
+            verdict.sizing?.riskAmount ?? 0,
+            liveEquityUsd,
+          ).catch(() => null)
+        : null;
+
       const gateReasons = [
         ...(liveBlockReason ? [liveBlockReason] : []),
         ...(verdict.allowed ? [] : verdict.reasons),
+        ...(fundedGate && !fundedGate.allowed && fundedGate.reason ? [fundedGate.reason] : []),
       ];
       return {
         /** A2: Yahoo/Twelve Data füllen zum letzten echten Kerzenschluss (Paper); im Live-Modus über CCXT-Router. */

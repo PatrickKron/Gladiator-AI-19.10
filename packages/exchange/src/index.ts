@@ -23,6 +23,7 @@ export {
   loadRiskContext,
   loadOrderRiskInputs,
   loadIntradayMovePct,
+  loadFundedGateForConnection,
   PAPER_START_EQUITY,
   type ExecutionResult,
 } from './executor.js';

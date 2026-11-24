@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateFundedAccount, FUNDED_PROVIDER_PRESETS } from './funded-accounts.js';
+import { checkFundedOrderGate, evaluateFundedAccount, FUNDED_PROVIDER_PRESETS } from './funded-accounts.js';
 
 describe('Fremdgeldkonten Regel-Auswertung (Welle 22)', () => {
   it('stellt kuratierte Vorlagen inkl. FTMO, Topstep, Apex und CCXT-Subaccount bereit', () => {
@@ -59,5 +59,35 @@ describe('Fremdgeldkonten Regel-Auswertung (Welle 22)', () => {
     expect(res.ruleState).toBe('breached');
     expect(res.recommendedRiskPerTradePct).toBe(0);
     expect(res.warnings[0]).toContain('Trailing-');
+
+    const blocked = checkFundedOrderGate({
+      evaluation: res,
+      accountName: 'Apex 50k',
+      proposedRiskUsd: 250,
+    });
+    expect(blocked.allowed).toBe(false);
+    expect(blocked.reason).toContain('Prop-Gate blockt');
+  });
+
+  it('drosselt Order-Risiko automatisch auf 80 % des verbleibenden Prop-Puffers', () => {
+    const evalTight = evaluateFundedAccount({
+      startBalance: 100_000,
+      currentEquity: 96_000,
+      highWaterMark: 100_000,
+      dailyStartEquity: 100_000, // 4 % Tagesverlust von max 5 % -> 1000 $ Restpuffer -> 800 $ Cap!
+      dailyLossLimitPct: 5,
+      maxTotalDrawdownPct: 10,
+      profitTargetPct: 10,
+      trailingDrawdown: false,
+    });
+    const capped = checkFundedOrderGate({
+      evaluation: evalTight,
+      accountName: 'FTMO 100k',
+      proposedRiskUsd: 1_000,
+    });
+    expect(capped.allowed).toBe(true);
+    expect(capped.scaled).toBe(true);
+    expect(capped.maxAllowedRiskUsd).toBe(800);
+    expect(capped.scaleFactor).toBe(0.8);
   });
 });

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull } from 'drizzle-orm';
 import type { Db } from '@gladiator/db';
 import { schema } from '@gladiator/db';
 import { demoBookSource, getOrCreateDemoAccount, placeDemoOrder } from '@gladiator/exchange';
@@ -37,6 +37,8 @@ export type ScenarioPlaybookRow = typeof scenarioPlaybooks.$inferSelect;
 export type ScenarioEvaluationReport = {
   checkedAt: string;
   matched: boolean;
+  /** Gespeicherter Zeitpunkt aus Stufe 1 (`waiting_confirmation`), ab dem auf BOS gewartet wird. */
+  triggerLatchedAt: string | null;
   trigger: TriggerEvalResult;
   confirmation: ConfirmationEvalResult;
   summary: string;
@@ -63,6 +65,8 @@ export type ScenarioExecutionReport = {
 
 const SCENARIO_STRATEGY_SLUG = 'scenario-playbooks';
 const MAX_GROUP_SYMBOLS = 8;
+/** Wie lange Stufe 1 („News eingetreten“) aktiv bleibt und auf nachfolgenden BOS wartet (48 Stunden). */
+const CONFIRMATION_LATCH_TTL_MS = 48 * 3_600_000;
 
 /** Sorgt für eine stabile Strategie-Zeile, damit Szenario-Signale sauber zugeordnet sind. */
 export async function ensureScenarioStrategy(db: Db): Promise<string> {
@@ -161,6 +165,29 @@ export async function evaluateScenarioPlaybook(
     grs,
   });
 
+  const prevEval =
+    playbook.lastEvaluation && typeof playbook.lastEvaluation === 'object'
+      ? (playbook.lastEvaluation as { triggerLatchedAt?: string | null; trigger?: TriggerEvalResult })
+      : null;
+
+  const existingLatchIso =
+    playbook.status === 'waiting_confirmation' && typeof prevEval?.triggerLatchedAt === 'string'
+      ? prevEval.triggerLatchedAt
+      : null;
+  const existingLatchValid =
+    existingLatchIso !== null &&
+    Number.isFinite(Date.parse(existingLatchIso)) &&
+    now.getTime() - Date.parse(existingLatchIso) <= CONFIRMATION_LATCH_TTL_MS;
+
+  const effectiveTrigger: TriggerEvalResult =
+    !triggerRes.matched && existingLatchValid && prevEval?.trigger?.matched
+      ? prevEval.trigger
+      : triggerRes;
+
+  const triggerLatchedAt = effectiveTrigger.matched
+    ? (existingLatchValid ? existingLatchIso : (effectiveTrigger.triggeredAt ?? now.toISOString()))
+    : null;
+
   const confSymbol = primaryConfirmationSymbol(confirmation, actions);
   const confVenue = inferVenue(confSymbol);
   const candles =
@@ -173,19 +200,21 @@ export async function evaluateScenarioPlaybook(
           limit: 120,
         }).catch(() => []);
 
-  const confRes = evaluateScenarioConfirmation(confirmation, candles, confSymbol);
-  const matched = triggerRes.matched && confRes.matched;
+  const minEventTs = triggerLatchedAt ? new Date(triggerLatchedAt) : null;
+  const confRes = evaluateScenarioConfirmation(confirmation, candles, confSymbol, minEventTs);
+  const matched = effectiveTrigger.matched && confRes.matched;
 
   const summary = matched
-    ? `AUSGELÖST: ${triggerRes.reason} ${confRes.reason}`
-    : !triggerRes.matched
-      ? triggerRes.reason
-      : `Auslöser aktiv, warte auf technische Bestätigung: ${confRes.reason}`;
+    ? `AUSGELÖST: ${effectiveTrigger.reason} ${confRes.reason}`
+    : !effectiveTrigger.matched
+      ? effectiveTrigger.reason
+      : `Stufe 1 aktiv (seit ${triggerLatchedAt?.slice(0, 16).replace('T', ' ')} UTC) — ${confRes.reason}`;
 
   return {
     checkedAt: now.toISOString(),
     matched,
-    trigger: triggerRes,
+    triggerLatchedAt,
+    trigger: effectiveTrigger,
     confirmation: confRes,
     summary,
   };
@@ -494,21 +523,28 @@ export type ScenarioWatchResult = {
   triggered: number;
 };
 
-/** Periodischer Worker-Job (alle 5 Min.): überwacht alle scharfgeschalteten (`armed`) Szenarien. */
+/** Periodischer Worker-Job (alle 5 Min.): überwacht alle scharfgeschalteten (`armed` & `waiting_confirmation`) Szenarien. */
 export async function runScenarioWatch(db: Db): Promise<ScenarioWatchResult> {
   const armed = await db
     .select()
     .from(scenarioPlaybooks)
-    .where(eq(scenarioPlaybooks.status, 'armed'))
+    .where(inArray(scenarioPlaybooks.status, ['armed', 'waiting_confirmation']))
     .limit(100);
 
   let triggered = 0;
   for (const pb of armed) {
     try {
       const report = await evaluateScenarioPlaybook(db, pb);
+      const nextStatus = report.matched
+        ? 'triggered'
+        : report.trigger.matched
+          ? 'waiting_confirmation'
+          : 'armed';
+
       await db
         .update(scenarioPlaybooks)
         .set({
+          status: nextStatus,
           lastCheckedAt: new Date(report.checkedAt),
           lastEvaluation: report as unknown as Record<string, unknown>,
           updatedAt: new Date(),

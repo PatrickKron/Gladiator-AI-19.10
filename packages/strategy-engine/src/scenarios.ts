@@ -16,7 +16,7 @@ import type { Candle } from './types.js';
  *   und abgeschlossene OHLCV-Kerzen.
  */
 
-export const SCENARIO_STATUSES = ['draft', 'armed', 'triggered', 'executed', 'paused'] as const;
+export const SCENARIO_STATUSES = ['draft', 'armed', 'waiting_confirmation', 'triggered', 'executed', 'paused'] as const;
 export type ScenarioStatus = (typeof SCENARIO_STATUSES)[number];
 
 export const SCENARIO_EXECUTION_MODES = ['signal_only', 'demo_auto'] as const;
@@ -518,6 +518,8 @@ export type TriggerEvalContext = {
 export type TriggerEvalResult = {
   matched: boolean;
   reason: string;
+  /** Kausaler Auslöse-Zeitpunkt (früheste passende News-Meldung bzw. Messzeitpunkt bei VIX/GRS). */
+  triggeredAt: string | null;
   matchedHeadlines: Array<{ title: string; source: string; url: string; publishedAt: string; keyword: string }>;
   vix: number | null;
   grs: number | null;
@@ -557,6 +559,7 @@ export function evaluateScenarioTrigger(trigger: ScenarioTrigger, ctx: TriggerEv
     return {
       matched: false,
       reason: 'Reiner Hand-Auslöser — wartet auf deinen Klick „Manuell auslösen“.',
+      triggeredAt: null,
       matchedHeadlines: [],
       vix: ctx.vix,
       grs: ctx.grs,
@@ -584,15 +587,23 @@ export function evaluateScenarioTrigger(trigger: ScenarioTrigger, ctx: TriggerEv
     return {
       matched: false,
       reason: `Szenario noch nicht eingetreten (${waitParts.join(' · ') || 'keine Bedingung erfüllt'}).`,
+      triggeredAt: null,
       matchedHeadlines: matchedHeadlines.slice(0, 5),
       vix: ctx.vix,
       grs: ctx.grs,
     };
   }
 
+  // Frühester passender News-Zeitpunkt im aktiven Fenster (damit BOS kausal DANACH liegen muss)
+  const earliestHeadlineIso =
+    newsMatched && matchedHeadlines.length > 0
+      ? matchedHeadlines.reduce((min, h) => (h.publishedAt < min ? h.publishedAt : min), matchedHeadlines[0]!.publishedAt)
+      : ctx.now.toISOString();
+
   return {
     matched: true,
     reason: `Auslöser aktiv: ${parts.join(' + ')}.`,
+    triggeredAt: earliestHeadlineIso,
     matchedHeadlines: matchedHeadlines.slice(0, 8),
     vix: ctx.vix,
     grs: ctx.grs,
@@ -617,6 +628,7 @@ export function evaluateScenarioConfirmation(
   confirmation: ScenarioConfirmation,
   candles: readonly Candle[],
   fallbackSymbol = 'BTC/USDT',
+  minEventTs?: Date | null,
 ): ConfirmationEvalResult {
   const symbol = confirmation.symbol ?? fallbackSymbol;
   const lastCandle = candles.length > 0 ? candles[candles.length - 1]! : null;
@@ -680,24 +692,33 @@ export function evaluateScenarioConfirmation(
   const minIdx = Math.max(0, candles.length - confirmation.lookbackBars);
   const wantKind = confirmation.kind.startsWith('bos') ? 'BOS' : 'CHoCH';
   const wantDir = confirmation.kind.endsWith('down') ? 'bearish' : 'bullish';
+  const minMs = minEventTs ? minEventTs.getTime() : null;
 
   // Bei "BOS nach unten" akzeptieren wir auch ein frisches bearishes CHoCH (erster Strukturbruch nach unten!),
   // da ein Trendwechsel aus einem Aufwärtstrend heraus technisch als CHoCH startet.
+  // Wenn `minEventTs` gesetzt ist (Stufe 1 bereits ausgelöst), MUSS der Strukturbruch kausal NACH dem
+  // Ereignis liegen (`bar.ts >= minEventTs`).
   const hit = [...events]
     .reverse()
-    .find(
-      (e) =>
-        e.index >= minIdx &&
+    .find((e) => {
+      const barTs = candles[e.index]!.ts.getTime();
+      const inWindow = minMs !== null ? barTs >= minMs : e.index >= minIdx;
+      return (
+        inWindow &&
         e.direction === wantDir &&
-        (wantKind === 'BOS' ? e.kind === 'BOS' || e.kind === 'CHoCH' : e.kind === 'CHoCH'),
-    );
+        (wantKind === 'BOS' ? e.kind === 'BOS' || e.kind === 'CHoCH' : e.kind === 'CHoCH')
+      );
+    });
 
   if (!hit) {
     return {
       matched: false,
       symbol,
       timeframe: confirmation.timeframe,
-      reason: `Kein frisches ${wantDir === 'bearish' ? 'bearishes' : 'bullishes'} ${wantKind} auf ${symbol} (${confirmation.timeframe}) in den letzten ${confirmation.lookbackBars} Kerzen.`,
+      reason:
+        minMs !== null
+          ? `Warte auf ${wantDir === 'bearish' ? 'bearishes' : 'bullishes'} ${wantKind} auf ${symbol} (${confirmation.timeframe}) NACH Auslöser (${new Date(minMs).toISOString().slice(0, 16).replace('T', ' ')} UTC).`
+          : `Kein frisches ${wantDir === 'bearish' ? 'bearishes' : 'bullishes'} ${wantKind} auf ${symbol} (${confirmation.timeframe}) in den letzten ${confirmation.lookbackBars} Kerzen.`,
       lastClose,
       brokenLevel: null,
       eventTs: null,

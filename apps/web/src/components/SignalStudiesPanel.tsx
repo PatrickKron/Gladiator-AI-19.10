@@ -76,6 +76,8 @@ export function SignalStudiesPanel() {
   const [loading, setLoading] = useState<boolean>(true);
   const [running, setRunning] = useState<boolean>(false);
   const [runNote, setRunNote] = useState<string | null>(null);
+  const [gateBusyId, setGateBusyId] = useState<string | null>(null);
+  const [gateNote, setGateNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -120,6 +122,37 @@ export function SignalStudiesPanel() {
       setError(err instanceof Error ? err.message : 'Studien-Lauf fehlgeschlagen.');
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function applySessionGate(rec: {
+    id: string;
+    session: 'asia' | 'london' | 'overlap' | 'newyork' | 'off';
+    closed: number;
+    expectancyR: number;
+    winRate: number;
+  }) {
+    setGateBusyId(rec.id);
+    setGateNote(null);
+    setError(null);
+    try {
+      const res = await trpc.lab.applyStudySessionGate.mutate({
+        session: rec.session,
+        ...(symbol !== 'all' ? { symbol } : {}),
+        ...(timeframe !== 'all' ? { timeframe } : {}),
+        closed: rec.closed,
+        expectancyR: rec.expectancyR,
+        winRate: rec.winRate,
+      });
+      setGateNote(
+        res.created
+          ? `✅ Restriktives Session-Gate „${rec.session.toUpperCase()}“ wurde angelegt (jederzeit unter #/marktlage?tab=risiko abschaltbar).`
+          : `ℹ️ Für Session „${rec.session.toUpperCase()}“ existiert bereits ein aktives Studien-Gate.`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Session-Gate konnte nicht gespeichert werden.');
+    } finally {
+      setGateBusyId(null);
     }
   }
 
@@ -367,6 +400,73 @@ export function SignalStudiesPanel() {
               bucket={analytics.missed}
             />
           </div>
+
+          {/* ── Automatisch erkannte Kanten & 1-Klick-Schutzvorschläge (Welle 26) ── */}
+          {data?.recommendations && data.recommendations.length > 0 && (
+            <div className="glass min-w-0 overflow-hidden p-4 space-y-2.5" style={{ borderLeft: '3px solid var(--color-cyan)' }}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-medium">💡 Automatisch erkannte Verbesserungen &amp; Schutz-Vorschläge</h3>
+                  <p className="text-xs" style={{ color: 'var(--color-mut)' }}>
+                    Nur aus statistisch belastbaren Buckets (n ≥ 10). Nichts ändert sich automatisch — du entscheidest per Klick.
+                  </p>
+                </div>
+              </div>
+              {gateNote && (
+                <p className="rounded border px-3 py-1.5 text-xs" style={{ borderColor: 'rgba(16,185,129,0.45)', color: 'var(--color-pos)' }}>
+                  {gateNote}
+                </p>
+              )}
+              <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
+                {data.recommendations.map((rec) => (
+                  <div
+                    key={rec.id}
+                    className="rounded-[0.625rem] border p-3 text-xs flex flex-col justify-between gap-2"
+                    style={{ borderColor: 'var(--color-line)', background: 'rgba(15,23,42,0.35)' }}
+                  >
+                    <div>
+                      <p className="font-medium">{rec.title}</p>
+                      <p className="mt-1 leading-relaxed" style={{ color: 'var(--color-mut)' }}>
+                        {rec.detail}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {rec.kind === 'variant_upgrade' && (
+                        <button
+                          type="button"
+                          onClick={() => setVariant(rec.variant)}
+                          className="rounded border px-2.5 py-1 text-[11px] font-medium transition-colors"
+                          style={{ borderColor: 'var(--color-cyan)', color: 'var(--color-cyan)' }}
+                        >
+                          🔬 Variante in Studien anzeigen
+                        </button>
+                      )}
+                      {rec.kind === 'session_gate' && (
+                        <button
+                          type="button"
+                          disabled={gateBusyId === rec.id}
+                          onClick={() => void applySessionGate(rec)}
+                          className="rounded border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-50"
+                          style={{ borderColor: 'rgba(245,158,11,0.55)', color: '#fbbf24' }}
+                        >
+                          {gateBusyId === rec.id ? '⏳ Speichert…' : '🛡️ Als Session-Risk-Gate aktivieren'}
+                        </button>
+                      )}
+                      {rec.kind === 'event_caution' && (
+                        <a
+                          href="#/strategien?tab=szenarien"
+                          className="rounded border px-2.5 py-1 text-[11px] font-medium transition-colors"
+                          style={{ borderColor: 'rgba(167,139,250,0.55)', color: 'var(--color-violet)' }}
+                        >
+                          🎯 Event-Szenario / Schutz planen →
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ── Grafik 1: Kumulierte R-Kurve (Genutzt vs. Verpasst) ── */}
           <div className="glass min-w-0 overflow-hidden p-4">

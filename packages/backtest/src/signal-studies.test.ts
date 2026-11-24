@@ -3,6 +3,7 @@ import type { Candle } from '@gladiator/strategy-engine';
 import {
   buildSignalStudyAnalytics,
   classifySignalEventContext,
+  deriveSignalStudyRecommendations,
   evaluateSignalStudyVariants,
   STUDY_VARIANT_IDS,
   usageGroupOf,
@@ -145,5 +146,35 @@ describe('Autonome Signal-Studien (Welle 23)', () => {
     expect(analytics.missedCurve).toHaveLength(1);
     expect(analytics.scatter).toHaveLength(2);
     expect(analytics.summary.lowSample).toBe(true);
+    // Bei n < 10 dürfen KEINE Empfehlungen erzeugt werden!
+    expect(deriveSignalStudyRecommendations(analytics)).toEqual([]);
+
+    // Ab n >= 10 mit klarem SL-Vorteil + schwacher Overlap-Session + CPI-Einbruch greifen Empfehlungen:
+    const richRows: StudyRowLike[] = [];
+    for (let i = 0; i < 12; i++) {
+      richRows.push(
+        mk({
+          signalId: `r-${i}`,
+          variant: 'baseline',
+          rMultiple: i < 2 ? 1.5 : -1.0, // 2/12 Wins -> stark negativ
+          session: 'overlap',
+          eventCategory: 'inflation',
+          signalCreatedAt: new Date(1_700_000_000_000 + i * HOUR),
+        }),
+        mk({
+          signalId: `r-${i}`,
+          variant: 'wide_sl',
+          rMultiple: i < 8 ? 1.4 : -1.0, // 8/12 Wins -> deutlich besser!
+          session: 'overlap',
+          eventCategory: 'inflation',
+          signalCreatedAt: new Date(1_700_000_000_000 + i * HOUR),
+        }),
+      );
+    }
+    const richAnalytics = buildSignalStudyAnalytics(richRows, 'baseline');
+    const recs = deriveSignalStudyRecommendations(richAnalytics);
+    expect(recs.some((r) => r.kind === 'variant_upgrade' && r.variant === 'wide_sl')).toBe(true);
+    expect(recs.some((r) => r.kind === 'session_gate' && r.session === 'overlap')).toBe(true);
+    expect(recs.some((r) => r.kind === 'event_caution' && r.eventCategory === 'inflation')).toBe(true);
   });
 });

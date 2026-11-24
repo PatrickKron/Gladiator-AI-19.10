@@ -529,6 +529,110 @@ export function buildSignalStudyAnalytics(
   };
 }
 
+export type StudyRecommendation =
+  | {
+      id: string;
+      kind: 'variant_upgrade';
+      title: string;
+      detail: string;
+      variant: StudyVariantId;
+      closed: number;
+      deltaExpectancyR: number;
+    }
+  | {
+      id: string;
+      kind: 'session_gate';
+      title: string;
+      detail: string;
+      session: 'asia' | 'london' | 'overlap' | 'newyork' | 'off';
+      closed: number;
+      expectancyR: number;
+      winRate: number;
+    }
+  | {
+      id: string;
+      kind: 'event_caution';
+      title: string;
+      detail: string;
+      eventCategory: StudyEventCategory;
+      closed: number;
+      expectancyR: number;
+      winRate: number;
+    };
+
+/**
+ * Leitet rein evidenzbasierte Verbesserungs- & Schutz-Vorschläge aus den Signal-Studien ab (Welle 26).
+ * Strenge Mindeststichprobe (`closed >= STUDY_LOW_SAMPLE_THRESHOLD`, also mind. 10 abgeschlossene Signale),
+ * schaltet nichts automatisch scharf — der Nutzer entscheidet per 1-Klick im Labor.
+ */
+export function deriveSignalStudyRecommendations(analytics: SignalStudyAnalytics): StudyRecommendation[] {
+  const out: StudyRecommendation[] = [];
+
+  // 1) Bessere Parameter-Variante gegenüber Baseline?
+  const base = analytics.byVariant.find((b) => b.key === 'baseline');
+  if (base && !base.lowSample && base.expectancyR !== null) {
+    let bestAlt: { bucket: StudyBucketStats; delta: number } | null = null;
+    for (const v of analytics.byVariant) {
+      if (v.key === 'baseline' || v.lowSample || v.expectancyR === null) continue;
+      const delta = Math.round((v.expectancyR - base.expectancyR) * 100) / 100;
+      if (delta >= 0.15 && (!bestAlt || delta > bestAlt.delta)) {
+        bestAlt = { bucket: v, delta };
+      }
+    }
+    if (bestAlt) {
+      const spec = STUDY_VARIANTS.find((s) => s.id === bestAlt!.bucket.key);
+      out.push({
+        id: `variant:${bestAlt.bucket.key}`,
+        kind: 'variant_upgrade',
+        variant: bestAlt.bucket.key as StudyVariantId,
+        closed: bestAlt.bucket.closed,
+        deltaExpectancyR: bestAlt.delta,
+        title: `Besserer Exit/SL-Parameter: „${spec?.label ?? bestAlt.bucket.key}“ (+${bestAlt.delta.toFixed(2)} R je Signal)`,
+        detail: `Über ${bestAlt.bucket.closed} abgeschlossene Signale liefert diese Variante Ø ${bestAlt.bucket.expectancyR!.toFixed(2)} R (${((bestAlt.bucket.winRate ?? 0) * 100).toFixed(1)} % Trefferquote) gegenüber Ø ${base.expectancyR.toFixed(2)} R bei Original-Parametern.`,
+      });
+    }
+  }
+
+  // 2) Verlustreiche Trading-Session -> 1-Klick adaptives Risk-Gate
+  const validSessions = new Set(['asia', 'london', 'overlap', 'newyork', 'off']);
+  for (const s of analytics.bySession) {
+    if (s.lowSample || s.expectancyR === null || s.winRate === null || !validSessions.has(s.key)) continue;
+    if (s.expectancyR <= -0.25 && s.winRate < 0.35) {
+      out.push({
+        id: `session:${s.key}`,
+        kind: 'session_gate',
+        session: s.key as 'asia' | 'london' | 'overlap' | 'newyork' | 'off',
+        closed: s.closed,
+        expectancyR: s.expectancyR,
+        winRate: s.winRate,
+        title: `Schwache Session „${s.key.toUpperCase()}“ sperrbar (Ø ${s.expectancyR.toFixed(2)} R · ${(s.winRate * 100).toFixed(1)} % WR)`,
+        detail: `In der Session „${s.key}“ endeten ${s.losses} von ${s.closed} Signalen im Verlust (Summe ${s.sumR.toFixed(2)} R). Kann per 1-Klick als restriktives Risk-Gate hinterlegt werden (jederzeit wieder abschaltbar).`,
+      });
+    }
+  }
+
+  // 3) Deutlicher Einbruch bei Makro-Events (±2 h)
+  const noEvent = analytics.byEvent.find((e) => e.key === 'none');
+  for (const e of analytics.byEvent) {
+    if (e.key === 'none' || e.lowSample || e.expectancyR === null || e.winRate === null) continue;
+    const worseThanCalm = !noEvent || noEvent.expectancyR === null || e.expectancyR <= noEvent.expectancyR - 0.25;
+    if (e.expectancyR <= -0.25 && e.winRate < 0.35 && worseThanCalm) {
+      out.push({
+        id: `event:${e.key}`,
+        kind: 'event_caution',
+        eventCategory: e.key as StudyEventCategory,
+        closed: e.closed,
+        expectancyR: e.expectancyR,
+        winRate: e.winRate,
+        title: `Hohes Fehlsignal-Risiko bei Event „${e.key}“ (±2 h: ${(e.winRate * 100).toFixed(1)} % WR)`,
+        detail: `Rund um „${e.key}“ (±120 Min.) lag der Erwartungswert über ${e.closed} Signale bei Ø ${e.expectancyR.toFixed(2)} R${noEvent && noEvent.winRate !== null ? ` (ohne Event: ${(noEvent.winRate * 100).toFixed(1)} % WR)` : ''}. Empfehlung: No-Trade-Fenster beachten oder eigenes Event-Szenario nutzen.`,
+      });
+    }
+  }
+
+  return out.slice(0, 5);
+}
+
 export type SignalStudyBatchResult = {
   signalsChecked: number;
   signalsEvaluated: number;

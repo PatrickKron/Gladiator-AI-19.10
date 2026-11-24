@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { schema } from '@gladiator/db';
 import {
   buildSignalStudyAnalytics,
+  deriveSignalStudyRecommendations,
   readProposalState,
   runLabBacktest,
   runLabWalkForward,
@@ -597,14 +598,74 @@ export const labRouter = router({
           exitTs: r.exitTs,
         }));
 
+      const analytics = buildSignalStudyAnalytics(filtered, input.variant);
       return {
         variants: STUDY_VARIANTS,
         availableSymbols,
         availableStrategies,
         availableTimeframes,
         lastEvaluatedAt,
-        analytics: buildSignalStudyAnalytics(filtered, input.variant),
+        analytics,
+        recommendations: deriveSignalStudyRecommendations(analytics),
       };
+    }),
+
+  /**
+   * 1-Klick-Übernahme einer statistisch schwachen Session aus den Signal-Studien
+   * als restriktives Risk-Gate (Mensch im Loop, idempotent & jederzeit deaktivierbar).
+   */
+  applyStudySessionGate: protectedProcedure
+    .input(
+      z.object({
+        session: z.enum(['asia', 'london', 'overlap', 'newyork', 'off']),
+        symbol: z.string().min(1).optional(),
+        timeframe: z.string().min(1).optional(),
+        closed: z.number().int().min(10),
+        expectancyR: z.number(),
+        winRate: z.number().min(0).max(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const sym = input.symbol && input.symbol !== 'all' ? input.symbol : null;
+      const tf = input.timeframe && input.timeframe !== 'all' ? input.timeframe : null;
+
+      // Duplikate vermeiden: falls bereits ein aktives signal-studies Gate für denselben Scope existiert, zurückgeben
+      const existing = await ctx.db
+        .select()
+        .from(riskGates)
+        .where(and(eq(riskGates.isActive, true), eq(riskGates.source, 'signal-studies'), eq(riskGates.session, input.session)));
+      const duplicate = existing.find((g) => (g.symbol ?? null) === sym && (g.timeframe ?? null) === tf);
+      if (duplicate) return { created: false, gateId: duplicate.id };
+
+      const reason = `Signal-Studie: Session ${input.session.toUpperCase()}${sym ? ` (${sym})` : ''} gesperrt (Ø ${input.expectancyR.toFixed(2)} R, ${(input.winRate * 100).toFixed(1)} % WR über ${input.closed} Signale).`;
+      const [inserted] = await ctx.db
+        .insert(riskGates)
+        .values({
+          kind: 'block',
+          session: input.session,
+          symbol: sym,
+          timeframe: tf,
+          evidence: {
+            trades: input.closed,
+            expectancyR: input.expectancyR,
+            winRate: input.winRate,
+            source: 'signal-studies',
+          },
+          reason,
+          source: 'signal-studies',
+        })
+        .returning({ id: riskGates.id });
+
+      await ctx.db.insert(auditLog).values({
+        actor: 'user',
+        userId: ctx.user.id,
+        action: 'risk.gate.from_signal_study',
+        entityType: 'risk_gate',
+        entityId: inserted!.id,
+        details: { session: input.session, symbol: sym, timeframe: tf, closed: input.closed, expectancyR: input.expectancyR },
+      });
+
+      return { created: true, gateId: inserted!.id };
     }),
 
   /** Sofortiger Studien-Lauf (on-demand im Labor, zusätzlich zum 30-Min.-Worker). */
