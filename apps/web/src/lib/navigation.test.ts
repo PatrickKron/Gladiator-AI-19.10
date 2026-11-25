@@ -112,6 +112,7 @@ describe('Funktions-Registry (eine Wahrheit für Sidebar, Suche, Brotkrumen, Wei
       expect(first('hedging')).toBe('#/strategien?tab=hedging');
       expect(first('signal-studien')).toBe('#/labor?tab=studien');
       expect(first('fremdgeldkonto')).toBe('#/echtes-geld');
+      expect(first('spot kaufen')).toBe('#/traden?tab=spot');
     });
 
     it('Groß-/Kleinschreibung und Umlaute egal, mehrere Wörter müssen alle passen', () => {

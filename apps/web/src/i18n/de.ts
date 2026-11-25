@@ -2886,9 +2886,11 @@ export const de = {
     accountLabel: "Konto",
     account_demo: "Demo-Konto",
     account_agent: "Agenten-Konto",
+    account_spot: "Spot & Wallet",
     account_wallet: "Wallets",
     hint_demo: "Selbst handeln mit Spielgeld gegen echte Orderbücher — mit Hebel und Börsenvergleich.",
     hint_agent: "Paper-Konto deiner Agenten: Positionen, Historie, Risiko, Alarme.",
+    hint_spot: "Spot ohne Hebel kaufen & auf deine eigene Wallet sichern — 3 geordnete Wege (Geführt, DEX, Whitelist-API).",
     hint_wallet: "Token per Adresse kaufen und verkaufen (Solana, EVM) — Paper oder eigene Wallet.",
   },
   market: {

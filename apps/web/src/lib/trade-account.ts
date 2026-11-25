@@ -6,9 +6,9 @@
  * bewusste Wahl (Patrick 2026-10-24: v3 wirkte „wie eine Demo“). Rein & getestet.
  */
 
-export type TradeAccount = 'demo' | 'agent' | 'wallet';
+export type TradeAccount = 'demo' | 'agent' | 'spot' | 'wallet';
 
-export const TRADE_ACCOUNTS: TradeAccount[] = ['agent', 'demo', 'wallet'];
+export const TRADE_ACCOUNTS: TradeAccount[] = ['agent', 'demo', 'spot', 'wallet'];
 
 /** Tabs des Agenten-Kontos (Trading-Ansicht). */
 export const AGENT_TABS = ['positionen', 'historie', 'risiko', 'alerts', 'performance'] as const;
@@ -16,7 +16,7 @@ export const AGENT_TABS = ['positionen', 'historie', 'risiko', 'alerts', 'perfor
 export function accountForHash(hash: string, remembered: TradeAccount | null): TradeAccount {
   const q = hash.indexOf('?');
   const tab = q < 0 ? null : new URLSearchParams(hash.slice(q + 1)).get('tab');
-  if (tab === 'demo' || tab === 'wallet') return tab;
+  if (tab === 'demo' || tab === 'spot' || tab === 'wallet') return tab;
   if (tab && (AGENT_TABS as readonly string[]).includes(tab)) return 'agent';
   return remembered ?? 'agent';
 }
@@ -36,7 +36,7 @@ const KEY = TRADE_ACCOUNT_KEY;
 export function rememberedAccount(): TradeAccount | null {
   try {
     const v = localStorage.getItem(KEY);
-    return v === 'demo' || v === 'agent' || v === 'wallet' ? v : null;
+    return v === 'demo' || v === 'agent' || v === 'spot' || v === 'wallet' ? v : null;
   } catch {
     return null;
   }

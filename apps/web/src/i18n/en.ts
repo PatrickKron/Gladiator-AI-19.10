@@ -2888,9 +2888,11 @@ export const en: Catalog = {
     account_demo: "Demo account",
     account_agent: "Agent account",
     account_wallet: "Wallets",
+    account_spot: "Spot & Wallet",
     hint_demo: "Trade yourself with play money against real order books — with leverage and exchange comparison.",
     hint_agent: "Your agents' paper account: positions, history, risk, alerts.",
     hint_wallet: "Buy and sell tokens by address (Solana, EVM) — paper or your own wallet.",
+    hint_spot: "Buy spot with zero leverage & move to your own wallet — 3 structured paths (Guided, DEX, Whitelist API).",
   },
   market: {
     watchlist: "My markets",

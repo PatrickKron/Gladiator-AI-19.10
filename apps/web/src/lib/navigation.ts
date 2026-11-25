@@ -162,6 +162,11 @@ export const PAGES = [
     tabs: [
       { id: 'demo', labelKey: 'ia.page_demo', keywords: ['demo', 'selbst handeln', 'orderbuch', 'limit', 'market', 'manuell', 'üben', 'hebel', 'leverage', 'börsenvergleich'] },
       {
+        id: 'spot',
+        labelKey: 'trade.account_spot',
+        keywords: ['spot kaufen', 'wallet bewegen', 'self-custody', 'ledger', 'cold wallet', 'adressbuch', 'whitelist', 'on-chain eingang', 'auszahlen'],
+      },
+      {
         id: 'wallet',
         labelKey: 'ia.page_wallet',
         keywords: ['wallet', 'swap', 'spot', 'meme', 'memecoin', 'token', 'solana', 'jupiter', 'uniswap', 'kyberswap', 'trojan', 'dex', 'base', 'ethereum', 'auto-sell', 'take profit', 'stop loss', 'honeypot'],
