@@ -29,10 +29,13 @@ export {
 } from './executor.js';
 export {
   DEX_DIRECT_PRESETS,
+  SOL_SPL_MINTS,
+  SPOT_COMPARE_EXCHANGES,
   SPOT_NETWORK_IDS,
   SPOT_NETWORKS,
   WITHDRAW_CONFIRM_PHRASE,
   checkAssetNetworkCompatibility,
+  compareLiveSpotQuotes,
   exchangeWithdrawUrl,
   executeCexSpotBuy,
   executeWhitelistedCexWithdraw,
@@ -41,8 +44,11 @@ export {
   fetchLiveSpotQuote,
   fetchOnChainAssetBalance,
   validateDestinationAddress,
+  valueAddressBookWallets,
   verifyWalletApprovalPhrase,
+  type AddressBookWalletValuation,
   type OnChainBalanceResult,
+  type SpotExchangeComparisonQuote,
   type SpotNetworkId,
   type SpotNetworkMeta,
 } from './spot-workflow.js';

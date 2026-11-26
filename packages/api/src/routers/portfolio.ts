@@ -5,6 +5,7 @@ import {
   demoAccountOverview,
   fetchConnectionBalances,
   listConnections,
+  valueAddressBookWallets,
 } from '@gladiator/exchange';
 import { getEurUsdRate, valueBalancesUsd } from '@gladiator/market-data';
 import { loadValueHistory, valueSwapWallets } from '@gladiator/jobs';
@@ -87,10 +88,18 @@ export const portfolioRouter = router({
     const sum = (ws: typeof wallets) => ws.reduce((s, w) => s + (w.totalUsd ?? 0), 0);
     if (liveWallets.length > 0) realTotalUsd = (realTotalUsd ?? 0) + sum(liveWallets);
 
+    // Self-Custody Cold-/Hardware-Wallets aus dem Adressbuch (Welle 27 + 28): echte On-Chain-Bestände
+    const selfCustodyWallets = await valueAddressBookWallets(ctx.db, ctx.user.id, valueBalancesUsd);
+    const selfCustodyUsd = selfCustodyWallets.reduce((s, w) => s + (w.totalUsd ?? 0), 0);
+    if (selfCustodyWallets.some((w) => w.totalUsd !== null)) {
+      realTotalUsd = (realTotalUsd ?? 0) + selfCustodyUsd;
+    }
+
     const eurUsd = await getEurUsdRate();
     const practiceUsd = (demo?.equity ?? 0) + paper.equity + sum(paperWallets);
     const toEur = (usd: number | null): number | null =>
       usd === null || eurUsd === null ? null : usd / eurUsd;
+    const realConnected = connections.length > 0 || liveWallets.length > 0 || selfCustodyWallets.length > 0;
 
     return {
       practice: {
@@ -103,12 +112,14 @@ export const portfolioRouter = router({
         totalEur: toEur(practiceUsd),
       },
       real: {
-        connected: connections.length > 0 || liveWallets.length > 0,
+        connected: realConnected,
         accounts: realAccounts,
         wallets: liveWallets,
         walletsIncomplete: liveWallets.some((w) => w.totalUsd === null),
-        totalUsd: connections.length > 0 || liveWallets.length > 0 ? realTotalUsd : 0,
-        totalEur: connections.length > 0 || liveWallets.length > 0 ? toEur(realTotalUsd) : 0,
+        selfCustodyWallets,
+        selfCustodyIncomplete: selfCustodyWallets.some((w) => w.incomplete || w.totalUsd === null),
+        totalUsd: realConnected ? realTotalUsd : 0,
+        totalEur: realConnected ? toEur(realTotalUsd) : 0,
       },
       eurUsdRate: eurUsd,
     };

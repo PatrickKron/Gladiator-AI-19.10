@@ -5,10 +5,12 @@ import { Empty, ErrorBox, Loading, PageHeader, Panel, fmtNum } from './ui.js';
 
 type Overview = Awaited<ReturnType<typeof trpc.spotWorkflow.overview.query>>;
 type Quote = Awaited<ReturnType<typeof trpc.spotWorkflow.quote.query>>;
+type CompareQuote = Awaited<ReturnType<typeof trpc.spotWorkflow.compareQuotes.query>>[number];
 type NetworkId = Overview['networks'][number]['id'];
 type WorkflowPath = 'guided_cex' | 'dex_direct' | 'api_withdraw';
 
-const QUICK_SPOT_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'QNT/USDT', 'LINK/USDT', 'ARB/USDT', 'AAVE/USDT', 'UNI/USDT'];
+const QUICK_BASE_COINS = ['BTC', 'ETH', 'SOL', 'QNT', 'LINK', 'ARB', 'AAVE', 'UNI'];
+const QUOTE_CURRENCIES = ['USDT', 'USDC', 'EUR'] as const;
 const QUICK_AMOUNTS = [50, 100, 250, 500, 1000];
 
 const STAGE_META: Record<string, { step: 1 | 2 | 3; label: string; color: string; bg: string }> = {
@@ -43,11 +45,14 @@ export function SpotWalletWorkflowPanel() {
 
   // Schritt 2: Spot-Kauf-Ticket
   const [symbol, setSymbol] = useState('BTC/USDT');
+  const [quoteCurrency, setQuoteCurrency] = useState<(typeof QUOTE_CURRENCIES)[number]>('USDT');
   const [quoteAmountStr, setQuoteAmountStr] = useState('100');
   const [mode, setMode] = useState<'paper' | 'live'>('paper');
   const [connectionId, setConnectionId] = useState<string>('');
   const [destWalletId, setDestWalletId] = useState<string>('');
   const [quote, setQuote] = useState<Quote | null>(null);
+  const [compareRows, setCompareRows] = useState<CompareQuote[]>([]);
+  const [showCompare, setShowCompare] = useState(false);
   const [buying, setBuying] = useState(false);
   const [buyFeedback, setBuyFeedback] = useState<string | null>(null);
 
@@ -83,6 +88,7 @@ export function SpotWalletWorkflowPanel() {
   useEffect(() => {
     if (activePath === 'dex_direct' || quoteAmount <= 0 || symbol.trim().length < 3) {
       setQuote(null);
+      setCompareRows([]);
       return;
     }
     let cancelled = false;
@@ -100,12 +106,28 @@ export function SpotWalletWorkflowPanel() {
         .catch(() => {
           if (!cancelled) setQuote(null);
         });
+      if (showCompare) {
+        void trpc.spotWorkflow.compareQuotes
+          .query({ symbol, quoteAmount })
+          .then((rows) => {
+            if (!cancelled) setCompareRows(rows);
+          })
+          .catch(() => {
+            if (!cancelled) setCompareRows([]);
+          });
+      }
     }, 250);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [activePath, symbol, quoteAmount, mode, selectedConn, selectedWallet]);
+  }, [activePath, symbol, quoteAmount, mode, selectedConn, selectedWallet, showCompare]);
+
+  function selectQuoteCurrency(nextQuote: (typeof QUOTE_CURRENCIES)[number]) {
+    setQuoteCurrency(nextQuote);
+    const base = symbol.split('/')[0]?.trim().toUpperCase() || 'BTC';
+    setSymbol(`${base}/${nextQuote}`);
+  }
 
   function copyText(key: string, value: string) {
     void navigator.clipboard?.writeText(value);
@@ -575,41 +597,59 @@ export function SpotWalletWorkflowPanel() {
             <Panel label="② Spot kaufen (ohne Hebel, echte Live-Kurse)">
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap gap-1.5">
-                  {QUICK_SPOT_PAIRS.map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => setSymbol(p)}
-                      className="rounded border px-2.5 py-1 text-xs transition-colors"
-                      style={
-                        symbol === p
-                          ? { borderColor: 'var(--color-cyan)', background: 'rgba(6,182,212,0.16)', color: 'var(--color-ink)' }
-                          : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
-                      }
-                    >
-                      {p.split('/')[0]}
-                    </button>
-                  ))}
+                  {QUICK_BASE_COINS.map((base) => {
+                    const pair = `${base}/${quoteCurrency}`;
+                    return (
+                      <button
+                        key={base}
+                        type="button"
+                        onClick={() => setSymbol(pair)}
+                        className="rounded border px-2.5 py-1 text-xs transition-colors"
+                        style={
+                          symbol.startsWith(`${base}/`)
+                            ? { borderColor: 'var(--color-cyan)', background: 'rgba(6,182,212,0.16)', color: 'var(--color-ink)' }
+                            : { borderColor: 'var(--color-line)', color: 'var(--color-mut)' }
+                        }
+                      >
+                        {base}
+                      </button>
+                    );
+                  })}
                 </div>
 
-                {/* Paper vs. Live Umschalter */}
-                <div className="flex rounded-lg border p-0.5 text-xs" style={{ borderColor: 'var(--color-line)' }}>
-                  <button
-                    type="button"
-                    onClick={() => setMode('paper')}
-                    className="rounded-md px-2.5 py-1 font-medium"
-                    style={mode === 'paper' ? { background: 'rgba(6,182,212,0.18)', color: 'var(--color-cyan)' } : { color: 'var(--color-mut)' }}
-                  >
-                    🧪 Paper-Übung
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMode('live')}
-                    className="rounded-md px-2.5 py-1 font-medium"
-                    style={mode === 'live' ? { background: 'rgba(245,158,11,0.2)', color: '#fbbf24' } : { color: 'var(--color-mut)' }}
-                  >
-                    ● Live-Börse
-                  </button>
+                {/* Quote-Währung (USDT / USDC / EUR) + Paper vs. Live Umschalter */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="flex rounded-lg border p-0.5 text-[11px]" style={{ borderColor: 'var(--color-line)' }} title="Kaufwährung (USDT, USDC oder EUR)">
+                    {QUOTE_CURRENCIES.map((qc) => (
+                      <button
+                        key={qc}
+                        type="button"
+                        onClick={() => selectQuoteCurrency(qc)}
+                        className="rounded-md px-2 py-0.5 font-medium"
+                        style={quoteCurrency === qc ? { background: 'rgba(167,139,250,0.2)', color: 'var(--color-ink)' } : { color: 'var(--color-mut)' }}
+                      >
+                        {qc}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex rounded-lg border p-0.5 text-xs" style={{ borderColor: 'var(--color-line)' }}>
+                    <button
+                      type="button"
+                      onClick={() => setMode('paper')}
+                      className="rounded-md px-2.5 py-1 font-medium"
+                      style={mode === 'paper' ? { background: 'rgba(6,182,212,0.18)', color: 'var(--color-cyan)' } : { color: 'var(--color-mut)' }}
+                    >
+                      🧪 Paper-Übung
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMode('live')}
+                      className="rounded-md px-2.5 py-1 font-medium"
+                      style={mode === 'live' ? { background: 'rgba(245,158,11,0.2)', color: '#fbbf24' } : { color: 'var(--color-mut)' }}
+                    >
+                      ● Live-Börse
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -716,6 +756,79 @@ export function SpotWalletWorkflowPanel() {
                     ⚠️ {quote.compatibility.warning}
                   </p>
                 )}
+
+                {/* Aufklappbarer Live-Spot-Börsenvergleich */}
+                <div className="border-t pt-2" style={{ borderColor: 'rgba(148,163,184,0.14)' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowCompare((s) => !s)}
+                    className="flex w-full items-center justify-between text-[11px] font-medium"
+                    style={{ color: 'var(--color-cyan)' }}
+                  >
+                    <span>⚖️ Spot-Börsenvergleich für {symbol} ({quoteAmount} {symbol.split('/')[1] ?? 'USDT'})</span>
+                    <span>{showCompare ? '▲ Ausblenden' : '▼ Beste Börse vergleichen'}</span>
+                  </button>
+                  {showCompare && (
+                    <div className="mt-2 overflow-x-auto">
+                      {compareRows.length === 0 ? (
+                        <p className="text-[11px]" style={{ color: 'var(--color-mut)' }}>Lädt echte Börsenkurse…</p>
+                      ) : (
+                        <table className="w-full text-left text-[11px] num">
+                          <thead>
+                            <tr style={{ color: 'var(--color-mut)' }}>
+                              <th className="py-1 pr-2">Börse</th>
+                              <th className="py-1 pr-2">Ask</th>
+                              <th className="py-1 pr-2">Gebühr</th>
+                              <th className="py-1 pr-2">Netto-Erhalt</th>
+                              <th className="py-1">Abstand</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {compareRows.map((r) => (
+                              <tr
+                                key={r.exchangeId}
+                                onClick={() => {
+                                  if (r.connectionId) {
+                                    setConnectionId(r.connectionId);
+                                    setMode('live');
+                                  }
+                                }}
+                                className={r.connectionId ? 'cursor-pointer hover:opacity-90' : ''}
+                                style={{ borderTop: '1px solid rgba(148,163,184,0.1)' }}
+                              >
+                                <td className="py-1 pr-2 font-medium">
+                                  {r.exchangeName}
+                                  {r.isBest && (
+                                    <span className="ml-1 rounded px-1 py-0.5 text-[9px]" style={{ background: 'rgba(16,185,129,0.18)', color: 'var(--color-pos)' }}>
+                                      BESTER
+                                    </span>
+                                  )}
+                                  {r.connected && (
+                                    <span className="ml-1 rounded px-1 py-0.5 text-[9px]" style={{ background: 'rgba(6,182,212,0.16)', color: 'var(--color-cyan)' }}>
+                                      verbunden
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-1 pr-2">
+                                  {r.askPrice !== null ? fmtNum(r.askPrice, r.askPrice >= 100 ? 2 : 4) : '—'}
+                                </td>
+                                <td className="py-1 pr-2">
+                                  {(r.takerFeeRate * 100).toFixed(2)} %
+                                </td>
+                                <td className="py-1 pr-2 font-semibold" style={{ color: r.isBest ? 'var(--color-pos)' : 'var(--color-ink)' }}>
+                                  {r.estBaseQty !== null ? `${fmtNum(r.estBaseQty, 6)} ${symbol.split('/')[0]}` : 'nicht gelistet'}
+                                </td>
+                                <td className="py-1" style={{ color: r.isBest ? 'var(--color-pos)' : 'var(--color-mut)' }}>
+                                  {r.diffPctFromBest === null ? '—' : r.isBest ? '0,00 %' : `−${r.diffPctFromBest.toFixed(2)} %`}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <button
@@ -750,6 +863,9 @@ export function SpotWalletWorkflowPanel() {
       {/* ── SCHRITT 3: Laufende & abgeschlossene Spot-→-Wallet-Workflows ── */}
       {data && (
         <Panel label={`③ Deine Spot-&-Wallet-Workflows (${data.workflows.length})`}>
+          <p className="mt-1 text-xs" style={{ color: 'var(--color-mut)' }}>
+            ⚡ <strong style={{ color: 'var(--color-ink)' }}>Automatischer On-Chain-Wächter aktiv:</strong> Offene Transfers werden im Hintergrund alle 2 Minuten gegen die Blockchain (Bitcoin, Solana + SPL, Ethereum/Arbitrum/Base/BSC/Polygon) geprüft und senden dir bei Eingang automatisch eine Benachrichtigung.
+          </p>
           {data.workflows.length === 0 ? (
             <Empty text="Noch kein Spot-Workflow gestartet. Kaufe oben in Schritt ② deinen ersten Spot-Bestand (gern zuerst im Paper-Modus zum Durchspielen!)." />
           ) : (

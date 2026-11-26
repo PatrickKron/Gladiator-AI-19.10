@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { schema } from '@gladiator/db';
 import {
   checkAssetNetworkCompatibility,
+  compareLiveSpotQuotes,
   DEX_DIRECT_PRESETS,
   exchangeWithdrawUrl,
   executeCexSpotBuy,
@@ -151,6 +152,51 @@ export const spotWorkflowRouter = router({
         exchangeId: q.exchangeId,
         compatibility,
       };
+    }),
+
+  /** Live-Börsenvergleich für Spot-Käufe (effektive Empfangsmenge inkl. Taker-Gebühr). */
+  compareQuotes: protectedProcedure
+    .input(
+      z.object({
+        symbol: z.string().trim().min(3).max(24),
+        quoteAmount: z.number().positive().max(10_000_000),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const [quotes, conns] = await Promise.all([
+        compareLiveSpotQuotes(input.symbol, input.quoteAmount),
+        ctx.db
+          .select({
+            id: exchangeConnections.id,
+            exchangeId: exchangeConnections.exchangeId,
+            mode: exchangeConnections.mode,
+          })
+          .from(exchangeConnections)
+          .where(
+            and(
+              eq(exchangeConnections.userId, ctx.user.id),
+              eq(exchangeConnections.status, 'active'),
+              isNull(exchangeConnections.revokedAt),
+            ),
+          ),
+      ]);
+
+      const connByEx = new Map<string, { id: string; mode: string }>();
+      for (const c of conns) {
+        if (!connByEx.has(c.exchangeId) || c.mode === 'trading') {
+          connByEx.set(c.exchangeId, { id: c.id, mode: c.mode });
+        }
+      }
+
+      return quotes.map((q) => {
+        const match = connByEx.get(q.exchangeId);
+        return {
+          ...q,
+          connected: Boolean(match),
+          connectionId: match?.id ?? null,
+          tradingReady: match?.mode === 'trading',
+        };
+      });
     }),
 
   /** Ziel-Wallet ins Adressbuch eintragen (strenge Formatprüfung + On-Chain-Check). */

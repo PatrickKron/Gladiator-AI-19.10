@@ -235,6 +235,44 @@ export function Vermoegen() {
                   <span className="num text-sm font-semibold">{w.totalUsd !== null ? money(w.totalUsd, '$') : '—'}</span>
                 </div>
               ))}
+              {data.real.selfCustodyWallets?.map((sw) => (
+                <a key={sw.walletId} href="#/traden?tab=spot" className="glass glass-hover px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-9 w-9 place-items-center rounded-[10px] text-xs font-bold" style={{ background: 'rgba(6,182,212,0.16)', color: 'var(--color-cyan)' }}>S</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-1.5 text-sm font-medium">
+                        <span className="truncate">{sw.label}</span>
+                        <span className="rounded px-1.5 py-0.5 text-[10px]" style={{ background: 'rgba(6,182,212,0.14)', color: 'var(--color-cyan)' }}>
+                          {sw.network}
+                        </span>
+                        <span className="chip chip--pos">{t('wealth.realBadge')}</span>
+                        {sw.isWhitelisted && (
+                          <span className="rounded px-1.5 py-0.5 text-[10px]" style={{ background: 'rgba(16,185,129,0.14)', color: 'var(--color-pos)' }}>
+                            🔐 Whitelist
+                          </span>
+                        )}
+                      </span>
+                      {sw.error ? (
+                        <span className="block text-xs" style={{ color: 'var(--color-warn)' }}>{sw.error}</span>
+                      ) : (
+                        <span className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs" style={{ color: 'var(--color-mut)' }}>
+                          {sw.holdings.length === 0 ? (
+                            <span>{t('wealth.emptyBalances')}</span>
+                          ) : (
+                            sw.holdings.map((h) => (
+                              <span key={h.asset} className="num">
+                                {fmt(h.balance, 6)} {h.asset}
+                                {h.valuedUsd === null && <span title={t('wealth.unvalued')}> ⚠</span>}
+                              </span>
+                            ))
+                          )}
+                        </span>
+                      )}
+                    </span>
+                    <span className="num text-sm font-semibold">{sw.totalUsd !== null ? money(sw.totalUsd, '$') : '—'}</span>
+                  </div>
+                </a>
+              ))}
               {data.real.accounts.map((acc) => (
                 <div key={acc.connectionId} className="glass px-4 py-3">
                   <div className="flex items-center gap-3">
