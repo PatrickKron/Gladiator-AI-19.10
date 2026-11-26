@@ -6,7 +6,7 @@ Kurzfassung der wichtigsten Regeln: kein Fake (nur echte Daten oder ehrlich „n
 
 ## Weitermachen mit einem anderen Modell (z. B. Gemini 4 Hydrogen im Antigravity-Agenten)
 
-Stand 2026-11-13: Welle 6 ist fertig, committet (`bcaedde`) und auf `origin/feat/welle-6-labor-und-gates` gepusht; GitHub `main` steht auf Welle 5 (PR #103). Der Pull Request für Welle 6 nach `main` ist der nächste Schritt, danach die nächste Welle aus `OFFENER_PLAN.md` (erster offene Punkt `- [ ]`, der nicht Patricks eigener Schritt ist).
+Stand 2026-11-26: Wellen 1–27 (bis PR #131, `f02af4d`) sind auf `main` gemergt und live auf dem Hetzner-Server (`95.216.10.238`) ausgerollt; Welle 28 (`feat/welle-28-self-custody-vermoegen-und-worker`: Self-Custody-Wallets in `#/vermoegen`, autonomer On-Chain-Eingangswächter, Solana-SPL/Multi-RPC & Spot-Börsenvergleich) ist in Arbeit.
 
 So arbeiten, egal welches Modell:
 1. Lesen: `CLAUDE.md` → `UEBERGABE_ANTIGRAVITY.md` → `OFFENER_PLAN.md` → das Ende von `WORKOVER.md`.

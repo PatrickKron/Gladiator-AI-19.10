@@ -7,6 +7,7 @@ import {
   demoAccountOverview,
   fetchConnectionBalances,
   listConnections,
+  valueAddressBookWallets,
 } from '@gladiator/exchange';
 import { getEurUsdRate, valueBalancesUsd } from '@gladiator/market-data';
 import { valueSwapWallets } from './swap-service.js';
@@ -79,6 +80,23 @@ export async function snapshotAccountValues(db: Db): Promise<SnapshotResult> {
         }
       } catch (err) {
         errors.push(`wallets ${u.id}: ${String(err)}`);
+      }
+
+      // Self-Custody Cold-/Hardware-Wallets aus dem Adressbuch (Welle 27 + 28) → echtes Geld
+      try {
+        for (const sw of await valueAddressBookWallets(db, u.id, valueBalancesUsd)) {
+          breakdown[`selfCustody:${sw.walletId}`] = {
+            network: sw.network,
+            totalUsd: sw.totalUsd,
+            incomplete: sw.incomplete,
+            error: sw.error,
+          };
+          if (sw.totalUsd !== null) {
+            realEquityUsd = (realEquityUsd ?? 0) + sw.totalUsd;
+          }
+        }
+      } catch (err) {
+        errors.push(`selfCustody ${u.id}: ${String(err)}`);
       }
 
       const eurUsd = await getEurUsdRate();

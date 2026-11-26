@@ -9,6 +9,7 @@ import { fredConfigured, syncDerivatives, syncFredWatch, syncEconomicCalendar, s
 import { runNightPipeline } from './briefing.js';
 import { runEveningReviewNotification } from './evening-review.js';
 import { runScenarioWatch } from './scenario-watch.js';
+import { runSpotWorkflowWatch } from './spot-workflow-watch.js';
 import { runSignalScan } from './signal-scan.js';
 import { scanUniverse } from './universe.js';
 import { runDslScan } from './dsl-scan.js';
@@ -67,6 +68,7 @@ const SIGNAL_LIFECYCLE_JOB = 'signal-lifecycle';
 const STUDY_CLUSTER_JOB = 'study-clusters';
 const SIGNAL_STUDIES_JOB = 'signal-studies';
 const SCENARIO_WATCH_JOB = 'scenario-watch';
+const SPOT_WORKFLOW_WATCH_JOB = 'spot-workflow-watch';
 const OPTIMIZE_JOB = 'strategy-optimize';
 
 /**
@@ -164,6 +166,7 @@ export const SCHEDULES: [string, number][] = [
   [SIGNAL_LIFECYCLE_JOB, 60_000],        // 05_ §9: Auto-Kill/Reentry/Leverage-Upgrade je Minute (echte Preise)
   [SIGNAL_STUDIES_JOB, 30 * 60_000],     // Welle 23: Autonome Signal-Studien (genutzt vs. verpasst, 5 Varianten, Events) alle 30 min
   [SCENARIO_WATCH_JOB, 5 * 60_000],      // Welle 24: Szenario-Playbooks (News/Makro + BOS-Bestätigung) alle 5 min
+  [SPOT_WORKFLOW_WATCH_JOB, 2 * 60_000], // Welle 28: On-Chain-Eingangswächter für laufende Spot-→-Wallet-Workflows alle 2 min
   // VDB2-Batch (13_ §4) wöchentlich: study_clusters aus study_trades (Labor + Paper) neu rechnen.
   // Zusatzläufe (Neustart) sind unschädlich: die Hebel-Stufengrenze bezieht sich auf die Vorwoche.
   [STUDY_CLUSTER_JOB, 7 * 24 * 60 * 60_000],
@@ -475,6 +478,14 @@ export async function startJobWorker(db: Db, venue: TradingVenue): Promise<{ sto
           const res = await runScenarioWatch(db);
           if (res.triggered > 0) {
             console.log(`[scenario-watch] geprüft=${res.checked} ausgelöst=${res.triggered}`);
+          }
+          return res;
+        }
+        case SPOT_WORKFLOW_WATCH_JOB: {
+          const res = await runSpotWorkflowWatch(db);
+          if (res.confirmed > 0 || res.errors.length > 0) {
+            console.log(`[spot-workflow-watch] geprüft=${res.checked} bestätigt=${res.confirmed} Fehler=${res.errors.length}`);
+            for (const e of res.errors) console.warn('[spot-workflow-watch]', e);
           }
           return res;
         }

@@ -157,3 +157,4 @@ export {
 } from './swap-orders.js';
 export { resolvePendingSwaps, type PendingSwapsResult } from './swap-pending.js';
 export { checkWatchedWallet, runWalletCopy, WATCH_INTERVAL_SECONDS, WATCH_TX_LIMIT, type WalletCopyResult } from './wallet-copy.js';
+export { hasOnChainArrivalOccurred, runSpotWorkflowWatch, type SpotWorkflowWatchResult } from './spot-workflow-watch.js';
