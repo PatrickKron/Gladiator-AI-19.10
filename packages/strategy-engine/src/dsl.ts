@@ -242,8 +242,8 @@ export const instructionDslSchema = z
     breakEvenAfterTp1: z.boolean().optional(),
     risk: z
       .object({
-        maxLeveragePerTrade: z.number().min(1).max(25),
-        riskPctPerTrade: z.number().positive().max(5),
+        maxLeveragePerTrade: z.number().min(1).max(125).default(1),
+        riskPctPerTrade: z.number().positive().max(5).default(1),
       })
       .strict()
       .default({ maxLeveragePerTrade: 1, riskPctPerTrade: 1 }),

@@ -94,7 +94,7 @@ const exitRulesSchema = z
 const riskParamsSchema = z
   .object({
     riskPctPerTrade: z.number().positive().max(5).default(1),
-    maxLeverage: z.number().min(1).max(10).default(1),
+    maxLeverage: z.number().min(1).max(125).default(1),
     /** Max. gleichzeitig offene Positionen dieses Agenten. */
     maxConcurrentPositions: z.number().int().min(1).max(50).default(1),
     /** Agenten-Tagesverlust in % (Paper-Startkapital); überschritten → Agent pausiert. */

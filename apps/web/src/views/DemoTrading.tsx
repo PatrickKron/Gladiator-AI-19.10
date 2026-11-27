@@ -633,7 +633,7 @@ export function OrderTicket({
                 ))}
               </div>
             </div>
-            {/* Hebel (Isolated Margin): Schnellwahl bis zur Obergrenze aus den Einstellungen */}
+            {/* Hebel (Isolated Margin): volle Börsen-Schnellwahl bis 125× (Krypto) bzw. 1× (Schlusskurs-Aktien) */}
             <div className="flex flex-col gap-1 sm:col-span-2">
               <div className="flex items-center justify-between">
                 <span className="label">
@@ -643,7 +643,7 @@ export function OrderTicket({
                 <span className="num text-sm">{leverage}×</span>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
-                {LEVERAGE_STEPS.filter((v) => v <= (maxLeverage ?? 1)).map((v) => (
+                {LEVERAGE_STEPS.filter((v) => v <= (isStockVenue(venue) ? 1 : 125)).map((v) => (
                   <button key={v} onClick={() => setLeverage(v)} className="rounded border px-2 py-1 text-xs" style={seg(leverage === v)}>
                     {v}×
                   </button>
@@ -651,16 +651,16 @@ export function OrderTicket({
                 <input
                   type="number"
                   min={1}
-                  max={maxLeverage ?? 1}
+                  max={isStockVenue(venue) ? 1 : 125}
                   step={1}
                   value={leverage}
-                  onChange={(e) => setLeverage(Math.max(1, Math.min(maxLeverage ?? 1, Math.round(num(e.target.value)) || 1)))}
+                  onChange={(e) => setLeverage(Math.max(1, Math.min(isStockVenue(venue) ? 1 : 125, Math.round(num(e.target.value)) || 1)))}
                   className="field num w-20 px-2.5 py-1.5 text-sm"
                   aria-label={t('demo.leverage')}
                 />
               </div>
               <p className="text-[11px]" style={{ color: 'var(--color-mut)' }}>
-                {maxLeverage === null ? t('demo.leverageNoLimit') : t('demo.leverageLimit', { max: maxLeverage })}
+                {isStockVenue(venue) ? t('demo.leverageLimit', { max: 1 }) : `${t('demo.leverageLimit', { max: 125 })}${maxLeverage && leverage > maxLeverage ? ` · (Standard-Profil: ${maxLeverage}×)` : ''}`}
               </p>
             </div>
             {/* Absicherung in Klartext: „Verkaufe automatisch bei −x %" */}

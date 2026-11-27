@@ -6,7 +6,7 @@ Kurzfassung der wichtigsten Regeln: kein Fake (nur echte Daten oder ehrlich „n
 
 ## Weitermachen mit einem anderen Modell (z. B. Gemini 4 Hydrogen im Antigravity-Agenten)
 
-Stand 2026-11-26: Wellen 1–27 (bis PR #131, `f02af4d`) sind auf `main` gemergt und live auf dem Hetzner-Server (`95.216.10.238`) ausgerollt; Welle 28 (`feat/welle-28-self-custody-vermoegen-und-worker`: Self-Custody-Wallets in `#/vermoegen`, autonomer On-Chain-Eingangswächter, Solana-SPL/Multi-RPC & Spot-Börsenvergleich) ist in Arbeit.
+Stand 2026-11-27: Wellen 1–28 (bis PR #132, `6dea67d`) sind auf `main` gemergt und live auf dem Hetzner-Server (`95.216.10.238`) ausgerollt; Welle 29 (`feat/welle-29-signal-schnell-ausfuehren-und-hebel`: Signal-Schnell-Ausführen-Cockpit `⚡ Schnell-Ausführen`, Kapital-/Strategie-Vorausfüllung, Überzeugungs-Presets & Börsen-Hebel bis `125×`) ist umgesetzt.
 
 So arbeiten, egal welches Modell:
 1. Lesen: `CLAUDE.md` → `UEBERGABE_ANTIGRAVITY.md` → `OFFENER_PLAN.md` → das Ende von `WORKOVER.md`.

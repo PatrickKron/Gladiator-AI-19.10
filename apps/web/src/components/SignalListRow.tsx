@@ -144,6 +144,15 @@ export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDeci
             <FavStarSymbol symbol={signal.symbol} venue={signal.venue} initialFavorite={signal.isFavorite} />
           </span>
           <span className="label">{signal.timeframe} · {signal.setupType}</span>
+          {signal.leverageSuggested && Number(signal.leverageSuggested) > 1 && (
+            <span
+              className="num rounded border px-1.5 py-0.5 text-[10px] font-semibold"
+              style={{ borderColor: 'rgba(6,182,212,0.4)', color: 'var(--color-cyan)', background: 'rgba(6,182,212,0.08)' }}
+              title="Vorausgefüllter Signal-Hebel im Schnell-Ausführen-Cockpit (frei anpassbar bis 125×)"
+            >
+              ⚡ {signal.leverageSuggested}×
+            </span>
+          )}
 
           {/* Score als Balken — Farbe = Risikoklasse (dieselbe Semantik wie auf der Karte) */}
           <span
@@ -221,7 +230,7 @@ export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDeci
                   style={{ borderColor: 'rgba(245,158,11,0.65)', color: 'var(--color-warn)', background: 'rgba(245,158,11,0.08)' }}
                   title={t('signals.blockedBtnHint', { reason: verdict.riskReject })}
                 >
-                  ▶ Prüfen & Ausführen
+                  ⚡ Schnell-Ausführen (Prüfen)
                 </button>
               ) : (
                 <button
@@ -229,7 +238,7 @@ export function SignalListRow({ signal, onDecided }: { signal: SignalRow; onDeci
                   disabled={busy !== null}
                   className="btn-primary px-3 py-1 text-xs font-semibold disabled:opacity-50"
                 >
-                  ▶ Ausführen
+                  ⚡ Schnell-Ausführen
                 </button>
               )}
               <button
