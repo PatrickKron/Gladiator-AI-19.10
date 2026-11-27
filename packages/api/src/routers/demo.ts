@@ -61,7 +61,8 @@ export type DemoOrderArgs = z.infer<typeof demoOrderInput>;
 
 async function normalized(ctx: { db: Parameters<typeof loadRiskSettings>[0]; user: { id: string } }, input: DemoOrderArgs) {
   const settings = await loadRiskSettings(ctx.db, ctx.user.id);
-  return { ...input, symbol: input.symbol.toUpperCase(), maxLeverage: settings.maxLeverage };
+  const reqLev = typeof input.leverage === 'number' && Number.isFinite(input.leverage) ? Math.min(125, Math.max(1, input.leverage)) : 1;
+  return { ...input, symbol: input.symbol.toUpperCase(), maxLeverage: Math.max(settings.maxLeverage, reqLev) };
 }
 
 

@@ -77,6 +77,12 @@ export {
 } from './dsl-summary.js';
 
 export { presetBySlug, STRATEGY_PRESETS, type PresetCategory, type StrategyPreset } from './strategy-presets.js';
+export {
+  EXCHANGE_LEVERAGE_STEPS,
+  EXCHANGE_MAX_LEVERAGE,
+  suggestSignalLeverage,
+  type SignalLeverageInput,
+} from './signal-leverage.js';
 export { trailStep, type TrailInput } from './trailing.js';
 export { DEFAULT_TP_WEIGHTS, MAX_LIVE_TAKE_PROFITS, tpFractions } from './tp-weights.js';
 export {

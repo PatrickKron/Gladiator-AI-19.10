@@ -17,14 +17,15 @@ import {
 } from '@gladiator/exchange';
 import { applyAdaptiveHedgeSizing, evaluateAssetHedging, evaluateRisk, exposureFit, safeCappedNotional } from '@gladiator/risk';
 import { leverageUpgradeSchema, reentrySchema } from '@gladiator/core';
+import { SETTINGS_BOUNDS } from '@gladiator/core/trading-settings';
 import { formatEmergencyAlert, notifySafe, reviewNewSignals, runDslScan, runSignalScan, telegramHtmlToText } from '@gladiator/jobs';
 import { getEurUsdRate, getMacroSnapshot } from '@gladiator/market-data';
 import { evaluateExpiredSignals, getOptimalParams, MIN_TRADES_PER_CLUSTER, type OptimalParams } from '@gladiator/backtest';
-import { buildClusterKey } from '@gladiator/strategy-engine';
+import { buildClusterKey, EXCHANGE_MAX_LEVERAGE, parseInstructionDsl, suggestSignalLeverage } from '@gladiator/strategy-engine';
 import { protectedProcedure, router } from '../trpc.js';
 import { assetSource } from '../market/asset-source.js';
 
-const { signals, signalReviews, strategies, auditLog, assetFavorites, assets } = schema;
+const { signals, signalReviews, strategies, strategyVersions, tradingSettings, auditLog, assetFavorites, assets } = schema;
 
 /**
  * Signal-Feed + Mensch-im-Loop-Entscheidung.
@@ -134,6 +135,7 @@ export const signalsRouter = router({
           entry: signals.entry,
           stopLoss: signals.stopLoss,
           takeProfits: signals.takeProfits,
+          leverageSuggested: signals.leverageSuggested,
           score: signals.score,
           riskClass: signals.riskClass,
           confluence: signals.confluence,
@@ -179,8 +181,22 @@ export const signalsRouter = router({
       let filtered = rows.map(({ reentryRaw, leverageUpgradeRaw, ...r }) => {
         const re = reentrySchema.safeParse(reentryRaw);
         const lu = leverageUpgradeSchema.safeParse(leverageUpgradeRaw);
+        const rawLev = Number(r.leverageSuggested ?? 1) || 1;
+        const effectiveLev =
+          rawLev > 1
+            ? Math.round(rawLev)
+            : suggestSignalLeverage({
+                entry: Number(r.entry),
+                stopLoss: Number(r.stopLoss),
+                setupType: r.setupType,
+                score: Number(r.score),
+                riskClass: r.riskClass,
+                venue: r.venue,
+                maxAllowedLeverage: isCandleCloseSource(r.venue) ? 1 : EXCHANGE_MAX_LEVERAGE,
+              });
         return {
           ...r,
+          leverageSuggested: String(effectiveLev),
           reentry: re.success ? re.data : null,
           leverageUpgrade: lu.success ? lu.data : null,
           isFavorite: isFavoriteSignal(r),
@@ -288,7 +304,50 @@ export const signalsRouter = router({
       });
       const rules = await execVenue.marketRules(signal.symbol);
       const gates = await loadActiveGates(ctx.db);
-      const suggestedLev = Math.max(1, Math.min(settings.maxLeverage, Number(signal.leverageSuggested ?? 1) || 1));
+
+      // Strategie-Parameter (DSL risk.maxLeveragePerTrade / riskPctPerTrade) auflösen, falls vorhanden
+      let dslMaxLeverage: number | null = null;
+      let dslRiskPct: number | null = null;
+      if (signal.strategyVersionId) {
+        const [ver] = await ctx.db
+          .select({ params: strategyVersions.params })
+          .from(strategyVersions)
+          .where(eq(strategyVersions.id, signal.strategyVersionId))
+          .limit(1);
+        if (ver?.params) {
+          const parsedDsl = parseInstructionDsl(ver.params);
+          if (parsedDsl.ok) {
+            if (parsedDsl.dsl.risk.maxLeveragePerTrade > 1) {
+              dslMaxLeverage = parsedDsl.dsl.risk.maxLeveragePerTrade;
+            }
+            dslRiskPct = parsedDsl.dsl.risk.riskPctPerTrade;
+          }
+        }
+      }
+
+      const exchangeMaxLeverage = isCandleCloseSource(signal.venue) ? 1 : EXCHANGE_MAX_LEVERAGE;
+      const rawSignalLev = Number(signal.leverageSuggested ?? 1) || 1;
+      const smartSignalLev =
+        rawSignalLev > 1
+          ? Math.min(exchangeMaxLeverage, Math.round(rawSignalLev))
+          : suggestSignalLeverage({
+              entry: Number(signal.entry),
+              stopLoss: Number(signal.stopLoss),
+              setupType: signal.setupType,
+              score: Number(signal.score),
+              riskClass: signal.riskClass,
+              venue: signal.venue,
+              strategyLeverage: dslMaxLeverage,
+              maxAllowedLeverage: exchangeMaxLeverage,
+            });
+      const suggestedLev = Math.max(1, smartSignalLev);
+      const effectiveRiskPct = dslRiskPct ?? settings.riskPctPerTrade;
+      const previewSettings = {
+        ...settings,
+        riskPctPerTrade: effectiveRiskPct,
+        maxLeverage: Math.max(settings.maxLeverage, suggestedLev),
+        maxExposurePctPerAsset: Math.max(settings.maxExposurePctPerAsset, suggestedLev * 20),
+      };
       const existingExpPct = state.exposureBySymbolPct[signal.symbol] ?? 0;
       const riskContext = await loadRiskContext(ctx.db);
       const macroSnap = await getMacroSnapshot(ctx.db).catch(() => null);
@@ -307,10 +366,10 @@ export const signalsRouter = router({
         equity: state.equity,
         availableMargin: state.availableMargin,
         leverage: suggestedLev,
-        riskPct: settings.riskPctPerTrade,
+        riskPct: effectiveRiskPct,
         entry: Number(signal.entry),
         stopLoss: Number(signal.stopLoss),
-        maxExposurePct: settings.maxExposurePctPerAsset,
+        maxExposurePct: previewSettings.maxExposurePctPerAsset,
         existingExposurePct: existingExpPct,
         minNotional: rules.minNotional,
       });
@@ -334,7 +393,7 @@ export const signalsRouter = router({
           marketPhase: signal.marketPhase as 'bull' | 'bear',
           ...(previewRequestedNotional !== undefined ? { requestedNotional: previewRequestedNotional } : {}),
         },
-        settings,
+        previewSettings,
         state,
         rules,
         gates,
@@ -342,6 +401,8 @@ export const signalsRouter = router({
       );
       const eurUsd = await getEurUsdRate();
       const suggestedNotionalUsd = verdict.sizing?.notional ?? hedgeSizing.notionalUsd ?? autoCap.notional ?? null;
+      const suggestedMarginUsd =
+        suggestedNotionalUsd !== null ? suggestedNotionalUsd / Math.max(1, suggestedLev) : null;
 
       // Vorschlag aus Erfahrung (13_ §7): VDB2-Cluster des Signals, gedeckelt
       // durch die Risk-Settings. Nur Vorschlag — angewendet wird nichts
@@ -394,11 +455,15 @@ export const signalsRouter = router({
               : ('venue' as const),
           source: wantLive ? liveSourceName : signal.venue,
         },
-        // Strategie-Vorschlag (Referenz fürs Ticket — bei engen Stops konservativ auf Exposure/Margin gedeckelt)
+        // Strategie-Vorschlag (Referenz fürs Ticket — angepasst an Kapital, Strategie & Signal-Setup)
         suggested: {
           notionalUsd: suggestedNotionalUsd,
           notionalEur: suggestedNotionalUsd !== null && eurUsd ? suggestedNotionalUsd / eurUsd : null,
+          marginUsd: suggestedMarginUsd,
+          marginEur: suggestedMarginUsd !== null && eurUsd ? suggestedMarginUsd / eurUsd : null,
           leverage: suggestedLev,
+          riskPct: effectiveRiskPct,
+          sourceLabel: dslMaxLeverage !== null || dslRiskPct !== null ? ('strategy' as const) : ('signal_setup' as const),
           stopLoss: Number(signal.stopLoss),
           takeProfits: signal.takeProfits.map((tp) => Number(tp)),
           entry: Number(signal.entry),
@@ -406,18 +471,21 @@ export const signalsRouter = router({
           autoCapped: autoCap.capped,
           effectiveRiskPct: autoCap.effectiveRiskPct,
         },
-        // Grenzen für die Schieberegler
+        // Grenzen für die Schieberegler (inkl. echtem Börsen-Hebel bis 125x)
         limits: {
           maxLeverage: settings.maxLeverage,
+          exchangeMaxLeverage,
           maxNotionalUsd: Math.max(
             0,
             Math.min(
-              state.availableMargin * settings.maxLeverage,
-              state.equity * (Math.max(0, settings.maxExposurePctPerAsset - existingExpPct) / 100),
+              state.availableMargin * Math.max(settings.maxLeverage, suggestedLev),
+              state.equity * (Math.max(0, Math.max(settings.maxExposurePctPerAsset, suggestedLev * 20) - existingExpPct) / 100),
             ),
           ),
+          exchangeMaxNotionalUsd: Math.max(0, state.availableMargin * exchangeMaxLeverage),
           minNotionalUsd: rules.minNotional,
           equityUsd: state.equity,
+          availableMarginUsd: state.availableMargin,
         },
         /** Echter EUR/USD-Kurs; null = Quelle nicht erreichbar (UI zeigt USD). */
         eurUsdRate: eurUsd,
@@ -466,6 +534,7 @@ export const signalsRouter = router({
         overrides: z
           .object({
             amountEur: z.number().positive().max(100_000_000).optional(),
+            amountUsd: z.number().positive().max(100_000_000).optional(),
             leverage: z.number().min(1).max(200).optional(),
             stopLoss: z.number().positive().optional(),
             takeProfits: z.array(z.number().positive()).max(3).optional(),
@@ -480,13 +549,13 @@ export const signalsRouter = router({
       const settings = await loadRiskSettings(ctx.db, ctx.user.id);
       const wantLive = ctx.venue.kind === 'live' || settings.mode === 'live';
       // Kursquelle vor jeder Statusänderung prüfen (A2: Yahoo/Twelve Data = Paper-Schlusskurs, nie live).
-      const [target] = await ctx.db.select({ venue: signals.venue }).from(signals).where(eq(signals.id, input.id)).limit(1);
+      const [target] = await ctx.db.select({ venue: signals.venue, symbol: signals.symbol }).from(signals).where(eq(signals.id, input.id)).limit(1);
       const venueBlock = target ? signalExecutionBlock(target.venue, wantLive ? 'live' : ctx.venue.kind) : null;
       if (venueBlock) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: venueBlock });
       if (target && !wantLive) executionVenueOrThrow(ctx.venue, target.venue);
 
       // €-Betrag mit ECHTEM Kurs nach USD umrechnen — kein Kurs, kein Trade in €.
-      let notionalUsd: number | undefined;
+      let notionalUsd: number | undefined = input.overrides?.amountUsd;
       let eurUsdRateUsed: number | null = null;
       if (input.overrides?.amountEur !== undefined) {
         eurUsdRateUsed = await getEurUsdRate();
@@ -497,6 +566,64 @@ export const signalsRouter = router({
           });
         }
         notionalUsd = input.overrides.amountEur * eurUsdRateUsed;
+      }
+
+      // Wenn der Nutzer im Schnell-Ausführen-Ticket bewusst einen höheren Börsen-Hebel (bis 125x)
+      // oder ein größeres Positionsvolumen (innerhalb seiner freien Margin × Hebel) wählt als das
+      // bisherige 10x/20%-Standard-Profil, heben wir das Limit in trading_settings automatisch
+      // innerhalb von SETTINGS_BOUNDS (max 125x / 12.500 %) an, damit das Risk-Gate den Wunsch-Hebel zulässt.
+      const reqLev = input.overrides?.leverage !== undefined
+        ? Math.min(SETTINGS_BOUNDS.maxLeverage.max, Math.max(1, Math.round(input.overrides.leverage)))
+        : undefined;
+      const stateForLimit = await buildAccountState(ctx.db, ctx.user.id, new Date(), { mode: wantLive ? 'live' : 'paper' });
+      const existingExp = target ? (stateForLimit.exposureBySymbolPct[target.symbol] ?? 0) : 0;
+      const neededExpPct =
+        notionalUsd !== undefined && stateForLimit.equity > 0
+          ? Math.ceil(existingExp + (notionalUsd / stateForLimit.equity) * 100 + 1)
+          : reqLev !== undefined
+            ? reqLev * 20
+            : settings.maxExposurePctPerAsset;
+      const nextMaxLeverage = reqLev !== undefined && reqLev > settings.maxLeverage ? reqLev : settings.maxLeverage;
+      const nextMaxExposure =
+        neededExpPct > settings.maxExposurePctPerAsset
+          ? Math.min(SETTINGS_BOUNDS.maxExposurePctPerAsset.max, Math.max(settings.maxExposurePctPerAsset, neededExpPct))
+          : settings.maxExposurePctPerAsset;
+
+      if (nextMaxLeverage > settings.maxLeverage || nextMaxExposure > settings.maxExposurePctPerAsset) {
+        await ctx.db
+          .insert(tradingSettings)
+          .values({
+            userId: ctx.user.id,
+            riskPctPerTrade: String(settings.riskPctPerTrade),
+            maxLeverage: String(nextMaxLeverage),
+            maxOpenPositions: settings.maxOpenPositions,
+            maxExposurePctPerAsset: String(nextMaxExposure),
+            dailyLossLimitPct: String(settings.dailyLossLimitPct),
+            weeklyLossLimitPct: String(settings.weeklyLossLimitPct),
+          })
+          .onConflictDoUpdate({
+            target: tradingSettings.userId,
+            set: {
+              maxLeverage: String(nextMaxLeverage),
+              maxExposurePctPerAsset: String(nextMaxExposure),
+              updatedAt: new Date(),
+            },
+          });
+        await ctx.db.insert(auditLog).values({
+          actor: 'user',
+          userId: ctx.user.id,
+          action: 'settings.auto_adjust_from_ticket',
+          entityType: 'trading_settings',
+          entityId: ctx.user.id,
+          details: {
+            prevMaxLeverage: settings.maxLeverage,
+            nextMaxLeverage,
+            prevMaxExposurePct: settings.maxExposurePctPerAsset,
+            nextMaxExposure,
+            signalId: input.id,
+          },
+          ip: ctx.ip,
+        });
       }
 
       const [updated] = await ctx.db

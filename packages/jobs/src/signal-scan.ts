@@ -12,6 +12,7 @@ import {
   evaluateSmcCoreAt,
   setupTypeForTimeframe,
   SMC_CORE_DEFAULTS,
+  suggestSignalLeverage,
   type Candle,
   type SetupCandidate,
 } from '@gladiator/strategy-engine';
@@ -227,7 +228,16 @@ async function persistCandidate(
     entry: String(candidate.entry),
     stopLoss: String(candidate.stopLoss),
     takeProfits: candidate.takeProfits.map(String),
-    leverageSuggested: '1',
+    leverageSuggested: String(
+      suggestSignalLeverage({
+        entry: candidate.entry,
+        stopLoss: candidate.stopLoss,
+        setupType: candidate.setupType,
+        score: candidate.score,
+        riskClass: candidate.riskClass,
+        venue,
+      }),
+    ),
     score: String(candidate.score),
     riskClass: candidate.riskClass,
     confluence: candidate.confluence,

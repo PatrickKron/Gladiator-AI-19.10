@@ -602,8 +602,9 @@ export async function executeConfirmedSignal(
     opts.overrides?.takeProfits && opts.overrides.takeProfits.length > 0
       ? opts.overrides.takeProfits.slice(0, 3)
       : signal.takeProfits.map((tp) => Number(tp));
-  // Ohne Override bleibt es bei konservativ 1× (Paper-Phase, Hebel-Anwendung mit VDB2-Promotion).
-  const effectiveLeverage = opts.overrides?.leverage ?? 1;
+  // Ohne explizites Override gilt der im Signal gespeicherte Strategie-/Setup-Hebel (gedeckelt durch settings.maxLeverage).
+  const signalDefaultLev = Math.max(1, Math.min(settings.maxLeverage, Number(signal.leverageSuggested ?? 1) || 1));
+  const effectiveLeverage = opts.overrides?.leverage ?? signalDefaultLev;
 
   const riskCtxBase = opts.riskContext ?? (await loadRiskContext(db));
   const totalExposureUsd = Object.values(state.exposureBySymbolPct).reduce(
